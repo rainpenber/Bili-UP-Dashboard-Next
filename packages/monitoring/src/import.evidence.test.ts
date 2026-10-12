@@ -70,11 +70,12 @@ describe('import evidence and idempotency', () => {
       sourceTimezone: 'Asia/Shanghai',
       sql,
     });
+    expect(result.failed).toBeFalsy();
     expect(result.report.stagingRows).toBeGreaterThan(0);
     const staging = await sql<{ c: string }[]>`
       SELECT count(*)::text AS c FROM source_metric_rows WHERE batch_id = ${result.batchId}
     `;
-    expect(staging[0]?.c).toBe(String(result.report.stagingRows));
+    expect(Number(staging[0]?.c)).toBe(result.report.stagingRows);
     const conflicts = await sql<{ c: string }[]>`
       SELECT count(*)::text AS c FROM import_conflicts_or_rejects WHERE batch_id = ${result.batchId}
     `;

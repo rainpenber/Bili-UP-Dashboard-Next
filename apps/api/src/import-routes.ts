@@ -53,7 +53,7 @@ export function createImportRoutes(db: Sql) {
       if (message.includes('MOCK_DATA_ROOT')) {
         return c.json({ error: message }, 503);
       }
-      return c.json({ error: message }, 400);
+      return c.json({ error: message }, 500);
     }
   });
 

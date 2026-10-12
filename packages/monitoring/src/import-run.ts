@@ -12,11 +12,6 @@ import type { ImportMode, ImportReport } from './types';
 
 const IMPORT_RUN_LOCK_KEY = 915_002;
 
-function pgTextArrayLiteral(values: string[]): string {
-  if (values.length === 0) return '{}';
-  const escaped = values.map((v) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
-  return `{${escaped.join(',')}}`;
-}
 
 export type ImportOptions = {
   mode: ImportMode;
@@ -205,7 +200,7 @@ export async function runImport(opts: ImportOptions): Promise<{
 
     await opts.sql.begin(async (tx) => {
       for (const bundle of parsedGroups) {
-        const canonicalPath = bundle.parseSourcePath;
+        const canonicalPath = `canonical/${bundle.group.fileKind}/${bundle.group.entityKey}/${bundle.group.contentSha256.slice(0, 16)}`;
         const sourceFileRows = await tx<{ id: number }[]>`
           INSERT INTO source_files (batch_id, relative_path, sha256, mirror, file_kind, entity_key, row_count)
           VALUES (
@@ -273,7 +268,7 @@ export async function runImport(opts: ImportOptions): Promise<{
               ${row.sampledAt},
               ${row.rawTime},
               ${JSON.stringify(row.payload)}::jsonb,
-              ${pgTextArrayLiteral(row.qualityFlags)}::text[],
+              ${row.qualityFlags},
               ${row.isCanonical}
             )
           `;
