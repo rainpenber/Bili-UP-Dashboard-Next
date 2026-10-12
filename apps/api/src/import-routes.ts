@@ -18,8 +18,14 @@ export function createImportRoutes(db: Sql) {
     } catch {
       return c.json({ error: 'invalid JSON body' }, 400);
     }
+    let req;
     try {
-      const req = parseImportCsvRequest(body);
+      req = parseImportCsvRequest(body);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'invalid request';
+      return c.json({ error: message }, 400);
+    }
+    try {
       const layout = resolveMockDataLayout();
       const mode = mapHttpModeToImportMode(req.mode);
       const sourceTimezone = req.sourceTimezone ?? process.env.SOURCE_TIMEZONE ?? 'Asia/Shanghai';
