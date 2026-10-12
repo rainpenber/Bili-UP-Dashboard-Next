@@ -35,14 +35,23 @@ bun run build
 docker compose up -d postgres
 ```
 
-终端 2 — 迁移与 Mock 导入（合成 fixture 示例）：
+终端 2 — 迁移与 Mock 导入：
 
 ```bash
 bun run --filter @studio/db migrate
+export MOCK_DATA_ROOT="$PWD/packages/monitoring/fixtures/mock-data"
+curl -X POST http://localhost:3000/api/v1/imports/csv \
+  -H 'content-type: application/json' \
+  -d '{"mode":"apply","sourceTimezone":"Asia/Shanghai"}'
+```
+
+或使用 CLI（等价）：
+
+```bash
 bun packages/monitoring/src/cli.ts apply \
-  --backend-root=packages/monitoring/fixtures/backend \
-  --frontend-root=packages/monitoring/fixtures/frontend \
-  --assets-root=packages/monitoring/fixtures/frontend/meta \
+  --backend-root=packages/monitoring/fixtures/mock-data/backend \
+  --frontend-root=packages/monitoring/fixtures/mock-data/frontend \
+  --assets-root=packages/monitoring/fixtures/mock-data/assets \
   --source-timezone=Asia/Shanghai
 ```
 

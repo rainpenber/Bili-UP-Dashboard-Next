@@ -30,7 +30,10 @@
 
 ### API 前缀
 
-`/api/v1/monitor/*`（列表分页、筛选、指标时序）；静态资源受控 assets 路由。
+- `/api/v1/monitor/*`（列表分页、筛选、指标时序）
+- `/api/v1/assets/:assetId`（受控静态资源，缺失时 SVG 占位）
+- `/api/v1/imports/csv`（POST，dry-run/apply，仅扫描 `MOCK_DATA_ROOT`）
+- `/api/v1/imports/:batchId`（GET 批次报告与 staging/conflict 统计）
 
 ### 验收
 

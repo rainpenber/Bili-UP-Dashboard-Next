@@ -6,3 +6,6 @@ export * from './metric-rows';
 export * from './classify';
 export * from './report';
 export * from './asset-id';
+export * from './mock-data-root';
+export * from './importer-version';
+export * from './metric-parse';

@@ -18,26 +18,23 @@ export type InventoryEntry = {
   note?: string;
 };
 
-export type MirrorGroup = {
-  relativePath: string;
-  backend?: InventoryEntry;
-  frontend?: InventoryEntry;
-  sha256Match: boolean | null;
-  canonicalSha256: string | null;
-};
-
 export type ImportMode = 'inventory' | 'dry_run' | 'apply';
 
 export type ImportReport = {
   mode: ImportMode;
   sourceTimezone: string;
+  importerVersion: string;
   fileCount: number;
   mirrorGroups: number;
+  pathMirrorMismatches: number;
+  canonicalGroups: number;
   parsed: number;
   accepted: number;
   rejected: number;
   duplicate: number;
   conflict: number;
+  stagingRows: number;
+  skippedAlreadyApplied: number;
   unsupported: string[];
   entities: {
     creators: number;

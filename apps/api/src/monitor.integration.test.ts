@@ -13,7 +13,7 @@ describe('monitor API integration', () => {
   beforeAll(async () => {
     if (!sql) return;
     await runMigrations(sql);
-    await sql`TRUNCATE import_conflicts_or_rejects, source_file_provenance, source_files, applied_source_files, creator_follower_samples, video_metric_samples, dynamic_metric_samples, creators, videos, dynamics, import_batches RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE source_metric_rows, import_conflicts_or_rejects, source_file_provenance, source_files, applied_canonical_sources, applied_source_provenance, applied_source_files, creator_follower_samples, video_metric_samples, dynamic_metric_samples, static_assets, creators, videos, dynamics, import_batches RESTART IDENTITY CASCADE`;
     const fixtureBackend = join(import.meta.dir, '../../../packages/monitoring/fixtures/backend');
     const fixtureFrontend = join(import.meta.dir, '../../../packages/monitoring/fixtures/frontend');
     const assetsRoot = join(fixtureFrontend, 'meta');

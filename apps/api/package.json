@@ -13,11 +13,11 @@
   "dependencies": {
     "@studio/contracts": "workspace:*",
     "@studio/db": "workspace:*",
+    "@studio/monitoring": "workspace:*",
     "hono": "^4.6.14",
     "postgres": "^3.4.5"
   },
   "devDependencies": {
-    "@studio/monitoring": "workspace:*",
     "typescript": "^5.7.2"
   }
 }

@@ -9,7 +9,9 @@ const app = createApp({ skipDb: true });
 const { createMonitorRoutes } = await import('./monitor-routes');
 app.route('/api/v1/monitor', createMonitorRoutes(sql));
 const { createAssetsRoutes } = await import('./assets-routes');
+const { createImportRoutes } = await import('./import-routes');
 app.route('/api/v1/assets', createAssetsRoutes(sql));
+app.route('/api/v1/imports', createImportRoutes(sql));
 
 export default {
   port,

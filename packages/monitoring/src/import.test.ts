@@ -15,7 +15,7 @@ describe('inventory', () => {
     const comment = inv.unsupported.find((u) => u.kind === 'commentlist');
     expect(comment).toBeDefined();
     expect(comment?.note).toContain('unsupported');
-    const mirror = inv.groups.find((g) => g.relativePath === 'BVTEST001_views.csv');
+    const mirror = inv.pathMirrors.find((g) => g.relativePath === 'BVTEST001_views.csv');
     expect(mirror?.sha256Match).toBe(true);
   });
 });
@@ -26,7 +26,7 @@ describe('import apply idempotency', () => {
   beforeAll(async () => {
     if (!sql) return;
     await runMigrations(sql);
-    await sql`TRUNCATE import_conflicts_or_rejects, source_file_provenance, source_files, applied_source_files, creator_follower_samples, video_metric_samples, dynamic_metric_samples, creators, videos, dynamics, import_batches RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE source_metric_rows, import_conflicts_or_rejects, source_file_provenance, source_files, applied_canonical_sources, applied_source_provenance, applied_source_files, creator_follower_samples, video_metric_samples, dynamic_metric_samples, static_assets, creators, videos, dynamics, import_batches RESTART IDENTITY CASCADE`;
   });
 
   afterAll(async () => {

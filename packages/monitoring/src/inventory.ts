@@ -2,7 +2,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { classifyRelativePath } from './classify';
 import { sha256HexFile } from './sha256';
-import type { InventoryEntry, MirrorGroup } from './types';
+import type { InventoryEntry } from './types';
 
 function walkFiles(root: string): string[] {
   const out: string[] = [];
@@ -52,17 +52,24 @@ export async function scanMirrorRoot(
   return entries;
 }
 
-export function buildMirrorGroups(
+export type PathMirrorReport = {
+  relativePath: string;
+  backend?: InventoryEntry;
+  frontend?: InventoryEntry;
+  sha256Match: boolean | null;
+};
+
+/** Same basename path across mirrors (may differ in hash). */
+export function buildPathMirrorReports(
   backend: InventoryEntry[],
   frontend: InventoryEntry[],
-): MirrorGroup[] {
-  const byPath = new Map<string, MirrorGroup>();
+): PathMirrorReport[] {
+  const byPath = new Map<string, PathMirrorReport>();
   for (const entry of backend) {
     byPath.set(entry.relativePath, {
       relativePath: entry.relativePath,
       backend: entry,
       sha256Match: null,
-      canonicalSha256: entry.sha256,
     });
   }
   for (const entry of frontend) {
@@ -72,21 +79,53 @@ export function buildMirrorGroups(
         relativePath: entry.relativePath,
         frontend: entry,
         sha256Match: null,
-        canonicalSha256: entry.sha256,
       });
       continue;
     }
     existing.frontend = entry;
     existing.sha256Match = existing.backend?.sha256 === entry.sha256;
-    existing.canonicalSha256 = existing.backend?.sha256 ?? entry.sha256;
   }
   return [...byPath.values()].sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+}
+
+export type CanonicalContentGroup = {
+  fileKind: string;
+  entityKey: string;
+  contentSha256: string;
+  sources: InventoryEntry[];
+};
+
+/** Canonical grouping by content hash + metric kind + entity (not path alone). */
+export function buildCanonicalContentGroups(allEntries: InventoryEntry[]): CanonicalContentGroup[] {
+  const map = new Map<string, CanonicalContentGroup>();
+  for (const entry of allEntries) {
+    if (!entry.entityKey) continue;
+    if (!['follower', 'views', 'detailcount'].includes(entry.kind)) continue;
+    const key = `${entry.kind}|${entry.entityKey}|${entry.sha256}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.sources.push(entry);
+      continue;
+    }
+    map.set(key, {
+      fileKind: entry.kind,
+      entityKey: entry.entityKey,
+      contentSha256: entry.sha256,
+      sources: [entry],
+    });
+  }
+  return [...map.values()].sort((a, b) =>
+    `${a.fileKind}|${a.entityKey}|${a.contentSha256}`.localeCompare(
+      `${b.fileKind}|${b.entityKey}|${b.contentSha256}`,
+    ),
+  );
 }
 
 export type InventoryResult = {
   backend: InventoryEntry[];
   frontend: InventoryEntry[];
-  groups: MirrorGroup[];
+  pathMirrors: PathMirrorReport[];
+  canonicalGroups: CanonicalContentGroup[];
   unsupported: InventoryEntry[];
 };
 
@@ -96,7 +135,8 @@ export async function runInventory(opts: {
 }): Promise<InventoryResult> {
   const backend = opts.backendRoot ? await scanMirrorRoot(opts.backendRoot, 'backend') : [];
   const frontend = opts.frontendRoot ? await scanMirrorRoot(opts.frontendRoot, 'frontend') : [];
-  const groups = buildMirrorGroups(backend, frontend);
+  const pathMirrors = buildPathMirrorReports(backend, frontend);
+  const canonicalGroups = buildCanonicalContentGroups([...backend, ...frontend]);
   const unsupported = [...backend, ...frontend].filter((e) => !e.supported);
-  return { backend, frontend, groups, unsupported };
+  return { backend, frontend, pathMirrors, canonicalGroups, unsupported };
 }
