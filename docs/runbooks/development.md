@@ -93,6 +93,8 @@ docker compose up postgres api mock-import web
 
 `mock-import` 服务在 API 就绪后对 `POST /api/v1/imports/csv` 执行确定性 apply（无外链）。禁止通过 API 传入任意服务器路径。
 
+导入在**单连接事务**内使用 `pg_advisory_xact_lock`（随 commit/rollback 自动释放），并对 staging/canonical 行做批量 INSERT；101+101 规模 dry-run/apply 应在数分钟内完成，不应出现 idle-in-transaction 占锁。
+
 ## 故障排查
 
 | 现象                                     | 处理                                                      |

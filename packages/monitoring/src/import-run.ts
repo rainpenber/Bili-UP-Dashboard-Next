@@ -352,7 +352,12 @@ export async function runImport(opts: ImportOptions): Promise<{
             `;
           }
 
-          await bulkInsertSourceMetricRows(tx as unknown as Sql, batchId, physicalFileId, physical.stagingRows);
+          await bulkInsertSourceMetricRows(
+            tx as unknown as Sql,
+            batchId,
+            physicalFileId,
+            physical.stagingRows,
+          );
           await bulkInsertConflicts(
             tx as unknown as Sql,
             batchId,
