@@ -37,6 +37,25 @@ function sameBigint(a: bigint | null, b: bigint | null): boolean {
   return a === b || (a !== null && b !== null && a === b);
 }
 
+function invalidIntegerCell(raw: string): boolean {
+  const trimmed = raw.trim();
+  return trimmed !== '' && parseIntegerField(raw) === null;
+}
+
+function collectInvalidNumericFields(
+  pairs: { label: string; raw: string; unparseable?: boolean }[],
+): string[] {
+  const bad: string[] = [];
+  for (const { label, raw, unparseable } of pairs) {
+    if (unparseable) {
+      bad.push(label);
+      continue;
+    }
+    if (invalidIntegerCell(raw)) bad.push(label);
+  }
+  return bad;
+}
+
 export function parseMetricCsvWithStaging(opts: {
   kind: FileKind;
   entityKey: string;
@@ -159,20 +178,59 @@ export function parseMetricCsvWithStaging(opts: {
         issues.push({ kind: 'reject', message: 'invalid time', detail: { rawTime, rowIndex } });
         continue;
       }
-      const online = parseBoundedCount(row[idx.get('在线观看人数') ?? 2] ?? '');
+      const viewRaw = row[idx.get('播放量') ?? 1] ?? '';
+      const onlineRaw = row[idx.get('在线观看人数') ?? 2] ?? '';
+      const online = parseBoundedCount(onlineRaw);
+      const likeRaw = row[idx.get('点赞') ?? 3] ?? '';
+      const coinRaw = row[idx.get('投币') ?? 4] ?? '';
+      const favoriteRaw = row[idx.get('收藏') ?? 5] ?? '';
+      const shareRaw = row[idx.get('分享') ?? 6] ?? '';
+      const danmakuRaw = row[idx.get('弹幕') ?? 7] ?? '';
+      const invalidNumeric = collectInvalidNumericFields([
+        { label: '播放量', raw: viewRaw },
+        { label: '在线观看人数', raw: onlineRaw, unparseable: online.note === 'unparseable' },
+        { label: '点赞', raw: likeRaw },
+        { label: '投币', raw: coinRaw },
+        { label: '收藏', raw: favoriteRaw },
+        { label: '分享', raw: shareRaw },
+        { label: '弹幕', raw: danmakuRaw },
+      ]);
+      if (invalidNumeric.length > 0) {
+        stagingRows.push({
+          rowIndex,
+          entityType: 'video',
+          entityKey: bvid,
+          sampledAt,
+          rawTime,
+          payload: {
+            viewRaw,
+            onlineRaw,
+            likeRaw,
+            invalidFields: invalidNumeric,
+          },
+          qualityFlags: ['rejected', 'invalid_numeric'],
+          isCanonical: false,
+        });
+        issues.push({
+          kind: 'reject',
+          message: 'invalid numeric cell',
+          detail: { rawTime, rowIndex, invalidFields: invalidNumeric },
+        });
+        continue;
+      }
       const sample: VideoSample = {
         bvid,
         sampledAt,
         rawTime,
         precision,
-        viewCount: parseIntegerField(row[idx.get('播放量') ?? 1] ?? ''),
+        viewCount: parseIntegerField(viewRaw),
         onlineViewers: online.value,
         onlineViewersRaw: online.raw.includes('+') ? online.raw : null,
-        likeCount: parseIntegerField(row[idx.get('点赞') ?? 3] ?? ''),
-        coinCount: parseIntegerField(row[idx.get('投币') ?? 4] ?? ''),
-        favoriteCount: parseIntegerField(row[idx.get('收藏') ?? 5] ?? ''),
-        shareCount: parseIntegerField(row[idx.get('分享') ?? 6] ?? ''),
-        danmakuCount: parseIntegerField(row[idx.get('弹幕') ?? 7] ?? ''),
+        likeCount: parseIntegerField(likeRaw),
+        coinCount: parseIntegerField(coinRaw),
+        favoriteCount: parseIntegerField(favoriteRaw),
+        shareCount: parseIntegerField(shareRaw),
+        danmakuCount: parseIntegerField(danmakuRaw),
       };
       const payload = {
         viewCount: sample.viewCount?.toString() ?? null,
@@ -249,14 +307,40 @@ export function parseMetricCsvWithStaging(opts: {
         issues.push({ kind: 'reject', message: 'invalid time', detail: { rawTime, rowIndex } });
         continue;
       }
+      const likeRaw = row[idx.get('点赞数') ?? 1] ?? '';
+      const repostRaw = row[idx.get('转发数') ?? 2] ?? '';
+      const commentRaw = row[idx.get('评论数') ?? 3] ?? '';
+      const invalidNumeric = collectInvalidNumericFields([
+        { label: '点赞数', raw: likeRaw },
+        { label: '转发数', raw: repostRaw },
+        { label: '评论数', raw: commentRaw },
+      ]);
+      if (invalidNumeric.length > 0) {
+        stagingRows.push({
+          rowIndex,
+          entityType: 'dynamic',
+          entityKey: dynamicId,
+          sampledAt,
+          rawTime,
+          payload: { likeRaw, repostRaw, commentRaw, invalidFields: invalidNumeric },
+          qualityFlags: ['rejected', 'invalid_numeric'],
+          isCanonical: false,
+        });
+        issues.push({
+          kind: 'reject',
+          message: 'invalid numeric cell',
+          detail: { rawTime, rowIndex, invalidFields: invalidNumeric },
+        });
+        continue;
+      }
       const sample: DynamicSample = {
         dynamicId,
         sampledAt,
         rawTime,
         precision,
-        likeCount: parseIntegerField(row[idx.get('点赞数') ?? 1] ?? ''),
-        repostCount: parseIntegerField(row[idx.get('转发数') ?? 2] ?? ''),
-        commentCount: parseIntegerField(row[idx.get('评论数') ?? 3] ?? ''),
+        likeCount: parseIntegerField(likeRaw),
+        repostCount: parseIntegerField(repostRaw),
+        commentCount: parseIntegerField(commentRaw),
       };
       const payload = {
         likeCount: sample.likeCount?.toString() ?? null,

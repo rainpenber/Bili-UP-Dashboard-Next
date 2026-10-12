@@ -72,13 +72,28 @@ describe('import evidence and idempotency', () => {
     });
     expect(result.failed).toBeFalsy();
     expect(result.report.stagingRows).toBeGreaterThan(0);
+    expect(result.report.stagingRows).toBe(result.report.physicalMetricRows);
+    expect(result.report.invalidNumeric).toBeGreaterThan(0);
+    expect(result.report.inventorySummary.mirrors.backendOnlyCommentlistFiles).toBe(1);
+    expect(result.report.inventorySummary.mirrors.frontendOnlyViewsFiles).toBe(1);
     const staging = await sql<{ c: string }[]>`
       SELECT count(*)::text AS c FROM source_metric_rows WHERE batch_id = ${result.batchId}
     `;
     expect(Number(staging[0]?.c)).toBe(result.report.stagingRows);
+    const physicalStaging = await sql<{ c: string }[]>`
+      SELECT count(*)::text AS c FROM source_metric_rows sm
+      JOIN source_files sf ON sf.id = sm.source_file_id
+      WHERE sm.batch_id = ${result.batchId} AND sf.mirror IN ('backend', 'frontend')
+    `;
+    expect(Number(physicalStaging[0]?.c)).toBe(result.report.stagingRows);
     const conflicts = await sql<{ c: string }[]>`
       SELECT count(*)::text AS c FROM import_conflicts_or_rejects WHERE batch_id = ${result.batchId}
     `;
+    const pathDiv = await sql<{ c: string }[]>`
+      SELECT count(*)::text AS c FROM import_conflicts_or_rejects
+      WHERE batch_id = ${result.batchId} AND kind = 'path_divergence'
+    `;
+    expect(Number(pathDiv[0]?.c)).toBeGreaterThan(0);
     expect(Number(conflicts[0]?.c)).toBeGreaterThan(0);
   });
 
@@ -133,6 +148,10 @@ describe('import evidence and idempotency', () => {
     });
     expect(second.report.noOp).toBe(true);
     expect(second.report.skippedAlreadyApplied).toBeGreaterThan(0);
+    const secondBatchFiles = await sql<{ c: string }[]>`
+      SELECT count(*)::text AS c FROM source_files WHERE batch_id = ${second.batchId} AND mirror IN ('backend', 'frontend')
+    `;
+    expect(Number(secondBatchFiles[0]?.c)).toBeGreaterThan(0);
     const fp2 = await sql<{ h: string }[]>`
       SELECT md5(string_agg(bvid || sampled_at::text, ',' ORDER BY bvid, sampled_at)) AS h FROM video_metric_samples
     `;

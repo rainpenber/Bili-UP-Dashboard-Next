@@ -2,13 +2,16 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Sql } from '@studio/db';
 import { assetIdFromContentSha256, guessMimeType } from './asset-id';
+import { buildImportInventorySummary } from './inventory-summary';
 import { IMPORTER_VERSION } from './importer-version';
 import { runInventory, type CanonicalContentGroup, type InventoryResult } from './inventory';
 import { parseMetricCsvWithStaging } from './metric-parse';
+import type { MetricRowIssue } from './metric-rows';
 import { normalizeCategory } from './metric-rows';
 import { reportToMarkdown } from './report';
 import { pgBigint } from './sql-values';
 import type { ImportMode, ImportReport } from './types';
+import type { InventoryEntry } from './types';
 
 const IMPORT_RUN_LOCK_KEY = 915_002;
 
@@ -16,7 +19,9 @@ export type ImportOptions = {
   mode: ImportMode;
   backendRoot?: string;
   frontendRoot?: string;
-  assetsRoot?: string;
+  assetsRoot?: string | null;
+  /** Root path for inventory summary (MOCK_DATA_ROOT); inferred when omitted. */
+  mockDataRoot?: string;
   sourceTimezone: string;
   sql?: Sql;
   /** Test-only: throw after N canonical metric writes inside apply transaction. */
@@ -29,6 +34,36 @@ function readText(root: string, relativePath: string): string {
 
 function rootForMirror(mirror: 'backend' | 'frontend', opts: ImportOptions): string | undefined {
   return mirror === 'backend' ? opts.backendRoot : opts.frontendRoot;
+}
+
+function inferMockDataRoot(opts: ImportOptions): string {
+  if (opts.mockDataRoot) return opts.mockDataRoot;
+  if (opts.backendRoot) {
+    const trimmed = opts.backendRoot.replace(/[/\\]backend$/, '');
+    if (trimmed !== opts.backendRoot) return trimmed;
+  }
+  if (opts.frontendRoot) {
+    const trimmed = opts.frontendRoot.replace(/[/\\]frontend$/, '');
+    if (trimmed !== opts.frontendRoot) return trimmed;
+  }
+  return opts.backendRoot ?? opts.frontendRoot ?? '';
+}
+
+function accumulateParseStats(
+  report: ImportReport,
+  parsed: ReturnType<typeof parseMetricCsvWithStaging>,
+): void {
+  report.parsed += parsed.stagingRows.length;
+  report.stagingRows += parsed.stagingRows.length;
+  report.accepted += parsed.stagingRows.filter((r) => r.qualityFlags.includes('accepted')).length;
+  for (const issue of parsed.issues) {
+    if (issue.kind === 'reject') {
+      report.rejected += 1;
+      if (issue.message === 'invalid numeric cell') report.invalidNumeric += 1;
+    }
+    if (issue.kind === 'duplicate') report.duplicate += 1;
+    if (issue.kind === 'conflict') report.conflict += 1;
+  }
 }
 
 async function fingerprintBusinessData(sql: Sql): Promise<string> {
@@ -54,29 +89,28 @@ async function isCanonicalAlreadyApplied(sql: Sql, group: CanonicalContentGroup)
   return rows.length > 0;
 }
 
+type PhysicalParse = {
+  source: InventoryEntry;
+  stagingRows: ReturnType<typeof parseMetricCsvWithStaging>['stagingRows'];
+  issues: MetricRowIssue[];
+  samples: ReturnType<typeof parseMetricCsvWithStaging>['samples'];
+};
+
 type ParsedGroup = {
   group: CanonicalContentGroup;
-  parseSourcePath: string;
-  parseMirror: 'backend' | 'frontend';
+  skipCanonicalWrite: boolean;
+  physicalParses: PhysicalParse[];
   followers: ReturnType<typeof parseMetricCsvWithStaging>['samples'];
   videos: ReturnType<typeof parseMetricCsvWithStaging>['samples'];
   dynamics: ReturnType<typeof parseMetricCsvWithStaging>['samples'];
-  stagingRows: ReturnType<typeof parseMetricCsvWithStaging>['stagingRows'];
-  issues: ReturnType<typeof parseMetricCsvWithStaging>['issues'];
 };
 
-function pickParseSource(group: CanonicalContentGroup): {
-  path: string;
-  mirror: 'backend' | 'frontend';
-} {
+function pickParseSource(group: CanonicalContentGroup): InventoryEntry {
   const backend = group.sources.find((s) => s.mirror === 'backend');
-  if (backend) return { path: backend.relativePath, mirror: 'backend' };
+  if (backend) return backend;
   const frontend = group.sources.find((s) => s.mirror === 'frontend');
-  if (frontend) return { path: frontend.relativePath, mirror: 'frontend' };
-  return {
-    path: group.sources[0]?.relativePath ?? '',
-    mirror: group.sources[0]?.mirror ?? 'backend',
-  };
+  if (frontend) return frontend;
+  return group.sources[0]!;
 }
 
 export async function runImport(opts: ImportOptions): Promise<{
@@ -90,6 +124,21 @@ export async function runImport(opts: ImportOptions): Promise<{
     ...(opts.backendRoot ? { backendRoot: opts.backendRoot } : {}),
     ...(opts.frontendRoot ? { frontendRoot: opts.frontendRoot } : {}),
   });
+  const assetsMode = opts.assetsRoot ? ('filesystem' as const) : ('placeholder_only' as const);
+  const assetsInv = opts.assetsRoot
+    ? await runInventory({ frontendRoot: opts.assetsRoot })
+    : { backend: [], frontend: [], pathMirrors: [], canonicalGroups: [], unsupported: [] };
+  const assetsEntries = [...assetsInv.backend, ...assetsInv.frontend];
+  const mockDataRoot = inferMockDataRoot(opts);
+  const inventorySummary = buildImportInventorySummary({
+    mockDataRoot,
+    inventory,
+    backendRoot: opts.backendRoot ?? '',
+    frontendRoot: opts.frontendRoot ?? '',
+    assetsMode,
+    assetsEntries,
+  });
+
   const batchId = crypto.randomUUID();
   const pathMirrorMismatches = inventory.pathMirrors.filter(
     (p) => p.backend && p.frontend && p.sha256Match === false,
@@ -103,13 +152,18 @@ export async function runImport(opts: ImportOptions): Promise<{
     mirrorGroups: inventory.pathMirrors.length,
     pathMirrorMismatches,
     canonicalGroups: inventory.canonicalGroups.length,
+    physicalMetricRows:
+      inventorySummary.backend.physicalMetricRows + inventorySummary.frontend.physicalMetricRows,
     parsed: 0,
     accepted: 0,
     rejected: 0,
+    invalidNumeric: 0,
     duplicate: 0,
     conflict: 0,
+    pathDivergences: pathMirrorMismatches,
     stagingRows: 0,
     skippedAlreadyApplied: 0,
+    inventorySummary,
     unsupported: inventory.unsupported.map(
       (u) => `${u.mirror}:${u.relativePath} (${u.kind})${u.note ? `: ${u.note}` : ''}`,
     ),
@@ -124,45 +178,54 @@ export async function runImport(opts: ImportOptions): Promise<{
   };
 
   const parsedGroups: ParsedGroup[] = [];
-  const groupsToApply: ParsedGroup[] = [];
+  let canonicalGroupsPending = 0;
 
   for (const group of inventory.canonicalGroups) {
-    const already =
-      opts.sql && opts.mode === 'apply' ? await isCanonicalAlreadyApplied(opts.sql, group) : false;
-    if (already) {
+    const skipCanonicalWrite = Boolean(
+      opts.sql && opts.mode === 'apply' && (await isCanonicalAlreadyApplied(opts.sql, group)),
+    );
+    if (skipCanonicalWrite) {
       report.skippedAlreadyApplied += 1;
-      continue;
+    } else {
+      canonicalGroupsPending += 1;
     }
-    const { path, mirror } = pickParseSource(group);
-    const root = rootForMirror(mirror, opts);
-    if (!root) continue;
-    const text = readText(root, path);
-    const parsed = parseMetricCsvWithStaging({
-      kind: group.fileKind as 'follower' | 'views' | 'detailcount',
-      entityKey: group.entityKey,
-      text,
-      sourceTimezone: opts.sourceTimezone,
-    });
-    report.parsed += parsed.stagingRows.length;
-    report.stagingRows += parsed.stagingRows.length;
-    report.accepted += parsed.stagingRows.filter((r) => r.qualityFlags.includes('accepted')).length;
-    for (const issue of parsed.issues) {
-      if (issue.kind === 'reject') report.rejected += 1;
-      if (issue.kind === 'duplicate') report.duplicate += 1;
-      if (issue.kind === 'conflict') report.conflict += 1;
+
+    const physicalParses: PhysicalParse[] = [];
+    for (const source of group.sources) {
+      const root = rootForMirror(source.mirror, opts);
+      if (!root) continue;
+      const text = readText(root, source.relativePath);
+      const parsed = parseMetricCsvWithStaging({
+        kind: group.fileKind as 'follower' | 'views' | 'detailcount',
+        entityKey: group.entityKey,
+        text,
+        sourceTimezone: opts.sourceTimezone,
+      });
+      accumulateParseStats(report, parsed);
+      physicalParses.push({
+        source,
+        stagingRows: parsed.stagingRows,
+        issues: parsed.issues,
+        samples: parsed.samples,
+      });
     }
-    const bundle: ParsedGroup = {
+
+    const canonicalSource = pickParseSource(group);
+    const canonicalParse =
+      physicalParses.find(
+        (p) =>
+          p.source.relativePath === canonicalSource.relativePath &&
+          p.source.mirror === canonicalSource.mirror,
+      ) ?? physicalParses[0];
+
+    parsedGroups.push({
       group,
-      parseSourcePath: path,
-      parseMirror: mirror,
-      followers: group.fileKind === 'follower' ? parsed.samples : [],
-      videos: group.fileKind === 'views' ? parsed.samples : [],
-      dynamics: group.fileKind === 'detailcount' ? parsed.samples : [],
-      stagingRows: parsed.stagingRows,
-      issues: parsed.issues,
-    };
-    parsedGroups.push(bundle);
-    groupsToApply.push(bundle);
+      skipCanonicalWrite,
+      physicalParses,
+      followers: group.fileKind === 'follower' ? (canonicalParse?.samples ?? []) : [],
+      videos: group.fileKind === 'views' ? (canonicalParse?.samples ?? []) : [],
+      dynamics: group.fileKind === 'detailcount' ? (canonicalParse?.samples ?? []) : [],
+    });
   }
 
   const creatorIds = new Set<string>();
@@ -176,6 +239,12 @@ export async function runImport(opts: ImportOptions): Promise<{
   report.entities.creators = creatorIds.size;
   report.entities.videos = videoIds.size;
   report.entities.dynamics = dynamicIds.size;
+
+  if (report.stagingRows !== report.physicalMetricRows) {
+    report.anomalies.push(
+      `staging_rows (${report.stagingRows}) != physical_metric_rows (${report.physicalMetricRows})`,
+    );
+  }
 
   if (opts.mode === 'inventory') {
     return { inventory, report, markdown: reportToMarkdown(report), batchId };
@@ -198,8 +267,35 @@ export async function runImport(opts: ImportOptions): Promise<{
     let canonicalWrites = 0;
 
     await opts.sql.begin(async (tx) => {
+      for (const pm of inventory.pathMirrors) {
+        if (!pm.backend || !pm.frontend || pm.sha256Match !== false) continue;
+        await tx`
+          INSERT INTO import_conflicts_or_rejects (batch_id, source_file_id, kind, entity_type, entity_key, message, detail)
+          VALUES (
+            ${batchId},
+            NULL,
+            'path_divergence',
+            ${pm.backend.kind},
+            ${pm.backend.entityKey},
+            'backend/frontend path mirror hash mismatch — retained both sources separately',
+            ${JSON.stringify({
+              relativePath: pm.relativePath,
+              backendSha256: pm.backend.sha256,
+              frontendSha256: pm.frontend.sha256,
+              decision: 'retain_both_canonical_content_groups',
+            })}::jsonb
+          )
+        `;
+      }
+
       for (const bundle of parsedGroups) {
         const canonicalPath = `canonical/${bundle.group.fileKind}/${bundle.group.entityKey}/${bundle.group.contentSha256.slice(0, 16)}`;
+        const canonicalRowCount =
+          bundle.physicalParses.find((p) => p.source.sha256 === bundle.group.contentSha256)
+            ?.stagingRows.length ??
+          bundle.physicalParses[0]?.stagingRows.length ??
+          0;
+
         const sourceFileRows = await tx<{ id: number }[]>`
           INSERT INTO source_files (batch_id, relative_path, sha256, mirror, file_kind, entity_key, row_count)
           VALUES (
@@ -209,32 +305,41 @@ export async function runImport(opts: ImportOptions): Promise<{
             'canonical',
             ${bundle.group.fileKind},
             ${bundle.group.entityKey},
-            ${bundle.stagingRows.length}
+            ${canonicalRowCount}
           )
           RETURNING id
         `;
         const canonicalFileId = sourceFileRows[0]?.id ?? null;
         if (!canonicalFileId) throw new Error('failed to insert canonical source_file');
 
-        for (const source of bundle.group.sources) {
-          await tx`
+        for (const physical of bundle.physicalParses) {
+          const physicalRows = await tx<{ id: number }[]>`
             INSERT INTO source_files (batch_id, relative_path, sha256, mirror, file_kind, entity_key, row_count)
             VALUES (
               ${batchId},
-              ${source.relativePath},
-              ${source.sha256},
-              ${source.mirror},
-              ${source.kind},
-              ${source.entityKey},
-              ${bundle.stagingRows.length}
+              ${physical.source.relativePath},
+              ${physical.source.sha256},
+              ${physical.source.mirror},
+              ${physical.source.kind},
+              ${physical.source.entityKey},
+              ${physical.stagingRows.length}
             )
-            ON CONFLICT (batch_id, relative_path, mirror) DO NOTHING
+            ON CONFLICT (batch_id, relative_path, mirror) DO UPDATE SET
+              sha256 = EXCLUDED.sha256,
+              row_count = EXCLUDED.row_count
+            RETURNING id
           `;
+          const physicalFileId = physicalRows[0]?.id ?? null;
+          if (!physicalFileId) throw new Error('failed to insert physical source_file');
+
           await tx`
             INSERT INTO source_file_provenance (canonical_source_file_id, mirror, mirror_sha256, mirror_relative_path)
-            VALUES (${canonicalFileId}, ${source.mirror}, ${source.sha256}, ${source.relativePath})
-            ON CONFLICT DO NOTHING
+            VALUES (${canonicalFileId}, ${physical.source.mirror}, ${physical.source.sha256}, ${physical.source.relativePath})
+            ON CONFLICT (canonical_source_file_id, mirror) DO UPDATE SET
+              mirror_sha256 = EXCLUDED.mirror_sha256,
+              mirror_relative_path = EXCLUDED.mirror_relative_path
           `;
+
           if (writeCanonical) {
             await tx`
               INSERT INTO applied_source_provenance (
@@ -244,52 +349,52 @@ export async function runImport(opts: ImportOptions): Promise<{
                 ${bundle.group.fileKind},
                 ${bundle.group.entityKey},
                 ${bundle.group.contentSha256},
-                ${source.mirror},
-                ${source.relativePath},
-                ${source.sha256},
+                ${physical.source.mirror},
+                ${physical.source.relativePath},
+                ${physical.source.sha256},
                 ${batchId}
               )
               ON CONFLICT DO NOTHING
             `;
           }
+
+          for (const row of physical.stagingRows) {
+            await tx`
+              INSERT INTO source_metric_rows (
+                batch_id, source_file_id, row_index, entity_type, entity_key, sampled_at, raw_time, payload, quality_flags, is_canonical
+              ) VALUES (
+                ${batchId},
+                ${physicalFileId},
+                ${row.rowIndex},
+                ${row.entityType},
+                ${row.entityKey},
+                ${row.sampledAt},
+                ${row.rawTime},
+                ${JSON.stringify(row.payload)}::jsonb,
+                ${row.qualityFlags},
+                ${row.isCanonical}
+              )
+            `;
+          }
+
+          for (const issue of physical.issues) {
+            await tx`
+              INSERT INTO import_conflicts_or_rejects (batch_id, source_file_id, kind, entity_type, entity_key, sampled_at, message, detail)
+              VALUES (
+                ${batchId},
+                ${physicalFileId},
+                ${issue.kind},
+                ${bundle.group.fileKind},
+                ${bundle.group.entityKey},
+                ${issue.detail?.sampledAt ? new Date(String(issue.detail.sampledAt)) : null},
+                ${issue.message},
+                ${JSON.stringify(issue.detail ?? {})}::jsonb
+              )
+            `;
+          }
         }
 
-        for (const row of bundle.stagingRows) {
-          await tx`
-            INSERT INTO source_metric_rows (
-              batch_id, source_file_id, row_index, entity_type, entity_key, sampled_at, raw_time, payload, quality_flags, is_canonical
-            ) VALUES (
-              ${batchId},
-              ${canonicalFileId},
-              ${row.rowIndex},
-              ${row.entityType},
-              ${row.entityKey},
-              ${row.sampledAt},
-              ${row.rawTime},
-              ${JSON.stringify(row.payload)}::jsonb,
-              ${row.qualityFlags},
-              ${row.isCanonical}
-            )
-          `;
-        }
-
-        for (const issue of bundle.issues) {
-          await tx`
-            INSERT INTO import_conflicts_or_rejects (batch_id, source_file_id, kind, entity_type, entity_key, sampled_at, message, detail)
-            VALUES (
-              ${batchId},
-              ${canonicalFileId},
-              ${issue.kind},
-              ${bundle.group.fileKind},
-              ${bundle.group.entityKey},
-              ${issue.detail?.sampledAt ? new Date(String(issue.detail.sampledAt)) : null},
-              ${issue.message},
-              ${JSON.stringify(issue.detail ?? {})}::jsonb
-            )
-          `;
-        }
-
-        if (!writeCanonical) continue;
+        if (!writeCanonical || bundle.skipCanonicalWrite) continue;
 
         for (const s of bundle.followers as import('./metric-rows').FollowerSample[]) {
           canonicalWrites += 1;
@@ -388,7 +493,7 @@ export async function runImport(opts: ImportOptions): Promise<{
     const afterFp = writeCanonical ? await fingerprintBusinessData(opts.sql) : beforeFp;
     report.noOp =
       writeCanonical &&
-      groupsToApply.length === 0 &&
+      canonicalGroupsPending === 0 &&
       report.skippedAlreadyApplied > 0 &&
       beforeFp === afterFp;
 
@@ -454,7 +559,7 @@ async function ingestStaticMetadata(tx: Sql, opts: ImportOptions, batchId: strin
     images.map((e) => [e.relativePath, assetIdFromContentSha256(e.sha256)] as const),
   );
   for (const entry of [...inv.backend, ...inv.frontend].filter((e) => e.kind === 'static_json')) {
-    const text = readText(opts.assetsRoot!, entry.relativePath);
+    const text = readText(opts.assetsRoot, entry.relativePath);
     let meta: Record<string, unknown>;
     try {
       meta = JSON.parse(text) as Record<string, unknown>;

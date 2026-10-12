@@ -73,12 +73,25 @@ bun run dev
 
 ## 真实历史目录（Compose）
 
-在 `.env` 中设置只读宿主机路径：
+部署约定：只读挂载 **单一根目录** `MOCK_DATA_ROOT`，其下必须包含：
 
-- `MONITOR_BACKEND_DATA_ROOT` — 对应 Windows `D:\app\scripts\v2`
-- `MONITOR_FRONTEND_DATA_ROOT` — 对应 `D:\app\video-data-gui\public\data`
+- `backend/` — 对应历史 Windows `D:\app\scripts\v2`
+- `frontend/` — 对应 `D:\app\video-data-gui\public\data`（仅 CSV/镜像数据，不含 meta 资源树）
+- `assets/` — 封面与 JSON 元数据（可选；缺失时为 **placeholder-only**，不会回退扫描 frontend）
 
-然后 `docker compose up` 启动 postgres、api、web。导入仍通过 CLI 执行，禁止通过 API 传入任意服务器路径。
+在 `.env` 中设置宿主机路径，例如：
+
+```bash
+MOCK_DATA_ROOT=/path/to/your/mock-data-tree
+```
+
+Compose 将上述目录挂载为容器内 `/mock-data`，并设置 `MOCK_DATA_ROOT=/mock-data`、`MONITOR_ASSETS_ROOT=/mock-data/assets`（仅当 `assets/` 存在时由 API 使用）。
+
+```bash
+docker compose up postgres api mock-import web
+```
+
+`mock-import` 服务在 API 就绪后对 `POST /api/v1/imports/csv` 执行确定性 apply（无外链）。禁止通过 API 传入任意服务器路径。
 
 ## 故障排查
 

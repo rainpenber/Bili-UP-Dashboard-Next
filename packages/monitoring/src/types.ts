@@ -1,3 +1,5 @@
+export type { ImportInventorySummary } from './inventory-summary';
+
 export type FileKind =
   | 'follower'
   | 'views'
@@ -20,6 +22,8 @@ export type InventoryEntry = {
 
 export type ImportMode = 'inventory' | 'dry_run' | 'apply';
 
+import type { ImportInventorySummary } from './inventory-summary';
+
 export type ImportReport = {
   mode: ImportMode;
   sourceTimezone: string;
@@ -28,13 +32,19 @@ export type ImportReport = {
   mirrorGroups: number;
   pathMirrorMismatches: number;
   canonicalGroups: number;
+  /** Sum of physical CSV data rows across all metric files (both mirrors). */
+  physicalMetricRows: number;
   parsed: number;
   accepted: number;
   rejected: number;
+  /** Rows rejected due to invalid numeric cells (subset of rejected). */
+  invalidNumeric: number;
   duplicate: number;
   conflict: number;
+  pathDivergences: number;
   stagingRows: number;
   skippedAlreadyApplied: number;
+  inventorySummary: ImportInventorySummary;
   unsupported: string[];
   entities: {
     creators: number;

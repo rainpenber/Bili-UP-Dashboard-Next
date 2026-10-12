@@ -29,9 +29,14 @@ export function createImportRoutes(db: Sql) {
       const layout = resolveMockDataLayout();
       const mode = mapHttpModeToImportMode(req.mode);
       const sourceTimezone = req.sourceTimezone ?? process.env.SOURCE_TIMEZONE ?? 'Asia/Shanghai';
-      process.env.MONITOR_ASSETS_ROOT = layout.assetsRoot;
+      if (layout.assetsRoot) {
+        process.env.MONITOR_ASSETS_ROOT = layout.assetsRoot;
+      } else {
+        delete process.env.MONITOR_ASSETS_ROOT;
+      }
       const result = await runImport({
         mode,
+        mockDataRoot: layout.root,
         backendRoot: layout.backendRoot,
         frontendRoot: layout.frontendRoot,
         assetsRoot: layout.assetsRoot,

@@ -7,5 +7,6 @@ export * from './classify';
 export * from './report';
 export * from './asset-id';
 export * from './mock-data-root';
+export * from './inventory-summary';
 export * from './importer-version';
 export * from './metric-parse';
