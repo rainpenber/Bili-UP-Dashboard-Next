@@ -2,6 +2,7 @@ import { createHealthResponse } from '@studio/contracts';
 import { createSql, runMigrations } from '@studio/db';
 import { Hono } from 'hono';
 import { readMonitorDataSource } from './data-source';
+import { createAssetsRoutes } from './assets-routes';
 import { createMonitorRoutes } from './monitor-routes';
 
 export const API_VERSION = '0.1.0';
@@ -38,6 +39,7 @@ export function createApp(options: CreateAppOptions = {}) {
       console.error('Migration failed', err);
     });
     app.route('/api/v1/monitor', createMonitorRoutes(sql));
+    app.route('/api/v1/assets', createAssetsRoutes(sql));
   }
 
   return app;

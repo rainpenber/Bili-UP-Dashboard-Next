@@ -16,11 +16,10 @@ type Tab = 'videos' | 'creators' | 'dynamics';
 type LoadState<T> =
   { kind: 'loading' } | { kind: 'error'; message: string } | { kind: 'ready'; data: T };
 
-const PLACEHOLDER_COVER =
-  'data:image/svg+xml,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect fill="#1e293b" width="100%" height="100%"/><text x="50%" y="50%" fill="#94a3b8" font-size="12" text-anchor="middle" dy=".3em">无封面</text></svg>',
-  );
+function coverSrc(coverAssetId: string | null): string {
+  if (coverAssetId) return `/api/v1/assets/${encodeURIComponent(coverAssetId)}`;
+  return '/api/v1/assets/__placeholder__';
+}
 
 export function MonitorCenter() {
   const [tab, setTab] = useState<Tab>('videos');
@@ -207,7 +206,7 @@ export function MonitorCenter() {
                 className={selectedVideo === v.bvid ? 'entity-card selected' : 'entity-card'}
                 onClick={() => setSelectedVideo(v.bvid)}
               >
-                <img src={PLACEHOLDER_COVER} alt="" width={160} height={90} />
+                <img src={coverSrc(v.coverAssetId)} alt="" width={160} height={90} />
                 <div className="entity-meta">
                   <strong>{v.title ?? v.bvid}</strong>
                   <span className="muted">{v.category ?? '未分类'}</span>
@@ -232,7 +231,7 @@ export function MonitorCenter() {
                 className={selectedCreator === c.mid ? 'entity-card selected' : 'entity-card'}
                 onClick={() => setSelectedCreator(c.mid)}
               >
-                <img src={PLACEHOLDER_COVER} alt="" width={64} height={64} />
+                <img src={coverSrc(c.faceAssetId)} alt="" width={64} height={64} />
                 <div className="entity-meta">
                   <strong>{c.uname ?? c.mid}</strong>
                   <span className="muted">粉丝 {formatCount(c.latestMetrics.followerCount)}</span>

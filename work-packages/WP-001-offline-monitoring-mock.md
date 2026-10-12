@@ -2,7 +2,7 @@
 
 ## 状态
 
-**进行中** — 离线 Mock 监控数据导入、PostgreSQL 存储、查询 API 与 Web 监控中心。
+**已完成（PR #2）** — 离线 Mock 监控垂直切片：导入、API、Web、受控 assets、CI PostgreSQL。
 
 ## 合同摘要
 

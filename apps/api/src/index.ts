@@ -8,6 +8,8 @@ await runMigrations(sql);
 const app = createApp({ skipDb: true });
 const { createMonitorRoutes } = await import('./monitor-routes');
 app.route('/api/v1/monitor', createMonitorRoutes(sql));
+const { createAssetsRoutes } = await import('./assets-routes');
+app.route('/api/v1/assets', createAssetsRoutes(sql));
 
 export default {
   port,

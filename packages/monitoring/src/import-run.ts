@@ -10,6 +10,7 @@ import {
   type DynamicSample,
 } from './metric-rows';
 import { reportToMarkdown } from './report';
+import { assetIdFromContentSha256, guessMimeType } from './asset-id';
 import { pgBigint } from './sql-values';
 import type { ImportMode, ImportReport, MirrorGroup } from './types';
 
@@ -248,7 +249,8 @@ export async function runImport(opts: ImportOptions): Promise<{
     }
 
     if (opts.assetsRoot) {
-      await ingestStaticMetadata(opts, batchId);
+      const assetByPath = await ingestStaticAssets(opts, batchId);
+      await ingestStaticMetadata(opts, batchId, assetByPath);
     }
 
     const afterFp = await fingerprintBusinessData(opts.sql);
@@ -277,7 +279,47 @@ function touchCoverage(report: ImportReport, key: string, at: Date) {
   report.timeCoverage[key] = slot;
 }
 
-async function ingestStaticMetadata(opts: ImportOptions, batchId: string) {
+async function ingestStaticAssets(
+  opts: ImportOptions,
+  batchId: string,
+): Promise<Map<string, string>> {
+  const pathToAssetId = new Map<string, string>();
+  if (!opts.assetsRoot || !opts.sql) return pathToAssetId;
+  const inv = await runInventory({ frontendRoot: opts.assetsRoot });
+  for (const group of inv.groups) {
+    const entry = group.frontend ?? group.backend;
+    if (!entry || entry.kind !== 'static_image') continue;
+    const assetId = assetIdFromContentSha256(entry.sha256);
+    const mime = guessMimeType(entry.relativePath);
+    await opts.sql`
+      INSERT INTO static_assets (asset_id, content_sha256, mime_type, relative_path, import_batch_id)
+      VALUES (${assetId}, ${entry.sha256}, ${mime}, ${entry.relativePath}, ${batchId})
+      ON CONFLICT (asset_id) DO UPDATE SET
+        content_sha256 = EXCLUDED.content_sha256,
+        mime_type = COALESCE(EXCLUDED.mime_type, static_assets.mime_type),
+        relative_path = EXCLUDED.relative_path,
+        import_batch_id = EXCLUDED.import_batch_id
+    `;
+    pathToAssetId.set(entry.relativePath, assetId);
+  }
+  return pathToAssetId;
+}
+
+function resolveMetaAssetPath(meta: Record<string, unknown>): string | null {
+  for (const key of ['cover', 'pic', 'face', 'avatar']) {
+    const value = meta[key];
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value.replace(/\\/g, '/');
+    }
+  }
+  return null;
+}
+
+async function ingestStaticMetadata(
+  opts: ImportOptions,
+  batchId: string,
+  assetByPath: Map<string, string>,
+) {
   if (!opts.assetsRoot || !opts.sql) return;
   const inv = await runInventory({ frontendRoot: opts.assetsRoot });
   for (const group of inv.groups) {
@@ -294,13 +336,17 @@ async function ingestStaticMetadata(opts: ImportOptions, batchId: string) {
     const bvid = typeof meta.bvid === 'string' ? meta.bvid : null;
     const mid = meta.mid != null ? BigInt(String(meta.mid)) : null;
     const title = typeof meta.title === 'string' ? meta.title : null;
+    const assetPath = resolveMetaAssetPath(meta);
+    const linkedAssetId = assetPath ? assetByPath.get(assetPath) : undefined;
+
     if (bvid) {
       await opts.sql`
-        INSERT INTO videos (bvid, mid, title, category, metadata)
-        VALUES (${bvid}, ${pgBigint(mid)}, ${title}, ${category}, ${JSON.stringify(meta)}::jsonb)
+        INSERT INTO videos (bvid, mid, title, category, cover_asset_id, metadata)
+        VALUES (${bvid}, ${pgBigint(mid)}, ${title}, ${category}, ${linkedAssetId ?? null}, ${JSON.stringify(meta)}::jsonb)
         ON CONFLICT (bvid) DO UPDATE SET
           title = COALESCE(EXCLUDED.title, videos.title),
           category = COALESCE(EXCLUDED.category, videos.category),
+          cover_asset_id = COALESCE(EXCLUDED.cover_asset_id, videos.cover_asset_id),
           metadata = videos.metadata || EXCLUDED.metadata,
           updated_at = now()
       `;
@@ -308,11 +354,12 @@ async function ingestStaticMetadata(opts: ImportOptions, batchId: string) {
     if (mid != null && !bvid) {
       const uname = typeof meta.name === 'string' ? meta.name : null;
       await opts.sql`
-        INSERT INTO creators (mid, uname, category, metadata)
-        VALUES (${pgBigint(mid)}, ${uname}, ${category}, ${JSON.stringify(meta)}::jsonb)
+        INSERT INTO creators (mid, uname, category, face_asset_id, metadata)
+        VALUES (${pgBigint(mid)}, ${uname}, ${category}, ${linkedAssetId ?? null}, ${JSON.stringify(meta)}::jsonb)
         ON CONFLICT (mid) DO UPDATE SET
           uname = COALESCE(EXCLUDED.uname, creators.uname),
           category = COALESCE(EXCLUDED.category, creators.category),
+          face_asset_id = COALESCE(EXCLUDED.face_asset_id, creators.face_asset_id),
           metadata = creators.metadata || EXCLUDED.metadata,
           updated_at = now()
       `;

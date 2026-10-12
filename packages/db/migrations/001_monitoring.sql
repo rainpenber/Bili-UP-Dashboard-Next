@@ -1,11 +1,6 @@
--- WP-001 monitoring schema
+-- WP-001 monitoring schema (idempotent for parallel test runners)
 
-CREATE TABLE IF NOT EXISTS schema_migrations (
-  version TEXT PRIMARY KEY,
-  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE import_batches (
+CREATE TABLE IF NOT EXISTS import_batches (
   id UUID PRIMARY KEY,
   mode TEXT NOT NULL CHECK (mode IN ('inventory', 'dry_run', 'apply')),
   source_timezone TEXT NOT NULL,
@@ -15,7 +10,7 @@ CREATE TABLE import_batches (
   content_fingerprint TEXT
 );
 
-CREATE TABLE source_files (
+CREATE TABLE IF NOT EXISTS source_files (
   id BIGSERIAL PRIMARY KEY,
   batch_id UUID NOT NULL REFERENCES import_batches (id) ON DELETE CASCADE,
   relative_path TEXT NOT NULL,
@@ -27,7 +22,7 @@ CREATE TABLE source_files (
   UNIQUE (batch_id, relative_path, mirror)
 );
 
-CREATE TABLE source_file_provenance (
+CREATE TABLE IF NOT EXISTS source_file_provenance (
   id BIGSERIAL PRIMARY KEY,
   canonical_source_file_id BIGINT NOT NULL REFERENCES source_files (id) ON DELETE CASCADE,
   mirror TEXT NOT NULL CHECK (mirror IN ('backend', 'frontend')),
@@ -36,7 +31,7 @@ CREATE TABLE source_file_provenance (
   UNIQUE (canonical_source_file_id, mirror)
 );
 
-CREATE TABLE import_conflicts_or_rejects (
+CREATE TABLE IF NOT EXISTS import_conflicts_or_rejects (
   id BIGSERIAL PRIMARY KEY,
   batch_id UUID NOT NULL REFERENCES import_batches (id) ON DELETE CASCADE,
   source_file_id BIGINT REFERENCES source_files (id) ON DELETE SET NULL,
@@ -48,7 +43,7 @@ CREATE TABLE import_conflicts_or_rejects (
   detail JSONB
 );
 
-CREATE TABLE applied_source_files (
+CREATE TABLE IF NOT EXISTS applied_source_files (
   sha256 TEXT PRIMARY KEY,
   relative_path TEXT NOT NULL,
   file_kind TEXT NOT NULL,
@@ -58,7 +53,7 @@ CREATE TABLE applied_source_files (
   applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE creators (
+CREATE TABLE IF NOT EXISTS creators (
   mid BIGINT PRIMARY KEY,
   uname TEXT,
   face_asset_id TEXT,
@@ -71,7 +66,7 @@ CREATE TABLE creators (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE videos (
+CREATE TABLE IF NOT EXISTS videos (
   bvid TEXT PRIMARY KEY,
   mid BIGINT REFERENCES creators (mid),
   title TEXT,
@@ -85,7 +80,7 @@ CREATE TABLE videos (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE dynamics (
+CREATE TABLE IF NOT EXISTS dynamics (
   dynamic_id TEXT PRIMARY KEY,
   mid BIGINT REFERENCES creators (mid),
   category TEXT,
@@ -97,7 +92,7 @@ CREATE TABLE dynamics (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE creator_follower_samples (
+CREATE TABLE IF NOT EXISTS creator_follower_samples (
   id BIGSERIAL PRIMARY KEY,
   mid BIGINT NOT NULL REFERENCES creators (mid),
   sampled_at TIMESTAMPTZ NOT NULL,
@@ -110,7 +105,7 @@ CREATE TABLE creator_follower_samples (
   UNIQUE (mid, sampled_at)
 );
 
-CREATE TABLE video_metric_samples (
+CREATE TABLE IF NOT EXISTS video_metric_samples (
   id BIGSERIAL PRIMARY KEY,
   bvid TEXT NOT NULL REFERENCES videos (bvid),
   sampled_at TIMESTAMPTZ NOT NULL,
@@ -130,7 +125,7 @@ CREATE TABLE video_metric_samples (
   UNIQUE (bvid, sampled_at)
 );
 
-CREATE TABLE dynamic_metric_samples (
+CREATE TABLE IF NOT EXISTS dynamic_metric_samples (
   id BIGSERIAL PRIMARY KEY,
   dynamic_id TEXT NOT NULL REFERENCES dynamics (dynamic_id),
   sampled_at TIMESTAMPTZ NOT NULL,
@@ -145,7 +140,7 @@ CREATE TABLE dynamic_metric_samples (
   UNIQUE (dynamic_id, sampled_at)
 );
 
-CREATE TABLE static_assets (
+CREATE TABLE IF NOT EXISTS static_assets (
   asset_id TEXT PRIMARY KEY,
   content_sha256 TEXT NOT NULL,
   mime_type TEXT,
@@ -154,9 +149,9 @@ CREATE TABLE static_assets (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_videos_mid ON videos (mid);
-CREATE INDEX idx_videos_category ON videos (category);
-CREATE INDEX idx_creators_category ON creators (category);
-CREATE INDEX idx_video_metric_samples_bvid_at ON video_metric_samples (bvid, sampled_at);
-CREATE INDEX idx_creator_follower_samples_mid_at ON creator_follower_samples (mid, sampled_at);
-CREATE INDEX idx_dynamic_metric_samples_id_at ON dynamic_metric_samples (dynamic_id, sampled_at);
+CREATE INDEX IF NOT EXISTS idx_videos_mid ON videos (mid);
+CREATE INDEX IF NOT EXISTS idx_videos_category ON videos (category);
+CREATE INDEX IF NOT EXISTS idx_creators_category ON creators (category);
+CREATE INDEX IF NOT EXISTS idx_video_metric_samples_bvid_at ON video_metric_samples (bvid, sampled_at);
+CREATE INDEX IF NOT EXISTS idx_creator_follower_samples_mid_at ON creator_follower_samples (mid, sampled_at);
+CREATE INDEX IF NOT EXISTS idx_dynamic_metric_samples_id_at ON dynamic_metric_samples (dynamic_id, sampled_at);

@@ -5,3 +5,4 @@ export * from './csv-parse';
 export * from './metric-rows';
 export * from './classify';
 export * from './report';
+export * from './asset-id';
