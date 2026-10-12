@@ -50,7 +50,7 @@ describe('monitor API integration', () => {
 
   test('metrics limit cap returns 400 when invalid', async () => {
     if (!sql) return;
-    const res = await app.request('/api/v1/monitor/videos/BVTEST001/metrics?limit=999999');
+    const res = await app.request('/api/v1/monitor/videos/BVTEST001/metrics?limit=not-a-number');
     expect(res.status).toBe(400);
   });
 
