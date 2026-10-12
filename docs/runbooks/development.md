@@ -91,6 +91,17 @@ Compose 将上述目录挂载为容器内 `/mock-data`，并设置 `MOCK_DATA_RO
 docker compose up postgres api mock-import web
 ```
 
+`web` 容器通过 `VITE_API_PROXY_TARGET=http://api:3000` 将浏览器请求的 `/api/*` 代理到 Compose 内的 `api` 服务（本地裸跑 `bun run dev` 时默认仍为 `http://localhost:3000`）。
+
+**Compose UI 冒烟**（`WEB_PORT` 默认为 5173；若映射为 18481 则替换端口）：
+
+```bash
+curl -sf "http://localhost:${WEB_PORT:-5173}/api/health"
+curl -sf "http://localhost:${WEB_PORT:-5173}/api/v1/monitor/videos?page=1&pageSize=1"
+```
+
+应返回 200 JSON，而非 500（此前 web 容器内误代理到 `localhost:3000` 会导致 500）。
+
 `mock-import` 服务在 API 就绪后对 `POST /api/v1/imports/csv` 执行确定性 apply（无外链）。禁止通过 API 传入任意服务器路径。
 
 导入在**单连接事务**内使用 `pg_advisory_xact_lock`（随 commit/rollback 自动释放），并对 staging/canonical 行做批量 INSERT；101+101 规模 dry-run/apply 应在数分钟内完成，不应出现 idle-in-transaction 占锁。

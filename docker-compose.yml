@@ -64,6 +64,8 @@ services:
     working_dir: /app/apps/web
     volumes:
       - ./:/app
+    environment:
+      VITE_API_PROXY_TARGET: http://api:3000
     ports:
       - '${WEB_PORT:-5173}:5173'
     command: ['bun', 'run', 'dev', '--', '--host', '0.0.0.0']
