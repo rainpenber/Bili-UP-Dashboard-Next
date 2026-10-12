@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "format": "prettier --check .",
+    "format:check": "prettier --check .",
     "format:write": "prettier --write .",
     "lint": "eslint .",
     "typecheck": "bun run --filter '*' typecheck",

@@ -1,10 +1,19 @@
 import { createHealthResponse } from '@studio/contracts';
+import { createSql, runMigrations } from '@studio/db';
 import { Hono } from 'hono';
+import { readMonitorDataSource } from './data-source';
+import { createMonitorRoutes } from './monitor-routes';
 
-export const API_VERSION = '0.0.0';
+export const API_VERSION = '0.1.0';
 export const SERVICE_NAME = 'studio-api';
 
-export function createApp() {
+export type CreateAppOptions = {
+  skipDb?: boolean;
+};
+
+export function createApp(options: CreateAppOptions = {}) {
+  readMonitorDataSource();
+
   const app = new Hono();
 
   app.get('/health', (c) => {
@@ -14,6 +23,22 @@ export function createApp() {
     });
     return c.json(body);
   });
+
+  app.get('/api/health', (c) => {
+    const body = createHealthResponse({
+      service: SERVICE_NAME,
+      version: API_VERSION,
+    });
+    return c.json(body);
+  });
+
+  if (!options.skipDb) {
+    const sql = createSql();
+    void runMigrations(sql).catch((err) => {
+      console.error('Migration failed', err);
+    });
+    app.route('/api/v1/monitor', createMonitorRoutes(sql));
+  }
 
   return app;
 }

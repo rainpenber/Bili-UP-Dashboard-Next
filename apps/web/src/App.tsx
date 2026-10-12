@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { parseHealthResponse, type HealthResponse } from '@studio/contracts';
+import { MonitorCenter } from './monitor/MonitorCenter';
 
 const DEFAULT_API_HEALTH_URL = import.meta.env.VITE_API_HEALTH_URL ?? '/api/health';
 
@@ -42,9 +43,7 @@ export function App() {
   return (
     <main>
       <h1>Studio Ops Hub</h1>
-      <p className="tagline">
-        三人自媒体工作室 · 商单制作、流程督导与 B 站账号监控（Bootstrap WP-000）
-      </p>
+      <p className="tagline">三人自媒体工作室 · B 站账号监控（WP-001 Mock 离线切片）</p>
       <section className="card" aria-live="polite">
         <h2>API 健康状态</h2>
         {health.kind === 'loading' && <p>正在检测…</p>}
@@ -63,6 +62,7 @@ export function App() {
           </>
         )}
       </section>
+      <MonitorCenter />
     </main>
   );
 }

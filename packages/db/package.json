@@ -1,0 +1,21 @@
+{
+  "name": "@studio/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "tsc --noEmit",
+    "migrate": "bun run src/migrate.ts"
+  },
+  "dependencies": {
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

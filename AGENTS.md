@@ -19,8 +19,10 @@
 
 - `apps/web` — 前端
 - `apps/api` — HTTP API
-- `packages/contracts` — 共享契约（如 health）
+- `packages/contracts` — 共享契约（health、monitor API）
 - `packages/workflow` — 纯函数工作流规则
+- `packages/db` — PostgreSQL 迁移与客户端
+- `packages/monitoring` — 离线 CSV inventory / 导入 CLI
 
 ## 常用命令（在仓库根目录）
 

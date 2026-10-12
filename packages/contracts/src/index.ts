@@ -6,3 +6,4 @@ export {
   isHealthStatus,
   parseHealthResponse,
 } from './health';
+export * from './monitor';
