@@ -12,7 +12,6 @@ import type { ImportMode, ImportReport } from './types';
 
 const IMPORT_RUN_LOCK_KEY = 915_002;
 
-
 export type ImportOptions = {
   mode: ImportMode;
   backendRoot?: string;
