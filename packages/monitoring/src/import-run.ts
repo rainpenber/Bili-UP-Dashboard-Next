@@ -9,11 +9,18 @@ import { parseMetricCsvWithStaging } from './metric-parse';
 import type { MetricRowIssue } from './metric-rows';
 import { normalizeCategory } from './metric-rows';
 import { reportToMarkdown } from './report';
+import { IMPORT_RUN_LOCK_KEY } from './import-advisory';
+import {
+  bulkInsertConflicts,
+  bulkInsertDynamicSamples,
+  bulkInsertFollowerSamples,
+  bulkInsertSourceMetricRows,
+  bulkInsertVideoSamples,
+} from './import-bulk';
+import { isGroupAlreadyApplied, loadAppliedCanonicalKeySet } from './import-applied-cache';
 import { pgBigint } from './sql-values';
 import type { ImportMode, ImportReport } from './types';
 import type { InventoryEntry } from './types';
-
-const IMPORT_RUN_LOCK_KEY = 915_002;
 
 export type ImportOptions = {
   mode: ImportMode;
@@ -75,18 +82,6 @@ async function fingerprintBusinessData(sql: Sql): Promise<string> {
     ) AS h
   `;
   return rows[0]?.h ?? '';
-}
-
-async function isCanonicalAlreadyApplied(sql: Sql, group: CanonicalContentGroup): Promise<boolean> {
-  const rows = await sql<{ ok: number }[]>`
-    SELECT 1 AS ok FROM applied_canonical_sources
-    WHERE importer_version = ${IMPORTER_VERSION}
-      AND file_kind = ${group.fileKind}
-      AND entity_key = ${group.entityKey}
-      AND content_sha256 = ${group.contentSha256}
-    LIMIT 1
-  `;
-  return rows.length > 0;
 }
 
 type PhysicalParse = {
@@ -179,11 +174,11 @@ export async function runImport(opts: ImportOptions): Promise<{
 
   const parsedGroups: ParsedGroup[] = [];
   let canonicalGroupsPending = 0;
+  const appliedCanonicalKeys =
+    opts.sql && opts.mode === 'apply' ? await loadAppliedCanonicalKeySet(opts.sql) : null;
 
   for (const group of inventory.canonicalGroups) {
-    const skipCanonicalWrite = Boolean(
-      opts.sql && opts.mode === 'apply' && (await isCanonicalAlreadyApplied(opts.sql, group)),
-    );
+    const skipCanonicalWrite = isGroupAlreadyApplied(appliedCanonicalKeys, group);
     if (skipCanonicalWrite) {
       report.skippedAlreadyApplied += 1;
     } else {
@@ -256,17 +251,16 @@ export async function runImport(opts: ImportOptions): Promise<{
 
   const beforeFp = opts.mode === 'apply' ? await fingerprintBusinessData(opts.sql) : null;
 
-  await opts.sql`SELECT pg_advisory_lock(${IMPORT_RUN_LOCK_KEY})`;
+  const writeCanonical = opts.mode === 'apply';
+  let canonicalWrites = 0;
+
   try {
-    await opts.sql`
-      INSERT INTO import_batches (id, mode, source_timezone, status, importer_version, report_json)
-      VALUES (${batchId}, ${opts.mode}, ${opts.sourceTimezone}, 'running', ${IMPORTER_VERSION}, ${JSON.stringify(report)}::jsonb)
-    `;
-
-    const writeCanonical = opts.mode === 'apply';
-    let canonicalWrites = 0;
-
     await opts.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(${IMPORT_RUN_LOCK_KEY})`;
+      await tx`
+        INSERT INTO import_batches (id, mode, source_timezone, status, importer_version, report_json)
+        VALUES (${batchId}, ${opts.mode}, ${opts.sourceTimezone}, 'running', ${IMPORTER_VERSION}, ${JSON.stringify(report)}::jsonb)
+      `;
       for (const pm of inventory.pathMirrors) {
         if (!pm.backend || !pm.frontend || pm.sha256Match !== false) continue;
         await tx`
@@ -358,114 +352,54 @@ export async function runImport(opts: ImportOptions): Promise<{
             `;
           }
 
-          for (const row of physical.stagingRows) {
-            await tx`
-              INSERT INTO source_metric_rows (
-                batch_id, source_file_id, row_index, entity_type, entity_key, sampled_at, raw_time, payload, quality_flags, is_canonical
-              ) VALUES (
-                ${batchId},
-                ${physicalFileId},
-                ${row.rowIndex},
-                ${row.entityType},
-                ${row.entityKey},
-                ${row.sampledAt},
-                ${row.rawTime},
-                ${JSON.stringify(row.payload)}::jsonb,
-                ${row.qualityFlags},
-                ${row.isCanonical}
-              )
-            `;
-          }
-
-          for (const issue of physical.issues) {
-            await tx`
-              INSERT INTO import_conflicts_or_rejects (batch_id, source_file_id, kind, entity_type, entity_key, sampled_at, message, detail)
-              VALUES (
-                ${batchId},
-                ${physicalFileId},
-                ${issue.kind},
-                ${bundle.group.fileKind},
-                ${bundle.group.entityKey},
-                ${issue.detail?.sampledAt ? new Date(String(issue.detail.sampledAt)) : null},
-                ${issue.message},
-                ${JSON.stringify(issue.detail ?? {})}::jsonb
-              )
-            `;
-          }
+          await bulkInsertSourceMetricRows(tx as unknown as Sql, batchId, physicalFileId, physical.stagingRows);
+          await bulkInsertConflicts(
+            tx as unknown as Sql,
+            batchId,
+            physicalFileId,
+            bundle.group.fileKind,
+            bundle.group.entityKey,
+            physical.issues,
+          );
         }
 
         if (!writeCanonical || bundle.skipCanonicalWrite) continue;
 
-        for (const s of bundle.followers as import('./metric-rows').FollowerSample[]) {
-          canonicalWrites += 1;
-          if (
-            opts.testFailAfterCanonicalWrites != null &&
-            canonicalWrites > opts.testFailAfterCanonicalWrites
-          ) {
-            throw new Error('test_fail_after_canonical_writes');
-          }
-          await tx`
-            INSERT INTO creators (mid) VALUES (${pgBigint(s.mid)}) ON CONFLICT (mid) DO NOTHING
-          `;
-          await tx`
-            INSERT INTO creator_follower_samples (
-              mid, sampled_at, source_timezone, raw_time, timestamp_precision, follower_count, import_batch_id, source_file_id
-            ) VALUES (
-              ${pgBigint(s.mid)}, ${s.sampledAt}, ${opts.sourceTimezone}, ${s.rawTime}, ${s.precision}, ${pgBigint(s.followerCount)}, ${batchId}, ${canonicalFileId}
-            )
-            ON CONFLICT (mid, sampled_at) DO NOTHING
-          `;
-          touchCoverage(report, 'follower', s.sampledAt);
+        const followers = bundle.followers as import('./metric-rows').FollowerSample[];
+        if (followers.length > 0) {
+          maybeFailCanonicalWrite(opts, (canonicalWrites += followers.length));
+          await bulkInsertFollowerSamples(
+            tx as unknown as Sql,
+            batchId,
+            canonicalFileId,
+            opts.sourceTimezone,
+            followers,
+          );
+          for (const s of followers) touchCoverage(report, 'follower', s.sampledAt);
         }
-        for (const s of bundle.videos as import('./metric-rows').VideoSample[]) {
-          canonicalWrites += 1;
-          if (
-            opts.testFailAfterCanonicalWrites != null &&
-            canonicalWrites > opts.testFailAfterCanonicalWrites
-          ) {
-            throw new Error('test_fail_after_canonical_writes');
-          }
-          await tx`
-            INSERT INTO videos (bvid) VALUES (${s.bvid}) ON CONFLICT (bvid) DO NOTHING
-          `;
-          await tx`
-            INSERT INTO video_metric_samples (
-              bvid, sampled_at, source_timezone, raw_time, timestamp_precision,
-              view_count, online_viewers, online_viewers_raw,
-              like_count, coin_count, favorite_count, share_count, danmaku_count,
-              import_batch_id, source_file_id
-            ) VALUES (
-              ${s.bvid}, ${s.sampledAt}, ${opts.sourceTimezone}, ${s.rawTime}, ${s.precision},
-              ${pgBigint(s.viewCount)}, ${pgBigint(s.onlineViewers)}, ${s.onlineViewersRaw},
-              ${pgBigint(s.likeCount)}, ${pgBigint(s.coinCount)}, ${pgBigint(s.favoriteCount)}, ${pgBigint(s.shareCount)}, ${pgBigint(s.danmakuCount)},
-              ${batchId}, ${canonicalFileId}
-            )
-            ON CONFLICT (bvid, sampled_at) DO NOTHING
-          `;
-          touchCoverage(report, 'views', s.sampledAt);
+        const videos = bundle.videos as import('./metric-rows').VideoSample[];
+        if (videos.length > 0) {
+          maybeFailCanonicalWrite(opts, (canonicalWrites += videos.length));
+          await bulkInsertVideoSamples(
+            tx as unknown as Sql,
+            batchId,
+            canonicalFileId,
+            opts.sourceTimezone,
+            videos,
+          );
+          for (const s of videos) touchCoverage(report, 'views', s.sampledAt);
         }
-        for (const s of bundle.dynamics as import('./metric-rows').DynamicSample[]) {
-          canonicalWrites += 1;
-          if (
-            opts.testFailAfterCanonicalWrites != null &&
-            canonicalWrites > opts.testFailAfterCanonicalWrites
-          ) {
-            throw new Error('test_fail_after_canonical_writes');
-          }
-          await tx`
-            INSERT INTO dynamics (dynamic_id) VALUES (${s.dynamicId}) ON CONFLICT (dynamic_id) DO NOTHING
-          `;
-          await tx`
-            INSERT INTO dynamic_metric_samples (
-              dynamic_id, sampled_at, source_timezone, raw_time, timestamp_precision,
-              like_count, repost_count, comment_count, import_batch_id, source_file_id
-            ) VALUES (
-              ${s.dynamicId}, ${s.sampledAt}, ${opts.sourceTimezone}, ${s.rawTime}, ${s.precision},
-              ${pgBigint(s.likeCount)}, ${pgBigint(s.repostCount)}, ${pgBigint(s.commentCount)}, ${batchId}, ${canonicalFileId}
-            )
-            ON CONFLICT (dynamic_id, sampled_at) DO NOTHING
-          `;
-          touchCoverage(report, 'detailcount', s.sampledAt);
+        const dynamics = bundle.dynamics as import('./metric-rows').DynamicSample[];
+        if (dynamics.length > 0) {
+          maybeFailCanonicalWrite(opts, (canonicalWrites += dynamics.length));
+          await bulkInsertDynamicSamples(
+            tx as unknown as Sql,
+            batchId,
+            canonicalFileId,
+            opts.sourceTimezone,
+            dynamics,
+          );
+          for (const s of dynamics) touchCoverage(report, 'detailcount', s.sampledAt);
         }
 
         await tx`
@@ -488,27 +422,42 @@ export async function runImport(opts: ImportOptions): Promise<{
         await ingestStaticAssets(tx as unknown as Sql, opts, batchId);
         await ingestStaticMetadata(tx as unknown as Sql, opts, batchId);
       }
+
+      const afterFp = writeCanonical
+        ? await fingerprintBusinessData(tx as unknown as Sql)
+        : beforeFp;
+      report.noOp =
+        writeCanonical &&
+        canonicalGroupsPending === 0 &&
+        report.skippedAlreadyApplied > 0 &&
+        beforeFp === afterFp;
+
+      await tx`
+        UPDATE import_batches
+        SET status = 'completed', completed_at = now(), report_json = ${JSON.stringify(report)}::jsonb, content_fingerprint = ${afterFp}
+        WHERE id = ${batchId}
+      `;
     });
-
-    const afterFp = writeCanonical ? await fingerprintBusinessData(opts.sql) : beforeFp;
-    report.noOp =
-      writeCanonical &&
-      canonicalGroupsPending === 0 &&
-      report.skippedAlreadyApplied > 0 &&
-      beforeFp === afterFp;
-
-    await opts.sql`
-      UPDATE import_batches
-      SET status = 'completed', completed_at = now(), report_json = ${JSON.stringify(report)}::jsonb, content_fingerprint = ${afterFp}
-      WHERE id = ${batchId}
-    `;
   } catch (err) {
     const message = err instanceof Error ? err.message : 'import failed';
     report.anomalies.push(message);
     await opts.sql`
-      UPDATE import_batches
-      SET status = 'failed', completed_at = now(), error_message = ${message}, report_json = ${JSON.stringify(report)}::jsonb
-      WHERE id = ${batchId}
+      INSERT INTO import_batches (id, mode, source_timezone, status, importer_version, report_json, error_message, completed_at)
+      VALUES (
+        ${batchId},
+        ${opts.mode},
+        ${opts.sourceTimezone},
+        'failed',
+        ${IMPORTER_VERSION},
+        ${JSON.stringify(report)}::jsonb,
+        ${message},
+        now()
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        status = 'failed',
+        error_message = EXCLUDED.error_message,
+        report_json = EXCLUDED.report_json,
+        completed_at = now()
     `;
     return {
       inventory,
@@ -517,11 +466,18 @@ export async function runImport(opts: ImportOptions): Promise<{
       batchId,
       failed: true,
     };
-  } finally {
-    await opts.sql`SELECT pg_advisory_unlock(${IMPORT_RUN_LOCK_KEY})`;
   }
 
   return { inventory, report, markdown: reportToMarkdown(report), batchId };
+}
+
+function maybeFailCanonicalWrite(opts: ImportOptions, canonicalWrites: number): void {
+  if (
+    opts.testFailAfterCanonicalWrites != null &&
+    canonicalWrites > opts.testFailAfterCanonicalWrites
+  ) {
+    throw new Error('test_fail_after_canonical_writes');
+  }
 }
 
 function touchCoverage(report: ImportReport, key: string, at: Date) {

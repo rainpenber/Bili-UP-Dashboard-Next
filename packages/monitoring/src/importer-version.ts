@@ -1,4 +1,4 @@
-export const IMPORTER_VERSION = 'wp-001.2.0';
+export const IMPORTER_VERSION = 'wp-001.2.1';
 
 export function canonicalSourceKey(parts: {
   fileKind: string;

@@ -8,5 +8,6 @@ export * from './report';
 export * from './asset-id';
 export * from './mock-data-root';
 export * from './inventory-summary';
+export * from './import-advisory';
 export * from './importer-version';
 export * from './metric-parse';
