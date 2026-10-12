@@ -10,6 +10,14 @@ import { reportToMarkdown } from './report';
 import { pgBigint } from './sql-values';
 import type { ImportMode, ImportReport } from './types';
 
+const IMPORT_RUN_LOCK_KEY = 915_002;
+
+function pgTextArrayLiteral(values: string[]): string {
+  if (values.length === 0) return '{}';
+  const escaped = values.map((v) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+  return `{${escaped.join(',')}}`;
+}
+
 export type ImportOptions = {
   mode: ImportMode;
   backendRoot?: string;
@@ -185,15 +193,16 @@ export async function runImport(opts: ImportOptions): Promise<{
 
   const beforeFp = opts.mode === 'apply' ? await fingerprintBusinessData(opts.sql) : null;
 
-  await opts.sql`
-    INSERT INTO import_batches (id, mode, source_timezone, status, importer_version, report_json)
-    VALUES (${batchId}, ${opts.mode}, ${opts.sourceTimezone}, 'running', ${IMPORTER_VERSION}, ${JSON.stringify(report)}::jsonb)
-  `;
-
-  const writeCanonical = opts.mode === 'apply';
-  let canonicalWrites = 0;
-
+  await opts.sql`SELECT pg_advisory_lock(${IMPORT_RUN_LOCK_KEY})`;
   try {
+    await opts.sql`
+      INSERT INTO import_batches (id, mode, source_timezone, status, importer_version, report_json)
+      VALUES (${batchId}, ${opts.mode}, ${opts.sourceTimezone}, 'running', ${IMPORTER_VERSION}, ${JSON.stringify(report)}::jsonb)
+    `;
+
+    const writeCanonical = opts.mode === 'apply';
+    let canonicalWrites = 0;
+
     await opts.sql.begin(async (tx) => {
       for (const bundle of parsedGroups) {
         const canonicalPath = bundle.parseSourcePath;
@@ -264,7 +273,7 @@ export async function runImport(opts: ImportOptions): Promise<{
               ${row.sampledAt},
               ${row.rawTime},
               ${JSON.stringify(row.payload)}::jsonb,
-              ${row.qualityFlags},
+              ${pgTextArrayLiteral(row.qualityFlags)}::text[],
               ${row.isCanonical}
             )
           `;
@@ -409,6 +418,8 @@ export async function runImport(opts: ImportOptions): Promise<{
       batchId,
       failed: true,
     };
+  } finally {
+    await opts.sql`SELECT pg_advisory_unlock(${IMPORT_RUN_LOCK_KEY})`;
   }
 
   return { inventory, report, markdown: reportToMarkdown(report), batchId };
