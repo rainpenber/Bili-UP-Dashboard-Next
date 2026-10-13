@@ -17,7 +17,7 @@ function serviceBlock(yaml: string, service: string): string {
   for (let i = start + 1; i < lines.length; i++) {
     const line = lines[i] ?? '';
     if (line === 'volumes:') break;
-    if (/^  [a-zA-Z0-9_-]+:/.test(line)) break;
+    if (/^ {2}[a-zA-Z0-9_-]+:/.test(line)) break;
     out.push(line);
   }
   return out.join('\n');
