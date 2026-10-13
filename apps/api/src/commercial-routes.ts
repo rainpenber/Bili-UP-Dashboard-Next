@@ -358,6 +358,9 @@ export function createCommercialRoutes(db: Sql) {
 
 function routeErr(c: Parameters<typeof jsonError>[0], err: unknown) {
   const status = (err as Error & { status?: number }).status;
+  if (err instanceof Error && err.name === 'ZodError') {
+    return jsonError(c, 400, err.message);
+  }
   if (status === 404) return jsonError(c, 404, err instanceof Error ? err.message : 'error');
   if (status === 409) return jsonError(c, 409, err instanceof Error ? err.message : 'error');
   return jsonError(c, 400, err instanceof Error ? err.message : 'error');

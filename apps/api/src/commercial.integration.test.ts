@@ -80,22 +80,31 @@ describe('commercial API integration', () => {
       await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)
     ).json();
     expect(wf.edges.length).toBeGreaterThan(0);
-    const extra = await app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
+    const extraA = await app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: '临时节点', posX: 900, posY: 400 }),
+      body: JSON.stringify({ name: '临时节点A', posX: 900, posY: 400 }),
     });
-    expect(extra.status).toBe(201);
-    const wf2 = await extra.json();
-    const temp = wf2.nodes.find((n: { name: string }) => n.name === '临时节点');
-    const other = wf2.nodes.find((n: { slug: string | null }) => n.slug === 'other');
-    expect(temp && other).toBeTruthy();
+    const extraB = await app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '临时节点B', posX: 900, posY: 520 }),
+    });
+    expect(extraA.status).toBe(201);
+    expect(extraB.status).toBe(201);
+    const wf2 = await extraB.json();
+    const tempA = wf2.nodes.find((n: { name: string }) => n.name === '临时节点A');
+    const tempB = wf2.nodes.find((n: { name: string }) => n.name === '临时节点B');
+    expect(tempA && tempB).toBeTruthy();
     const connect = await app.request(`/api/v1/commercial/projects/${project.id}/edges`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ fromNodeId: temp!.id, toNodeId: other!.id }),
+      body: JSON.stringify({ fromNodeId: tempA!.id, toNodeId: tempB!.id }),
     });
-    expect(connect.status).toBe(201);
+    if (connect.status !== 201) {
+      const errBody = await connect.json();
+      throw new Error(`connect failed: ${connect.status} ${JSON.stringify(errBody)}`);
+    }
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
 

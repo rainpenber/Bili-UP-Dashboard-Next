@@ -1,6 +1,6 @@
 import { hermesWriteEnvelopeSchema, type HermesWriteEnvelope } from '@studio/contracts';
 import type { CommercialEngine } from './engine';
-import { hermesPayloadHash } from './canonical-json';
+import { canonicalJson, hermesPayloadHash } from './canonical-json';
 import { applyHermesEnvelopeTx } from './engine-mutations';
 import type { Db } from './graph-io';
 
@@ -117,18 +117,27 @@ async function insertProposalTx(tx: Db, envelope: HermesWriteEnvelope) {
   return { mode: 'proposal', proposalId: row.id, status: row.status };
 }
 
+function stripProjectIdFromPayload(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object') return payload;
+  const { projectId: _ignored, ...rest } = payload as Record<string, unknown>;
+  return rest;
+}
+
 function assertProposalMatches(
   envelope: HermesWriteEnvelope,
   existing: { operation: string; project_id: string | null; payload: unknown },
 ) {
   const projectId = resolveProjectId(envelope);
-  const expectedHash = hermesPayloadHash(envelope.operation, projectId, envelope.payload);
-  const storedHash = hermesPayloadHash(
-    existing.operation,
-    existing.project_id ?? null,
-    existing.payload,
-  );
-  if (expectedHash !== storedHash) {
+  if (existing.operation !== envelope.operation) {
+    throw Object.assign(new Error('idempotency key conflict'), { status: 409 });
+  }
+  if ((existing.project_id ?? null) !== (projectId ?? null)) {
+    throw Object.assign(new Error('idempotency key conflict'), { status: 409 });
+  }
+  if (
+    canonicalJson(stripProjectIdFromPayload(existing.payload)) !==
+    canonicalJson(stripProjectIdFromPayload(envelope.payload))
+  ) {
     throw Object.assign(new Error('idempotency key conflict'), { status: 409 });
   }
 }
