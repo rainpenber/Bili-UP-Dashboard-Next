@@ -90,7 +90,7 @@ export const openItemSchema = z.object({
   blocksRequiredForClose: z.boolean(),
 });
 
-const openItemBodyBaseSchema = z.object({
+export const openItemBodyBaseSchema = z.object({
   title: z.string().min(1).max(300),
   nextActor: nextActorSchema,
   description: z.string().max(5000).optional(),

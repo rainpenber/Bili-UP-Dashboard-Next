@@ -188,7 +188,7 @@ describe('commercial API integration', () => {
     const project = await createProject(app, 'test-hermes-prop');
     const body = {
       idempotencyKey: `hermes-prop-${project.id}`,
-      operation: 'upsert_open_item',
+      operation: 'create_open_item',
       confidence: 0.5,
       payload: {
         projectId: project.id,
@@ -290,6 +290,42 @@ describe('commercial API integration', () => {
       await app.request(`/api/v1/commercial/projects/${project.id}/open-items`)
     ).json();
     expect(items.items[0].workflowNodeId).toBeNull();
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
+
+  test('concurrent hermes direct writes apply once', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'test-hermes-concurrent');
+    const body = {
+      idempotencyKey: `hermes-conc-${project.id}`,
+      operation: 'complete_node',
+      confidence: 1,
+      autoApply: true,
+      payload: {
+        projectId: project.id,
+        nodeId: (
+          await (await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)).json()
+        ).nodes.find((n: { slug: string | null }) => n.slug === 'outline').id,
+      },
+    };
+    const [r1, r2] = await Promise.all([
+      app.request('/api/v1/commercial/hermes/write', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      app.request('/api/v1/commercial/hermes/write', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    ]);
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    const idem = await sql<{ c: string }[]>`
+      SELECT count(*)::text AS c FROM hermes_idempotency WHERE idempotency_key = ${body.idempotencyKey}
+    `;
+    expect(idem[0]?.c).toBe('1');
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
 

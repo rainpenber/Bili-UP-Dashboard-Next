@@ -81,7 +81,7 @@ export class TemplateEngine {
         nodeMap.set(n.id, newId);
         await tx`
           INSERT INTO wf_template_nodes (id, template_version_id, package_id, slug, name, is_optional, pos_x, pos_y, phase)
-          VALUES (${newId}, ${draftId}, ${n.package_id ? (pkgMap.get(n.package_id) ?? null) : null}, ${n.slug + '_v' + nextVersion}, ${n.name}, ${n.is_optional}, ${n.pos_x}, ${n.pos_y}, ${n.phase})
+          VALUES (${newId}, ${draftId}, ${n.package_id ? (pkgMap.get(n.package_id) ?? null) : null}, ${n.slug}, ${n.name}, ${n.is_optional}, ${n.pos_x}, ${n.pos_y}, ${n.phase})
         `;
       }
       const edges = await tx<{ from_node_id: string; to_node_id: string }[]>`

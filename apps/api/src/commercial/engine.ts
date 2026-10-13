@@ -11,6 +11,16 @@ import type { Sql } from '@studio/db';
 import { assertEdgeAllowed, loadWorkflowGraph, type Db } from './graph-io';
 import { pickPrimaryBlockReason, syncBlockedAndStage } from './sync-state';
 import { executeHermesOperation } from './hermes';
+import { createProjectTx, mutateProjectGraph } from './engine-mutations';
+import {
+  applyUpdates,
+  assertNodeInGraph,
+  audit,
+  executePublishEffects,
+  mapNode,
+  mapOpenItem,
+} from './engine-shared';
+import { hermesPayloadHash } from './canonical-json';
 
 export class CommercialEngine {
   constructor(public readonly db: Sql) {}
@@ -37,9 +47,11 @@ export class CommercialEngine {
         overall_stage: string;
         user_deadline_at: Date | null;
         updated_at: Date;
+        blocked_since_at: Date | null;
+        stage_entered_at: Date;
       }[]
     >`
-      SELECT id, name, overall_stage, user_deadline_at, updated_at FROM commercial_projects
+      SELECT id, name, overall_stage, user_deadline_at, updated_at, blocked_since_at, stage_entered_at FROM commercial_projects
       WHERE archived_at IS NULL AND overall_stage <> 'closed'
       ${pattern ? this.db`AND name ILIKE ${pattern}` : this.db``}
       ${query.dateFrom ? this.db`AND user_deadline_at >= ${query.dateFrom}` : this.db``}
@@ -80,11 +92,22 @@ export class CommercialEngine {
               : r.overall_stage === 'published_winding_down'
                 ? 2
                 : 99,
+          blockedSinceAt: r.blocked_since_at?.toISOString() ?? null,
+          stageEnteredAt: r.stage_entered_at.toISOString(),
         };
       }),
     );
     enriched.sort((a, b) => {
       if (a.sortKey !== b.sortKey) return a.sortKey - b.sortKey;
+      if (a.sortKey === 0) {
+        const ba = a.blockedSinceAt ? Date.parse(a.blockedSinceAt) : Number.MAX_SAFE_INTEGER;
+        const bb = b.blockedSinceAt ? Date.parse(b.blockedSinceAt) : Number.MAX_SAFE_INTEGER;
+        if (ba !== bb) return ba - bb;
+      } else {
+        const sa = Date.parse(a.stageEnteredAt);
+        const sb = Date.parse(b.stageEnteredAt);
+        if (sa !== sb) return sa - sb;
+      }
       const da = a.userDeadlineAt ? Date.parse(a.userDeadlineAt) : Number.MAX_SAFE_INTEGER;
       const db = b.userDeadlineAt ? Date.parse(b.userDeadlineAt) : Number.MAX_SAFE_INTEGER;
       if (da !== db) return da - db;
@@ -98,69 +121,10 @@ export class CommercialEngine {
   }
 
   async createProject(body: { name: string; netAmount?: number; rebateAmount?: number }) {
-    const id = crypto.randomUUID();
-    await this.db.begin(async (tx) => {
-      const templateVersionId = await this.resolveDefaultTemplateVersionId(tx);
-      await tx`
-        INSERT INTO commercial_projects (id, name, net_amount, rebate_amount)
-        VALUES (${id}, ${body.name}, ${body.netAmount ?? null}, ${body.rebateAmount ?? null})
-      `;
-      const wfId = crypto.randomUUID();
-      await tx`
-        INSERT INTO project_workflows (id, project_id, template_version_id)
-        VALUES (${wfId}, ${id}, ${templateVersionId})
-      `;
-      const tplNodes = await tx<
-        {
-          id: string;
-          name: string;
-          is_optional: boolean;
-          pos_x: number;
-          pos_y: number;
-          package_id: string | null;
-          slug: string;
-          phase: string;
-        }[]
-      >`SELECT id, name, is_optional, pos_x, pos_y, package_id, slug, phase FROM wf_template_nodes WHERE template_version_id = ${templateVersionId}`;
-      const tplPackages = await tx<
-        { id: string; name: string; sort_order: number }[]
-      >`SELECT id, name, sort_order FROM wf_template_packages WHERE template_version_id = ${templateVersionId}`;
-      const pkgMap = new Map<string, string>();
-      for (const pkg of tplPackages) {
-        const pkgId = crypto.randomUUID();
-        pkgMap.set(pkg.id, pkgId);
-        await tx`
-          INSERT INTO wf_packages (id, workflow_id, name, sort_order)
-          VALUES (${pkgId}, ${wfId}, ${pkg.name}, ${pkg.sort_order})
-        `;
-      }
-      const idMap = new Map<string, string>();
-      for (const tn of tplNodes) {
-        const nodeId = crypto.randomUUID();
-        idMap.set(tn.id, nodeId);
-        const status = tn.slug === 'inquiry' ? 'completed' : 'not_reached';
-        const instancePkg = tn.package_id ? (pkgMap.get(tn.package_id) ?? null) : null;
-        await tx`
-          INSERT INTO wf_nodes (id, workflow_id, project_id, template_node_id, package_id, name, status, is_optional, pos_x, pos_y, phase)
-          VALUES (${nodeId}, ${wfId}, ${id}, ${tn.id}, ${instancePkg}, ${tn.name}, ${status}, ${tn.is_optional}, ${tn.pos_x}, ${tn.pos_y}, ${tn.phase})
-          ON CONFLICT DO NOTHING
-        `;
-      }
-      const tplEdges = await tx<{ from_node_id: string; to_node_id: string }[]>`
-        SELECT from_node_id, to_node_id FROM wf_template_edges WHERE template_version_id = ${templateVersionId}
-      `;
-      for (const e of tplEdges) {
-        const fromId = idMap.get(e.from_node_id);
-        const toId = idMap.get(e.to_node_id);
-        if (!fromId || !toId) continue;
-        await tx`
-          INSERT INTO wf_edges (id, workflow_id, from_node_id, to_node_id)
-          VALUES (${crypto.randomUUID()}, ${wfId}, ${fromId}, ${toId})
-        `;
-      }
-      await syncBlockedAndStage(tx, id);
-    });
-    return this.getProjectDetail(id);
+    const id = await this.db.begin(async (tx) =>
+      createProjectTx(tx, body, (inner) => this.resolveDefaultTemplateVersionId(inner)),
+    );
+    return this.getProjectDetail(id)!;
   }
 
   async getProjectDetail(projectId: string): Promise<ProjectDetailDto | null> {
@@ -318,12 +282,16 @@ export class CommercialEngine {
     body: { name: string; posX: number; posY: number; phase?: string },
   ) {
     const id = crypto.randomUUID();
-    await this.mutateGraph(projectId, async (tx, graph) => {
-      await tx`
-        INSERT INTO wf_nodes (id, workflow_id, project_id, name, status, pos_x, pos_y, phase, source)
-        VALUES (${id}, ${graph.workflowId}, ${projectId}, ${body.name}, 'not_reached', ${body.posX}, ${body.posY}, ${body.phase ?? 'pre_publish'}, 'web')
-      `;
-    });
+    await this.mutateGraph(
+      projectId,
+      async (tx, graph) => {
+        await tx`
+          INSERT INTO wf_nodes (id, workflow_id, project_id, name, status, pos_x, pos_y, phase, source)
+          VALUES (${id}, ${graph.workflowId}, ${projectId}, ${body.name}, 'not_reached', ${body.posX}, ${body.posY}, ${body.phase ?? 'pre_publish'}, 'web')
+        `;
+      },
+      { recordUndo: true },
+    );
     return this.getWorkflow(projectId)!;
   }
 
@@ -332,55 +300,71 @@ export class CommercialEngine {
     nodeId: string,
     body: { name?: string; posX?: number; posY?: number; plannedAt?: string | null },
   ) {
-    await this.mutateGraph(projectId, async (tx) => {
-      if (body.name !== undefined) {
-        await tx`UPDATE wf_nodes SET name = ${body.name}, updated_at = now() WHERE id = ${nodeId} AND project_id = ${projectId}`;
-      }
-      if (body.posX !== undefined || body.posY !== undefined) {
-        await tx`
+    await this.mutateGraph(
+      projectId,
+      async (tx) => {
+        if (body.name !== undefined) {
+          await tx`UPDATE wf_nodes SET name = ${body.name}, updated_at = now() WHERE id = ${nodeId} AND project_id = ${projectId}`;
+        }
+        if (body.posX !== undefined || body.posY !== undefined) {
+          await tx`
           UPDATE wf_nodes SET
             pos_x = COALESCE(${body.posX ?? null}, pos_x),
             pos_y = COALESCE(${body.posY ?? null}, pos_y),
             updated_at = now()
           WHERE id = ${nodeId} AND project_id = ${projectId}
         `;
-      }
-      if (body.plannedAt !== undefined) {
-        await tx`
+        }
+        if (body.plannedAt !== undefined) {
+          await tx`
           UPDATE wf_nodes SET planned_at = ${body.plannedAt}, updated_at = now()
           WHERE id = ${nodeId} AND project_id = ${projectId}
         `;
-      }
-    });
+        }
+      },
+      { recordUndo: true },
+    );
     return this.getWorkflow(projectId)!;
   }
 
   async deleteGraphNode(projectId: string, nodeId: string) {
-    await this.mutateGraph(projectId, async (tx) => {
-      await tx`DELETE FROM wf_edges WHERE workflow_id IN (SELECT id FROM project_workflows WHERE project_id = ${projectId}) AND (from_node_id = ${nodeId} OR to_node_id = ${nodeId})`;
-      await tx`DELETE FROM wf_nodes WHERE id = ${nodeId} AND project_id = ${projectId}`;
-    });
+    await this.mutateGraph(
+      projectId,
+      async (tx) => {
+        await tx`DELETE FROM wf_edges WHERE workflow_id IN (SELECT id FROM project_workflows WHERE project_id = ${projectId}) AND (from_node_id = ${nodeId} OR to_node_id = ${nodeId})`;
+        await tx`DELETE FROM wf_nodes WHERE id = ${nodeId} AND project_id = ${projectId}`;
+      },
+      { recordUndo: true },
+    );
     return this.getWorkflow(projectId)!;
   }
 
   async createGraphEdge(projectId: string, fromNodeId: string, toNodeId: string) {
-    await this.mutateGraph(projectId, async (tx, graph) => {
-      await assertEdgeAllowed(tx, graph.workflowId, fromNodeId, toNodeId);
-      await tx`
+    await this.mutateGraph(
+      projectId,
+      async (tx, graph) => {
+        await assertEdgeAllowed(tx, graph.workflowId, fromNodeId, toNodeId);
+        await tx`
         INSERT INTO wf_edges (id, workflow_id, from_node_id, to_node_id)
         VALUES (${crypto.randomUUID()}, ${graph.workflowId}, ${fromNodeId}, ${toNodeId})
       `;
-    });
+      },
+      { recordUndo: true },
+    );
     return this.getWorkflow(projectId)!;
   }
 
   async deleteGraphEdge(projectId: string, edgeId: string) {
-    await this.mutateGraph(projectId, async (tx) => {
-      await tx`
+    await this.mutateGraph(
+      projectId,
+      async (tx) => {
+        await tx`
         DELETE FROM wf_edges e USING project_workflows w
         WHERE e.id = ${edgeId} AND e.workflow_id = w.id AND w.project_id = ${projectId}
       `;
-    });
+      },
+      { recordUndo: true },
+    );
     return this.getWorkflow(projectId)!;
   }
 
@@ -503,86 +487,45 @@ export class CommercialEngine {
   ): Promise<PublishResultDto> {
     return this.db.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${body.idempotencyKey}))`;
-      const payloadHash = hashPayload(body);
+      const payloadHash = hermesPayloadHash('publish_video', projectId, {
+        projectId,
+        bvid: body.bvid,
+        publishedAt: body.publishedAt,
+      });
       const prior = await tx<
         {
-          idempotency_key: string;
-          project_id: string;
+          operation: string;
+          project_id: string | null;
           payload_hash: string;
           result_json: unknown;
         }[]
       >`
-        SELECT idempotency_key, project_id, payload_hash, result_json FROM hermes_idempotency
-        WHERE idempotency_key = ${body.idempotencyKey}
-        FOR UPDATE
+        SELECT operation, project_id, payload_hash, result_json FROM hermes_idempotency
+        WHERE idempotency_key = ${body.idempotencyKey} FOR UPDATE
       `;
       if (prior[0]) {
-        if (prior[0].project_id !== projectId || prior[0].payload_hash !== payloadHash) {
+        if (
+          prior[0].operation !== 'publish_video' ||
+          prior[0].project_id !== projectId ||
+          prior[0].payload_hash !== payloadHash
+        ) {
           throw Object.assign(new Error('idempotency key conflict'), { status: 409 });
         }
         return prior[0].result_json as PublishResultDto;
       }
-      const existingPub = await tx<{ project_id: string; idempotency_key: string | null }[]>`
-        SELECT project_id, idempotency_key FROM project_publish_records WHERE project_id = ${projectId}
+      const existingPub = await tx<{ idempotency_key: string | null }[]>`
+        SELECT idempotency_key FROM project_publish_records WHERE project_id = ${projectId}
       `;
-      if (existingPub[0] && existingPub[0].idempotency_key !== body.idempotencyKey) {
+      if (
+        existingPub[0]?.idempotency_key &&
+        existingPub[0].idempotency_key !== body.idempotencyKey
+      ) {
         throw Object.assign(new Error('project already published'), { status: 409 });
       }
-      if (existingPub[0] && existingPub[0].idempotency_key === body.idempotencyKey) {
-        const cached = await tx<{ result_json: unknown }[]>`
-          SELECT result_json FROM hermes_idempotency WHERE idempotency_key = ${body.idempotencyKey}
-        `;
-        if (cached[0]) return cached[0].result_json as PublishResultDto;
-      }
-      const graph = await loadWorkflowGraph(tx, projectId, true);
-      if (!graph) throw Object.assign(new Error('workflow not found'), { status: 404 });
-      const forced: { nodeId: string; name: string }[] = [];
-      for (const n of graph.nodes) {
-        if (n.phase !== 'pre_publish') continue;
-        if (n.status === 'completed' || n.status === 'not_applicable') continue;
-        await tx`
-          UPDATE wf_nodes SET status = 'completed', completed_at = ${body.publishedAt}, updated_at = now()
-          WHERE id = ${n.id}
-        `;
-        forced.push({ nodeId: n.id, name: n.name });
-      }
-      await tx`
-        INSERT INTO project_publish_records (project_id, bvid, published_at, publish_source, forced_complete_audit, idempotency_key)
-        VALUES (${projectId}, ${body.bvid}, ${body.publishedAt}, 'web', ${JSON.stringify(forced)}::jsonb, ${body.idempotencyKey})
-      `;
-      await tx`
-        INSERT INTO videos (bvid, title, metadata)
-        VALUES (${body.bvid}, ${`商单视频 ${body.bvid}`}, ${JSON.stringify({ source: 'commercial_publish' })}::jsonb)
-        ON CONFLICT (bvid) DO NOTHING
-      `;
-      const metricsDue = new Date(new Date(body.publishedAt).getTime() + 60_000);
-      await tx`
-        INSERT INTO project_monitor_contracts (id, project_id, bvid, monitor_video_key, linked_bvid, metadata_task_status, metrics_fetch_due_at)
-        VALUES (${crypto.randomUUID()}, ${projectId}, ${body.bvid}, ${body.bvid}, ${body.bvid}, 'pending', ${metricsDue.toISOString()})
-        ON CONFLICT (project_id) DO NOTHING
-      `;
-      await tx`
-        INSERT INTO monitor_jobs (id, project_id, job_type, status, due_at)
-        VALUES (${crypto.randomUUID()}, ${projectId}, 'metadata', 'pending', now())
-        ON CONFLICT (project_id, job_type) DO NOTHING
-      `;
-      await tx`
-        INSERT INTO monitor_jobs (id, project_id, job_type, status, due_at)
-        VALUES (${crypto.randomUUID()}, ${projectId}, 'metrics', 'pending', ${metricsDue.toISOString()})
-        ON CONFLICT (project_id, job_type) DO NOTHING
-      `;
-      await runMockMetadataTask(tx, projectId, body.bvid);
-      await syncBlockedAndStage(tx, projectId);
-      const result: PublishResultDto = {
-        projectId,
-        bvid: body.bvid,
-        publishedAt: body.publishedAt,
-        forcedCompleteAudit: forced,
-        monitor: await getMonitorDto(tx, projectId),
-      };
+      const result = await executePublishEffects(tx, projectId, body, 'web');
       await tx`
         INSERT INTO hermes_idempotency (idempotency_key, operation, project_id, payload_hash, result_json)
-        VALUES (${body.idempotencyKey}, 'publish', ${projectId}, ${payloadHash}, ${JSON.stringify(result)}::jsonb)
+        VALUES (${body.idempotencyKey}, 'publish_video', ${projectId}, ${payloadHash}, ${JSON.stringify(result)}::jsonb)
       `;
       return result;
     });
@@ -680,13 +623,21 @@ export class CommercialEngine {
       tx: Db,
       graph: NonNullable<Awaited<ReturnType<typeof loadWorkflowGraph>>>,
     ) => Promise<void>,
+    opts?: { recordUndo?: boolean },
   ) {
-    await this.db.begin(async (tx) => {
-      const graph = await loadWorkflowGraph(tx, projectId, true);
-      if (!graph) throw Object.assign(new Error('workflow not found'), { status: 404 });
-      await fn(tx, graph);
-      await syncBlockedAndStage(tx, projectId);
-    });
+    await this.db.begin(async (tx) => mutateProjectGraph(tx, projectId, fn, opts));
+  }
+
+  async undoGraph(projectId: string) {
+    const { undoProjectGraph } = await import('./undo-stack');
+    await this.db.begin(async (tx) => undoProjectGraph(tx, projectId));
+    return this.getWorkflow(projectId)!;
+  }
+
+  async redoGraph(projectId: string) {
+    const { redoProjectGraph } = await import('./undo-stack');
+    await this.db.begin(async (tx) => redoProjectGraph(tx, projectId));
+    return this.getWorkflow(projectId)!;
   }
 }
 
@@ -694,155 +645,4 @@ function stripSort<T extends { sortKey: number }>(row: T): Omit<T, 'sortKey'> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- omit sortKey for API response
   const { sortKey, ...rest } = row;
   return rest;
-}
-
-function assertNodeInGraph(
-  graph: NonNullable<Awaited<ReturnType<typeof loadWorkflowGraph>>>,
-  nodeId: string,
-) {
-  const node = graph.nodes.find((n) => n.id === nodeId);
-  if (!node) throw Object.assign(new Error('node not found in project workflow'), { status: 404 });
-  return node;
-}
-
-async function applyUpdates(
-  tx: Db,
-  workflowId: string,
-  updates: Map<string, { status: string; completedAt?: string | null }>,
-) {
-  for (const [id, u] of updates) {
-    const rows = await tx`
-      UPDATE wf_nodes SET status = ${u.status},
-        completed_at = ${u.completedAt ?? null},
-        updated_at = now()
-      WHERE id = ${id} AND workflow_id = ${workflowId}
-      RETURNING id
-    `;
-    if (!rows.length)
-      throw Object.assign(new Error('node update out of workflow scope'), { status: 409 });
-  }
-}
-
-async function audit(tx: Db, projectId: string, action: string, entityId: string, detail: unknown) {
-  await tx`
-    INSERT INTO workflow_audit_log (project_id, entity_type, entity_id, action, detail)
-    VALUES (${projectId}, 'node', ${entityId}, ${action}, ${JSON.stringify(detail)}::jsonb)
-  `;
-}
-
-function mapNode(n: {
-  id: string;
-  name: string;
-  status: string;
-  phase: string;
-  is_optional: boolean;
-  planned_at: Date | null;
-  completed_at: Date | null;
-  pos_x: number;
-  pos_y: number;
-  package_id: string | null;
-  slug: string | null;
-}) {
-  return {
-    id: n.id,
-    name: n.name,
-    status: n.status as WorkflowGraph['nodes'][number]['status'],
-    phase: n.phase as WorkflowGraph['nodes'][number]['phase'],
-    isOptional: n.is_optional,
-    plannedAt: n.planned_at?.toISOString() ?? null,
-    completedAt: n.completed_at?.toISOString() ?? null,
-    posX: n.pos_x,
-    posY: n.pos_y,
-    packageId: n.package_id,
-    slug: n.slug,
-  };
-}
-
-function mapOpenItem(r: {
-  id: string;
-  project_id: string;
-  workflow_node_id: string | null;
-  blocks_node_id: string | null;
-  title: string;
-  description: string | null;
-  close_criteria: string | null;
-  next_action: string | null;
-  next_actor: string;
-  lifecycle: string;
-  impact: string;
-  planned_at: Date | null;
-  source_evidence: Record<string, unknown> | null;
-  confidence: number | null;
-  close_conclusion: string | null;
-  created_at: Date;
-  updated_at: Date;
-  closed_at: Date | null;
-  sort_rank: number;
-  blocks_required_for_close: boolean;
-}): OpenItemDto {
-  return {
-    id: r.id,
-    projectId: r.project_id,
-    workflowNodeId: r.workflow_node_id,
-    blocksNodeId: r.blocks_node_id,
-    title: r.title,
-    description: r.description,
-    closeCriteria: r.close_criteria,
-    nextAction: r.next_action,
-    nextActor: r.next_actor as OpenItemDto['nextActor'],
-    lifecycle: r.lifecycle as OpenItemDto['lifecycle'],
-    impact: r.impact as OpenItemDto['impact'],
-    plannedAt: r.planned_at?.toISOString() ?? null,
-    sourceEvidence: r.source_evidence,
-    confidence: r.confidence,
-    closeConclusion: r.close_conclusion,
-    createdAt: r.created_at.toISOString(),
-    updatedAt: r.updated_at.toISOString(),
-    closedAt: r.closed_at?.toISOString() ?? null,
-    sortRank: r.sort_rank,
-    blocksRequiredForClose: r.blocks_required_for_close,
-  };
-}
-
-function hashPayload(body: { bvid: string; publishedAt: string; idempotencyKey: string }) {
-  return `${body.bvid}|${body.publishedAt}|${body.idempotencyKey}`;
-}
-
-async function runMockMetadataTask(tx: Db, projectId: string, bvid: string) {
-  const meta = await tx<{ title: string | null }[]>`
-    SELECT title FROM videos WHERE bvid = ${bvid} LIMIT 1
-  `;
-  const title = meta[0]?.title ?? `Mock ${bvid}`;
-  await tx`
-    UPDATE project_monitor_contracts
-    SET metadata_task_status = 'mock_ready',
-        metadata_title = ${title},
-        metadata_cover_url = ${`/api/v1/assets/placeholder/${bvid}`},
-        metadata_cid = ${`mock-cid-${bvid}`},
-        metadata_fetched_at = now(),
-        linked_bvid = ${bvid}
-    WHERE project_id = ${projectId}
-  `;
-  await tx`
-    UPDATE monitor_jobs SET status = 'done', result_json = ${JSON.stringify({ title, bvid })}::jsonb
-    WHERE project_id = ${projectId} AND job_type = 'metadata'
-  `;
-}
-
-async function getMonitorDto(tx: Db, projectId: string) {
-  const mon = await tx<
-    {
-      metadata_task_status: string;
-      metadata_title: string | null;
-      linked_bvid: string | null;
-      metrics_fetch_due_at: Date | null;
-    }[]
-  >`SELECT metadata_task_status, metadata_title, linked_bvid, metrics_fetch_due_at FROM project_monitor_contracts WHERE project_id = ${projectId}`;
-  const m = mon[0];
-  return {
-    metadataTaskStatus: m?.metadata_task_status ?? 'pending',
-    metadataTitle: m?.metadata_title ?? null,
-    linkedBvid: m?.linked_bvid ?? null,
-    metricsFetchDueAt: m?.metrics_fetch_due_at?.toISOString() ?? null,
-  };
 }

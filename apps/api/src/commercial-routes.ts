@@ -3,7 +3,7 @@ import {
   createGraphNodeBodySchema,
   createOpenItemBodySchema,
   createProjectBodySchema,
-  hermesWriteBodySchema,
+  hermesWriteEnvelopeSchema,
   homeDashboardSchema,
   openItemSchema,
   patchOpenItemBodySchema,
@@ -66,6 +66,22 @@ export function createCommercialRoutes(db: Sql) {
     const wf = await engine.getWorkflow(c.req.param('id'));
     if (!wf) return jsonError(c, 404, 'workflow not found');
     return c.json(workflowGraphSchema.parse(wf));
+  });
+
+  app.post('/projects/:id/workflow/undo', async (c) => {
+    try {
+      return c.json(workflowGraphSchema.parse(await engine.undoGraph(c.req.param('id'))));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/projects/:id/workflow/redo', async (c) => {
+    try {
+      return c.json(workflowGraphSchema.parse(await engine.redoGraph(c.req.param('id'))));
+    } catch (err) {
+      return routeErr(c, err);
+    }
   });
 
   app.post('/projects/:id/nodes/:nodeId/advance-to', async (c) => {
@@ -222,7 +238,7 @@ export function createCommercialRoutes(db: Sql) {
 
   app.post('/hermes/write', async (c) => {
     try {
-      const body = hermesWriteBodySchema.parse(await c.req.json());
+      const body = hermesWriteEnvelopeSchema.parse(await c.req.json());
       return c.json(await engine.runHermes(body));
     } catch (err) {
       return routeErr(c, err);

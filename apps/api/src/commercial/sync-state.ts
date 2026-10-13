@@ -72,10 +72,23 @@ export async function syncBlockedAndStage(tx: Db, projectId: string) {
     })),
     openItemsBlockingClose: Boolean(blockingClose[0]?.ok),
   });
+  const prev = await tx<
+    { overall_stage: string; blocked_since_at: Date | null; stage_entered_at: Date }[]
+  >`SELECT overall_stage, blocked_since_at, stage_entered_at FROM commercial_projects WHERE id = ${projectId} FOR UPDATE`;
+  const hasBlockedNode = graph.nodes.some((n) => n.status === 'blocked');
+  const blockedSince = hasBlockedNode
+    ? (prev[0]?.blocked_since_at?.toISOString() ?? new Date().toISOString())
+    : null;
+  const stageChanged = prev[0]?.overall_stage !== close.overallStage;
+  const stageEntered = stageChanged
+    ? new Date().toISOString()
+    : (prev[0]?.stage_entered_at.toISOString() ?? new Date().toISOString());
   await tx`
     UPDATE commercial_projects
     SET overall_stage = ${close.overallStage},
-        business_closed_at = ${close.businessClosed ? new Date().toISOString() : null},
+        business_closed_at = CASE WHEN ${close.businessClosed} THEN COALESCE(business_closed_at, now()) ELSE NULL END,
+        blocked_since_at = ${blockedSince},
+        stage_entered_at = ${stageEntered},
         updated_at = now()
     WHERE id = ${projectId}
   `;
