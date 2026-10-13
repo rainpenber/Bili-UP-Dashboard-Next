@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS workflow_nodes (
   is_required BOOLEAN NOT NULL DEFAULT TRUE,
   status TEXT NOT NULL DEFAULT 'locked',
   status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  due_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
   UNIQUE (project_workflow_id, slug)
 );
 
@@ -63,6 +65,9 @@ CREATE TABLE IF NOT EXISTS open_items (
   title TEXT NOT NULL,
   description TEXT,
   close_condition TEXT,
+  due_at TIMESTAMPTZ,
+  external_evidence_ref TEXT,
+  confidence REAL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -74,7 +79,10 @@ CREATE TABLE IF NOT EXISTS hermes_change_proposals (
   status TEXT NOT NULL DEFAULT 'pending',
   suggested_action TEXT NOT NULL,
   payload JSONB NOT NULL DEFAULT '{}',
+  source_evidence JSONB,
   confidence REAL NOT NULL DEFAULT 0,
+  rejection_reason TEXT,
+  resolved_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
