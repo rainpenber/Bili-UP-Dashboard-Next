@@ -2,6 +2,7 @@ import type {
   CreateOpenItemBody,
   DashboardTodayResponse,
   HermesChangeProposal,
+  HermesPayload,
   OpenItemDto,
   PatchOpenItemBody,
   PatchProjectBody,
@@ -11,22 +12,24 @@ import type {
   TeamMember,
   WorkflowNodeDto,
 } from '@studio/contracts';
+import { dashboardTodayResponseSchema, parseHermesPayload } from '@studio/contracts';
 import type { Sql } from '@studio/db';
-import type postgres from 'postgres';
-
-type DbExecutor = Sql | postgres.TransactionSql;
 import {
-  assertValidNodeTransition,
-  deriveHealthStatus,
-  deriveProjectStage,
+  buildDashboardBuckets,
   downstreamNodeIds,
   recomputeAfterManualChange,
-  TransitionError,
   type WorkflowDependency,
   type WorkflowNodeSnapshot,
 } from '@studio/workflow';
-
-const TEMPLATE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+import {
+  applyHermesPayloadTx,
+  applyProjectPatchTx,
+  createOpenItemTx,
+  instantiateStandardWorkflowTx,
+  patchOpenItemTx,
+  patchWorkflowNodeTx,
+  type DbExecutor,
+} from './project-store';
 
 type MemberRow = { id: string; display_name: string; role_labels: string[] };
 
@@ -212,80 +215,19 @@ export class ProjectService {
           ${body.ownerId ?? null}, ${body.sourceStatus ?? 'unknown'}
         )
       `;
-      await this.instantiateStandardWorkflow(tx as unknown as DbExecutor, id);
+      await instantiateStandardWorkflowTx(tx as unknown as DbExecutor, id);
     });
     const created = await this.getProject(id);
     if (!created) throw new Error('create failed');
     return created;
   }
 
-  private async instantiateStandardWorkflow(tx: DbExecutor, projectId: string): Promise<void> {
-    const workflowId = crypto.randomUUID();
-    await tx`
-      INSERT INTO project_workflows (id, project_id, template_id)
-      VALUES (${workflowId}, ${projectId}, ${TEMPLATE_ID})
-    `;
-    const templateNodes = await tx<
-      {
-        id: string;
-        slug: string;
-        label: string;
-        sort_order: number;
-        is_required: boolean;
-        dependency_mode: string;
-        completion_criteria: string | null;
-        stage_key: string | null;
-      }[]
-    >`
-      SELECT id, slug, label, sort_order, is_required, dependency_mode, completion_criteria, stage_key
-      FROM workflow_template_nodes WHERE template_id = ${TEMPLATE_ID} ORDER BY sort_order
-    `;
-    const idMap = new Map<string, string>();
-    for (const tn of templateNodes) {
-      const nodeId = crypto.randomUUID();
-      idMap.set(tn.id, nodeId);
-      const status = tn.sort_order === 10 ? 'ready' : 'locked';
-      await tx`
-        INSERT INTO workflow_nodes (
-          id, project_workflow_id, template_node_id, slug, label, sort_order, is_required,
-          dependency_mode, completion_criteria, stage_key, status
-        ) VALUES (
-          ${nodeId}, ${workflowId}, ${tn.id}, ${tn.slug}, ${tn.label}, ${tn.sort_order},
-          ${tn.is_required}, ${tn.dependency_mode}, ${tn.completion_criteria}, ${tn.stage_key}, ${status}
-        )
-      `;
-    }
-    const templateDeps = await tx<{ node_id: string; depends_on_node_id: string }[]>`
-      SELECT node_id, depends_on_node_id FROM workflow_template_node_dependencies
-      WHERE node_id IN (SELECT id FROM workflow_template_nodes WHERE template_id = ${TEMPLATE_ID})
-    `;
-    for (const d of templateDeps) {
-      const nodeId = idMap.get(d.node_id);
-      const predId = idMap.get(d.depends_on_node_id);
-      if (!nodeId || !predId) continue;
-      await tx`
-        INSERT INTO workflow_node_dependencies (node_id, depends_on_node_id)
-        VALUES (${nodeId}, ${predId})
-      `;
-    }
-    await this.syncProjectDerivedState(tx, projectId);
-  }
-
   async patchProject(id: string, body: PatchProjectBody): Promise<ProjectSummary | null> {
     const existing = await this.getProject(id);
     if (!existing) return null;
-    await this.sql`
-      UPDATE projects SET
-        name = COALESCE(${body.name ?? null}, name),
-        brand = COALESCE(${body.brand ?? null}, brand),
-        product = COALESCE(${body.product ?? null}, product),
-        cooperation_type = COALESCE(${body.cooperationType ?? null}, cooperation_type),
-        planned_publish_at = COALESCE(${body.plannedPublishAt ?? null}::timestamptz, planned_publish_at),
-        owner_id = COALESCE(${body.ownerId ?? null}::uuid, owner_id),
-        source_status = COALESCE(${body.sourceStatus ?? null}, source_status),
-        updated_at = now()
-      WHERE id = ${id}
-    `;
+    await this.sql.begin(async (tx) => {
+      await applyProjectPatchTx(tx as unknown as DbExecutor, id, body);
+    });
     return this.getProject(id);
   }
 
@@ -428,131 +370,16 @@ export class ProjectService {
     if (!node) return null;
 
     await this.sql.begin(async (tx) => {
-      const current = await tx<{ status: WorkflowNodeSnapshot['status'] }[]>`
-        SELECT status FROM workflow_nodes WHERE id = ${nodeId} FOR UPDATE
-      `;
-      const fromStatus = current[0]?.status;
-      if (!fromStatus) throw new Error('node missing');
-      if (body.status && body.status !== fromStatus) {
-        try {
-          assertValidNodeTransition(fromStatus, body.status);
-        } catch (err) {
-          if (err instanceof TransitionError) {
-            const e = new Error(err.message);
-            (e as Error & { status: number }).status = 409;
-            throw e;
-          }
-          throw err;
-        }
-      }
-      const nextStatus = body.status ?? fromStatus;
-      const nextOwnerId = body.ownerId !== undefined ? body.ownerId : (node.owner?.id ?? null);
-      const nextDueAt = body.dueAt !== undefined ? body.dueAt : node.dueAt;
-      const nextBlockedReason =
-        body.blockedReason !== undefined ? body.blockedReason : node.blockedReason;
-      const statusChanged = nextStatus !== fromStatus;
-      const nextCompletedAt =
-        nextStatus === 'completed'
-          ? new Date()
-          : statusChanged
-            ? null
-            : node.completedAt
-              ? new Date(node.completedAt)
-              : null;
-      await tx`
-        UPDATE workflow_nodes SET
-          status = ${nextStatus},
-          owner_id = ${nextOwnerId},
-          due_at = ${nextDueAt},
-          blocked_reason = ${nextBlockedReason},
-          status_changed_at = ${statusChanged ? new Date() : new Date(node.statusChangedAt)},
-          completed_at = ${nextCompletedAt}
-        WHERE id = ${nodeId}
-      `;
-      if (body.status && body.status !== fromStatus) {
-        await tx`
-          INSERT INTO workflow_node_status_history (node_id, from_status, to_status)
-          VALUES (${nodeId}, ${fromStatus}, ${body.status})
-        `;
-      }
-      const refreshed = await this.loadWorkflowGraphTx(tx as unknown as DbExecutor, projectId);
-      if (!refreshed) return;
-      const recompute = recomputeAfterManualChange(refreshed.nodes, refreshed.deps);
-      for (const [id, status] of recompute.statusUpdates) {
-        await tx`
-          UPDATE workflow_nodes SET status = ${status}, status_changed_at = now()
-          WHERE id = ${id}
-        `;
-      }
-      await this.syncProjectDerivedState(tx as unknown as DbExecutor, projectId);
+      await patchWorkflowNodeTx(tx as unknown as DbExecutor, projectId, nodeId, body, {
+        ownerId: node.owner?.id ?? null,
+        dueAt: node.dueAt,
+        blockedReason: node.blockedReason,
+        statusChangedAt: node.statusChangedAt,
+        completedAt: node.completedAt,
+      });
     });
 
     return this.getWorkflow(projectId);
-  }
-
-  private async loadWorkflowGraphTx(tx: DbExecutor, projectId: string) {
-    const wfRows = await tx<{ id: string }[]>`
-      SELECT id FROM project_workflows WHERE project_id = ${projectId}
-    `;
-    const wfId = wfRows[0]?.id;
-    if (!wfId) return null;
-    const rows = await tx<
-      {
-        id: string;
-        slug: string;
-        parent_id: string | null;
-        sort_order: number;
-        is_required: boolean;
-        dependency_mode: 'all_of' | 'any_of';
-        status: WorkflowNodeSnapshot['status'];
-        stage_key: string | null;
-        blocked_reason: string | null;
-      }[]
-    >`SELECT id, slug, parent_id, sort_order, is_required, dependency_mode, status, stage_key, blocked_reason
-       FROM workflow_nodes WHERE project_workflow_id = ${wfId}`;
-    const depRows = await tx<{ node_id: string; depends_on_node_id: string }[]>`
-      SELECT node_id, depends_on_node_id FROM workflow_node_dependencies d
-      JOIN workflow_nodes n ON n.id = d.node_id WHERE n.project_workflow_id = ${wfId}
-    `;
-    return {
-      nodes: rows.map((r) => ({
-        id: r.id,
-        slug: r.slug,
-        parentId: r.parent_id,
-        sortOrder: r.sort_order,
-        isRequired: r.is_required,
-        dependencyMode: r.dependency_mode,
-        status: r.status,
-        stageKey: r.stage_key,
-        blockedReason: r.blocked_reason,
-      })),
-      deps: depRows.map((d) => ({ nodeId: d.node_id, dependsOnId: d.depends_on_node_id })),
-    };
-  }
-
-  private async syncProjectDerivedState(tx: DbExecutor, projectId: string): Promise<void> {
-    const graph = await this.loadWorkflowGraphTx(tx, projectId);
-    if (!graph) return;
-    const stage = deriveProjectStage(graph.nodes);
-    const openRows = await tx<{ count: string; overdue: string }[]>`
-      SELECT
-        count(*) FILTER (WHERE status = 'open')::text AS count,
-        count(*) FILTER (WHERE status = 'open' AND due_at < now())::text AS overdue
-      FROM open_items WHERE project_id = ${projectId}
-    `;
-    const hasOur = await tx<{ count: string }[]>`
-      SELECT count(*)::text AS count FROM open_items
-      WHERE project_id = ${projectId} AND status = 'open' AND responsible_party = 'us'
-    `;
-    const health = deriveHealthStatus(
-      graph.nodes,
-      Number(hasOur[0]?.count ?? '0') > 0,
-      Number(openRows[0]?.overdue ?? '0') > 0,
-    );
-    await tx`
-      UPDATE projects SET derived_stage = ${stage}, health_status = ${health}, updated_at = now()
-      WHERE id = ${projectId}
-    `;
   }
 
   async listOpenItems(projectId: string): Promise<OpenItemDto[]> {
@@ -603,19 +430,9 @@ export class ProjectService {
   }
 
   async createOpenItem(projectId: string, body: CreateOpenItemBody): Promise<OpenItemDto> {
-    const id = crypto.randomUUID();
-    await this.sql`
-      INSERT INTO open_items (
-        id, project_id, workflow_node_id, item_type, responsible_party, due_at, title,
-        description, close_condition, source_type, external_evidence_ref, confidence
-      ) VALUES (
-        ${id}, ${projectId}, ${body.workflowNodeId ?? null}, ${body.itemType},
-        ${body.responsibleParty}, ${body.dueAt ?? null}, ${body.title},
-        ${body.description ?? null}, ${body.closeCondition ?? null},
-        ${body.sourceType ?? null}, ${body.externalEvidenceRef ?? null}, ${body.confidence ?? null}
-      )
-    `;
-    await this.syncProjectDerivedState(this.sql, projectId);
+    const id = await this.sql.begin(async (tx) =>
+      createOpenItemTx(tx as unknown as DbExecutor, projectId, body),
+    );
     const items = await this.listOpenItems(projectId);
     return items.find((i) => i.id === id)!;
   }
@@ -625,47 +442,14 @@ export class ProjectService {
     itemId: string,
     body: PatchOpenItemBody,
   ): Promise<OpenItemDto | null> {
-    const existingRows = await this.sql<
-      {
-        title: string;
-        description: string | null;
-        status: string;
-        responsible_party: string;
-        due_at: Date | null;
-        close_condition: string | null;
-        human_confirmed: boolean;
-        confirmed_by: string | null;
-      }[]
-    >`SELECT title, description, status, responsible_party, due_at, close_condition, human_confirmed, confirmed_by
-      FROM open_items WHERE id = ${itemId} AND project_id = ${projectId}`;
-    const existing = existingRows[0];
-    if (!existing) return null;
-    const nextTitle = body.title ?? existing.title;
-    const nextDescription =
-      body.description !== undefined ? body.description : existing.description;
-    const nextStatus = body.status ?? existing.status;
-    const nextParty = body.responsibleParty ?? existing.responsible_party;
-    const nextDue =
-      body.dueAt !== undefined ? body.dueAt : (existing.due_at?.toISOString() ?? null);
-    const nextClose =
-      body.closeCondition !== undefined ? body.closeCondition : existing.close_condition;
-    const nextConfirmed = body.humanConfirmed ?? existing.human_confirmed;
-    const nextConfirmedBy = body.confirmedById ?? existing.confirmed_by;
-    await this.sql`
-      UPDATE open_items SET
-        title = ${nextTitle},
-        description = ${nextDescription},
-        status = ${nextStatus},
-        responsible_party = ${nextParty},
-        due_at = ${nextDue},
-        close_condition = ${nextClose},
-        human_confirmed = ${nextConfirmed},
-        confirmed_by = ${nextConfirmedBy},
-        confirmed_at = ${body.humanConfirmed === true ? new Date() : null},
-        updated_at = now()
-      WHERE id = ${itemId} AND project_id = ${projectId}
-    `;
-    await this.syncProjectDerivedState(this.sql, projectId);
+    try {
+      await this.sql.begin(async (tx) => {
+        await patchOpenItemTx(tx as unknown as DbExecutor, projectId, itemId, body);
+      });
+    } catch (err) {
+      if ((err as Error & { status?: number }).status === 404) return null;
+      throw err;
+    }
     const items = await this.listOpenItems(projectId);
     return items.find((i) => i.id === itemId) ?? null;
   }
@@ -678,27 +462,17 @@ export class ProjectService {
 
   async buildDashboard(referenceNow?: Date): Promise<DashboardTodayResponse> {
     const now = referenceNow ?? this.now();
-    const startOfDay = new Date(now);
-    startOfDay.setUTCHours(0, 0, 0, 0);
-    const endOfDay = new Date(startOfDay);
-    endOfDay.setUTCDate(endOfDay.getUTCDate() + 1);
-    const end7 = new Date(startOfDay);
-    end7.setUTCDate(end7.getUTCDate() + 7);
-
     const projects = await this.sql<
       { id: string; name: string; planned_publish_at: Date | null; health_status: string }[]
     >`SELECT id, name, planned_publish_at, health_status FROM projects WHERE archived_at IS NULL`;
 
-    const entries: DashboardTodayResponse['overdue'] = [];
-    const rankMeta = new Map<
-      string,
-      { blockedDownstreamCount: number; publishWithinDays: number | null; isBlocked: boolean }
-    >();
+    const drafts = [];
     for (const p of projects) {
       const publishWithinDays =
         p.planned_publish_at != null
           ? (p.planned_publish_at.getTime() - now.getTime()) / 86_400_000
           : null;
+      const graph = await this.loadWorkflowGraph(p.id);
       const nodes = await this.sql<
         {
           id: string;
@@ -710,56 +484,33 @@ export class ProjectService {
       >`
         SELECT wn.id, wn.label, wn.status, wn.due_at, wn.blocked_reason FROM workflow_nodes wn
         JOIN project_workflows pw ON pw.id = wn.project_workflow_id
-        WHERE pw.project_id = ${p.id} AND wn.due_at IS NOT NULL
+        WHERE pw.project_id = ${p.id}
       `;
-      const graph = await this.loadWorkflowGraph(p.id);
       for (const n of nodes) {
-        if (!n.due_at) continue;
-        const due = n.due_at;
-        const isOverdue = due < now;
-        const dueToday = due >= startOfDay && due < endOfDay;
-        const due7 = due >= endOfDay && due < end7;
-        if (!isOverdue && !dueToday && !due7) continue;
         const downstream = graph ? downstreamNodeIds(n.id, graph.deps).length : 0;
-        const entryId = `node-${n.id}`;
-        rankMeta.set(entryId, {
-          blockedDownstreamCount: downstream,
-          publishWithinDays,
-          isBlocked: n.status === 'blocked',
-        });
-        entries.push({
-          id: entryId,
-          kind: 'node',
+        drafts.push({
+          id: `node-${n.id}`,
+          kind: 'node' as const,
           projectId: p.id,
           projectName: p.name,
           title: n.label,
           issue: n.blocked_reason ?? n.status,
           responsibleParty: n.status === 'waiting_external' ? 'client' : 'us',
-          dueAt: due.toISOString(),
+          dueAt: n.due_at?.toISOString() ?? null,
           suggestedNextStep: n.blocked_reason ? '跟进阻塞原因' : '推进节点状态',
-          rank: 0,
-          sortReasons: [],
-          explanation: '',
           focusNodeId: n.id,
           focusOpenItemId: null,
+          nodeStatus: n.status,
+          blockedDownstreamCount: downstream,
+          publishWithinDays,
+          isBlocked: n.status === 'blocked',
         });
       }
-      const items = await this.listOpenItems(p.id);
-      for (const item of items.filter((i) => i.status === 'open')) {
-        const due = item.dueAt ? new Date(item.dueAt) : null;
-        const isOverdue = due != null && due < now;
-        const dueToday = due != null && due >= startOfDay && due < endOfDay;
-        const due7 = due != null && due >= endOfDay && due < end7;
-        if (!isOverdue && !dueToday && !due7 && item.itemType !== 'confirmation') continue;
-        const entryId = `item-${item.id}`;
-        rankMeta.set(entryId, {
-          blockedDownstreamCount: 0,
-          publishWithinDays,
-          isBlocked: false,
-        });
-        entries.push({
-          id: entryId,
-          kind: 'open_item',
+      for (const item of await this.listOpenItems(p.id)) {
+        if (item.status !== 'open') continue;
+        drafts.push({
+          id: `item-${item.id}`,
+          kind: 'open_item' as const,
           projectId: p.id,
           projectName: p.name,
           title: item.title,
@@ -767,23 +518,17 @@ export class ProjectService {
           responsibleParty: item.responsibleParty,
           dueAt: item.dueAt,
           suggestedNextStep: item.closeCondition ?? '处理未闭环事项',
-          rank: 0,
-          sortReasons: [],
-          explanation: '',
           focusNodeId: item.workflowNodeId,
           focusOpenItemId: item.id,
+          itemType: item.itemType,
+          openItemStatus: item.status,
+          publishWithinDays,
         });
       }
       if (p.health_status === 'blocked') {
-        const entryId = `project-${p.id}`;
-        rankMeta.set(entryId, {
-          blockedDownstreamCount: 0,
-          publishWithinDays,
-          isBlocked: true,
-        });
-        entries.push({
-          id: entryId,
-          kind: 'project',
+        drafts.push({
+          id: `project-${p.id}`,
+          kind: 'project' as const,
           projectId: p.id,
           projectName: p.name,
           title: '项目阻塞',
@@ -791,113 +536,53 @@ export class ProjectService {
           responsibleParty: 'us',
           dueAt: p.planned_publish_at?.toISOString() ?? null,
           suggestedNextStep: '查看工作流树',
-          rank: 0,
-          sortReasons: [],
-          explanation: '',
           focusNodeId: null,
           focusOpenItemId: null,
+          publishWithinDays,
+          isBlocked: true,
         });
       }
     }
 
-    const { rankDashboardItems } = await import('@studio/workflow');
-    const ranked = rankDashboardItems(
-      entries.map((e) => ({
-        id: e.id,
-        kind:
-          e.kind === 'node' ? 'node_due' : e.kind === 'open_item' ? 'open_item' : 'blocked_project',
-        projectId: e.projectId,
-        dueAt: e.dueAt,
-        isOverdue: e.dueAt ? new Date(e.dueAt) < now : false,
-        isBlocked: rankMeta.get(e.id)?.isBlocked ?? e.kind === 'project',
-        blockedDownstreamCount: rankMeta.get(e.id)?.blockedDownstreamCount ?? 0,
-        waitingParty:
-          e.responsibleParty === 'us'
-            ? 'us'
-            : e.responsibleParty === 'client'
-              ? 'client'
-              : e.issue === 'confirmation'
-                ? 'confirmation'
-                : null,
-        waitingExternalHours: 0,
-        publishWithinDays: rankMeta.get(e.id)?.publishWithinDays ?? null,
-      })),
-    );
-    const byId = new Map(ranked.map((r) => [r.id, r]));
-    const enrich = (list: typeof entries) =>
-      list.map((e) => {
-        const r = byId.get(e.id);
-        return {
-          ...e,
-          rank: r?.rank ?? 999,
-          sortReasons: r?.sortReasons ?? [],
-          explanation: r?.explanation ?? '',
-        };
-      });
-
-    const overdue = enrich(entries.filter((e) => e.dueAt && new Date(e.dueAt) < now));
-    const dueToday = enrich(
-      entries.filter(
-        (e) => e.dueAt && new Date(e.dueAt) >= startOfDay && new Date(e.dueAt) < endOfDay,
-      ),
-    );
-    const dueNext7Days = enrich(
-      entries.filter((e) => e.dueAt && new Date(e.dueAt) >= endOfDay && new Date(e.dueAt) < end7),
-    );
-    const blockedProjects = enrich(entries.filter((e) => e.kind === 'project'));
-    const waitingClient = enrich(entries.filter((e) => e.responsibleParty === 'client'));
-    const waitingUs = enrich(
-      entries.filter((e) => e.responsibleParty === 'us' && e.kind === 'open_item'),
-    );
-    const pendingConfirmation = enrich(entries.filter((e) => e.issue === 'confirmation'));
-
-    return {
+    const buckets = buildDashboardBuckets(drafts, now);
+    const mapEntry = (e: (typeof buckets.overdue)[number]) => ({
+      id: e.id,
+      kind: e.kind,
+      projectId: e.projectId,
+      projectName: e.projectName,
+      title: e.title,
+      issue: e.issue,
+      responsibleParty: e.responsibleParty,
+      dueAt: e.dueAt,
+      suggestedNextStep: e.suggestedNextStep,
+      rank: e.rank,
+      sortReasons: e.sortReasons,
+      explanation: e.explanation,
+      focusNodeId: e.focusNodeId,
+      focusOpenItemId: e.focusOpenItemId,
+    });
+    const body = {
       generatedAt: now.toISOString(),
-      overdue,
-      dueToday,
-      dueNext7Days,
-      blockedProjects,
-      waitingClient,
-      waitingUs,
-      pendingConfirmation,
+      overdue: buckets.overdue.map(mapEntry),
+      dueToday: buckets.dueToday.map(mapEntry),
+      dueNext7Days: buckets.dueNext7Days.map(mapEntry),
+      blockedProjects: buckets.blockedProjects.map(mapEntry),
+      waitingClient: buckets.waitingClient.map(mapEntry),
+      waitingUs: buckets.waitingUs.map(mapEntry),
+      pendingConfirmation: buckets.pendingConfirmation.map(mapEntry),
     };
+    return dashboardTodayResponseSchema.parse(body) as DashboardTodayResponse;
   }
 
   async createHermesProposal(input: {
     projectId: string;
     idempotencyKey: string;
     suggestedAction: string;
-    payload: Record<string, unknown>;
+    payload: HermesPayload;
     sourceEvidence?: Record<string, unknown>;
     confidence: number;
   }): Promise<HermesChangeProposal> {
-    const existing = await this.sql<
-      {
-        id: string;
-        project_id: string;
-        idempotency_key: string;
-        status: string;
-        suggested_action: string;
-        payload: Record<string, unknown>;
-        source_evidence: Record<string, unknown> | null;
-        confidence: number;
-        rejection_reason: string | null;
-        created_at: Date;
-        resolved_at: Date | null;
-      }[]
-    >`SELECT * FROM hermes_change_proposals WHERE idempotency_key = ${input.idempotencyKey}`;
-    if (existing[0]) return this.mapProposal(existing[0]);
-
     const id = crypto.randomUUID();
-    await this.sql`
-      INSERT INTO hermes_change_proposals (
-        id, project_id, idempotency_key, suggested_action, payload, source_evidence, confidence
-      ) VALUES (
-        ${id}, ${input.projectId}, ${input.idempotencyKey}, ${input.suggestedAction},
-        ${JSON.stringify(input.payload)}, ${input.sourceEvidence ? JSON.stringify(input.sourceEvidence) : null},
-        ${input.confidence}
-      )
-    `;
     const rows = await this.sql<
       {
         id: string;
@@ -912,7 +597,19 @@ export class ProjectService {
         created_at: Date;
         resolved_at: Date | null;
       }[]
-    >`SELECT * FROM hermes_change_proposals WHERE id = ${id}`;
+    >`
+      INSERT INTO hermes_change_proposals (
+        id, project_id, idempotency_key, suggested_action, payload, source_evidence, confidence
+      ) VALUES (
+        ${id}, ${input.projectId}, ${input.idempotencyKey}, ${input.suggestedAction},
+        ${JSON.stringify(input.payload)}::jsonb,
+        ${input.sourceEvidence ? JSON.stringify(input.sourceEvidence) : null}::jsonb,
+        ${input.confidence}
+      )
+      ON CONFLICT (idempotency_key) DO UPDATE
+        SET idempotency_key = hermes_change_proposals.idempotency_key
+      RETURNING *
+    `;
     return this.mapProposal(rows[0]!);
   }
 
@@ -945,57 +642,78 @@ export class ProjectService {
   }
 
   async acceptHermesProposal(proposalId: string): Promise<HermesChangeProposal | null> {
-    const rows = await this.sql<
-      {
-        id: string;
-        project_id: string;
-        status: string;
-        payload: Record<string, unknown>;
-        idempotency_key: string;
-        suggested_action: string;
-        source_evidence: Record<string, unknown> | null;
-        confidence: number;
-        rejection_reason: string | null;
-        created_at: Date;
-        resolved_at: Date | null;
-      }[]
-    >`SELECT * FROM hermes_change_proposals WHERE id = ${proposalId}`;
-    const row = rows[0];
-    if (!row) return null;
-    if (row.status !== 'pending') return this.mapProposal(row);
+    type ProposalRow = {
+      id: string;
+      project_id: string;
+      status: string;
+      payload: Record<string, unknown>;
+      idempotency_key: string;
+      suggested_action: string;
+      source_evidence: Record<string, unknown> | null;
+      confidence: number;
+      rejection_reason: string | null;
+      created_at: Date;
+      resolved_at: Date | null;
+    };
 
-    const action = row.payload.action;
-    if (action === 'patch_node' && typeof row.payload.nodeId === 'string') {
-      await this.patchWorkflowNode(row.project_id, row.payload.nodeId, {
-        status: row.payload.status as PatchWorkflowNodeBody['status'],
-        blockedReason: (row.payload.blockedReason as string | null) ?? undefined,
-      });
-    } else if (action === 'patch_project') {
-      await this.patchProject(row.project_id, row.payload as PatchProjectBody);
-    } else if (action === 'create_open_item') {
-      await this.createOpenItem(row.project_id, row.payload as CreateOpenItemBody);
-    }
-    await this.sql`
-      UPDATE hermes_change_proposals SET status = 'accepted', resolved_at = now()
-      WHERE id = ${proposalId} AND status = 'pending'
-    `;
+    return this.sql.begin(async (tx) => {
+      const locked = await tx<ProposalRow[]>`
+        SELECT * FROM hermes_change_proposals WHERE id = ${proposalId} FOR UPDATE
+      `;
+      const row = locked[0];
+      if (!row) return null;
+      if (row.status !== 'pending') return this.mapProposal(row);
 
-    const updated = await this.sql<
-      {
-        id: string;
-        project_id: string;
-        idempotency_key: string;
-        status: string;
-        suggested_action: string;
-        payload: Record<string, unknown>;
-        source_evidence: Record<string, unknown> | null;
-        confidence: number;
-        rejection_reason: string | null;
-        created_at: Date;
-        resolved_at: Date | null;
-      }[]
-    >`SELECT * FROM hermes_change_proposals WHERE id = ${proposalId}`;
-    return updated[0] ? this.mapProposal(updated[0]) : null;
+      let payload: HermesPayload;
+      try {
+        const rawPayload =
+          typeof row.payload === 'string' ? (JSON.parse(row.payload) as unknown) : row.payload;
+        payload = parseHermesPayload(rawPayload);
+      } catch {
+        const err = new Error('invalid proposal payload');
+        (err as Error & { status: number }).status = 400;
+        throw err;
+      }
+      if (row.suggested_action !== payload.action) {
+        const err = new Error('suggestedAction does not match payload.action');
+        (err as Error & { status: number }).status = 400;
+        throw err;
+      }
+
+      const graph = await this.loadWorkflowGraph(row.project_id);
+      const nodeSnapshotById = new Map<
+        string,
+        {
+          ownerId: string | null;
+          dueAt: string | null;
+          blockedReason: string | null;
+          statusChangedAt: string;
+          completedAt: string | null;
+        }
+      >();
+      for (const n of graph?.rawNodes ?? []) {
+        nodeSnapshotById.set(n.id, {
+          ownerId: n.owner?.id ?? null,
+          dueAt: n.dueAt,
+          blockedReason: n.blockedReason,
+          statusChangedAt: n.statusChangedAt,
+          completedAt: n.completedAt,
+        });
+      }
+
+      await applyHermesPayloadTx(
+        tx as unknown as DbExecutor,
+        row.project_id,
+        payload,
+        nodeSnapshotById,
+      );
+      const updated = await tx<ProposalRow[]>`
+        UPDATE hermes_change_proposals SET status = 'accepted', resolved_at = now()
+        WHERE id = ${proposalId} AND status = 'pending'
+        RETURNING *
+      `;
+      return updated[0] ? this.mapProposal(updated[0]) : this.mapProposal(row);
+    });
   }
 
   async rejectHermesProposal(

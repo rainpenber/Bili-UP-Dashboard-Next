@@ -1,4 +1,5 @@
 const MS_DAY = 86_400_000;
+const DISPLAY_TZ = 'Asia/Shanghai';
 
 function parseInstant(iso: string): Date | null {
   const d = new Date(iso);
@@ -10,6 +11,7 @@ export function formatFullLocalTime(iso: string): string {
   const d = parseInstant(iso);
   if (!d) return iso;
   return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: DISPLAY_TZ,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

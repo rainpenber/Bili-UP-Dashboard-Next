@@ -10,6 +10,10 @@ const ALLOWED: Record<NodeStatus, readonly NodeStatus[]> = {
   skipped: ['in_progress'],
 };
 
+export function allowedNodeTransitions(from: NodeStatus): readonly NodeStatus[] {
+  return [...ALLOWED[from], from];
+}
+
 export function assertValidNodeTransition(from: NodeStatus, to: NodeStatus): void {
   if (from === to) return;
   if (from === 'locked') {

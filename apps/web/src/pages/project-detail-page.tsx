@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -21,15 +22,9 @@ import {
 } from '@/api/hooks/use-project-queries';
 import { stageLabel } from '@/features/projects/stage-labels';
 import { formatFullLocalTime } from '@/lib/format-time';
-
-const NODE_STATUS_OPTIONS = [
-  'ready',
-  'in_progress',
-  'waiting_external',
-  'blocked',
-  'completed',
-  'skipped',
-] as const;
+import { allowedNodeTransitions, type NodeStatus } from '@studio/workflow';
+import { openItemTypeSchema, responsiblePartySchema, sourceStatusSchema } from '@studio/contracts';
+import type { ProjectSummary } from '@studio/contracts';
 
 export function ProjectDetailPage() {
   const { id } = useParams();
@@ -38,25 +33,63 @@ export function ProjectDetailPage() {
   const openItems = useOpenItems(id);
   const mutations = useProjectMutations(id);
   const [itemTitle, setItemTitle] = useState('');
+  const [itemType, setItemType] = useState<string>('our_action');
+  const [itemParty, setItemParty] = useState<string>('us');
+  const [itemDue, setItemDue] = useState('');
+  const [itemClose, setItemClose] = useState('');
+  const [itemDesc, setItemDesc] = useState('');
+  const [itemNodeId, setItemNodeId] = useState('');
   const [highlightNode, setHighlightNode] = useState<string | null>(null);
+  const [nodeError, setNodeError] = useState<string | null>(null);
+  const [itemError, setItemError] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editBrand, setEditBrand] = useState('');
+  const [editProduct, setEditProduct] = useState('');
+  const [editCooperation, setEditCooperation] = useState('');
+  const [editSource, setEditSource] = useState('unknown');
+  const [editPublish, setEditPublish] = useState('');
+  const [patchError, setPatchError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const isLoading = project.isLoading || workflow.isLoading || openItems.isLoading;
+  const isError = project.isError || workflow.isError || openItems.isError;
+  const error = project.error ?? workflow.error ?? openItems.error;
+
+  const focusFromHash = () => {
     const hash = window.location.hash.replace('#', '');
-    if (hash.startsWith('node-')) setHighlightNode(hash.replace('node-', ''));
     if (hash.startsWith('item-')) {
+      setHighlightNode(null);
+      const el = document.getElementById(hash);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el?.focus();
+      return;
+    }
+    if (hash.startsWith('node-')) {
+      const nodeId = hash.replace('node-', '');
+      setHighlightNode(nodeId);
       const el = document.getElementById(hash);
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-  }, [workflow.dataUpdatedAt, openItems.dataUpdatedAt]);
+  };
+
+  useEffect(() => {
+    focusFromHash();
+  }, [workflow.dataUpdatedAt, openItems.dataUpdatedAt, isLoading]);
+
+  useEffect(() => {
+    if (!project.data) return;
+    setEditName(project.data.name);
+    setEditBrand(project.data.brand ?? '');
+    setEditProduct(project.data.product ?? '');
+    setEditCooperation(project.data.cooperationType ?? '');
+    setEditSource(project.data.sourceStatus);
+    setEditPublish(project.data.plannedPublishAt ? project.data.plannedPublishAt.slice(0, 16) : '');
+  }, [project.data?.id, project.data?.updatedAt]);
 
   const sortedNodes = useMemo(
     () => [...(workflow.data?.nodes ?? [])].sort((a, b) => a.sortOrder - b.sortOrder),
     [workflow.data?.nodes],
   );
-
-  const isLoading = project.isLoading || workflow.isLoading || openItems.isLoading;
-  const isError = project.isError || workflow.isError || openItems.isError;
-  const error = project.error ?? workflow.error ?? openItems.error;
 
   if (!id) return <ErrorState message="缺少项目 ID" />;
 
@@ -111,24 +144,126 @@ export function ProjectDetailPage() {
           />
 
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">项目概要</CardTitle>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setEditOpen((v) => !v)}
+              >
+                {editOpen ? '取消编辑' : '编辑概要'}
+              </Button>
             </CardHeader>
             <CardContent className="grid gap-2 text-sm md:grid-cols-2">
-              <p>产品：{project.data.product ?? '—'}</p>
-              <p>合作类型：{project.data.cooperationType ?? '—'}</p>
-              <p>负责人：{project.data.owner?.displayName ?? '—'}</p>
-              <p>
-                计划发布：
-                {project.data.plannedPublishAt
-                  ? formatFullLocalTime(project.data.plannedPublishAt)
-                  : '—'}
-              </p>
-              <p>来源状态：{project.data.sourceStatus}</p>
-              <p>
-                归档：
-                {project.data.archivedAt ? formatFullLocalTime(project.data.archivedAt) : '否'}
-              </p>
+              {editOpen ? (
+                <>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-name">名称</Label>
+                    <Input
+                      id="edit-name"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-brand">品牌</Label>
+                    <Input
+                      id="edit-brand"
+                      value={editBrand}
+                      onChange={(e) => setEditBrand(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-product">产品</Label>
+                    <Input
+                      id="edit-product"
+                      value={editProduct}
+                      onChange={(e) => setEditProduct(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-cooperation">合作类型</Label>
+                    <Input
+                      id="edit-cooperation"
+                      value={editCooperation}
+                      onChange={(e) => setEditCooperation(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-publish">计划发布</Label>
+                    <Input
+                      id="edit-publish"
+                      type="datetime-local"
+                      value={editPublish}
+                      onChange={(e) => setEditPublish(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-source">来源状态</Label>
+                    <Select value={editSource} onValueChange={setEditSource}>
+                      <SelectTrigger id="edit-source">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sourceStatusSchema.options.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {s}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    className="md:col-span-2 w-fit"
+                    disabled={mutations.patchProject.isPending}
+                    onClick={() => {
+                      setPatchError(null);
+                      void mutations.patchProject
+                        .mutateAsync({
+                          id,
+                          body: {
+                            name: editName,
+                            brand: editBrand || null,
+                            product: editProduct || null,
+                            cooperationType: editCooperation || null,
+                            sourceStatus: editSource as ProjectSummary['sourceStatus'],
+                            ...(editPublish
+                              ? { plannedPublishAt: new Date(editPublish).toISOString() }
+                              : { plannedPublishAt: null }),
+                          },
+                        })
+                        .then(() => setEditOpen(false))
+                        .catch((err: unknown) => {
+                          setPatchError(err instanceof Error ? err.message : '保存失败');
+                        });
+                    }}
+                  >
+                    保存 PATCH
+                  </Button>
+                  {patchError ? (
+                    <p className="text-destructive md:col-span-2">{patchError}</p>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <p>产品：{project.data.product ?? '—'}</p>
+                  <p>合作类型：{project.data.cooperationType ?? '—'}</p>
+                  <p>负责人：{project.data.owner?.displayName ?? '—'}</p>
+                  <p>
+                    计划发布：
+                    {project.data.plannedPublishAt
+                      ? formatFullLocalTime(project.data.plannedPublishAt)
+                      : '—'}
+                  </p>
+                  <p>来源状态：{project.data.sourceStatus}</p>
+                  <p>
+                    归档：
+                    {project.data.archivedAt ? formatFullLocalTime(project.data.archivedAt) : '否'}
+                  </p>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -167,43 +302,53 @@ export function ProjectDetailPage() {
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Select
                       value={node.status}
-                      onValueChange={(status) =>
-                        void mutations.patchNode.mutateAsync({
-                          projectId: id,
-                          nodeId: node.id,
-                          body: { status },
-                        })
-                      }
+                      onValueChange={(status) => {
+                        setNodeError(null);
+                        void mutations.patchNode
+                          .mutateAsync({ projectId: id, nodeId: node.id, body: { status } })
+                          .catch((err: unknown) => {
+                            setNodeError(err instanceof Error ? err.message : '更新失败');
+                          });
+                      }}
                     >
                       <SelectTrigger className="w-[180px]" aria-label={`更新 ${node.label} 状态`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {NODE_STATUS_OPTIONS.map((s) => (
+                        {allowedNodeTransitions(node.status as NodeStatus).map((s) => (
                           <SelectItem key={s} value={s}>
                             {s}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        void mutations.patchNode.mutateAsync({
-                          projectId: id,
-                          nodeId: node.id,
-                          body: { status: 'in_progress' },
-                        })
-                      }
-                    >
-                      标记进行中
-                    </Button>
+                    {node.status !== 'locked' ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={mutations.patchNode.isPending}
+                        onClick={() => {
+                          setNodeError(null);
+                          void mutations.patchNode
+                            .mutateAsync({
+                              projectId: id,
+                              nodeId: node.id,
+                              body: { status: 'in_progress' },
+                            })
+                            .catch((err: unknown) => {
+                              setNodeError(err instanceof Error ? err.message : '更新失败');
+                            });
+                        }}
+                      >
+                        标记进行中
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
               ))}
             </CardContent>
+            {nodeError ? <p className="px-6 pb-4 text-sm text-destructive">{nodeError}</p> : null}
           </Card>
 
           <Card>
@@ -228,31 +373,123 @@ export function ProjectDetailPage() {
               <CardTitle className="text-base">未闭环事项</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                <Input
-                  value={itemTitle}
-                  onChange={(e) => setItemTitle(e.target.value)}
-                  placeholder="新事项标题"
-                  className="max-w-md"
-                />
+              <div className="grid gap-2 md:grid-cols-3">
+                <div className="space-y-1 md:col-span-2">
+                  <Label htmlFor="new-item-title">事项标题</Label>
+                  <Input
+                    id="new-item-title"
+                    value={itemTitle}
+                    onChange={(e) => setItemTitle(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="new-item-type">类型</Label>
+                  <Select value={itemType} onValueChange={setItemType}>
+                    <SelectTrigger id="new-item-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {openItemTypeSchema.options.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="new-item-party">责任方</Label>
+                  <Select value={itemParty} onValueChange={setItemParty}>
+                    <SelectTrigger id="new-item-party">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {responsiblePartySchema.options.map((p) => (
+                        <SelectItem key={p} value={p}>
+                          {p}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="new-item-due">截止时间</Label>
+                  <Input
+                    id="new-item-due"
+                    type="datetime-local"
+                    value={itemDue}
+                    onChange={(e) => setItemDue(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="new-item-node">关联节点</Label>
+                  <Select
+                    value={itemNodeId || 'none'}
+                    onValueChange={(v) => setItemNodeId(v === 'none' ? '' : v)}
+                  >
+                    <SelectTrigger id="new-item-node">
+                      <SelectValue placeholder="可选" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">无</SelectItem>
+                      {sortedNodes.map((n) => (
+                        <SelectItem key={n.id} value={n.id}>
+                          {n.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1 md:col-span-3">
+                  <Label htmlFor="new-item-close">关闭条件</Label>
+                  <Input
+                    id="new-item-close"
+                    value={itemClose}
+                    onChange={(e) => setItemClose(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1 md:col-span-3">
+                  <Label htmlFor="new-item-desc">说明</Label>
+                  <Input
+                    id="new-item-desc"
+                    value={itemDesc}
+                    onChange={(e) => setItemDesc(e.target.value)}
+                  />
+                </div>
                 <Button
                   type="button"
-                  disabled={!itemTitle.trim()}
-                  onClick={() =>
+                  disabled={!itemTitle.trim() || mutations.createOpenItem.isPending}
+                  onClick={() => {
+                    setItemError(null);
                     void mutations.createOpenItem
                       .mutateAsync({
                         projectId: id,
                         body: {
-                          itemType: 'our_action',
+                          itemType,
                           title: itemTitle.trim(),
-                          responsibleParty: 'us',
+                          responsibleParty: itemParty,
+                          ...(itemDue ? { dueAt: new Date(itemDue).toISOString() } : {}),
+                          ...(itemClose ? { closeCondition: itemClose } : {}),
+                          ...(itemDesc ? { description: itemDesc } : {}),
+                          ...(itemNodeId ? { workflowNodeId: itemNodeId } : {}),
                         },
                       })
-                      .then(() => setItemTitle(''))
-                  }
+                      .then(() => {
+                        setItemTitle('');
+                        setItemClose('');
+                        setItemDesc('');
+                        setItemDue('');
+                      })
+                      .catch((err: unknown) => {
+                        setItemError(err instanceof Error ? err.message : '创建失败');
+                      });
+                  }}
                 >
-                  添加我方事项
+                  创建未闭环事项
                 </Button>
+                {itemError ? (
+                  <p className="text-sm text-destructive md:col-span-3">{itemError}</p>
+                ) : null}
               </div>
               {(openItems.data?.items ?? []).length === 0 ? (
                 <EmptyState
@@ -271,25 +508,65 @@ export function ProjectDetailPage() {
                       责任方 {item.responsibleParty}
                       {item.dueAt ? ` · 截止 ${formatFullLocalTime(item.dueAt)}` : ''}
                     </p>
+                    {item.description ? <p className="text-sm">{item.description}</p> : null}
                     {item.closeCondition ? (
                       <p className="text-sm">关闭条件：{item.closeCondition}</p>
                     ) : null}
+                    <p className="text-xs text-muted-foreground">
+                      来源 {item.sourceType ?? '—'} · 证据 {item.externalEvidenceRef ?? '—'} · 确认{' '}
+                      {item.humanConfirmed ? '是' : '否'}
+                      {item.confirmedAt ? ` (${formatFullLocalTime(item.confirmedAt)})` : ''}
+                    </p>
+                    {item.workflowNodeId ? (
+                      <p className="text-xs text-muted-foreground">
+                        关联节点 {item.workflowNodeId}
+                      </p>
+                    ) : null}
                     {item.status === 'open' ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="mt-2"
-                        variant="outline"
-                        onClick={() =>
-                          void mutations.patchOpenItem.mutateAsync({
-                            projectId: id,
-                            itemId: item.id,
-                            body: { status: 'resolved' },
-                          })
-                        }
-                      >
-                        标记已解决
-                      </Button>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void mutations.patchOpenItem.mutateAsync({
+                              projectId: id,
+                              itemId: item.id,
+                              body: { status: 'resolved' },
+                            })
+                          }
+                        >
+                          标记已解决
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void mutations.patchOpenItem.mutateAsync({
+                              projectId: id,
+                              itemId: item.id,
+                              body: { status: 'cancelled' },
+                            })
+                          }
+                        >
+                          取消
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void mutations.patchOpenItem.mutateAsync({
+                              projectId: id,
+                              itemId: item.id,
+                              body: { humanConfirmed: true },
+                            })
+                          }
+                        >
+                          人工确认
+                        </Button>
+                      </div>
                     ) : null}
                   </div>
                 ))

@@ -1,4 +1,11 @@
-import { PROJECT_STAGES, type ProjectStage, type WorkflowNodeSnapshot } from './types';
+import { isClosingOpenItemType } from './closing-items';
+import { downstreamNodeIds } from './recompute';
+import {
+  PROJECT_STAGES,
+  type ProjectStage,
+  type WorkflowDependency,
+  type WorkflowNodeSnapshot,
+} from './types';
 
 const STAGE_ORDER: ProjectStage[] = [...PROJECT_STAGES];
 
@@ -6,7 +13,10 @@ function stageNodes(nodes: WorkflowNodeSnapshot[]): WorkflowNodeSnapshot[] {
   return nodes.filter((n) => n.stageKey && n.parentId == null && n.isRequired);
 }
 
-export function deriveProjectStage(nodes: WorkflowNodeSnapshot[]): ProjectStage {
+export function deriveProjectStage(
+  nodes: WorkflowNodeSnapshot[],
+  openClosingItemTypes: string[] = [],
+): ProjectStage {
   const roots = stageNodes(nodes).sort((a, b) => a.sortOrder - b.sortOrder);
   for (const stage of STAGE_ORDER) {
     if (stage === 'completed') continue;
@@ -16,15 +26,41 @@ export function deriveProjectStage(nodes: WorkflowNodeSnapshot[]): ProjectStage 
       return stage;
     }
   }
+  const hasOpenClosing = openClosingItemTypes.some((t) => isClosingOpenItemType(t));
+  if (hasOpenClosing) {
+    return 'settlement';
+  }
   return 'completed';
+}
+
+export function projectExternallyBlockingDownstream(
+  nodes: WorkflowNodeSnapshot[],
+  deps: WorkflowDependency[],
+): boolean {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  for (const node of nodes) {
+    if (node.status !== 'waiting_external' && node.status !== 'blocked') continue;
+    const downstream = downstreamNodeIds(node.id, deps);
+    if (
+      downstream.some((id) => {
+        const dn = byId.get(id);
+        return dn != null && dn.status !== 'completed' && dn.status !== 'skipped';
+      })
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function deriveHealthStatus(
   nodes: WorkflowNodeSnapshot[],
+  deps: WorkflowDependency[],
   hasOpenOurItems: boolean,
   hasOverdue: boolean,
 ): 'healthy' | 'at_risk' | 'blocked' {
   if (nodes.some((n) => n.status === 'blocked')) return 'blocked';
+  if (projectExternallyBlockingDownstream(nodes, deps)) return 'blocked';
   if (hasOverdue || hasOpenOurItems) return 'at_risk';
   return 'healthy';
 }

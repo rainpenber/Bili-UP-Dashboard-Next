@@ -1,10 +1,15 @@
-import type {
-  DashboardTodayResponse,
-  OpenItemDto,
-  Paginated,
-  ProjectSummary,
-  ProjectWorkflowResponse,
-  TeamMember,
+import {
+  dashboardTodayResponseSchema,
+  openItemSchema,
+  paginatedSchema,
+  projectSummarySchema,
+  projectWorkflowResponseSchema,
+  type DashboardTodayResponse,
+  type OpenItemDto,
+  type Paginated,
+  type ProjectSummary,
+  type ProjectWorkflowResponse,
+  type TeamMember,
 } from '@studio/contracts';
 
 const API_BASE = '/api/v1';
@@ -18,9 +23,17 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function parseJson<T>(
+  path: string,
+  init: RequestInit | undefined,
+  schema: { parse: (v: unknown) => T },
+): Promise<T> {
+  return schema.parse(await requestJson<unknown>(path, init));
+}
+
 export function fetchDashboardToday(referenceNow?: string): Promise<DashboardTodayResponse> {
   const qs = referenceNow ? `?referenceNow=${encodeURIComponent(referenceNow)}` : '';
-  return requestJson(`/dashboard/today${qs}`);
+  return parseJson(`/dashboard/today${qs}`, undefined, dashboardTodayResponseSchema);
 }
 
 export function fetchProjects(
@@ -30,11 +43,11 @@ export function fetchProjects(
   for (const [key, value] of Object.entries(params)) {
     if (value) qs.set(key, value);
   }
-  return requestJson(`/projects?${qs.toString()}`);
+  return parseJson(`/projects?${qs.toString()}`, undefined, paginatedSchema(projectSummarySchema));
 }
 
 export function fetchProject(id: string): Promise<ProjectSummary> {
-  return requestJson(`/projects/${encodeURIComponent(id)}`);
+  return parseJson(`/projects/${encodeURIComponent(id)}`, undefined, projectSummarySchema);
 }
 
 export function fetchTeamMembers(): Promise<{ items: TeamMember[] }> {
@@ -66,7 +79,11 @@ export function restoreProject(id: string): Promise<ProjectSummary> {
 }
 
 export function fetchProjectWorkflow(id: string): Promise<ProjectWorkflowResponse> {
-  return requestJson(`/projects/${encodeURIComponent(id)}/workflow`);
+  return parseJson(
+    `/projects/${encodeURIComponent(id)}/workflow`,
+    undefined,
+    projectWorkflowResponseSchema,
+  );
 }
 
 export function patchWorkflowNode(
@@ -92,11 +109,15 @@ export function createOpenItem(
   projectId: string,
   body: Record<string, unknown>,
 ): Promise<OpenItemDto> {
-  return requestJson(`/projects/${encodeURIComponent(projectId)}/open-items`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  return parseJson(
+    `/projects/${encodeURIComponent(projectId)}/open-items`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    openItemSchema,
+  );
 }
 
 export function patchOpenItem(

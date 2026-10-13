@@ -189,9 +189,17 @@ export function createHermesRoutes(db: Sql) {
   });
 
   app.post('/change-proposals/:id/accept', async (c) => {
-    const proposal = await service.acceptHermesProposal(c.req.param('id'));
-    if (!proposal) return jsonError(c, 404, 'proposal not found');
-    return c.json(proposal);
+    try {
+      const proposal = await service.acceptHermesProposal(c.req.param('id'));
+      if (!proposal) return jsonError(c, 404, 'proposal not found');
+      return c.json(proposal);
+    } catch (err) {
+      const status = (err as Error & { status?: number }).status;
+      if (status === 400) {
+        return jsonError(c, 400, err instanceof Error ? err.message : 'bad request');
+      }
+      throw err;
+    }
   });
 
   app.post('/change-proposals/:id/reject', async (c) => {

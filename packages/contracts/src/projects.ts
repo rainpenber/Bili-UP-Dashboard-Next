@@ -174,6 +174,142 @@ export type HermesChangeProposal = {
   resolvedAt: string | null;
 };
 
+export const teamMemberSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string(),
+  roleLabels: z.array(z.string()),
+});
+
+export const projectSummarySchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  brand: z.string().nullable(),
+  product: z.string().nullable(),
+  cooperationType: z.string().nullable(),
+  derivedStage: projectStageSchema,
+  plannedPublishAt: z.string().datetime().nullable(),
+  owner: teamMemberSchema.nullable(),
+  healthStatus: healthStatusSchema,
+  sourceStatus: sourceStatusSchema,
+  archivedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  openItemCount: z.number().int().nonnegative(),
+  primaryBlockReason: z.string().nullable(),
+  nextStepLabel: z.string().nullable(),
+});
+
+export const workflowNodeSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string(),
+  label: z.string(),
+  parentId: z.string().uuid().nullable(),
+  sortOrder: z.number().int(),
+  isRequired: z.boolean(),
+  dependencyMode: z.enum(['all_of', 'any_of']),
+  status: nodeStatusSchema,
+  owner: teamMemberSchema.nullable(),
+  dueAt: z.string().datetime().nullable(),
+  completionCriteria: z.string().nullable(),
+  blockedReason: z.string().nullable(),
+  stageKey: z.string().nullable(),
+  blockedByNodeIds: z.array(z.string().uuid()),
+  dependencyNodeIds: z.array(z.string().uuid()),
+  statusChangedAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+});
+
+export const projectWorkflowResponseSchema = z.object({
+  projectId: z.string().uuid(),
+  workflowId: z.string().uuid(),
+  templateSlug: z.string(),
+  nodes: z.array(workflowNodeSchema),
+  recentHistory: z.array(
+    z.object({
+      id: z.string(),
+      nodeId: z.string().uuid(),
+      fromStatus: z.string().nullable(),
+      toStatus: z.string(),
+      changedAt: z.string().datetime(),
+      note: z.string().nullable(),
+    }),
+  ),
+});
+
+export const openItemSchema = z.object({
+  id: z.string().uuid(),
+  projectId: z.string().uuid(),
+  workflowNodeId: z.string().uuid().nullable(),
+  itemType: openItemTypeSchema,
+  status: openItemStatusSchema,
+  responsibleParty: responsiblePartySchema,
+  dueAt: z.string().datetime().nullable(),
+  title: z.string(),
+  description: z.string().nullable(),
+  closeCondition: z.string().nullable(),
+  sourceType: z.string().nullable(),
+  externalEvidenceRef: z.string().nullable(),
+  confidence: z.number().nullable(),
+  humanConfirmed: z.boolean(),
+  confirmedBy: teamMemberSchema.nullable(),
+  confirmedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const dashboardEntrySchema = z.object({
+  id: z.string(),
+  kind: z.enum(['node', 'open_item', 'project']),
+  projectId: z.string().uuid(),
+  projectName: z.string(),
+  title: z.string(),
+  issue: z.string(),
+  responsibleParty: z.string(),
+  dueAt: z.string().datetime().nullable(),
+  suggestedNextStep: z.string(),
+  rank: z.number(),
+  sortReasons: z.array(z.string()),
+  explanation: z.string(),
+  focusNodeId: z.string().uuid().nullable(),
+  focusOpenItemId: z.string().uuid().nullable(),
+});
+
+export const dashboardTodayResponseSchema = z.object({
+  generatedAt: z.string().datetime(),
+  overdue: z.array(dashboardEntrySchema),
+  dueToday: z.array(dashboardEntrySchema),
+  dueNext7Days: z.array(dashboardEntrySchema),
+  blockedProjects: z.array(dashboardEntrySchema),
+  waitingClient: z.array(dashboardEntrySchema),
+  waitingUs: z.array(dashboardEntrySchema),
+  pendingConfirmation: z.array(dashboardEntrySchema),
+});
+
+export const hermesChangeProposalSchema = z.object({
+  id: z.string().uuid(),
+  projectId: z.string().uuid(),
+  idempotencyKey: z.string(),
+  status: z.enum(['pending', 'accepted', 'rejected', 'superseded']),
+  suggestedAction: z.enum(['patch_project', 'patch_node', 'create_open_item']),
+  payload: z.record(z.unknown()),
+  sourceEvidence: z.record(z.unknown()).nullable(),
+  confidence: z.number(),
+  rejectionReason: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  resolvedAt: z.string().datetime().nullable(),
+});
+
+export const paginationMetaSchema = z.object({
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  totalItems: z.number().int(),
+  totalPages: z.number().int(),
+});
+
+export function paginatedSchema<T extends z.ZodTypeAny>(item: T) {
+  return paginationMetaSchema.extend({ items: z.array(item) });
+}
+
 export const createProjectBodySchema = z.object({
   name: z.string().min(1).max(200),
   brand: z.string().max(200).optional(),
@@ -184,7 +320,15 @@ export const createProjectBodySchema = z.object({
   sourceStatus: sourceStatusSchema.optional(),
 });
 
-export const patchProjectBodySchema = createProjectBodySchema.partial();
+export const patchProjectBodySchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  brand: z.string().max(200).nullable().optional(),
+  product: z.string().max(200).nullable().optional(),
+  cooperationType: z.string().max(100).nullable().optional(),
+  plannedPublishAt: z.string().datetime().nullable().optional(),
+  ownerId: z.string().uuid().nullable().optional(),
+  sourceStatus: sourceStatusSchema.optional(),
+});
 
 export const projectListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -230,14 +374,41 @@ export const patchOpenItemBodySchema = z.object({
   confirmedById: z.string().uuid().optional(),
 });
 
-export const hermesProposalBodySchema = z.object({
-  projectId: z.string().uuid(),
-  idempotencyKey: z.string().min(1).max(200),
-  suggestedAction: z.string().min(1).max(200),
-  payload: z.record(z.unknown()),
-  sourceEvidence: z.record(z.unknown()).optional(),
-  confidence: z.number().min(0).max(1).default(0),
+export const hermesSuggestedActionSchema = z.enum([
+  'patch_project',
+  'patch_node',
+  'create_open_item',
+]);
+
+const hermesPatchNodePayloadSchema = patchWorkflowNodeBodySchema.extend({
+  action: z.literal('patch_node'),
+  nodeId: z.string().uuid(),
 });
+
+export const hermesPayloadSchema = z.discriminatedUnion('action', [
+  patchProjectBodySchema.extend({ action: z.literal('patch_project') }),
+  hermesPatchNodePayloadSchema,
+  createOpenItemBodySchema.extend({ action: z.literal('create_open_item') }),
+]);
+
+export const hermesProposalBodySchema = z
+  .object({
+    projectId: z.string().uuid(),
+    idempotencyKey: z.string().min(1).max(200),
+    suggestedAction: hermesSuggestedActionSchema,
+    payload: hermesPayloadSchema,
+    sourceEvidence: z.record(z.unknown()).optional(),
+    confidence: z.number().min(0).max(1).default(0),
+  })
+  .superRefine((val, ctx) => {
+    if (val.suggestedAction !== val.payload.action) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'suggestedAction must match payload.action',
+        path: ['suggestedAction'],
+      });
+    }
+  });
 
 export const hermesRejectBodySchema = z.object({
   reason: z.string().min(1).max(2000),
@@ -255,6 +426,29 @@ export type PatchWorkflowNodeBody = z.infer<typeof patchWorkflowNodeBodySchema>;
 export type CreateOpenItemBody = z.infer<typeof createOpenItemBodySchema>;
 export type PatchOpenItemBody = z.infer<typeof patchOpenItemBodySchema>;
 export type HermesProposalBody = z.infer<typeof hermesProposalBodySchema>;
+export type HermesPayload = z.infer<typeof hermesPayloadSchema>;
+
+export function parseHermesPayload(input: unknown): HermesPayload {
+  const parsed = hermesPayloadSchema.parse(input);
+  if (
+    parsed.action === 'patch_node' &&
+    parsed.status == null &&
+    parsed.ownerId === undefined &&
+    parsed.dueAt === undefined &&
+    parsed.blockedReason === undefined
+  ) {
+    throw new Error('patch_node requires at least one field to change');
+  }
+  return parsed;
+}
+
+export function parseProjectSummary(output: unknown): ProjectSummary {
+  return projectSummarySchema.parse(output) as ProjectSummary;
+}
+
+export function parseDashboardToday(output: unknown): DashboardTodayResponse {
+  return dashboardTodayResponseSchema.parse(output) as DashboardTodayResponse;
+}
 
 export function parseWithSchema<T>(schema: z.ZodType<T>, input: unknown): T {
   const parsed = schema.safeParse(input);

@@ -5,15 +5,27 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useDashboardToday } from '@/api/hooks/use-project-queries';
 import { formatFullLocalTime } from '@/lib/format-time';
-import type { DashboardEntry } from '@studio/contracts';
+import type { DashboardEntry, DashboardTodayResponse } from '@studio/contracts';
 
 function projectLink(entry: DashboardEntry): string {
-  const hash = entry.focusNodeId
-    ? `#node-${entry.focusNodeId}`
-    : entry.focusOpenItemId
-      ? `#item-${entry.focusOpenItemId}`
+  const hash = entry.focusOpenItemId
+    ? `#item-${entry.focusOpenItemId}`
+    : entry.focusNodeId
+      ? `#node-${entry.focusNodeId}`
       : '';
   return `/projects/${entry.projectId}${hash}`;
+}
+
+function dashboardHasItems(data: DashboardTodayResponse) {
+  return (
+    data.overdue.length > 0 ||
+    data.dueToday.length > 0 ||
+    data.dueNext7Days.length > 0 ||
+    data.blockedProjects.length > 0 ||
+    data.waitingClient.length > 0 ||
+    data.waitingUs.length > 0 ||
+    data.pendingConfirmation.length > 0
+  );
 }
 
 function EntryList({ title, items }: { title: string; items: DashboardEntry[] }) {
@@ -66,10 +78,7 @@ export function TodayDashboardPage() {
       ) : null}
       {data && !isLoading ? (
         <>
-          {data.overdue.length === 0 &&
-          data.dueToday.length === 0 &&
-          data.blockedProjects.length === 0 &&
-          data.waitingUs.length === 0 ? (
+          {!dashboardHasItems(data) ? (
             <EmptyState title="暂无优先事项" description="当前没有需要立即处理的商单节点或事项。" />
           ) : null}
           <div className="grid gap-4 lg:grid-cols-2">
