@@ -119,7 +119,8 @@ async function insertProposalTx(tx: Db, envelope: HermesWriteEnvelope) {
 
 function stripProjectIdFromPayload(payload: unknown): unknown {
   if (!payload || typeof payload !== 'object') return payload;
-  const { projectId: _ignored, ...rest } = payload as Record<string, unknown>;
+  const rest = { ...(payload as Record<string, unknown>) };
+  delete rest.projectId;
   return rest;
 }
 
