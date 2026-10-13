@@ -61,3 +61,8 @@ export function formatCount(value: string | null | undefined, rawLower?: string 
   if (value === null || value === undefined) return '—';
   return value;
 }
+
+export function coverAssetUrl(coverAssetId: string | null): string {
+  if (coverAssetId) return `/api/v1/assets/${encodeURIComponent(coverAssetId)}`;
+  return '/api/v1/assets/__placeholder__';
+}

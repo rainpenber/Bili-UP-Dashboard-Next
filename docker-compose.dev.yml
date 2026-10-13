@@ -1,0 +1,63 @@
+# Developer hot-reload stack — NOT production. Reuse one test project name only.
+#
+#   docker compose -p bili-test -f docker-compose.dev.yml up -d
+#
+# Optional loopback PostgreSQL for host-side psql (127.0.0.1 only):
+#   docker compose -p bili-test -f docker-compose.dev.yml \
+#     -f docker-compose.dev-postgres.example.yml up -d postgres
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  api:
+    image: oven/bun:1.3.10-debian
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - ${MOCK_DATA_ROOT:-./packages/monitoring/fixtures/mock-data}:/mock-data:ro
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      MONITOR_DATA_SOURCE: mock
+      SOURCE_TIMEZONE: ${SOURCE_TIMEZONE:-Asia/Shanghai}
+      MOCK_DATA_ROOT: /mock-data
+      MONITOR_ASSETS_ROOT: /mock-data/assets
+      API_PORT: 3000
+    ports:
+      - '${API_PORT:-3000}:3000'
+    command: ['bun', 'run', 'apps/api/src/index.ts']
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    image: oven/bun:1.3.10-debian
+    working_dir: /app/apps/web
+    volumes:
+      - ./:/app
+    environment:
+      VITE_API_PROXY_TARGET: http://api:3000
+    ports:
+      - '${WEB_PORT:-5173}:5173'
+    command: ['bun', 'run', 'dev', '--', '--host', '0.0.0.0']
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

@@ -76,45 +76,17 @@ bun run dev
 
 浏览器打开 Vite URL；监控中心通过 `/api/v1/monitor/*` 读取数据（不直接读 CSV）。
 
-## 真实历史目录（Compose）
+## Compose 与部署
 
-部署约定：只读挂载 **单一根目录** `MOCK_DATA_ROOT`，其下必须包含：
+- **生产稳态**：`docker-compose.yml` — 仅 `postgres` + `app`（单镜像、单端口）。详见 [deploy.md](./deploy.md)。
+- **开发热重载**：`docker compose -p bili-test -f docker-compose.dev.yml`（可选，与生产分离）。
+- **固定项目名**：生产 `bili-prod`，测试/开发 `bili-test`；不要为每个 WP 或验收创建新项目名。
 
-- `backend/` — 对应历史 Windows `D:\app\scripts\v2`
-- `frontend/` — 对应 `D:\app\video-data-gui\public\data`（仅 CSV/镜像数据，不含 meta 资源树）
-- `assets/` — 封面与 JSON 元数据（可选；缺失时为 **placeholder-only**，不会回退扫描 frontend）
+Mock 数据目录约定（只读挂载 `/mock-data`）：`backend/`、`frontend/`、可选 `assets/`。在 `.env` 设置 `MOCK_DATA_ROOT`。
 
-在 `.env` 中设置宿主机路径，例如：
+CSV 导入为**显式一次性命令**（无自动 `mock-import` 服务），见 [deploy.md §4](./deploy.md#4-显式-csv-导入一次性无常驻-import-容器)。
 
-```bash
-MOCK_DATA_ROOT=/path/to/your/mock-data-tree
-```
-
-Compose 将上述目录挂载为容器内 `/mock-data`，并设置 `MOCK_DATA_ROOT=/mock-data`、`MONITOR_ASSETS_ROOT=/mock-data/assets`（仅当 `assets/` 存在时由 API 使用）。
-
-为隔离不同部署实例，请为每个环境设置 **Compose 项目名**（影响网络、容器与卷前缀，避免与其它栈共用同一 PostgreSQL 卷）：
-
-```bash
-export COMPOSE_PROJECT_NAME=bili-up-dashboard-prod   # 示例：生产/预发/个人环境各用不同名
-docker compose up -d postgres api mock-import web
-```
-
-**不要**在部署命令中加入 `docker-compose.dev-postgres.example.yml`。默认栈内 PostgreSQL 仅在 Compose 网络内可达；数据保存在项目作用域的命名卷 `postgres_data` 中（实际名为 `<COMPOSE_PROJECT_NAME>_postgres_data`）。
-
-`web` 容器通过 `VITE_API_PROXY_TARGET=http://api:3000` 将浏览器请求的 `/api/*` 代理到 Compose 内的 `api` 服务（本地裸跑 `bun run dev` 时默认仍为 `http://localhost:3000`）。
-
-**Compose UI 冒烟**（`WEB_PORT` 默认为 5173；若映射为 18481 则替换端口）：
-
-```bash
-curl -sf "http://localhost:${WEB_PORT:-5173}/api/health"
-curl -sf "http://localhost:${WEB_PORT:-5173}/api/v1/monitor/videos?page=1&pageSize=1"
-```
-
-应返回 200 JSON，而非 500（此前 web 容器内误代理到 `localhost:3000` 会导致 500）。
-
-`mock-import` 服务在 API 就绪后对 `POST /api/v1/imports/csv` 执行确定性 apply（无外链）。禁止通过 API 传入任意服务器路径。
-
-导入在**单连接事务**内使用 `pg_advisory_xact_lock`（随 commit/rollback 自动释放），并对 staging/canonical 行做批量 INSERT；101+101 规模 dry-run/apply 应在数分钟内完成，不应出现 idle-in-transaction 占锁。
+导入在**单连接事务**内使用 `pg_advisory_xact_lock`；101+101 规模 dry-run/apply 应在数分钟内完成。
 
 ## 故障排查
 
