@@ -284,7 +284,7 @@ export function ProjectDetailPage() {
                         });
                     }}
                   >
-                    保存 PATCH
+                    {mutations.patchProject.isPending ? '保存中…' : '保存 PATCH'}
                   </Button>
                   {patchError ? (
                     <p className="text-destructive md:col-span-2">{patchError}</p>
@@ -387,8 +387,11 @@ export function ProjectDetailPage() {
                             });
                         }}
                       >
-                        标记进行中
+                        {mutations.patchNode.isPending ? '更新中…' : '标记进行中'}
                       </Button>
+                    ) : null}
+                    {mutations.patchNode.isPending ? (
+                      <span className="text-xs text-muted-foreground">节点更新中…</span>
                     ) : null}
                   </div>
                 </div>

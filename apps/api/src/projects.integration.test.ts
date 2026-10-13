@@ -346,4 +346,61 @@ describe('projects API integration', () => {
     );
     expect(bad.status).toBe(400);
   });
+
+  test('patch open item title only preserves confirmation timestamp', async () => {
+    if (!sql) return;
+    const staffId = '33333333-3333-4333-8333-333333333333';
+    const create = await app.request(
+      `/api/v1/projects/${FIXTURE_PROJECT_IDS.progressing}/open-items`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          itemType: 'confirmation',
+          title: '确认时间锚点',
+          responsibleParty: 'us',
+          humanConfirmed: true,
+          confirmedById: staffId,
+        }),
+      },
+    );
+    const item = await create.json();
+    const confirmedAtBefore = item.confirmedAt;
+
+    const patch = await app.request(
+      `/api/v1/projects/${FIXTURE_PROJECT_IDS.progressing}/open-items/${item.id}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: '仅改标题' }),
+      },
+    );
+    expect(patch.status).toBe(200);
+    const updated = await patch.json();
+    expect(updated.title).toBe('仅改标题');
+    expect(updated.confirmedAt).toBe(confirmedAtBefore);
+    expect(updated.confirmedBy?.id).toBe(staffId);
+  });
+
+  test('hermes create_open_item rejects humanConfirmed without confirmedById', async () => {
+    if (!sql) return;
+    const res = await app.request('/api/v1/hermes/change-proposals', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: FIXTURE_PROJECT_IDS.progressing,
+        idempotencyKey: 'bad-confirm-payload',
+        suggestedAction: 'create_open_item',
+        payload: {
+          action: 'create_open_item',
+          itemType: 'confirmation',
+          title: '无确认人',
+          responsibleParty: 'us',
+          humanConfirmed: true,
+        },
+        confidence: 0.1,
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
 });

@@ -361,18 +361,28 @@ export const createOpenItemFieldsSchema = z.object({
   confirmedById: z.string().uuid().optional(),
 });
 
-export const createOpenItemBodySchema = createOpenItemFieldsSchema.superRefine((val, ctx) => {
-  if (val.humanConfirmed === true && !val.confirmedById) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'humanConfirmed true requires confirmedById',
-      path: ['confirmedById'],
-    });
+export function validateOpenItemConfirmationPair(
+  humanConfirmed: boolean | undefined,
+  confirmedById: string | undefined,
+): string | null {
+  if (confirmedById !== undefined && humanConfirmed === undefined) {
+    return 'confirmedById requires humanConfirmed';
   }
-  if (val.confirmedById !== undefined && val.humanConfirmed !== true) {
+  if (humanConfirmed === false && confirmedById !== undefined) {
+    return 'humanConfirmed false must not include confirmedById';
+  }
+  if (humanConfirmed === true && !confirmedById) {
+    return 'humanConfirmed true requires confirmedById';
+  }
+  return null;
+}
+
+export const createOpenItemBodySchema = createOpenItemFieldsSchema.superRefine((val, ctx) => {
+  const message = validateOpenItemConfirmationPair(val.humanConfirmed, val.confirmedById);
+  if (message) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'confirmedById requires humanConfirmed true',
+      message,
       path: ['confirmedById'],
     });
   }
@@ -392,17 +402,11 @@ export const patchOpenItemBodySchema = z
     confirmedById: z.string().uuid().optional(),
   })
   .superRefine((val, ctx) => {
-    if (val.confirmedById !== undefined && val.humanConfirmed === undefined) {
+    const message = validateOpenItemConfirmationPair(val.humanConfirmed, val.confirmedById);
+    if (message) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'confirmedById requires humanConfirmed',
-        path: ['confirmedById'],
-      });
-    }
-    if (val.humanConfirmed === true && !val.confirmedById) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'humanConfirmed true requires confirmedById',
+        message,
         path: ['confirmedById'],
       });
     }
@@ -441,6 +445,19 @@ export const hermesProposalBodySchema = z
         message: 'suggestedAction must match payload.action',
         path: ['suggestedAction'],
       });
+    }
+    if (val.payload.action === 'create_open_item') {
+      const message = validateOpenItemConfirmationPair(
+        val.payload.humanConfirmed,
+        val.payload.confirmedById,
+      );
+      if (message) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message,
+          path: ['payload', 'confirmedById'],
+        });
+      }
     }
   });
 
@@ -486,6 +503,10 @@ export function parseHermesPayload(input: unknown): HermesPayload {
     parsed.blockedReason === undefined
   ) {
     throw new Error('patch_node requires at least one field to change');
+  }
+  if (parsed.action === 'create_open_item') {
+    const message = validateOpenItemConfirmationPair(parsed.humanConfirmed, parsed.confirmedById);
+    if (message) throw new Error(message);
   }
   return parsed;
 }

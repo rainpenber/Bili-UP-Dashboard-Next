@@ -14,6 +14,7 @@ import type { useProjectMutations } from '@/api/hooks/use-project-queries';
 import { formatFullLocalTime } from '@/lib/format-time';
 import type { OpenItemDto, TeamMember, WorkflowNodeDto } from '@studio/contracts';
 import { openItemTypeSchema, responsiblePartySchema } from '@studio/contracts';
+import { buildOpenItemEditPatchBody } from '@/features/projects/open-item-patch';
 
 type Mutations = ReturnType<typeof useProjectMutations>;
 
@@ -57,25 +58,29 @@ export function OpenItemCard({ item, projectId, nodes, members, mutations, onErr
   const saveEdit = () => {
     setLocalError(null);
     onError(null);
-    const body: Record<string, unknown> = {
-      title: title.trim(),
-      itemType,
-      responsibleParty: party,
-      description: description || null,
-      closeCondition: closeCondition || null,
-      workflowNodeId: nodeId ? nodeId : null,
-      dueAt: due ? new Date(due).toISOString() : null,
-      humanConfirmed,
-    };
-    if (humanConfirmed) {
-      if (!confirmedById) {
-        setLocalError('确认时必须选择确认人');
-        return;
-      }
-      body.confirmedById = confirmedById;
+    const built = buildOpenItemEditPatchBody(
+      {
+        humanConfirmed: item.humanConfirmed,
+        confirmedById: item.confirmedBy?.id ?? null,
+      },
+      {
+        title,
+        itemType,
+        responsibleParty: party,
+        description,
+        closeCondition,
+        workflowNodeId: nodeId,
+        dueLocal: due,
+        humanConfirmed,
+        confirmedById,
+      },
+    );
+    if ('error' in built) {
+      setLocalError(built.error);
+      return;
     }
     mutations.patchOpenItem
-      .mutateAsync({ projectId, itemId: item.id, body })
+      .mutateAsync({ projectId, itemId: item.id, body: built.body })
       .then(() => setEditing(false))
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : '保存失败';
@@ -243,7 +248,7 @@ export function OpenItemCard({ item, projectId, nodes, members, mutations, onErr
           ) : null}
           <div className="flex flex-wrap gap-2 md:col-span-2">
             <Button type="button" disabled={pending || !title.trim()} onClick={saveEdit}>
-              保存编辑
+              {pending ? '保存中…' : '保存编辑'}
             </Button>
             <Button
               type="button"
@@ -289,7 +294,7 @@ export function OpenItemCard({ item, projectId, nodes, members, mutations, onErr
             disabled={pending}
             onClick={() => patchStatus('resolved')}
           >
-            标记已解决
+            {pending ? '处理中…' : '标记已解决'}
           </Button>
           <Button
             type="button"
@@ -298,7 +303,7 @@ export function OpenItemCard({ item, projectId, nodes, members, mutations, onErr
             disabled={pending}
             onClick={() => patchStatus('cancelled')}
           >
-            取消
+            {pending ? '处理中…' : '取消'}
           </Button>
         </div>
       ) : null}
