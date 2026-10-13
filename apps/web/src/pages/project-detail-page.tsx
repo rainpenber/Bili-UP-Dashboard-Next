@@ -19,7 +19,9 @@ import {
   useProjectDetail,
   useProjectMutations,
   useProjectWorkflow,
+  useTeamMembers,
 } from '@/api/hooks/use-project-queries';
+import { OpenItemCard } from '@/features/projects/open-item-card';
 import { stageLabel } from '@/features/projects/stage-labels';
 import { formatFullLocalTime } from '@/lib/format-time';
 import { allowedNodeTransitions, type NodeStatus } from '@studio/workflow';
@@ -32,6 +34,7 @@ export function ProjectDetailPage() {
   const workflow = useProjectWorkflow(id);
   const openItems = useOpenItems(id);
   const mutations = useProjectMutations(id);
+  const members = useTeamMembers();
   const [itemTitle, setItemTitle] = useState('');
   const [itemType, setItemType] = useState<string>('our_action');
   const [itemParty, setItemParty] = useState<string>('us');
@@ -50,6 +53,10 @@ export function ProjectDetailPage() {
   const [editSource, setEditSource] = useState('unknown');
   const [editPublish, setEditPublish] = useState('');
   const [patchError, setPatchError] = useState<string | null>(null);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [editOwnerId, setEditOwnerId] = useState('');
+  const [itemCreateConfirmed, setItemCreateConfirmed] = useState(false);
+  const [itemCreateConfirmedBy, setItemCreateConfirmedBy] = useState('');
 
   const isLoading = project.isLoading || workflow.isLoading || openItems.isLoading;
   const isError = project.isError || workflow.isError || openItems.isError;
@@ -69,6 +76,7 @@ export function ProjectDetailPage() {
       setHighlightNode(nodeId);
       const el = document.getElementById(hash);
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el?.focus();
     }
   };
 
@@ -84,6 +92,7 @@ export function ProjectDetailPage() {
     setEditCooperation(project.data.cooperationType ?? '');
     setEditSource(project.data.sourceStatus);
     setEditPublish(project.data.plannedPublishAt ? project.data.plannedPublishAt.slice(0, 16) : '');
+    setEditOwnerId(project.data.owner?.id ?? '');
   }, [project.data?.id, project.data?.updatedAt]);
 
   const sortedNodes = useMemo(
@@ -121,24 +130,39 @@ export function ProjectDetailPage() {
             title={project.data.name}
             description={`${project.data.brand ?? '—'} · ${stageLabel(project.data.derivedStage)} · 健康 ${project.data.healthStatus}`}
             actions={
-              <div className="flex gap-2">
-                {project.data.archivedAt ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void mutations.restoreProject.mutateAsync(id)}
-                  >
-                    恢复
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void mutations.archiveProject.mutateAsync(id)}
-                  >
-                    归档
-                  </Button>
-                )}
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex gap-2">
+                  {project.data.archivedAt ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={mutations.restoreProject.isPending}
+                      onClick={() => {
+                        setArchiveError(null);
+                        mutations.restoreProject.mutateAsync(id).catch((err: unknown) => {
+                          setArchiveError(err instanceof Error ? err.message : '恢复失败');
+                        });
+                      }}
+                    >
+                      {mutations.restoreProject.isPending ? '恢复中…' : '恢复'}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={mutations.archiveProject.isPending}
+                      onClick={() => {
+                        setArchiveError(null);
+                        mutations.archiveProject.mutateAsync(id).catch((err: unknown) => {
+                          setArchiveError(err instanceof Error ? err.message : '归档失败');
+                        });
+                      }}
+                    >
+                      {mutations.archiveProject.isPending ? '归档中…' : '归档'}
+                    </Button>
+                  )}
+                </div>
+                {archiveError ? <p className="text-sm text-destructive">{archiveError}</p> : null}
               </div>
             }
           />
@@ -214,6 +238,25 @@ export function ProjectDetailPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-owner">负责人</Label>
+                    <Select
+                      value={editOwnerId || 'none'}
+                      onValueChange={(v) => setEditOwnerId(v === 'none' ? '' : v)}
+                    >
+                      <SelectTrigger id="edit-owner">
+                        <SelectValue placeholder="可选" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">无</SelectItem>
+                        {(members.data?.items ?? []).map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.displayName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <Button
                     type="button"
                     className="md:col-span-2 w-fit"
@@ -232,6 +275,7 @@ export function ProjectDetailPage() {
                             ...(editPublish
                               ? { plannedPublishAt: new Date(editPublish).toISOString() }
                               : { plannedPublishAt: null }),
+                            ownerId: editOwnerId || null,
                           },
                         })
                         .then(() => setEditOpen(false))
@@ -276,7 +320,8 @@ export function ProjectDetailPage() {
                 <div
                   key={node.id}
                   id={`node-${node.id}`}
-                  className={`rounded-lg border p-3 ${highlightNode === node.id ? 'ring-2 ring-ring' : ''}`}
+                  tabIndex={-1}
+                  className={`rounded-lg border p-3 outline-none focus:ring-2 focus:ring-ring ${highlightNode === node.id ? 'ring-2 ring-ring' : ''}`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{node.label}</span>
@@ -302,9 +347,10 @@ export function ProjectDetailPage() {
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Select
                       value={node.status}
+                      disabled={mutations.patchNode.isPending}
                       onValueChange={(status) => {
                         setNodeError(null);
-                        void mutations.patchNode
+                        mutations.patchNode
                           .mutateAsync({ projectId: id, nodeId: node.id, body: { status } })
                           .catch((err: unknown) => {
                             setNodeError(err instanceof Error ? err.message : '更新失败');
@@ -456,12 +502,51 @@ export function ProjectDetailPage() {
                     onChange={(e) => setItemDesc(e.target.value)}
                   />
                 </div>
+                <div className="space-y-1">
+                  <Label htmlFor="new-item-confirmed">初始人工确认</Label>
+                  <Select
+                    value={itemCreateConfirmed ? 'yes' : 'no'}
+                    onValueChange={(v) => setItemCreateConfirmed(v === 'yes')}
+                  >
+                    <SelectTrigger id="new-item-confirmed">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no">未确认</SelectItem>
+                      <SelectItem value="yes">已确认</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {itemCreateConfirmed ? (
+                  <div className="space-y-1">
+                    <Label htmlFor="new-item-confirmer">确认人</Label>
+                    <Select
+                      value={itemCreateConfirmedBy || 'none'}
+                      onValueChange={(v) => setItemCreateConfirmedBy(v === 'none' ? '' : v)}
+                    >
+                      <SelectTrigger id="new-item-confirmer">
+                        <SelectValue placeholder="选择成员" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(members.data?.items ?? []).map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.displayName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
                 <Button
                   type="button"
                   disabled={!itemTitle.trim() || mutations.createOpenItem.isPending}
                   onClick={() => {
                     setItemError(null);
-                    void mutations.createOpenItem
+                    if (itemCreateConfirmed && !itemCreateConfirmedBy) {
+                      setItemError('已确认时必须选择确认人');
+                      return;
+                    }
+                    mutations.createOpenItem
                       .mutateAsync({
                         projectId: id,
                         body: {
@@ -472,6 +557,12 @@ export function ProjectDetailPage() {
                           ...(itemClose ? { closeCondition: itemClose } : {}),
                           ...(itemDesc ? { description: itemDesc } : {}),
                           ...(itemNodeId ? { workflowNodeId: itemNodeId } : {}),
+                          ...(itemCreateConfirmed
+                            ? {
+                                humanConfirmed: true,
+                                confirmedById: itemCreateConfirmedBy,
+                              }
+                            : {}),
                         },
                       })
                       .then(() => {
@@ -479,13 +570,15 @@ export function ProjectDetailPage() {
                         setItemClose('');
                         setItemDesc('');
                         setItemDue('');
+                        setItemCreateConfirmed(false);
+                        setItemCreateConfirmedBy('');
                       })
                       .catch((err: unknown) => {
                         setItemError(err instanceof Error ? err.message : '创建失败');
                       });
                   }}
                 >
-                  创建未闭环事项
+                  {mutations.createOpenItem.isPending ? '创建中…' : '创建未闭环事项'}
                 </Button>
                 {itemError ? (
                   <p className="text-sm text-destructive md:col-span-3">{itemError}</p>
@@ -498,77 +591,15 @@ export function ProjectDetailPage() {
                 />
               ) : (
                 (openItems.data?.items ?? []).map((item) => (
-                  <div key={item.id} id={`item-${item.id}`} className="rounded-lg border p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{item.title}</span>
-                      <Badge variant="secondary">{item.status}</Badge>
-                      <Badge variant="outline">{item.itemType}</Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      责任方 {item.responsibleParty}
-                      {item.dueAt ? ` · 截止 ${formatFullLocalTime(item.dueAt)}` : ''}
-                    </p>
-                    {item.description ? <p className="text-sm">{item.description}</p> : null}
-                    {item.closeCondition ? (
-                      <p className="text-sm">关闭条件：{item.closeCondition}</p>
-                    ) : null}
-                    <p className="text-xs text-muted-foreground">
-                      来源 {item.sourceType ?? '—'} · 证据 {item.externalEvidenceRef ?? '—'} · 确认{' '}
-                      {item.humanConfirmed ? '是' : '否'}
-                      {item.confirmedAt ? ` (${formatFullLocalTime(item.confirmedAt)})` : ''}
-                    </p>
-                    {item.workflowNodeId ? (
-                      <p className="text-xs text-muted-foreground">
-                        关联节点 {item.workflowNodeId}
-                      </p>
-                    ) : null}
-                    {item.status === 'open' ? (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            void mutations.patchOpenItem.mutateAsync({
-                              projectId: id,
-                              itemId: item.id,
-                              body: { status: 'resolved' },
-                            })
-                          }
-                        >
-                          标记已解决
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            void mutations.patchOpenItem.mutateAsync({
-                              projectId: id,
-                              itemId: item.id,
-                              body: { status: 'cancelled' },
-                            })
-                          }
-                        >
-                          取消
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            void mutations.patchOpenItem.mutateAsync({
-                              projectId: id,
-                              itemId: item.id,
-                              body: { humanConfirmed: true },
-                            })
-                          }
-                        >
-                          人工确认
-                        </Button>
-                      </div>
-                    ) : null}
-                  </div>
+                  <OpenItemCard
+                    key={item.id}
+                    item={item}
+                    projectId={id}
+                    nodes={sortedNodes}
+                    members={members.data?.items ?? []}
+                    mutations={mutations}
+                    onError={setItemError}
+                  />
                 ))
               )}
             </CardContent>

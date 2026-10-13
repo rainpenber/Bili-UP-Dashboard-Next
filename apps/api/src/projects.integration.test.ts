@@ -174,13 +174,11 @@ describe('projects API integration', () => {
     );
     const beforeBody = await before.json();
 
-    const accept1 = await app.request(`/api/v1/hermes/change-proposals/${proposal.id}/accept`, {
-      method: 'POST',
-    });
+    const [accept1, accept2] = await Promise.all([
+      app.request(`/api/v1/hermes/change-proposals/${proposal.id}/accept`, { method: 'POST' }),
+      app.request(`/api/v1/hermes/change-proposals/${proposal.id}/accept`, { method: 'POST' }),
+    ]);
     expect(accept1.status).toBe(200);
-    const accept2 = await app.request(`/api/v1/hermes/change-proposals/${proposal.id}/accept`, {
-      method: 'POST',
-    });
     expect(accept2.status).toBe(200);
 
     const after = await app.request(
@@ -209,5 +207,143 @@ describe('projects API integration', () => {
       SELECT status FROM hermes_change_proposals WHERE id = ${id}
     `;
     expect(row[0]?.status).toBe('pending');
+  });
+
+  test('hermes accept patch_node keeps dueAt set before accept (no stale snapshot)', async () => {
+    if (!sql) return;
+    const wfRes = await app.request(`/api/v1/projects/${FIXTURE_PROJECT_IDS.progressing}/workflow`);
+    const wf = await wfRes.json();
+    const node = wf.nodes.find((n: { status: string }) => n.status !== 'locked') ?? wf.nodes[0];
+    const preservedDue = '2027-01-01T00:00:00.000Z';
+    const patchDue = await app.request(
+      `/api/v1/projects/${FIXTURE_PROJECT_IDS.progressing}/workflow/nodes/${node.id}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dueAt: preservedDue }),
+      },
+    );
+    expect(patchDue.status).toBe(200);
+
+    const create = await app.request('/api/v1/hermes/change-proposals', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: FIXTURE_PROJECT_IDS.progressing,
+        idempotencyKey: 'accept-node-due-preserve',
+        suggestedAction: 'patch_node',
+        payload: {
+          action: 'patch_node',
+          nodeId: node.id,
+          blockedReason: 'Hermes 备注',
+        },
+        confidence: 0.5,
+      }),
+    });
+    const proposal = await create.json();
+    const accept = await app.request(`/api/v1/hermes/change-proposals/${proposal.id}/accept`, {
+      method: 'POST',
+    });
+    expect(accept.status).toBe(200);
+
+    const wfAfter = await (
+      await app.request(`/api/v1/projects/${FIXTURE_PROJECT_IDS.progressing}/workflow`)
+    ).json();
+    const nodeAfter = wfAfter.nodes.find((n: { id: string }) => n.id === node.id);
+    expect(nodeAfter.blockedReason).toBe('Hermes 备注');
+    expect(nodeAfter.dueAt).toBe(preservedDue);
+  });
+
+  test('hermes concurrent accept creates a single open item', async () => {
+    if (!sql) return;
+    const create = await app.request('/api/v1/hermes/change-proposals', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: FIXTURE_PROJECT_IDS.progressing,
+        idempotencyKey: 'concurrent-accept-items',
+        suggestedAction: 'create_open_item',
+        payload: {
+          action: 'create_open_item',
+          itemType: 'our_action',
+          title: '并发 accept 事项',
+          responsibleParty: 'us',
+        },
+        confidence: 0.9,
+      }),
+    });
+    const proposal = await create.json();
+    const before = await app.request(
+      `/api/v1/projects/${FIXTURE_PROJECT_IDS.progressing}/open-items`,
+    );
+    const beforeCount = (await before.json()).items.length;
+
+    const [acceptA, acceptB] = await Promise.all([
+      app.request(`/api/v1/hermes/change-proposals/${proposal.id}/accept`, { method: 'POST' }),
+      app.request(`/api/v1/hermes/change-proposals/${proposal.id}/accept`, { method: 'POST' }),
+    ]);
+    expect(acceptA.status).toBe(200);
+    expect(acceptB.status).toBe(200);
+    const bodyA = await acceptA.json();
+    const bodyB = await acceptB.json();
+    expect(bodyA.status).toBe('accepted');
+    expect(bodyB.status).toBe('accepted');
+    expect(bodyA.id).toBe(bodyB.id);
+
+    const after = await app.request(
+      `/api/v1/projects/${FIXTURE_PROJECT_IDS.progressing}/open-items`,
+    );
+    expect((await after.json()).items.length).toBe(beforeCount + 1);
+  });
+
+  test('patch open item updates type workflowNode and confirmation fields', async () => {
+    if (!sql) return;
+    const staffId = '33333333-3333-4333-8333-333333333333';
+    const create = await app.request(
+      `/api/v1/projects/${FIXTURE_PROJECT_IDS.progressing}/open-items`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          itemType: 'our_action',
+          title: '可编辑事项',
+          responsibleParty: 'us',
+        }),
+      },
+    );
+    const item = await create.json();
+    const wf = await (
+      await app.request(`/api/v1/projects/${FIXTURE_PROJECT_IDS.progressing}/workflow`)
+    ).json();
+    const nodeId = wf.nodes[0].id;
+    const patch = await app.request(
+      `/api/v1/projects/${FIXTURE_PROJECT_IDS.progressing}/open-items/${item.id}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          itemType: 'confirmation',
+          workflowNodeId: nodeId,
+          humanConfirmed: true,
+          confirmedById: staffId,
+        }),
+      },
+    );
+    expect(patch.status).toBe(200);
+    const body = await patch.json();
+    expect(body.itemType).toBe('confirmation');
+    expect(body.workflowNodeId).toBe(nodeId);
+    expect(body.humanConfirmed).toBe(true);
+    expect(body.confirmedBy?.id).toBe(staffId);
+
+    const bad = await app.request(
+      `/api/v1/projects/${FIXTURE_PROJECT_IDS.progressing}/open-items/${item.id}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirmedById: staffId }),
+      },
+    );
+    expect(bad.status).toBe(400);
   });
 });

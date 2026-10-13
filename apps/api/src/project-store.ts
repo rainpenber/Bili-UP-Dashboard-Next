@@ -152,20 +152,31 @@ export async function patchWorkflowNodeTx(
   projectId: string,
   nodeId: string,
   body: PatchWorkflowNodeBody,
-  nodeSnapshot: {
-    ownerId: string | null;
-    dueAt: string | null;
-    blockedReason: string | null;
-    statusChangedAt: string;
-    completedAt: string | null;
-  },
 ): Promise<void> {
   await assertWorkflowNodeInProject(tx, projectId, nodeId);
-  const current = await tx<{ status: WorkflowNodeSnapshot['status'] }[]>`
-    SELECT status FROM workflow_nodes WHERE id = ${nodeId} FOR UPDATE
+  const current = await tx<
+    {
+      status: WorkflowNodeSnapshot['status'];
+      owner_id: string | null;
+      due_at: Date | null;
+      blocked_reason: string | null;
+      status_changed_at: Date;
+      completed_at: Date | null;
+    }[]
+  >`
+    SELECT status, owner_id, due_at, blocked_reason, status_changed_at, completed_at
+    FROM workflow_nodes WHERE id = ${nodeId} FOR UPDATE
   `;
-  const fromStatus = current[0]?.status;
-  if (!fromStatus) throw new Error('node missing');
+  const row = current[0];
+  const fromStatus = row?.status;
+  if (!fromStatus || !row) throw new Error('node missing');
+  const nodeSnapshot = {
+    ownerId: row.owner_id,
+    dueAt: row.due_at?.toISOString() ?? null,
+    blockedReason: row.blocked_reason,
+    statusChangedAt: row.status_changed_at.toISOString(),
+    completedAt: row.completed_at?.toISOString() ?? null,
+  };
   if (body.status && body.status !== fromStatus) {
     try {
       assertValidNodeTransition(fromStatus, body.status);
@@ -229,15 +240,20 @@ export async function createOpenItemTx(
     await assertWorkflowNodeInProject(tx, projectId, body.workflowNodeId);
   }
   const id = crypto.randomUUID();
+  const confirmed = body.humanConfirmed === true;
+  const confirmedBy = confirmed ? (body.confirmedById ?? null) : null;
+  const confirmedAt = confirmed ? new Date() : null;
   await tx`
     INSERT INTO open_items (
       id, project_id, workflow_node_id, item_type, responsible_party, due_at, title,
-      description, close_condition, source_type, external_evidence_ref, confidence
+      description, close_condition, source_type, external_evidence_ref, confidence,
+      human_confirmed, confirmed_by, confirmed_at
     ) VALUES (
       ${id}, ${projectId}, ${body.workflowNodeId ?? null}, ${body.itemType},
       ${body.responsibleParty}, ${body.dueAt ?? null}, ${body.title},
       ${body.description ?? null}, ${body.closeCondition ?? null},
-      ${body.sourceType ?? null}, ${body.externalEvidenceRef ?? null}, ${body.confidence ?? null}
+      ${body.sourceType ?? null}, ${body.externalEvidenceRef ?? null}, ${body.confidence ?? null},
+      ${confirmed}, ${confirmedBy}, ${confirmedAt}
     )
   `;
   await syncProjectDerivedStateTx(tx, projectId);
@@ -255,15 +271,17 @@ export async function patchOpenItemTx(
       title: string;
       description: string | null;
       status: string;
+      item_type: string;
       responsible_party: string;
       due_at: Date | null;
       close_condition: string | null;
+      workflow_node_id: string | null;
       human_confirmed: boolean;
       confirmed_by: string | null;
       confirmed_at: Date | null;
     }[]
-  >`SELECT title, description, status, responsible_party, due_at, close_condition,
-      human_confirmed, confirmed_by, confirmed_at
+  >`SELECT title, description, status, item_type, responsible_party, due_at, close_condition,
+      workflow_node_id, human_confirmed, confirmed_by, confirmed_at
     FROM open_items WHERE id = ${itemId} AND project_id = ${projectId} FOR UPDATE`;
   const existing = existingRows[0];
   if (!existing) {
@@ -274,24 +292,31 @@ export async function patchOpenItemTx(
   const nextTitle = body.title ?? existing.title;
   const nextDescription = body.description !== undefined ? body.description : existing.description;
   const nextStatus = body.status ?? existing.status;
+  const nextItemType = body.itemType ?? existing.item_type;
   const nextParty = body.responsibleParty ?? existing.responsible_party;
   const nextDue = body.dueAt !== undefined ? body.dueAt : (existing.due_at?.toISOString() ?? null);
   const nextClose =
     body.closeCondition !== undefined ? body.closeCondition : existing.close_condition;
+
+  let nextWorkflowNodeId = existing.workflow_node_id;
+  if (body.workflowNodeId !== undefined) {
+    if (body.workflowNodeId !== null) {
+      await assertWorkflowNodeInProject(tx, projectId, body.workflowNodeId);
+    }
+    nextWorkflowNodeId = body.workflowNodeId;
+  }
 
   let nextConfirmed = existing.human_confirmed;
   let nextConfirmedBy = existing.confirmed_by;
   let nextConfirmedAt = existing.confirmed_at;
   if (body.humanConfirmed === true) {
     nextConfirmed = true;
-    nextConfirmedBy = body.confirmedById ?? existing.confirmed_by;
+    nextConfirmedBy = body.confirmedById!;
     nextConfirmedAt = new Date();
   } else if (body.humanConfirmed === false) {
     nextConfirmed = false;
     nextConfirmedBy = null;
     nextConfirmedAt = null;
-  } else if (body.confirmedById !== undefined) {
-    nextConfirmedBy = body.confirmedById;
   }
 
   await tx`
@@ -299,9 +324,11 @@ export async function patchOpenItemTx(
       title = ${nextTitle},
       description = ${nextDescription},
       status = ${nextStatus},
+      item_type = ${nextItemType},
       responsible_party = ${nextParty},
       due_at = ${nextDue},
       close_condition = ${nextClose},
+      workflow_node_id = ${nextWorkflowNodeId},
       human_confirmed = ${nextConfirmed},
       confirmed_by = ${nextConfirmedBy},
       confirmed_at = ${nextConfirmedAt},
@@ -315,16 +342,6 @@ export async function applyHermesPayloadTx(
   tx: DbExecutor,
   projectId: string,
   payload: HermesPayload,
-  nodeSnapshotById: Map<
-    string,
-    {
-      ownerId: string | null;
-      dueAt: string | null;
-      blockedReason: string | null;
-      statusChangedAt: string;
-      completedAt: string | null;
-    }
-  >,
 ): Promise<void> {
   if (payload.action === 'patch_project') {
     const { action: _action, ...patch } = payload;
@@ -335,13 +352,7 @@ export async function applyHermesPayloadTx(
   if (payload.action === 'patch_node') {
     const { action: _action, nodeId, ...patch } = payload;
     void _action;
-    const snap = nodeSnapshotById.get(nodeId);
-    if (!snap) {
-      const err = new Error('node not found');
-      (err as Error & { status: number }).status = 404;
-      throw err;
-    }
-    await patchWorkflowNodeTx(tx, projectId, nodeId, patch, snap);
+    await patchWorkflowNodeTx(tx, projectId, nodeId, patch);
     return;
   }
   const { action: _action, ...createBody } = payload;

@@ -1,19 +1,36 @@
 import {
   createOpenItemBodySchema,
   createProjectBodySchema,
+  dashboardTodayResponseSchema,
+  hermesChangeProposalSchema,
+  hermesProposalBodySchema,
+  hermesRejectBodySchema,
+  openItemSchema,
+  openItemsListResponseSchema,
   parseWithSchema,
   patchOpenItemBodySchema,
   patchProjectBodySchema,
   patchWorkflowNodeBodySchema,
   projectListQuerySchema,
-  type Paginated,
-  type OpenItemDto,
-  type ProjectSummary,
+  projectPaginatedResponseSchema,
+  projectSummarySchema,
+  projectWorkflowResponseSchema,
+  teamMembersResponseSchema,
 } from '@studio/contracts';
 import type { Sql } from '@studio/db';
+import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { jsonError } from './api-error';
 import { ProjectService } from './project-service';
+
+function jsonValidated<T>(
+  c: Context,
+  schema: { parse: (v: unknown) => T },
+  data: T,
+  status: 200 | 201 = 200,
+) {
+  return c.json(schema.parse(data), status);
+}
 
 export function createProjectRoutes(db: Sql) {
   const app = new Hono();
@@ -21,7 +38,7 @@ export function createProjectRoutes(db: Sql) {
 
   app.get('/team-members', async (c) => {
     const members = await service.listTeamMembers();
-    return c.json({ items: members });
+    return jsonValidated(c, teamMembersResponseSchema, { items: members });
   });
 
   app.get('/', async (c) => {
@@ -36,14 +53,14 @@ export function createProjectRoutes(db: Sql) {
         includeArchived: c.req.query('includeArchived'),
       });
       const { items, totalItems } = await service.listProjects(query);
-      const body: Paginated<ProjectSummary> = {
+      const body = {
         page: query.page,
         pageSize: query.pageSize,
         totalItems,
         totalPages: Math.max(1, Math.ceil(totalItems / query.pageSize)),
         items,
       };
-      return c.json(body);
+      return jsonValidated(c, projectPaginatedResponseSchema, body);
     } catch (err) {
       return jsonError(c, 400, err instanceof Error ? err.message : 'bad request');
     }
@@ -61,7 +78,7 @@ export function createProjectRoutes(db: Sql) {
         ...(body.ownerId !== undefined ? { ownerId: body.ownerId } : {}),
         ...(body.sourceStatus !== undefined ? { sourceStatus: body.sourceStatus } : {}),
       });
-      return c.json(created, 201);
+      return jsonValidated(c, projectSummarySchema, created, 201);
     } catch (err) {
       return jsonError(c, 400, err instanceof Error ? err.message : 'bad request');
     }
@@ -70,7 +87,7 @@ export function createProjectRoutes(db: Sql) {
   app.get('/:id', async (c) => {
     const project = await service.getProject(c.req.param('id'));
     if (!project) return jsonError(c, 404, 'project not found');
-    return c.json(project);
+    return jsonValidated(c, projectSummarySchema, project);
   });
 
   app.patch('/:id', async (c) => {
@@ -78,7 +95,7 @@ export function createProjectRoutes(db: Sql) {
       const body = parseWithSchema(patchProjectBodySchema, await c.req.json());
       const updated = await service.patchProject(c.req.param('id'), body);
       if (!updated) return jsonError(c, 404, 'project not found');
-      return c.json(updated);
+      return jsonValidated(c, projectSummarySchema, updated);
     } catch (err) {
       return jsonError(c, 400, err instanceof Error ? err.message : 'bad request');
     }
@@ -87,19 +104,19 @@ export function createProjectRoutes(db: Sql) {
   app.post('/:id/archive', async (c) => {
     const updated = await service.archiveProject(c.req.param('id'));
     if (!updated) return jsonError(c, 404, 'project not found');
-    return c.json(updated);
+    return jsonValidated(c, projectSummarySchema, updated);
   });
 
   app.post('/:id/restore', async (c) => {
     const updated = await service.restoreProject(c.req.param('id'));
     if (!updated) return jsonError(c, 404, 'project not found');
-    return c.json(updated);
+    return jsonValidated(c, projectSummarySchema, updated);
   });
 
   app.get('/:id/workflow', async (c) => {
     const wf = await service.getWorkflow(c.req.param('id'));
     if (!wf) return jsonError(c, 404, 'workflow not found');
-    return c.json(wf);
+    return jsonValidated(c, projectWorkflowResponseSchema, wf);
   });
 
   app.patch('/:id/workflow/nodes/:nodeId', async (c) => {
@@ -107,7 +124,7 @@ export function createProjectRoutes(db: Sql) {
       const body = parseWithSchema(patchWorkflowNodeBodySchema, await c.req.json());
       const wf = await service.patchWorkflowNode(c.req.param('id'), c.req.param('nodeId'), body);
       if (!wf) return jsonError(c, 404, 'node not found');
-      return c.json(wf);
+      return jsonValidated(c, projectWorkflowResponseSchema, wf);
     } catch (err) {
       const status = (err as Error & { status?: number }).status;
       if (status === 409) {
@@ -126,7 +143,7 @@ export function createProjectRoutes(db: Sql) {
     const project = await service.getProject(c.req.param('id'));
     if (!project) return jsonError(c, 404, 'project not found');
     const items = await service.listOpenItems(c.req.param('id'));
-    return c.json({ items } satisfies { items: OpenItemDto[] });
+    return jsonValidated(c, openItemsListResponseSchema, { items });
   });
 
   app.post('/:id/open-items', async (c) => {
@@ -135,7 +152,7 @@ export function createProjectRoutes(db: Sql) {
       const project = await service.getProject(c.req.param('id'));
       if (!project) return jsonError(c, 404, 'project not found');
       const item = await service.createOpenItem(c.req.param('id'), body);
-      return c.json(item, 201);
+      return jsonValidated(c, openItemSchema, item, 201);
     } catch (err) {
       return jsonError(c, 400, err instanceof Error ? err.message : 'bad request');
     }
@@ -146,7 +163,7 @@ export function createProjectRoutes(db: Sql) {
       const body = parseWithSchema(patchOpenItemBodySchema, await c.req.json());
       const item = await service.patchOpenItem(c.req.param('id'), c.req.param('itemId'), body);
       if (!item) return jsonError(c, 404, 'open item not found');
-      return c.json(item);
+      return jsonValidated(c, openItemSchema, item);
     } catch (err) {
       return jsonError(c, 400, err instanceof Error ? err.message : 'bad request');
     }
@@ -161,7 +178,7 @@ export function createDashboardRoutes(db: Sql) {
   app.get('/today', async (c) => {
     const ref = c.req.query('referenceNow');
     const dashboard = await service.buildDashboard(ref ? new Date(ref) : undefined);
-    return c.json(dashboard);
+    return jsonValidated(c, dashboardTodayResponseSchema, dashboard);
   });
   return app;
 }
@@ -172,7 +189,6 @@ export function createHermesRoutes(db: Sql) {
 
   app.post('/change-proposals', async (c) => {
     try {
-      const { hermesProposalBodySchema } = await import('@studio/contracts');
       const body = parseWithSchema(hermesProposalBodySchema, await c.req.json());
       const proposal = await service.createHermesProposal({
         projectId: body.projectId,
@@ -182,7 +198,7 @@ export function createHermesRoutes(db: Sql) {
         confidence: body.confidence ?? 0,
         ...(body.sourceEvidence !== undefined ? { sourceEvidence: body.sourceEvidence } : {}),
       });
-      return c.json(proposal, 201);
+      return jsonValidated(c, hermesChangeProposalSchema, proposal, 201);
     } catch (err) {
       return jsonError(c, 400, err instanceof Error ? err.message : 'bad request');
     }
@@ -192,7 +208,7 @@ export function createHermesRoutes(db: Sql) {
     try {
       const proposal = await service.acceptHermesProposal(c.req.param('id'));
       if (!proposal) return jsonError(c, 404, 'proposal not found');
-      return c.json(proposal);
+      return jsonValidated(c, hermesChangeProposalSchema, proposal);
     } catch (err) {
       const status = (err as Error & { status?: number }).status;
       if (status === 400) {
@@ -204,11 +220,10 @@ export function createHermesRoutes(db: Sql) {
 
   app.post('/change-proposals/:id/reject', async (c) => {
     try {
-      const { hermesRejectBodySchema } = await import('@studio/contracts');
       const body = parseWithSchema(hermesRejectBodySchema, await c.req.json());
       const proposal = await service.rejectHermesProposal(c.req.param('id'), body.reason);
       if (!proposal) return jsonError(c, 404, 'proposal not found');
-      return c.json(proposal);
+      return jsonValidated(c, hermesChangeProposalSchema, proposal);
     } catch (err) {
       return jsonError(c, 400, err instanceof Error ? err.message : 'bad request');
     }

@@ -165,8 +165,8 @@ export type HermesChangeProposal = {
   projectId: string;
   idempotencyKey: string;
   status: HermesProposalStatus;
-  suggestedAction: string;
-  payload: Record<string, unknown>;
+  suggestedAction: 'patch_project' | 'patch_node' | 'create_open_item';
+  payload: HermesPayload;
   sourceEvidence: Record<string, unknown> | null;
   confidence: number;
   rejectionReason: string | null;
@@ -285,20 +285,6 @@ export const dashboardTodayResponseSchema = z.object({
   pendingConfirmation: z.array(dashboardEntrySchema),
 });
 
-export const hermesChangeProposalSchema = z.object({
-  id: z.string().uuid(),
-  projectId: z.string().uuid(),
-  idempotencyKey: z.string(),
-  status: z.enum(['pending', 'accepted', 'rejected', 'superseded']),
-  suggestedAction: z.enum(['patch_project', 'patch_node', 'create_open_item']),
-  payload: z.record(z.unknown()),
-  sourceEvidence: z.record(z.unknown()).nullable(),
-  confidence: z.number(),
-  rejectionReason: z.string().nullable(),
-  createdAt: z.string().datetime(),
-  resolvedAt: z.string().datetime().nullable(),
-});
-
 export const paginationMetaSchema = z.object({
   page: z.number().int(),
   pageSize: z.number().int(),
@@ -309,6 +295,16 @@ export const paginationMetaSchema = z.object({
 export function paginatedSchema<T extends z.ZodTypeAny>(item: T) {
   return paginationMetaSchema.extend({ items: z.array(item) });
 }
+
+export const teamMembersResponseSchema = z.object({
+  items: z.array(teamMemberSchema),
+});
+
+export const openItemsListResponseSchema = z.object({
+  items: z.array(openItemSchema),
+});
+
+export const projectPaginatedResponseSchema = paginatedSchema(projectSummarySchema);
 
 export const createProjectBodySchema = z.object({
   name: z.string().min(1).max(200),
@@ -350,7 +346,7 @@ export const patchWorkflowNodeBodySchema = z.object({
   blockedReason: z.string().max(2000).nullable().optional(),
 });
 
-export const createOpenItemBodySchema = z.object({
+export const createOpenItemFieldsSchema = z.object({
   itemType: openItemTypeSchema,
   title: z.string().min(1).max(300),
   description: z.string().max(5000).optional(),
@@ -361,18 +357,56 @@ export const createOpenItemBodySchema = z.object({
   sourceType: z.string().max(100).optional(),
   externalEvidenceRef: z.string().max(500).optional(),
   confidence: z.number().min(0).max(1).optional(),
-});
-
-export const patchOpenItemBodySchema = z.object({
-  title: z.string().min(1).max(300).optional(),
-  description: z.string().max(5000).nullable().optional(),
-  status: openItemStatusSchema.optional(),
-  responsibleParty: responsiblePartySchema.optional(),
-  dueAt: z.string().datetime().nullable().optional(),
-  closeCondition: z.string().max(1000).nullable().optional(),
   humanConfirmed: z.boolean().optional(),
   confirmedById: z.string().uuid().optional(),
 });
+
+export const createOpenItemBodySchema = createOpenItemFieldsSchema.superRefine((val, ctx) => {
+  if (val.humanConfirmed === true && !val.confirmedById) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'humanConfirmed true requires confirmedById',
+      path: ['confirmedById'],
+    });
+  }
+  if (val.confirmedById !== undefined && val.humanConfirmed !== true) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'confirmedById requires humanConfirmed true',
+      path: ['confirmedById'],
+    });
+  }
+});
+
+export const patchOpenItemBodySchema = z
+  .object({
+    title: z.string().min(1).max(300).optional(),
+    description: z.string().max(5000).nullable().optional(),
+    status: openItemStatusSchema.optional(),
+    itemType: openItemTypeSchema.optional(),
+    responsibleParty: responsiblePartySchema.optional(),
+    dueAt: z.string().datetime().nullable().optional(),
+    closeCondition: z.string().max(1000).nullable().optional(),
+    workflowNodeId: z.string().uuid().nullable().optional(),
+    humanConfirmed: z.boolean().optional(),
+    confirmedById: z.string().uuid().optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.confirmedById !== undefined && val.humanConfirmed === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'confirmedById requires humanConfirmed',
+        path: ['confirmedById'],
+      });
+    }
+    if (val.humanConfirmed === true && !val.confirmedById) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'humanConfirmed true requires confirmedById',
+        path: ['confirmedById'],
+      });
+    }
+  });
 
 export const hermesSuggestedActionSchema = z.enum([
   'patch_project',
@@ -388,7 +422,7 @@ const hermesPatchNodePayloadSchema = patchWorkflowNodeBodySchema.extend({
 export const hermesPayloadSchema = z.discriminatedUnion('action', [
   patchProjectBodySchema.extend({ action: z.literal('patch_project') }),
   hermesPatchNodePayloadSchema,
-  createOpenItemBodySchema.extend({ action: z.literal('create_open_item') }),
+  createOpenItemFieldsSchema.extend({ action: z.literal('create_open_item') }),
 ]);
 
 export const hermesProposalBodySchema = z
@@ -409,6 +443,20 @@ export const hermesProposalBodySchema = z
       });
     }
   });
+
+export const hermesChangeProposalSchema = z.object({
+  id: z.string().uuid(),
+  projectId: z.string().uuid(),
+  idempotencyKey: z.string(),
+  status: z.enum(['pending', 'accepted', 'rejected', 'superseded']),
+  suggestedAction: hermesSuggestedActionSchema,
+  payload: hermesPayloadSchema,
+  sourceEvidence: z.record(z.unknown()).nullable(),
+  confidence: z.number(),
+  rejectionReason: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  resolvedAt: z.string().datetime().nullable(),
+});
 
 export const hermesRejectBodySchema = z.object({
   reason: z.string().min(1).max(2000),
@@ -448,6 +496,26 @@ export function parseProjectSummary(output: unknown): ProjectSummary {
 
 export function parseDashboardToday(output: unknown): DashboardTodayResponse {
   return dashboardTodayResponseSchema.parse(output) as DashboardTodayResponse;
+}
+
+export function parseProjectWorkflow(output: unknown): ProjectWorkflowResponse {
+  return projectWorkflowResponseSchema.parse(output) as ProjectWorkflowResponse;
+}
+
+export function parseOpenItemsList(output: unknown): { items: OpenItemDto[] } {
+  return openItemsListResponseSchema.parse(output) as { items: OpenItemDto[] };
+}
+
+export function parseTeamMembersResponse(output: unknown): { items: TeamMember[] } {
+  return teamMembersResponseSchema.parse(output) as { items: TeamMember[] };
+}
+
+export function parseHermesChangeProposal(output: unknown): HermesChangeProposal {
+  return hermesChangeProposalSchema.parse(output) as HermesChangeProposal;
+}
+
+export function parseProjectPaginated(output: unknown) {
+  return projectPaginatedResponseSchema.parse(output);
 }
 
 export function parseWithSchema<T>(schema: z.ZodType<T>, input: unknown): T {

@@ -12,7 +12,11 @@ import type {
   TeamMember,
   WorkflowNodeDto,
 } from '@studio/contracts';
-import { dashboardTodayResponseSchema, parseHermesPayload } from '@studio/contracts';
+import {
+  dashboardTodayResponseSchema,
+  hermesChangeProposalSchema,
+  parseHermesPayload,
+} from '@studio/contracts';
 import type { Sql } from '@studio/db';
 import {
   buildDashboardBuckets,
@@ -364,19 +368,17 @@ export class ProjectService {
     nodeId: string,
     body: PatchWorkflowNodeBody,
   ): Promise<ProjectWorkflowResponse | null> {
-    const graph = await this.loadWorkflowGraph(projectId);
-    if (!graph) return null;
-    const node = graph.rawNodes.find((n) => n.id === nodeId);
-    if (!node) return null;
+    const exists = await this.sql<{ ok: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM workflow_nodes wn
+        JOIN project_workflows pw ON pw.id = wn.project_workflow_id
+        WHERE wn.id = ${nodeId} AND pw.project_id = ${projectId}
+      ) AS ok
+    `;
+    if (!exists[0]?.ok) return null;
 
     await this.sql.begin(async (tx) => {
-      await patchWorkflowNodeTx(tx as unknown as DbExecutor, projectId, nodeId, body, {
-        ownerId: node.owner?.id ?? null,
-        dueAt: node.dueAt,
-        blockedReason: node.blockedReason,
-        statusChangedAt: node.statusChangedAt,
-        completedAt: node.completedAt,
-      });
+      await patchWorkflowNodeTx(tx as unknown as DbExecutor, projectId, nodeId, body);
     });
 
     return this.getWorkflow(projectId);
@@ -522,6 +524,7 @@ export class ProjectService {
           focusOpenItemId: item.id,
           itemType: item.itemType,
           openItemStatus: item.status,
+          humanConfirmed: item.humanConfirmed,
           publishWithinDays,
         });
       }
@@ -626,19 +629,22 @@ export class ProjectService {
     created_at: Date;
     resolved_at: Date | null;
   }): HermesChangeProposal {
-    return {
+    const rawPayload =
+      typeof row.payload === 'string' ? (JSON.parse(row.payload) as unknown) : row.payload;
+    const proposal = {
       id: row.id,
       projectId: row.project_id,
       idempotencyKey: row.idempotency_key,
       status: row.status as HermesChangeProposal['status'],
       suggestedAction: row.suggested_action,
-      payload: row.payload,
+      payload: rawPayload,
       sourceEvidence: row.source_evidence,
       confidence: row.confidence,
       rejectionReason: row.rejection_reason,
       createdAt: row.created_at.toISOString(),
       resolvedAt: row.resolved_at?.toISOString() ?? null,
     };
+    return hermesChangeProposalSchema.parse(proposal) as HermesChangeProposal;
   }
 
   async acceptHermesProposal(proposalId: string): Promise<HermesChangeProposal | null> {
@@ -680,33 +686,7 @@ export class ProjectService {
         throw err;
       }
 
-      const graph = await this.loadWorkflowGraph(row.project_id);
-      const nodeSnapshotById = new Map<
-        string,
-        {
-          ownerId: string | null;
-          dueAt: string | null;
-          blockedReason: string | null;
-          statusChangedAt: string;
-          completedAt: string | null;
-        }
-      >();
-      for (const n of graph?.rawNodes ?? []) {
-        nodeSnapshotById.set(n.id, {
-          ownerId: n.owner?.id ?? null,
-          dueAt: n.dueAt,
-          blockedReason: n.blockedReason,
-          statusChangedAt: n.statusChangedAt,
-          completedAt: n.completedAt,
-        });
-      }
-
-      await applyHermesPayloadTx(
-        tx as unknown as DbExecutor,
-        row.project_id,
-        payload,
-        nodeSnapshotById,
-      );
+      await applyHermesPayloadTx(tx as unknown as DbExecutor, row.project_id, payload);
       const updated = await tx<ProposalRow[]>`
         UPDATE hermes_change_proposals SET status = 'accepted', resolved_at = now()
         WHERE id = ${proposalId} AND status = 'pending'

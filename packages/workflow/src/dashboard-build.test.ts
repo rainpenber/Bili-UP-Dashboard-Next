@@ -90,4 +90,45 @@ describe('dashboard build', () => {
     expect(buckets.overdue.length).toBe(2);
     expect(buckets.overdue[0]?.id).toBe('b');
   });
+
+  test('pending confirmation only unconfirmed open confirmation items', () => {
+    const buckets = buildDashboardBuckets(
+      [
+        {
+          id: 'c-pending',
+          kind: 'open_item',
+          projectId: 'p1',
+          projectName: 'P',
+          title: '待确认',
+          issue: 'confirmation',
+          responsibleParty: 'us',
+          dueAt: null,
+          suggestedNextStep: '确认',
+          focusNodeId: null,
+          focusOpenItemId: '1',
+          itemType: 'confirmation',
+          openItemStatus: 'open',
+          humanConfirmed: false,
+        },
+        {
+          id: 'c-done',
+          kind: 'open_item',
+          projectId: 'p1',
+          projectName: 'P',
+          title: '已确认未关',
+          issue: 'confirmation',
+          responsibleParty: 'us',
+          dueAt: null,
+          suggestedNextStep: '关闭',
+          focusNodeId: null,
+          focusOpenItemId: '2',
+          itemType: 'confirmation',
+          openItemStatus: 'open',
+          humanConfirmed: true,
+        },
+      ],
+      NOW,
+    );
+    expect(buckets.pendingConfirmation.map((e) => e.id)).toEqual(['c-pending']);
+  });
 });

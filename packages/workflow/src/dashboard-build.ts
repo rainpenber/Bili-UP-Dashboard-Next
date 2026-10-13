@@ -16,6 +16,7 @@ export type DashboardEntryDraft = {
   nodeStatus?: string;
   itemType?: string;
   openItemStatus?: string;
+  humanConfirmed?: boolean;
   blockedDownstreamCount?: number;
   publishWithinDays?: number | null;
   isBlocked?: boolean;
@@ -137,7 +138,9 @@ export function buildDashboardBuckets(
       ),
     ),
     pendingConfirmation: sortGroup(
-      enriched.filter((e) => openItem(e) && e.itemType === 'confirmation'),
+      enriched.filter(
+        (e) => openItem(e) && e.itemType === 'confirmation' && e.humanConfirmed === false,
+      ),
     ),
     blockedProjects: sortGroup(enriched.filter((e) => e.kind === 'project')),
   };
