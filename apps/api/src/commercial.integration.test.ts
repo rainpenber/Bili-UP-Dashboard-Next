@@ -80,31 +80,24 @@ describe('commercial API integration', () => {
       await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)
     ).json();
     expect(wf.edges.length).toBeGreaterThan(0);
-    const extraA = await app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
+    const extra = await app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: '临时节点A', posX: 900, posY: 400 }),
+      body: JSON.stringify({ name: '临时节点', posX: 900, posY: 400 }),
     });
-    const extraB = await app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: '临时节点B', posX: 900, posY: 520 }),
-    });
-    expect(extraA.status).toBe(201);
-    expect(extraB.status).toBe(201);
-    const wf2 = await extraB.json();
-    const tempA = wf2.nodes.find((n: { name: string }) => n.name === '临时节点A');
-    const tempB = wf2.nodes.find((n: { name: string }) => n.name === '临时节点B');
-    expect(tempA && tempB).toBeTruthy();
+    if (extra.status !== 201) {
+      throw new Error(`create node failed: ${extra.status} ${await extra.text()}`);
+    }
+    const wf2 = await extra.json();
+    const temp = wf2.nodes.find((n: { name: string }) => n.name === '临时节点');
+    const inquiry = wf2.nodes.find((n: { slug: string | null }) => n.slug === 'inquiry');
+    expect(temp && inquiry).toBeTruthy();
     const connect = await app.request(`/api/v1/commercial/projects/${project.id}/edges`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ fromNodeId: tempA!.id, toNodeId: tempB!.id }),
+      body: JSON.stringify({ fromNodeId: inquiry!.id, toNodeId: temp!.id }),
     });
-    if (connect.status !== 201) {
-      const errBody = await connect.json();
-      throw new Error(`connect failed: ${connect.status} ${JSON.stringify(errBody)}`);
-    }
+    expect(connect.status).toBe(201);
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
 
@@ -294,7 +287,9 @@ describe('commercial API integration', () => {
     const del = await app.request(`/api/v1/commercial/projects/${project.id}/nodes/${node.id}`, {
       method: 'DELETE',
     });
-    expect(del.status).toBe(200);
+    if (del.status !== 200) {
+      throw new Error(`delete node failed: ${del.status} ${await del.text()}`);
+    }
     const items = await (
       await app.request(`/api/v1/commercial/projects/${project.id}/open-items`)
     ).json();

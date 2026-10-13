@@ -226,7 +226,7 @@ export class CommercialEngine {
       await applyUpdates(tx, graph.workflowId, updates);
       await audit(tx, projectId, 'advance_to', nodeId, Object.fromEntries(updates));
     });
-    return this.getWorkflow(projectId)!;
+    return (await this.getWorkflow(projectId))!;
   }
 
   async completeNode(projectId: string, nodeId: string) {
@@ -240,7 +240,7 @@ export class CommercialEngine {
       await applyUpdates(tx, graph.workflowId, updates);
       await audit(tx, projectId, 'complete', nodeId, Object.fromEntries(updates));
     });
-    return this.getWorkflow(projectId)!;
+    return (await this.getWorkflow(projectId))!;
   }
 
   async rollbackNode(projectId: string, nodeId: string) {
@@ -254,7 +254,7 @@ export class CommercialEngine {
       await applyUpdates(tx, graph.workflowId, updates);
       await audit(tx, projectId, 'rollback', nodeId, Object.fromEntries(updates));
     });
-    return this.getWorkflow(projectId)!;
+    return (await this.getWorkflow(projectId))!;
   }
 
   async markNodeNotApplicable(projectId: string, nodeId: string) {
@@ -275,7 +275,7 @@ export class CommercialEngine {
         WHERE id = ${nodeId} AND project_id = ${projectId} AND workflow_id = ${graph.workflowId}
       `;
     });
-    return this.getWorkflow(projectId)!;
+    return (await this.getWorkflow(projectId))!;
   }
 
   async createGraphNode(
@@ -293,7 +293,7 @@ export class CommercialEngine {
       },
       { recordUndo: true },
     );
-    return this.getWorkflow(projectId)!;
+    return (await this.getWorkflow(projectId))!;
   }
 
   async updateGraphNode(
@@ -361,7 +361,7 @@ export class CommercialEngine {
       },
       { recordUndo: true },
     );
-    return this.getWorkflow(projectId)!;
+    return (await this.getWorkflow(projectId))!;
   }
 
   async deleteGraphNode(projectId: string, nodeId: string) {
@@ -388,7 +388,7 @@ export class CommercialEngine {
       },
       { recordUndo: true },
     );
-    return this.getWorkflow(projectId)!;
+    return (await this.getWorkflow(projectId))!;
   }
 
   async createGraphEdge(projectId: string, fromNodeId: string, toNodeId: string) {
@@ -403,7 +403,7 @@ export class CommercialEngine {
       },
       { recordUndo: true },
     );
-    return this.getWorkflow(projectId)!;
+    return (await this.getWorkflow(projectId))!;
   }
 
   async deleteGraphEdge(projectId: string, edgeId: string) {
@@ -417,7 +417,7 @@ export class CommercialEngine {
       },
       { recordUndo: true },
     );
-    return this.getWorkflow(projectId)!;
+    return (await this.getWorkflow(projectId))!;
   }
 
   async listOpenItems(projectId: string): Promise<OpenItemDto[]> {
@@ -703,13 +703,13 @@ export class CommercialEngine {
   async undoGraph(projectId: string) {
     const { undoProjectGraph } = await import('./undo-stack');
     await this.db.begin(async (tx) => undoProjectGraph(tx, projectId));
-    return this.getWorkflow(projectId)!;
+    return (await this.getWorkflow(projectId))!;
   }
 
   async redoGraph(projectId: string) {
     const { redoProjectGraph } = await import('./undo-stack');
     await this.db.begin(async (tx) => redoProjectGraph(tx, projectId));
-    return this.getWorkflow(projectId)!;
+    return (await this.getWorkflow(projectId))!;
   }
 }
 

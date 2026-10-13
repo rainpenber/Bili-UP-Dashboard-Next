@@ -95,9 +95,10 @@ async function insertProposalTx(tx: Db, envelope: HermesWriteEnvelope) {
     return { mode: 'proposal', proposalId: existing[0].id, status: existing[0].status };
   }
   const id = crypto.randomUUID();
+  const payloadJson = JSON.parse(canonicalJson(envelope.payload)) as Record<string, unknown>;
   const inserted = await tx<{ id: string }[]>`
     INSERT INTO hermes_write_proposals (id, project_id, idempotency_key, operation, status, payload, source_evidence, confidence)
-    VALUES (${id}, ${projectId}, ${envelope.idempotencyKey}, ${envelope.operation}, 'pending', ${JSON.stringify(envelope.payload)}::jsonb, ${envelope.sourceEvidence ? JSON.stringify(envelope.sourceEvidence) : null}::jsonb, ${envelope.confidence})
+    VALUES (${id}, ${projectId}, ${envelope.idempotencyKey}, ${envelope.operation}, 'pending', ${JSON.stringify(payloadJson)}::jsonb, ${envelope.sourceEvidence ? JSON.stringify(envelope.sourceEvidence) : null}::jsonb, ${envelope.confidence})
     ON CONFLICT (idempotency_key) DO NOTHING
     RETURNING id
   `;
