@@ -1,6 +1,10 @@
 import type { EChartsOption, LineSeriesOption } from 'echarts';
 import { formatAxisLabels } from '@/lib/format-time';
 import { formatCompactNumber, formatExactNumber } from '@/lib/format-compact-number';
+import {
+  formatViewCountThousandsFromRaw,
+  formatViewCountThousandsUnit,
+} from '@/lib/format-view-thousands';
 import { defaultDataZoomRange } from '@/lib/chart-window';
 import { followerYAxisBounds } from '@/lib/chart-follower-axis';
 import type { ResolvedChartColors } from '@/lib/chart-colors';
@@ -102,7 +106,7 @@ export function buildVideoViewsOption(
           const name = p.seriesName ?? '';
           if (name === '播放量') {
             const raw = views[idx];
-            return `${p.marker}${name}：${formatExactNumber(raw)}（${formatCompactNumber(viewsK[idx] ?? null)} 千次）`;
+            return `${p.marker}${name}：${formatExactNumber(raw)}（${formatViewCountThousandsFromRaw(raw ?? null)} 千次）`;
           }
           return `${p.marker}${name}：${formatExactNumber(p.data as number | string | null)}`;
         });
@@ -126,7 +130,7 @@ export function buildVideoViewsOption(
         position: 'right',
         axisLabel: {
           color: colors.mutedForeground,
-          formatter: (v: number) => formatCompactNumber(v),
+          formatter: (v: number) => formatViewCountThousandsUnit(v),
         },
         splitLine: { show: false },
       },
