@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { navItemForPath } from '@/config/navigation';
+import { ThemeControls } from '@/components/theme/theme-controls';
 import { cn } from '@/lib/utils';
 
 export function AppShell() {
@@ -43,6 +44,7 @@ export function AppShell() {
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">{nav?.label ?? '页面'}</p>
           </div>
+          <ThemeControls className="hidden sm:flex" />
         </header>
 
         <main className={cn('mx-auto w-full max-w-7xl flex-1 px-4 py-6 md:px-6')}>

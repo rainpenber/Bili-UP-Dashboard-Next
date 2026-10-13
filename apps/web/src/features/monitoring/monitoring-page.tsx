@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/page-header';
 import {
   useCreatorsQuery,
@@ -26,8 +26,12 @@ import {
   writeMonitorSearchParams,
   type MonitorTab,
 } from '@/features/monitoring/monitor-url-state';
+import { formatVideoCardMetricsSummary } from '@/features/monitoring/video-card-metrics';
 import { cn } from '@/lib/utils';
 import { OfflineEnvironmentBadge } from '@/features/monitoring/offline-environment-badge';
+import { formatShortTime } from '@/lib/format-time';
+import { formatUnknownMetric } from '@/lib/format-compact-number';
+import { Button } from '@/components/ui/button';
 
 const TAB_LABEL: Record<MonitorTab, string> = {
   videos: '视频',
@@ -130,43 +134,58 @@ export function MonitoringPage() {
                       const selected = state.selected === id;
                       return (
                         <li key={id}>
-                          <button
-                            type="button"
-                            onClick={() => patchUrl({ selected: id })}
+                          <div
                             className={cn(
-                              'flex w-full gap-3 rounded-lg border p-3 text-left transition-colors duration-200',
-                              'hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              'flex w-full gap-2 rounded-lg border p-3 transition-colors duration-200',
                               selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
                             )}
-                            aria-pressed={selected}
                           >
-                            <img
-                              src={coverAssetUrl('coverAssetId' in v ? v.coverAssetId : null)}
-                              alt=""
-                              width={96}
-                              height={54}
-                              className="size-16 shrink-0 rounded object-cover"
-                            />
-                            <div className="min-w-0 flex-1 space-y-1">
-                              <p className="line-clamp-2 font-medium leading-snug">
-                                {'title' in v ? (v.title ?? v.bvid) : id}
-                              </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {'category' in v ? (v.category ?? '未分类') : ''}
-                              </p>
-                              <p className="truncate text-xs tabular-nums text-muted-foreground">
-                                更新{' '}
-                                {'latestMetrics' in v ? (v.latestMetrics.sampledAt ?? '—') : '—'} ·
-                                播放{' '}
-                                {'latestMetrics' in v
-                                  ? formatCount(
-                                      v.latestMetrics.viewCount,
-                                      v.latestMetrics.onlineViewersRaw,
-                                    )
-                                  : '—'}
-                              </p>
-                            </div>
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => patchUrl({ selected: id })}
+                              className={cn(
+                                'flex min-w-0 flex-1 gap-3 text-left',
+                                'hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md',
+                              )}
+                              aria-pressed={selected}
+                            >
+                              <img
+                                src={coverAssetUrl('coverAssetId' in v ? v.coverAssetId : null)}
+                                alt=""
+                                width={96}
+                                height={54}
+                                className="size-16 shrink-0 rounded object-cover"
+                              />
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <p className="line-clamp-2 font-medium leading-snug">
+                                  {'title' in v ? (v.title ?? v.bvid) : id}
+                                </p>
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {'category' in v ? (v.category ?? '未分类') : ''}
+                                </p>
+                                <p className="truncate text-xs tabular-nums text-muted-foreground">
+                                  更新{' '}
+                                  {'latestMetrics' in v && v.latestMetrics.sampledAt
+                                    ? formatShortTime(v.latestMetrics.sampledAt)
+                                    : '—'}{' '}
+                                  ·{' '}
+                                  {'latestMetrics' in v
+                                    ? formatVideoCardMetricsSummary(v.latestMetrics)
+                                    : '—'}
+                                </p>
+                              </div>
+                            </button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0 self-center"
+                              asChild
+                            >
+                              <Link to={`/monitoring/videos/${encodeURIComponent(id)}`}>
+                                查看详情
+                              </Link>
+                            </Button>
+                          </div>
                         </li>
                       );
                     })}
@@ -177,35 +196,48 @@ export function MonitoringPage() {
                       const selected = state.selected === id;
                       return (
                         <li key={id}>
-                          <button
-                            type="button"
-                            onClick={() => patchUrl({ selected: id })}
+                          <div
                             className={cn(
-                              'flex w-full gap-3 rounded-lg border p-3 text-left transition-colors duration-200',
-                              'hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              'flex w-full gap-2 rounded-lg border p-3',
                               selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
                             )}
-                            aria-pressed={selected}
                           >
-                            <img
-                              src={coverAssetUrl('faceAssetId' in c ? c.faceAssetId : null)}
-                              alt=""
-                              width={64}
-                              height={64}
-                              className="size-14 shrink-0 rounded-full object-cover"
-                            />
-                            <div className="min-w-0 flex-1 space-y-1">
-                              <p className="truncate font-medium">
-                                {'uname' in c ? (c.uname ?? c.mid) : id}
-                              </p>
-                              <p className="text-xs tabular-nums text-muted-foreground">
-                                粉丝{' '}
-                                {'latestMetrics' in c
-                                  ? formatCount(c.latestMetrics.followerCount)
-                                  : '—'}
-                              </p>
-                            </div>
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => patchUrl({ selected: id })}
+                              className="flex min-w-0 flex-1 gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
+                              aria-pressed={selected}
+                            >
+                              <img
+                                src={coverAssetUrl('faceAssetId' in c ? c.faceAssetId : null)}
+                                alt=""
+                                width={64}
+                                height={64}
+                                className="size-14 shrink-0 rounded-full object-cover"
+                              />
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <p className="truncate font-medium">
+                                  {'uname' in c ? (c.uname ?? c.mid) : id}
+                                </p>
+                                <p className="text-xs tabular-nums text-muted-foreground">
+                                  粉丝{' '}
+                                  {'latestMetrics' in c
+                                    ? formatCount(c.latestMetrics.followerCount)
+                                    : '—'}
+                                </p>
+                              </div>
+                            </button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0 self-center"
+                              asChild
+                            >
+                              <Link to={`/monitoring/creators/${encodeURIComponent(id)}`}>
+                                查看详情
+                              </Link>
+                            </Button>
+                          </div>
                         </li>
                       );
                     })}
@@ -216,30 +248,43 @@ export function MonitoringPage() {
                       const selected = state.selected === id;
                       return (
                         <li key={id}>
-                          <button
-                            type="button"
-                            onClick={() => patchUrl({ selected: id })}
+                          <div
                             className={cn(
-                              'flex w-full rounded-lg border p-3 text-left transition-colors duration-200',
-                              'hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              'flex w-full gap-2 rounded-lg border p-3',
                               selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
                             )}
-                            aria-pressed={selected}
                           >
-                            <div className="min-w-0 space-y-1">
-                              <p className="break-all font-medium">{id}</p>
-                              <p className="text-xs tabular-nums text-muted-foreground">
-                                赞{' '}
-                                {'latestMetrics' in d
-                                  ? formatCount(d.latestMetrics.likeCount)
-                                  : '—'}{' '}
-                                · 评{' '}
-                                {'latestMetrics' in d
-                                  ? formatCount(d.latestMetrics.commentCount)
-                                  : '—'}
-                              </p>
-                            </div>
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => patchUrl({ selected: id })}
+                              className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
+                              aria-pressed={selected}
+                            >
+                              <div className="min-w-0 space-y-1">
+                                <p className="break-all font-medium">{id}</p>
+                                <p className="text-xs tabular-nums text-muted-foreground">
+                                  赞{' '}
+                                  {'latestMetrics' in d
+                                    ? formatCount(d.latestMetrics.likeCount)
+                                    : '—'}{' '}
+                                  · 评{' '}
+                                  {'latestMetrics' in d
+                                    ? formatUnknownMetric(d.latestMetrics.commentCount)
+                                    : '暂无数据'}
+                                </p>
+                              </div>
+                            </button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0 self-center"
+                              asChild
+                            >
+                              <Link to={`/monitoring/dynamics/${encodeURIComponent(id)}`}>
+                                查看详情
+                              </Link>
+                            </Button>
+                          </div>
                         </li>
                       );
                     })}

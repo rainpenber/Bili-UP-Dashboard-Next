@@ -69,6 +69,7 @@ export type VideoMetricPoint = {
   favoriteCount: BigIntString | null;
   shareCount: BigIntString | null;
   danmakuCount: BigIntString | null;
+  commentCount: BigIntString | null;
 };
 
 export type CreatorMetricPoint = {

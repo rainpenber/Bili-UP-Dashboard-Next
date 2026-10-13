@@ -157,6 +157,7 @@ export function parseMetricCsvWithStaging(opts: {
       return { stagingRows, samples: [], issues };
     }
     const bvid = opts.entityKey;
+    const commentIdx = headers.indexOf('评论数');
     const seen = new Map<string, VideoSample>();
     const samples: VideoSample[] = [];
     for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
@@ -186,6 +187,7 @@ export function parseMetricCsvWithStaging(opts: {
       const favoriteRaw = row[idx.get('收藏') ?? 5] ?? '';
       const shareRaw = row[idx.get('分享') ?? 6] ?? '';
       const danmakuRaw = row[idx.get('弹幕') ?? 7] ?? '';
+      const commentRaw = commentIdx >= 0 ? (row[commentIdx] ?? '') : '';
       const invalidNumeric = collectInvalidNumericFields([
         { label: '播放量', raw: viewRaw },
         { label: '在线观看人数', raw: onlineRaw, unparseable: online.note === 'unparseable' },
@@ -194,6 +196,7 @@ export function parseMetricCsvWithStaging(opts: {
         { label: '收藏', raw: favoriteRaw },
         { label: '分享', raw: shareRaw },
         { label: '弹幕', raw: danmakuRaw },
+        ...(commentIdx >= 0 ? [{ label: '评论数', raw: commentRaw }] : []),
       ]);
       if (invalidNumeric.length > 0) {
         stagingRows.push({
@@ -231,6 +234,7 @@ export function parseMetricCsvWithStaging(opts: {
         favoriteCount: parseIntegerField(favoriteRaw),
         shareCount: parseIntegerField(shareRaw),
         danmakuCount: parseIntegerField(danmakuRaw),
+        commentCount: commentIdx >= 0 ? parseIntegerField(commentRaw) : null,
       };
       const payload = {
         viewCount: sample.viewCount?.toString() ?? null,

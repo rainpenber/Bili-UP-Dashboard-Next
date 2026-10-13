@@ -6,6 +6,9 @@ import { DesignSystemPage } from '@/pages/design-system-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { PlaceholderPage } from '@/pages/placeholder-page';
 import { MonitoringPage } from '@/features/monitoring/monitoring-page';
+import { MonitoringCreatorDetailPage } from '@/pages/monitoring-creator-detail-page';
+import { MonitoringDynamicDetailPage } from '@/pages/monitoring-dynamic-detail-page';
+import { MonitoringVideoDetailPage } from '@/pages/monitoring-video-detail-page';
 
 function placeholderFor(path: string) {
   const nav = primaryNav.find((item) => item.to === path);
@@ -21,6 +24,9 @@ export const appRouteConfig: RouteObject[] = [
       { index: true, element: placeholderFor('/') },
       { path: 'projects', element: placeholderFor('/projects') },
       { path: 'monitoring', element: <MonitoringPage /> },
+      { path: 'monitoring/videos/:bvid', element: <MonitoringVideoDetailPage /> },
+      { path: 'monitoring/creators/:mid', element: <MonitoringCreatorDetailPage /> },
+      { path: 'monitoring/dynamics/:id', element: <MonitoringDynamicDetailPage /> },
       { path: 'finance', element: placeholderFor('/finance') },
       { path: 'content', element: placeholderFor('/content') },
       { path: 'integrations', element: placeholderFor('/integrations') },

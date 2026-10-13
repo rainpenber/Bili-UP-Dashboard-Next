@@ -56,11 +56,52 @@ export function fetchDynamicMetrics(id: string): Promise<{ items: DynamicMetricP
   return getJson(`/dynamics/${encodeURIComponent(id)}/metrics?limit=500`);
 }
 
-export function formatCount(value: string | null | undefined, rawLower?: string | null): string {
-  if (rawLower) return `${rawLower} (下界)`;
-  if (value === null || value === undefined) return '—';
-  return value;
+export type VideoDetail = {
+  bvid: string;
+  title: string | null;
+  category: string | null;
+  mid: string | null;
+  monitoringEnabled: boolean;
+  archivedAt: string | null;
+  deletedAt: string | null;
+  coverAssetId: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CreatorDetail = {
+  mid: string;
+  uname: string | null;
+  category: string | null;
+  monitoringEnabled: boolean;
+  archivedAt: string | null;
+  deletedAt: string | null;
+  faceAssetId: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type DynamicDetail = {
+  dynamicId: string;
+  mid: string | null;
+  category: string | null;
+  monitoringEnabled: boolean;
+  archivedAt: string | null;
+  deletedAt: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export function fetchVideo(bvid: string): Promise<VideoDetail> {
+  return getJson(`/videos/${encodeURIComponent(bvid)}`);
 }
+
+export function fetchCreator(mid: string): Promise<CreatorDetail> {
+  return getJson(`/creators/${encodeURIComponent(mid)}`);
+}
+
+export function fetchDynamic(dynamicId: string): Promise<DynamicDetail> {
+  return getJson(`/dynamics/${encodeURIComponent(dynamicId)}`);
+}
+
+export { formatMetricCount as formatCount } from '@/lib/format-compact-number';
 
 export function coverAssetUrl(coverAssetId: string | null): string {
   if (coverAssetId) return `/api/v1/assets/${encodeURIComponent(coverAssetId)}`;

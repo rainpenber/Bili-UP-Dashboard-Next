@@ -28,6 +28,7 @@ export type VideoSample = {
   favoriteCount: bigint | null;
   shareCount: bigint | null;
   danmakuCount: bigint | null;
+  commentCount: bigint | null;
 };
 
 export type DynamicSample = {
