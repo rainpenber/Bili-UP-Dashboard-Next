@@ -27,6 +27,12 @@ function normalizeSnapshot(raw: unknown): WorkflowUndoSnapshot {
   };
 }
 
+function asSnapshotArray(raw: unknown): WorkflowUndoSnapshot[] {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) return raw.map(normalizeSnapshot);
+  return [normalizeSnapshot(raw)];
+}
+
 async function captureSnapshot(tx: Db, projectId: string): Promise<WorkflowUndoSnapshot | null> {
   const graph = await getWorkflowTx(tx, projectId);
   if (!graph) return null;
@@ -67,8 +73,7 @@ export async function pushUndoSnapshot(tx: Db, projectId: string) {
   const rows = await tx<{ undo_json: unknown }[]>`
     SELECT undo_json FROM workflow_undo_stacks WHERE project_id = ${projectId} FOR UPDATE
   `;
-  const prev = (rows[0]?.undo_json as unknown[] | undefined) ?? [];
-  const prevSnaps = prev.map(normalizeSnapshot);
+  const prevSnaps = asSnapshotArray(rows[0]?.undo_json);
   const next = [...prevSnaps, snap].slice(-MAX_UNDO);
   await tx`
     INSERT INTO workflow_undo_stacks (project_id, undo_json, redo_json)
@@ -132,14 +137,12 @@ export async function undoProjectGraph(tx: Db, projectId: string) {
   const rows = await tx<{ undo_json: unknown; redo_json: unknown }[]>`
     SELECT undo_json, redo_json FROM workflow_undo_stacks WHERE project_id = ${projectId} FOR UPDATE
   `;
-  const undoRaw = (rows[0]?.undo_json as unknown[] | undefined) ?? [];
-  const undo = undoRaw.map(normalizeSnapshot);
+  const undo = asSnapshotArray(rows[0]?.undo_json);
   if (!undo.length) throw Object.assign(new Error('nothing to undo'), { status: 409 });
   const snap = undo[undo.length - 1]!;
   const current = await captureSnapshot(tx, projectId);
   await restoreWorkflowSnapshot(tx, projectId, snap);
-  const redoRaw = (rows[0]?.redo_json as unknown[] | undefined) ?? [];
-  const redo = redoRaw.map(normalizeSnapshot);
+  const redo = asSnapshotArray(rows[0]?.redo_json);
   const nextRedo = current ? [...redo, current] : redo;
   await tx`
     INSERT INTO workflow_undo_stacks (project_id, undo_json, redo_json)
@@ -158,14 +161,12 @@ export async function redoProjectGraph(tx: Db, projectId: string) {
   const rows = await tx<{ undo_json: unknown; redo_json: unknown }[]>`
     SELECT undo_json, redo_json FROM workflow_undo_stacks WHERE project_id = ${projectId} FOR UPDATE
   `;
-  const redoRaw = (rows[0]?.redo_json as unknown[] | undefined) ?? [];
-  const redo = redoRaw.map(normalizeSnapshot);
+  const redo = asSnapshotArray(rows[0]?.redo_json);
   if (!redo.length) throw Object.assign(new Error('nothing to redo'), { status: 409 });
   const snap = redo[redo.length - 1]!;
   const current = await captureSnapshot(tx, projectId);
   await restoreWorkflowSnapshot(tx, projectId, snap);
-  const undoRaw = (rows[0]?.undo_json as unknown[] | undefined) ?? [];
-  const undo = undoRaw.map(normalizeSnapshot);
+  const undo = asSnapshotArray(rows[0]?.undo_json);
   const nextUndo = current ? [...undo, current] : undo;
   await tx`
     UPDATE workflow_undo_stacks SET

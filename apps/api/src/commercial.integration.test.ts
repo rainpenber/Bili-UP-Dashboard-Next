@@ -192,6 +192,7 @@ describe('commercial API integration', () => {
       idempotencyKey: `hermes-prop-${project.id}`,
       operation: 'create_open_item',
       confidence: 0.5,
+      autoApply: false,
       payload: {
         projectId: project.id,
         title: '候选事项',
