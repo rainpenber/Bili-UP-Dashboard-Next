@@ -46,11 +46,11 @@ export const primaryNav: NavItem[] = [
     implemented: false,
   },
   {
-    to: '/integrations',
-    label: '集成与设置',
-    description: '通知渠道与系统设置（后续里程碑）',
+    to: '/settings/workflow',
+    label: '工作流设置',
+    description: '默认模板版本与可视化编辑',
     icon: Plug,
-    implemented: false,
+    implemented: true,
   },
   {
     to: '/design-system',

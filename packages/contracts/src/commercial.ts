@@ -34,17 +34,23 @@ export const projectSummarySchema = z.object({
   updatedAt: z.string().datetime(),
 });
 
+export const nodePhaseSchema = z.enum([
+  'pre_publish',
+  'post_publish_required',
+  'post_publish_optional',
+]);
+
 export const wfNodeSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   status: nodeStatusSchema,
+  phase: nodePhaseSchema,
   isOptional: z.boolean(),
   plannedAt: z.string().datetime().nullable(),
   completedAt: z.string().datetime().nullable(),
   posX: z.number(),
   posY: z.number(),
   packageId: z.string().uuid().nullable(),
-  blockingOpenItemId: z.string().uuid().nullable(),
   slug: z.string().nullable(),
 });
 
@@ -80,6 +86,127 @@ export const openItemSchema = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   closedAt: z.string().datetime().nullable(),
+  sortRank: z.number().int(),
+  blocksRequiredForClose: z.boolean(),
+});
+
+export const createOpenItemBodySchema = z.object({
+  title: z.string().min(1).max(300),
+  nextActor: nextActorSchema,
+  description: z.string().max(5000).optional(),
+  closeCriteria: z.string().max(2000).optional(),
+  nextAction: z.string().max(500).optional(),
+  impact: openItemImpactSchema.optional(),
+  blocksNodeId: z.string().uuid().optional(),
+  workflowNodeId: z.string().uuid().optional(),
+  plannedAt: z.string().datetime().optional(),
+  sourceEvidence: z.record(z.unknown()).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  sortRank: z.number().int().optional(),
+});
+
+export const patchOpenItemBodySchema = createOpenItemBodySchema.partial().extend({
+  blocksRequiredForClose: z.boolean().optional(),
+});
+
+export const projectListEntrySchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  overallStage: overallStageSchema,
+  userDeadlineAt: z.string().datetime().nullable(),
+  updatedAt: z.string().datetime(),
+  primaryBlockReason: z.string().nullable(),
+  openItemsPreview: z.array(
+    z.object({
+      id: z.string().uuid(),
+      title: z.string(),
+      impact: openItemImpactSchema,
+      nextAction: z.string().nullable(),
+    }),
+  ),
+});
+
+export const projectListGroupedSchema = z.object({
+  blocked: z.array(projectListEntrySchema),
+  prePublish: z.array(projectListEntrySchema),
+  postPublishOpen: z.array(projectListEntrySchema),
+});
+
+export const projectDetailSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  netAmount: z.number().nullable(),
+  rebateAmount: z.number().nullable(),
+  overallStage: overallStageSchema,
+  userDeadlineAt: z.string().datetime().nullable(),
+  businessClosedAt: z.string().datetime().nullable(),
+  primaryBlockReason: z.string().nullable(),
+  inProgressNodes: z.array(
+    z.object({ id: z.string().uuid(), name: z.string(), status: nodeStatusSchema }),
+  ),
+  pendingPlannedNodes: z.array(
+    z.object({
+      id: z.string().uuid(),
+      name: z.string(),
+      plannedAt: z.string().datetime().nullable(),
+    }),
+  ),
+  completedNodes: z.array(
+    z.object({
+      id: z.string().uuid(),
+      name: z.string(),
+      completedAt: z.string().datetime().nullable(),
+    }),
+  ),
+  openItems: z.array(openItemSchema),
+  workflow: workflowGraphSchema.nullable(),
+  publish: z
+    .object({
+      bvid: z.string(),
+      publishedAt: z.string().datetime(),
+      forcedCompleteAudit: z.unknown(),
+    })
+    .nullable(),
+  monitorContract: z
+    .object({
+      metadataTaskStatus: z.string(),
+      metadataTitle: z.string().nullable(),
+      linkedBvid: z.string().nullable(),
+      metricsFetchDueAt: z.string().datetime().nullable(),
+    })
+    .nullable(),
+});
+
+export const publishResultSchema = z.object({
+  projectId: z.string().uuid(),
+  bvid: z.string(),
+  publishedAt: z.string().datetime(),
+  forcedCompleteAudit: z.array(z.object({ nodeId: z.string().uuid(), name: z.string() })),
+  monitor: z.object({
+    metadataTaskStatus: z.string(),
+    metadataTitle: z.string().nullable(),
+    linkedBvid: z.string().nullable(),
+    metricsFetchDueAt: z.string().datetime().nullable(),
+  }),
+});
+
+export const createGraphNodeBodySchema = z.object({
+  name: z.string().min(1).max(120),
+  posX: z.number(),
+  posY: z.number(),
+  phase: nodePhaseSchema.optional(),
+});
+
+export const updateGraphNodeBodySchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  posX: z.number().optional(),
+  posY: z.number().optional(),
+  plannedAt: z.string().datetime().nullable().optional(),
+});
+
+export const createGraphEdgeBodySchema = z.object({
+  fromNodeId: z.string().uuid(),
+  toNodeId: z.string().uuid(),
 });
 
 export const homeDashboardSchema = z.object({
@@ -170,6 +297,9 @@ export type ProjectSummary = z.infer<typeof projectSummarySchema>;
 export type WorkflowGraph = z.infer<typeof workflowGraphSchema>;
 export type OpenItemDto = z.infer<typeof openItemSchema>;
 export type HomeDashboard = z.infer<typeof homeDashboardSchema>;
+export type ProjectListGroupedDto = z.infer<typeof projectListGroupedSchema>;
+export type ProjectDetailDto = z.infer<typeof projectDetailSchema>;
+export type PublishResultDto = z.infer<typeof publishResultSchema>;
 
 export type ApiErrorBody = {
   error: string;

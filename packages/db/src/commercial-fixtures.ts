@@ -40,9 +40,10 @@ export async function seedCommercialFixtures(sql: Sql): Promise<void> {
         pos_x: number;
         pos_y: number;
         package_id: string | null;
+        phase: string;
       }[]
     >`
-      SELECT id, slug, name, is_optional, pos_x, pos_y, package_id FROM wf_template_nodes
+      SELECT id, slug, name, is_optional, pos_x, pos_y, package_id, phase FROM wf_template_nodes
       WHERE template_version_id = ${DEFAULT_TEMPLATE}
     `;
     const idMap = new Map<string, string>();
@@ -78,8 +79,8 @@ export async function seedCommercialFixtures(sql: Sql): Promise<void> {
       if (projectId === FIXTURE_PROJECT_IDS.publishedOpen && tn.slug === 'settlement')
         status = 'in_progress';
       await sql`
-        INSERT INTO wf_nodes (id, workflow_id, template_node_id, package_id, name, status, is_optional, pos_x, pos_y, source)
-        VALUES (${nodeId}, ${workflowId}, ${tn.id}, ${tn.package_id}, ${tn.name}, ${status}, ${tn.is_optional}, ${tn.pos_x}, ${tn.pos_y}, 'template')
+        INSERT INTO wf_nodes (id, workflow_id, project_id, template_node_id, package_id, name, status, is_optional, pos_x, pos_y, phase, source)
+        VALUES (${nodeId}, ${workflowId}, ${projectId}, ${tn.id}, ${tn.package_id}, ${tn.name}, ${status}, ${tn.is_optional}, ${tn.pos_x}, ${tn.pos_y}, ${tn.phase}, 'template')
         ON CONFLICT DO NOTHING
       `;
     }
@@ -103,7 +104,7 @@ export async function seedCommercialFixtures(sql: Sql): Promise<void> {
     INSERT INTO open_items (id, project_id, title, description, close_criteria, next_action, next_actor, lifecycle, impact, source_evidence, confidence)
     VALUES (
       ${outlineItemId}, ${FIXTURE_PROJECT_IDS.outlineDebate},
-      '大纲方向确认', '十余句沟通聚合为同一议题', '甲方确认方向', '整理备选结构发给甲方', 'client', 'open', 'normal',
+      '大纲方向确认', '十余句沟通聚合为同一议题', '甲方确认方向', '整理备选结构发给甲方', 'us', 'open', 'normal',
       ${JSON.stringify({ thread: 'fixture-outline-thread', messages: 12 })}::jsonb, 0.85
     )
     ON CONFLICT (id) DO NOTHING
@@ -120,9 +121,9 @@ export async function seedCommercialFixtures(sql: Sql): Promise<void> {
   `;
 
   await sql`
-    INSERT INTO project_monitor_contracts (id, project_id, bvid, monitor_video_key, metadata_task_status, metrics_fetch_due_at)
+    INSERT INTO project_monitor_contracts (id, project_id, bvid, monitor_video_key, linked_bvid, metadata_task_status, metrics_fetch_due_at)
     VALUES (
-      ${'f0a00001-0001-4001-8001-000000000003'}, ${FIXTURE_PROJECT_IDS.publishedOpen}, 'BVWP004R01', 'BVTEST001', 'mock_ready',
+      ${'f0a00001-0001-4001-8001-000000000003'}, ${FIXTURE_PROJECT_IDS.publishedOpen}, 'BVWP004R01', 'BVTEST001', 'BVTEST001', 'mock_ready',
       ${'2026-05-20T12:01:00.000Z'}
     )
     ON CONFLICT (project_id) DO NOTHING

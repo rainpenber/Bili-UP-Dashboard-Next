@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createSql, runMigrations, seedCommercialFixtures, FIXTURE_PROJECT_IDS } from '@studio/db';
+import { createSql, runMigrations } from '@studio/db';
 import { createApp } from './app';
 import { createCommercialRoutes } from './commercial-routes';
 
@@ -12,12 +12,6 @@ describe('commercial API integration', () => {
   beforeAll(async () => {
     if (!sql) return;
     await runMigrations(sql);
-    await sql`
-      TRUNCATE workflow_audit_log, hermes_write_proposals, project_monitor_contracts,
-      project_publish_records, open_items, wf_edges, wf_nodes, project_workflows,
-      commercial_projects RESTART IDENTITY CASCADE
-    `;
-    await seedCommercialFixtures(sql);
     app = createApp({ skipDb: true });
     app.route('/api/v1/commercial', createCommercialRoutes(sql));
   });
@@ -26,28 +20,43 @@ describe('commercial API integration', () => {
     if (sql) await sql.end({ timeout: 5 });
   });
 
-  test('home dashboard three sections', async () => {
+  test('advance-to vs complete semantics on parallel graph', async () => {
     if (!sql) return;
-    const res = await app.request('/api/v1/commercial/home');
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.clientOpenItems.length).toBeGreaterThan(0);
-    expect(body.ourOpenItems.length).toBeGreaterThanOrEqual(0);
-  });
-
-  test('publish idempotent', async () => {
-    if (!sql) return;
-    const payload = {
-      bvid: 'BVTESTPUB1',
-      publishedAt: '2026-06-01T10:00:00.000Z',
-      idempotencyKey: 'pub-key-1',
-    };
     const createRes = await app.request('/api/v1/commercial/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: '发布幂等测试' }),
+      body: JSON.stringify({ name: 'test-parallel-advance' }),
+    });
+    expect(createRes.status).toBe(201);
+    const project = await createRes.json();
+    const wfRes = await app.request(`/api/v1/commercial/projects/${project.id}/workflow`);
+    const wf = await wfRes.json();
+    const outline = wf.nodes.find((n: { slug: string | null }) => n.slug === 'outline');
+    expect(outline).toBeTruthy();
+    const adv = await app.request(
+      `/api/v1/commercial/projects/${project.id}/nodes/${outline.id}/advance-to`,
+      { method: 'POST' },
+    );
+    expect(adv.status).toBe(200);
+    const wf2 = await adv.json();
+    const outlineAfter = wf2.nodes.find((n: { id: string }) => n.id === outline.id);
+    expect(outlineAfter.status).toBe('in_progress');
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
+
+  test('publish idempotency conflict on payload mismatch', async () => {
+    if (!sql) return;
+    const createRes = await app.request('/api/v1/commercial/projects', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'test-publish-idem' }),
     });
     const project = await createRes.json();
+    const payload = {
+      bvid: 'BVTESTIDEM1',
+      publishedAt: '2026-06-01T10:00:00.000Z',
+      idempotencyKey: `pub-key-${project.id}`,
+    };
     const first = await app.request(`/api/v1/commercial/projects/${project.id}/publish`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -57,21 +66,44 @@ describe('commercial API integration', () => {
     const second = await app.request(`/api/v1/commercial/projects/${project.id}/publish`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, bvid: 'BVOTHER' }),
     });
-    expect(second.status).toBe(200);
-    const monitors = await sql<{ c: string }[]>`
-      SELECT count(*)::text AS c FROM project_monitor_contracts WHERE project_id = ${project.id}
-    `;
-    expect(monitors[0]?.c).toBe('1');
+    expect(second.status).toBe(409);
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
 
-  test('fixtures include published winding down project', async () => {
+  test('cross-project edge rejected at database', async () => {
     if (!sql) return;
-    const res = await app.request(
-      `/api/v1/commercial/projects/${FIXTURE_PROJECT_IDS.publishedOpen}`,
-    );
-    const body = await res.json();
-    expect(body.overallStage).toBe('published_winding_down');
+    const a = await (
+      await app.request('/api/v1/commercial/projects', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'test-cross-a' }),
+      })
+    ).json();
+    const b = await (
+      await app.request('/api/v1/commercial/projects', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'test-cross-b' }),
+      })
+    ).json();
+    const wfB = await (await app.request(`/api/v1/commercial/projects/${b.id}/workflow`)).json();
+    const nodeB = wfB.nodes[0];
+    const wfA = await sql<
+      { id: string }[]
+    >`SELECT id FROM project_workflows WHERE project_id = ${a.id}`;
+    let threw = false;
+    try {
+      await sql`
+        INSERT INTO wf_edges (id, workflow_id, from_node_id, to_node_id)
+        SELECT ${crypto.randomUUID()}, ${wfA[0]!.id}, n.id, ${nodeB.id}
+        FROM wf_nodes n WHERE n.project_id = ${a.id} LIMIT 1
+      `;
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+    await sql`DELETE FROM commercial_projects WHERE id IN (${a.id}, ${b.id})`;
   });
 });

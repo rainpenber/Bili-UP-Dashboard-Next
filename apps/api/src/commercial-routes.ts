@@ -1,127 +1,237 @@
 import {
+  createGraphEdgeBodySchema,
+  createGraphNodeBodySchema,
+  createOpenItemBodySchema,
   createProjectBodySchema,
+  hermesWriteBodySchema,
   homeDashboardSchema,
   openItemSchema,
-  paginatedSchema,
-  projectSummarySchema,
+  patchOpenItemBodySchema,
+  projectDetailSchema,
+  projectListGroupedSchema,
   publishProjectBodySchema,
+  publishResultSchema,
+  updateGraphNodeBodySchema,
   workflowGraphSchema,
 } from '@studio/contracts';
 import type { Sql } from '@studio/db';
 import { Hono } from 'hono';
 import { jsonError } from './api-error';
-import { CommercialService } from './commercial-service';
+import { CommercialEngine } from './commercial/engine';
 
 export function createCommercialRoutes(db: Sql) {
   const app = new Hono();
-  const service = new CommercialService(db);
+  const engine = new CommercialEngine(db);
 
   app.get('/home', async (c) => {
-    const dash = await service.getHomeDashboard();
-    return c.json(homeDashboardSchema.parse(dash));
+    return c.json(homeDashboardSchema.parse(await engine.getHomeDashboard()));
   });
 
-  app.get('/projects', async (c) => {
-    const page = Number(c.req.query('page') ?? '1');
-    const pageSize = Number(c.req.query('pageSize') ?? '20');
-    const qRaw = c.req.query('q');
-    const { items, totalItems } = await service.listProjects({
-      page,
-      pageSize,
-      ...(qRaw ? { q: qRaw } : {}),
+  app.get('/projects/grouped', async (c) => {
+    const q = c.req.query('q');
+    const dateFrom = c.req.query('dateFrom');
+    const dateTo = c.req.query('dateTo');
+    const body = await engine.listProjectsGrouped({
+      ...(q ? { q } : {}),
+      ...(dateFrom ? { dateFrom } : {}),
+      ...(dateTo ? { dateTo } : {}),
     });
-    const body = {
-      page,
-      pageSize,
-      totalItems,
-      totalPages: Math.max(1, Math.ceil(totalItems / pageSize)),
-      items,
-    };
-    return c.json(paginatedSchema(projectSummarySchema).parse(body));
+    return c.json(projectListGroupedSchema.parse(body));
   });
 
   app.post('/projects', async (c) => {
     try {
       const body = createProjectBodySchema.parse(await c.req.json());
-      const created = await service.createProject({
+      const created = await engine.createProject({
         name: body.name,
         ...(body.netAmount !== undefined ? { netAmount: body.netAmount } : {}),
         ...(body.rebateAmount !== undefined ? { rebateAmount: body.rebateAmount } : {}),
       });
-      return c.json(projectSummarySchema.parse(created), 201);
+      return c.json(projectDetailSchema.parse(created), 201);
     } catch (err) {
       return jsonError(c, 400, err instanceof Error ? err.message : 'bad request');
     }
   });
 
   app.get('/projects/:id', async (c) => {
-    const project = await service.getProject(c.req.param('id'));
+    const project = await engine.getProjectDetail(c.req.param('id'));
     if (!project) return jsonError(c, 404, 'project not found');
-    return c.json(projectSummarySchema.parse(project));
+    return c.json(projectDetailSchema.parse(project));
   });
 
   app.get('/projects/:id/workflow', async (c) => {
-    const wf = await service.getWorkflow(c.req.param('id'));
+    const wf = await engine.getWorkflow(c.req.param('id'));
     if (!wf) return jsonError(c, 404, 'workflow not found');
     return c.json(workflowGraphSchema.parse(wf));
   });
 
-  app.post('/projects/:id/nodes/:nodeId/advance', async (c) => {
+  app.post('/projects/:id/nodes/:nodeId/advance-to', async (c) => {
     try {
-      const wf = await service.advanceNode(c.req.param('id'), c.req.param('nodeId'));
+      const wf = await engine.advanceToNode(c.req.param('id'), c.req.param('nodeId'));
       return c.json(workflowGraphSchema.parse(wf));
     } catch (err) {
-      const status = (err as Error & { status?: number }).status;
-      if (status === 404) return jsonError(c, 404, err instanceof Error ? err.message : 'error');
-      if (status === 409) return jsonError(c, 409, err instanceof Error ? err.message : 'error');
-      return jsonError(c, 400, err instanceof Error ? err.message : 'error');
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/projects/:id/nodes/:nodeId/complete', async (c) => {
+    try {
+      const wf = await engine.completeNode(c.req.param('id'), c.req.param('nodeId'));
+      return c.json(workflowGraphSchema.parse(wf));
+    } catch (err) {
+      return routeErr(c, err);
     }
   });
 
   app.post('/projects/:id/nodes/:nodeId/rollback', async (c) => {
     try {
-      const wf = await service.rollbackNode(c.req.param('id'), c.req.param('nodeId'));
+      const wf = await engine.rollbackNode(c.req.param('id'), c.req.param('nodeId'));
       return c.json(workflowGraphSchema.parse(wf));
     } catch (err) {
-      const status = (err as Error & { status?: number }).status;
-      if (status === 404) return jsonError(c, 404, err instanceof Error ? err.message : 'error');
-      if (status === 409) return jsonError(c, 409, err instanceof Error ? err.message : 'error');
-      return jsonError(c, 400, err instanceof Error ? err.message : 'error');
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/projects/:id/nodes/:nodeId/not-applicable', async (c) => {
+    try {
+      const wf = await engine.markNodeNotApplicable(c.req.param('id'), c.req.param('nodeId'));
+      return c.json(workflowGraphSchema.parse(wf));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/projects/:id/nodes', async (c) => {
+    try {
+      const body = createGraphNodeBodySchema.parse(await c.req.json());
+      const wf = await engine.createGraphNode(c.req.param('id'), {
+        name: body.name,
+        posX: body.posX,
+        posY: body.posY,
+        ...(body.phase ? { phase: body.phase } : {}),
+      });
+      return c.json(workflowGraphSchema.parse(wf), 201);
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.patch('/projects/:id/nodes/:nodeId', async (c) => {
+    try {
+      const body = updateGraphNodeBodySchema.parse(await c.req.json());
+      const wf = await engine.updateGraphNode(c.req.param('id'), c.req.param('nodeId'), {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.posX !== undefined ? { posX: body.posX } : {}),
+        ...(body.posY !== undefined ? { posY: body.posY } : {}),
+        ...(body.plannedAt !== undefined ? { plannedAt: body.plannedAt } : {}),
+      });
+      return c.json(workflowGraphSchema.parse(wf));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.delete('/projects/:id/nodes/:nodeId', async (c) => {
+    try {
+      const wf = await engine.deleteGraphNode(c.req.param('id'), c.req.param('nodeId'));
+      return c.json(workflowGraphSchema.parse(wf));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/projects/:id/edges', async (c) => {
+    try {
+      const body = createGraphEdgeBodySchema.parse(await c.req.json());
+      const wf = await engine.createGraphEdge(c.req.param('id'), body.fromNodeId, body.toNodeId);
+      return c.json(workflowGraphSchema.parse(wf), 201);
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.delete('/projects/:id/edges/:edgeId', async (c) => {
+    try {
+      const wf = await engine.deleteGraphEdge(c.req.param('id'), c.req.param('edgeId'));
+      return c.json(workflowGraphSchema.parse(wf));
+    } catch (err) {
+      return routeErr(c, err);
     }
   });
 
   app.get('/projects/:id/open-items', async (c) => {
-    const items = await service.listOpenItems(c.req.param('id'));
+    const items = await engine.listOpenItems(c.req.param('id'));
     return c.json({ items: items.map((i) => openItemSchema.parse(i)) });
   });
 
   app.post('/projects/:id/open-items', async (c) => {
     try {
-      const body = (await c.req.json()) as Record<string, unknown>;
-      const item = await service.createOpenItem(c.req.param('id'), {
-        title: String(body.title ?? ''),
-        nextActor: (body.nextActor as 'us' | 'client') ?? 'us',
-        ...(body.description ? { description: String(body.description) } : {}),
-        ...(body.closeCriteria ? { closeCriteria: String(body.closeCriteria) } : {}),
-        ...(body.nextAction ? { nextAction: String(body.nextAction) } : {}),
-        ...(body.impact ? { impact: body.impact as 'normal' | 'blocking' } : {}),
-        ...(body.blocksNodeId ? { blocksNodeId: String(body.blocksNodeId) } : {}),
-      });
+      const body = createOpenItemBodySchema.parse(await c.req.json());
+      const item = await engine.createOpenItem(c.req.param('id'), body);
       return c.json(openItemSchema.parse(item), 201);
     } catch (err) {
       return jsonError(c, 400, err instanceof Error ? err.message : 'bad request');
     }
   });
 
+  app.patch('/projects/:id/open-items/:itemId', async (c) => {
+    try {
+      const body = patchOpenItemBodySchema.parse(await c.req.json());
+      const item = await engine.patchOpenItem(c.req.param('id'), c.req.param('itemId'), body);
+      return c.json(openItemSchema.parse(item));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/projects/:id/open-items/:itemId/close', async (c) => {
+    try {
+      const body = (await c.req.json()) as { conclusion?: string };
+      const item = await engine.closeOpenItem(
+        c.req.param('id'),
+        c.req.param('itemId'),
+        body.conclusion ?? '',
+      );
+      return c.json(openItemSchema.parse(item));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/projects/:id/open-items/:itemId/cancel', async (c) => {
+    try {
+      const item = await engine.cancelOpenItem(c.req.param('id'), c.req.param('itemId'));
+      return c.json(openItemSchema.parse(item));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
   app.post('/projects/:id/publish', async (c) => {
     try {
       const body = publishProjectBodySchema.parse(await c.req.json());
-      const result = await service.publishProject(c.req.param('id'), body);
-      return c.json(result);
+      const result = await engine.publishProject(c.req.param('id'), body);
+      return c.json(publishResultSchema.parse(result));
     } catch (err) {
-      return jsonError(c, 400, err instanceof Error ? err.message : 'bad request');
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/hermes/write', async (c) => {
+    try {
+      const body = hermesWriteBodySchema.parse(await c.req.json());
+      return c.json(await engine.runHermes(body));
+    } catch (err) {
+      return routeErr(c, err);
     }
   });
 
   return app;
+}
+
+function routeErr(c: Parameters<typeof jsonError>[0], err: unknown) {
+  const status = (err as Error & { status?: number }).status;
+  if (status === 404) return jsonError(c, 404, err instanceof Error ? err.message : 'error');
+  if (status === 409) return jsonError(c, 409, err instanceof Error ? err.message : 'error');
+  return jsonError(c, 400, err instanceof Error ? err.message : 'error');
 }

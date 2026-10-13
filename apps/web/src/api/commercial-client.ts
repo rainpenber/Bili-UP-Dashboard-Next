@@ -1,13 +1,17 @@
 import {
+  createOpenItemBodySchema,
   homeDashboardSchema,
   openItemSchema,
-  paginatedSchema,
-  projectSummarySchema,
-  workflowGraphSchema,
+  patchOpenItemBodySchema,
+  projectDetailSchema,
+  projectListGroupedSchema,
+  publishProjectBodySchema,
+  publishResultSchema,
   type HomeDashboard,
   type OpenItemDto,
-  type ProjectSummary,
+  type ProjectDetailDto,
   type WorkflowGraph,
+  workflowGraphSchema,
 } from '@studio/contracts';
 
 const API = '/api/v1/commercial';
@@ -25,17 +29,20 @@ export async function fetchHome(): Promise<HomeDashboard> {
   return homeDashboardSchema.parse(await requestJson('/home'));
 }
 
-export async function fetchProjects(params: { page?: string; q?: string }) {
+export async function fetchProjectsGrouped(params: {
+  q?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}) {
   const qs = new URLSearchParams();
-  if (params.page) qs.set('page', params.page);
   if (params.q) qs.set('q', params.q);
-  return paginatedSchema(projectSummarySchema).parse(
-    await requestJson(`/projects?${qs.toString()}`),
-  );
+  if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
+  if (params.dateTo) qs.set('dateTo', params.dateTo);
+  return projectListGroupedSchema.parse(await requestJson(`/projects/grouped?${qs.toString()}`));
 }
 
-export async function fetchProject(id: string): Promise<ProjectSummary> {
-  return projectSummarySchema.parse(await requestJson(`/projects/${encodeURIComponent(id)}`));
+export async function fetchProject(id: string): Promise<ProjectDetailDto> {
+  return projectDetailSchema.parse(await requestJson(`/projects/${encodeURIComponent(id)}`));
 }
 
 export async function fetchWorkflow(id: string): Promise<WorkflowGraph> {
@@ -44,8 +51,8 @@ export async function fetchWorkflow(id: string): Promise<WorkflowGraph> {
   );
 }
 
-export async function createProject(name: string): Promise<ProjectSummary> {
-  return projectSummarySchema.parse(
+export async function createProject(name: string): Promise<ProjectDetailDto> {
+  return projectDetailSchema.parse(
     await requestJson('/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -54,12 +61,58 @@ export async function createProject(name: string): Promise<ProjectSummary> {
   );
 }
 
-export async function advanceNode(projectId: string, nodeId: string): Promise<WorkflowGraph> {
+export async function advanceToNode(projectId: string, nodeId: string): Promise<WorkflowGraph> {
   return workflowGraphSchema.parse(
     await requestJson(
-      `/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/advance`,
+      `/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/advance-to`,
       { method: 'POST' },
     ),
+  );
+}
+
+export async function completeNode(projectId: string, nodeId: string): Promise<WorkflowGraph> {
+  return workflowGraphSchema.parse(
+    await requestJson(
+      `/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/complete`,
+      { method: 'POST' },
+    ),
+  );
+}
+
+export async function rollbackNode(projectId: string, nodeId: string): Promise<WorkflowGraph> {
+  return workflowGraphSchema.parse(
+    await requestJson(
+      `/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/rollback`,
+      { method: 'POST' },
+    ),
+  );
+}
+
+export async function updateNodeLayout(
+  projectId: string,
+  nodeId: string,
+  posX: number,
+  posY: number,
+) {
+  return workflowGraphSchema.parse(
+    await requestJson(
+      `/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ posX, posY }),
+      },
+    ),
+  );
+}
+
+export async function connectNodes(projectId: string, fromNodeId: string, toNodeId: string) {
+  return workflowGraphSchema.parse(
+    await requestJson(`/projects/${encodeURIComponent(projectId)}/edges`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ fromNodeId, toNodeId }),
+    }),
   );
 }
 
@@ -68,4 +121,40 @@ export async function fetchOpenItems(projectId: string): Promise<{ items: OpenIt
     items: unknown[];
   };
   return { items: raw.items.map((i) => openItemSchema.parse(i)) };
+}
+
+export async function createOpenItem(projectId: string, body: unknown) {
+  const parsed = createOpenItemBodySchema.parse(body);
+  return openItemSchema.parse(
+    await requestJson(`/projects/${encodeURIComponent(projectId)}/open-items`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(parsed),
+    }),
+  );
+}
+
+export async function patchOpenItem(projectId: string, itemId: string, body: unknown) {
+  const parsed = patchOpenItemBodySchema.parse(body);
+  return openItemSchema.parse(
+    await requestJson(
+      `/projects/${encodeURIComponent(projectId)}/open-items/${encodeURIComponent(itemId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(parsed),
+      },
+    ),
+  );
+}
+
+export async function publishProject(projectId: string, body: unknown) {
+  const parsed = publishProjectBodySchema.parse(body);
+  return publishResultSchema.parse(
+    await requestJson(`/projects/${encodeURIComponent(projectId)}/publish`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(parsed),
+    }),
+  );
 }
