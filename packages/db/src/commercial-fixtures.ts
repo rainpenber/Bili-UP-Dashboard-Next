@@ -140,6 +140,11 @@ export async function seedCommercialFixtures(sql: Sql): Promise<void> {
   `;
 
   await sql`
+    INSERT INTO videos (bvid, title, metadata)
+    VALUES ('BVTEST001', 'Fixture 监控视频', ${JSON.stringify({ source: 'fixture' })}::jsonb)
+    ON CONFLICT (bvid) DO NOTHING
+  `;
+  await sql`
     INSERT INTO project_monitor_contracts (id, project_id, bvid, monitor_video_key, linked_bvid, metadata_task_status, metrics_fetch_due_at)
     VALUES (
       ${'f0a00001-0001-4001-8001-000000000003'}, ${FIXTURE_PROJECT_IDS.publishedOpen}, 'BVWP004R01', 'BVTEST001', 'BVTEST001', 'mock_ready',
