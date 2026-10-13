@@ -1,6 +1,5 @@
 import { hermesWriteEnvelopeSchema, type HermesWriteEnvelope } from '@studio/contracts';
 import type { CommercialEngine } from './engine';
-import { canonicalJson } from './canonical-json';
 import { hermesPayloadHash } from './canonical-json';
 import { applyHermesEnvelopeTx } from './engine-mutations';
 import type { Db } from './graph-io';
