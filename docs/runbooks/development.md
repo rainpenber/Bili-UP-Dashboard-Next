@@ -96,21 +96,29 @@ Compose 将上述目录挂载为容器内 `/mock-data`，并设置 `MOCK_DATA_RO
 
 ```bash
 export COMPOSE_PROJECT_NAME=bili-up-dashboard-prod   # 示例：生产/预发/个人环境各用不同名
-docker compose up -d postgres api mock-import web
+docker compose up -d --build postgres api mock-import web
+```
+
+**生产** `docker-compose.yml` 构建不可变 API/Web 镜像（无 `./:/app` 源码挂载）；Web 默认映射 **`8080`**，nginx 将 `/api/*` 反代至 `api:3000`。
+
+**开发** 热重载请使用 `docker-compose.dev.yml`（源码挂载 + Vite 5173），**不要**用于部署：
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
 ```
 
 **不要**在部署命令中加入 `docker-compose.dev-postgres.example.yml`。默认栈内 PostgreSQL 仅在 Compose 网络内可达；数据保存在项目作用域的命名卷 `postgres_data` 中（实际名为 `<COMPOSE_PROJECT_NAME>_postgres_data`）。
 
-`web` 容器通过 `VITE_API_PROXY_TARGET=http://api:3000` 将浏览器请求的 `/api/*` 代理到 Compose 内的 `api` 服务（本地裸跑 `bun run dev` 时默认仍为 `http://localhost:3000`）。
+裸跑 `bun run dev`（`apps/web`）时 Vite 默认将 `/api` 代理到 `http://localhost:3000`。
 
-**Compose UI 冒烟**（`WEB_PORT` 默认为 5173；若映射为 18481 则替换端口）：
+**Compose UI 冒烟**（生产 Web 端口默认 **8080**；开发 Compose 为 5173）：
 
 ```bash
-curl -sf "http://localhost:${WEB_PORT:-5173}/api/health"
-curl -sf "http://localhost:${WEB_PORT:-5173}/api/v1/monitor/videos?page=1&pageSize=1"
+curl -sf "http://localhost:${WEB_PORT:-8080}/api/health"
+curl -sf "http://localhost:${WEB_PORT:-8080}/api/v1/monitor/videos?page=1&pageSize=1"
 ```
 
-应返回 200 JSON，而非 500（此前 web 容器内误代理到 `localhost:3000` 会导致 500）。
+应返回 200 JSON。
 
 `mock-import` 服务在 API 就绪后对 `POST /api/v1/imports/csv` 执行确定性 apply（无外链）。禁止通过 API 传入任意服务器路径。
 
