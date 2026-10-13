@@ -40,10 +40,10 @@ export class CommercialEngine {
       }[]
     >`
       SELECT id, name, overall_stage, user_deadline_at, updated_at FROM commercial_projects
-      WHERE archived_at IS NULL
+      WHERE archived_at IS NULL AND overall_stage <> 'closed'
       ${pattern ? this.db`AND name ILIKE ${pattern}` : this.db``}
-      ${query.dateFrom ? this.db`AND updated_at >= ${query.dateFrom}` : this.db``}
-      ${query.dateTo ? this.db`AND updated_at <= ${query.dateTo}` : this.db``}
+      ${query.dateFrom ? this.db`AND user_deadline_at >= ${query.dateFrom}` : this.db``}
+      ${query.dateTo ? this.db`AND user_deadline_at <= ${query.dateTo}` : this.db``}
     `;
     const enriched = await Promise.all(
       rows.map(async (r) => {
@@ -73,7 +73,13 @@ export class CommercialEngine {
             impact: o.impact as 'normal' | 'blocking',
             nextAction: o.next_action,
           })),
-          sortKey: hasBlockedNode[0]?.ok ? 0 : r.overall_stage === 'pre_publish' ? 1 : 2,
+          sortKey: hasBlockedNode[0]?.ok
+            ? 0
+            : r.overall_stage === 'pre_publish'
+              ? 1
+              : r.overall_stage === 'published_winding_down'
+                ? 2
+                : 99,
         };
       }),
     );
@@ -116,14 +122,28 @@ export class CommercialEngine {
           phase: string;
         }[]
       >`SELECT id, name, is_optional, pos_x, pos_y, package_id, slug, phase FROM wf_template_nodes WHERE template_version_id = ${templateVersionId}`;
+      const tplPackages = await tx<
+        { id: string; name: string; sort_order: number }[]
+      >`SELECT id, name, sort_order FROM wf_template_packages WHERE template_version_id = ${templateVersionId}`;
+      const pkgMap = new Map<string, string>();
+      for (const pkg of tplPackages) {
+        const pkgId = crypto.randomUUID();
+        pkgMap.set(pkg.id, pkgId);
+        await tx`
+          INSERT INTO wf_packages (id, workflow_id, name, sort_order)
+          VALUES (${pkgId}, ${wfId}, ${pkg.name}, ${pkg.sort_order})
+        `;
+      }
       const idMap = new Map<string, string>();
       for (const tn of tplNodes) {
         const nodeId = crypto.randomUUID();
         idMap.set(tn.id, nodeId);
         const status = tn.slug === 'inquiry' ? 'completed' : 'not_reached';
+        const instancePkg = tn.package_id ? (pkgMap.get(tn.package_id) ?? null) : null;
         await tx`
           INSERT INTO wf_nodes (id, workflow_id, project_id, template_node_id, package_id, name, status, is_optional, pos_x, pos_y, phase)
-          VALUES (${nodeId}, ${wfId}, ${id}, ${tn.id}, ${tn.package_id}, ${tn.name}, ${status}, ${tn.is_optional}, ${tn.pos_x}, ${tn.pos_y}, ${tn.phase})
+          VALUES (${nodeId}, ${wfId}, ${id}, ${tn.id}, ${instancePkg}, ${tn.name}, ${status}, ${tn.is_optional}, ${tn.pos_x}, ${tn.pos_y}, ${tn.phase})
+          ON CONFLICT DO NOTHING
         `;
       }
       const tplEdges = await tx<{ from_node_id: string; to_node_id: string }[]>`
@@ -232,12 +252,13 @@ export class CommercialEngine {
 
   async advanceToNode(projectId: string, nodeId: string) {
     await this.mutateGraph(projectId, async (tx, graph) => {
+      assertNodeInGraph(graph, nodeId);
       const updates = advanceToNode(
         nodeId,
         graph.nodes.map((n) => ({ id: n.id, status: n.status })),
         graph.graphEdges,
       );
-      await applyUpdates(tx, updates);
+      await applyUpdates(tx, graph.workflowId, updates);
       await audit(tx, projectId, 'advance_to', nodeId, Object.fromEntries(updates));
     });
     return this.getWorkflow(projectId)!;
@@ -245,12 +266,13 @@ export class CommercialEngine {
 
   async completeNode(projectId: string, nodeId: string) {
     await this.mutateGraph(projectId, async (tx, graph) => {
+      assertNodeInGraph(graph, nodeId);
       const updates = completeNode(
         nodeId,
         graph.nodes.map((n) => ({ id: n.id, status: n.status })),
         graph.graphEdges,
       );
-      await applyUpdates(tx, updates);
+      await applyUpdates(tx, graph.workflowId, updates);
       await audit(tx, projectId, 'complete', nodeId, Object.fromEntries(updates));
     });
     return this.getWorkflow(projectId)!;
@@ -258,22 +280,34 @@ export class CommercialEngine {
 
   async rollbackNode(projectId: string, nodeId: string) {
     await this.mutateGraph(projectId, async (tx, graph) => {
+      assertNodeInGraph(graph, nodeId);
       const updates = rollbackToNode(
         nodeId,
         graph.nodes.map((n) => ({ id: n.id, status: n.status })),
         graph.graphEdges,
       );
-      await applyUpdates(tx, updates);
+      await applyUpdates(tx, graph.workflowId, updates);
       await audit(tx, projectId, 'rollback', nodeId, Object.fromEntries(updates));
     });
     return this.getWorkflow(projectId)!;
   }
 
   async markNodeNotApplicable(projectId: string, nodeId: string) {
-    await this.mutateGraph(projectId, async (tx) => {
+    await this.mutateGraph(projectId, async (tx, graph) => {
+      const node = assertNodeInGraph(graph, nodeId);
+      if (node.phase === 'post_publish_required') {
+        throw Object.assign(new Error('required post-publish node cannot be not_applicable'), {
+          status: 409,
+        });
+      }
+      if (!node.is_optional && node.phase !== 'post_publish_optional') {
+        throw Object.assign(new Error('only optional nodes may be marked not_applicable'), {
+          status: 409,
+        });
+      }
       await tx`
         UPDATE wf_nodes SET status = 'not_applicable', completed_at = now(), updated_at = now()
-        WHERE id = ${nodeId} AND project_id = ${projectId}
+        WHERE id = ${nodeId} AND project_id = ${projectId} AND workflow_id = ${graph.workflowId}
       `;
     });
     return this.getWorkflow(projectId)!;
@@ -380,7 +414,21 @@ export class CommercialEngine {
 
   async patchOpenItem(projectId: string, itemId: string, patch: Record<string, unknown>) {
     await this.db.begin(async (tx) => {
-      await tx`SELECT id FROM open_items WHERE id = ${itemId} AND project_id = ${projectId} FOR UPDATE`;
+      const current = await tx<
+        { impact: string; blocks_node_id: string | null }[]
+      >`SELECT impact, blocks_node_id FROM open_items WHERE id = ${itemId} AND project_id = ${projectId} FOR UPDATE`;
+      if (!current[0]) throw Object.assign(new Error('open item not found'), { status: 404 });
+      const nextImpact = (patch.impact as string | undefined) ?? current[0].impact;
+      const nextBlocks =
+        patch.blocksNodeId !== undefined
+          ? (patch.blocksNodeId as string | null)
+          : current[0].blocks_node_id;
+      if (nextImpact === 'blocking' && !nextBlocks) {
+        throw Object.assign(new Error('blocking item requires blocksNodeId'), { status: 409 });
+      }
+      if (patch.impact === 'normal') {
+        patch.blocksNodeId = null;
+      }
       const fields: string[] = [];
       if (patch.title !== undefined)
         await tx`UPDATE open_items SET title = ${String(patch.title)}, updated_at = now() WHERE id = ${itemId}`;
@@ -454,6 +502,8 @@ export class CommercialEngine {
     body: { bvid: string; publishedAt: string; idempotencyKey: string },
   ): Promise<PublishResultDto> {
     return this.db.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${body.idempotencyKey}))`;
+      const payloadHash = hashPayload(body);
       const prior = await tx<
         {
           idempotency_key: string;
@@ -464,8 +514,8 @@ export class CommercialEngine {
       >`
         SELECT idempotency_key, project_id, payload_hash, result_json FROM hermes_idempotency
         WHERE idempotency_key = ${body.idempotencyKey}
+        FOR UPDATE
       `;
-      const payloadHash = hashPayload(body);
       if (prior[0]) {
         if (prior[0].project_id !== projectId || prior[0].payload_hash !== payloadHash) {
           throw Object.assign(new Error('idempotency key conflict'), { status: 409 });
@@ -500,13 +550,26 @@ export class CommercialEngine {
         INSERT INTO project_publish_records (project_id, bvid, published_at, publish_source, forced_complete_audit, idempotency_key)
         VALUES (${projectId}, ${body.bvid}, ${body.publishedAt}, 'web', ${JSON.stringify(forced)}::jsonb, ${body.idempotencyKey})
       `;
-      const metricsDue = new Date(new Date(body.publishedAt).getTime() + 60_000);
-      const linked = await tx<{ bvid: string }[]>`
-        SELECT bvid FROM videos WHERE bvid = ${body.bvid} LIMIT 1
+      await tx`
+        INSERT INTO videos (bvid, title, metadata)
+        VALUES (${body.bvid}, ${`商单视频 ${body.bvid}`}, ${JSON.stringify({ source: 'commercial_publish' })}::jsonb)
+        ON CONFLICT (bvid) DO NOTHING
       `;
+      const metricsDue = new Date(new Date(body.publishedAt).getTime() + 60_000);
       await tx`
         INSERT INTO project_monitor_contracts (id, project_id, bvid, monitor_video_key, linked_bvid, metadata_task_status, metrics_fetch_due_at)
-        VALUES (${crypto.randomUUID()}, ${projectId}, ${body.bvid}, ${body.bvid}, ${linked[0]?.bvid ?? null}, 'pending', ${metricsDue.toISOString()})
+        VALUES (${crypto.randomUUID()}, ${projectId}, ${body.bvid}, ${body.bvid}, ${body.bvid}, 'pending', ${metricsDue.toISOString()})
+        ON CONFLICT (project_id) DO NOTHING
+      `;
+      await tx`
+        INSERT INTO monitor_jobs (id, project_id, job_type, status, due_at)
+        VALUES (${crypto.randomUUID()}, ${projectId}, 'metadata', 'pending', now())
+        ON CONFLICT (project_id, job_type) DO NOTHING
+      `;
+      await tx`
+        INSERT INTO monitor_jobs (id, project_id, job_type, status, due_at)
+        VALUES (${crypto.randomUUID()}, ${projectId}, 'metrics', 'pending', ${metricsDue.toISOString()})
+        ON CONFLICT (project_id, job_type) DO NOTHING
       `;
       await runMockMetadataTask(tx, projectId, body.bvid);
       await syncBlockedAndStage(tx, projectId);
@@ -633,17 +696,29 @@ function stripSort<T extends { sortKey: number }>(row: T): Omit<T, 'sortKey'> {
   return rest;
 }
 
+function assertNodeInGraph(
+  graph: NonNullable<Awaited<ReturnType<typeof loadWorkflowGraph>>>,
+  nodeId: string,
+) {
+  const node = graph.nodes.find((n) => n.id === nodeId);
+  if (!node) throw Object.assign(new Error('node not found in project workflow'), { status: 404 });
+  return node;
+}
+
 async function applyUpdates(
   tx: Db,
+  workflowId: string,
   updates: Map<string, { status: string; completedAt?: string | null }>,
 ) {
   for (const [id, u] of updates) {
-    await tx`
+    const rows = await tx`
       UPDATE wf_nodes SET status = ${u.status},
         completed_at = ${u.completedAt ?? null},
         updated_at = now()
-      WHERE id = ${id}
+      WHERE id = ${id} AND workflow_id = ${workflowId}
+      RETURNING id
     `;
+    if (!rows.length) throw Object.assign(new Error('node update out of workflow scope'), { status: 409 });
   }
 }
 
@@ -736,12 +811,20 @@ async function runMockMetadataTask(tx: Db, projectId: string, bvid: string) {
   const meta = await tx<{ title: string | null }[]>`
     SELECT title FROM videos WHERE bvid = ${bvid} LIMIT 1
   `;
+  const title = meta[0]?.title ?? `Mock ${bvid}`;
   await tx`
     UPDATE project_monitor_contracts
     SET metadata_task_status = 'mock_ready',
-        metadata_title = ${meta[0]?.title ?? `Mock ${bvid}`},
-        metadata_fetched_at = now()
+        metadata_title = ${title},
+        metadata_cover_url = ${`/api/v1/assets/placeholder/${bvid}`},
+        metadata_cid = ${`mock-cid-${bvid}`},
+        metadata_fetched_at = now(),
+        linked_bvid = ${bvid}
     WHERE project_id = ${projectId}
+  `;
+  await tx`
+    UPDATE monitor_jobs SET status = 'done', result_json = ${JSON.stringify({ title, bvid })}::jsonb
+    WHERE project_id = ${projectId} AND job_type = 'metadata'
   `;
 }
 

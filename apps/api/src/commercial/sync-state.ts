@@ -28,13 +28,26 @@ export async function syncBlockedAndStage(tx: Db, projectId: string) {
     const hasBlock = items.length > 0;
     let nextStatus = node.status;
     if (hasBlock && node.status !== 'completed' && node.status !== 'not_applicable') {
-      nextStatus = 'blocked';
-    } else if (!hasBlock && node.status === 'blocked') {
-      nextStatus = 'in_progress';
+      if (node.status !== 'blocked') {
+        await tx`
+          UPDATE wf_nodes SET status_before_block = ${node.status}, status = 'blocked', updated_at = now()
+          WHERE id = ${node.id}
+        `;
+        node.status = 'blocked';
+      }
+      continue;
     }
-    if (nextStatus !== node.status) {
+    if (!hasBlock && node.status === 'blocked') {
+      const restore =
+        (
+          await tx<{ status_before_block: string | null }[]>`
+            SELECT status_before_block FROM wf_nodes WHERE id = ${node.id}
+          `
+        )[0]?.status_before_block ?? 'not_reached';
+      nextStatus = restore;
       await tx`
-        UPDATE wf_nodes SET status = ${nextStatus}, updated_at = now() WHERE id = ${node.id}
+        UPDATE wf_nodes SET status = ${nextStatus}, status_before_block = NULL, updated_at = now()
+        WHERE id = ${node.id}
       `;
       node.status = nextStatus;
     }

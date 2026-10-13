@@ -30,20 +30,16 @@ export function advanceToNode(
     }
   }
 
-  for (const n of nodes) {
-    if (n.id === targetId) continue;
-    if (n.status === 'in_progress' && !updates.has(n.id)) {
-      const onPath =
-        preds.includes(n.id) ||
-        successorIds(n.id, edges).some((s) => s === targetId || preds.includes(s));
-      if (!onPath) {
-        updates.set(n.id, { status: 'not_reached', completedAt: null });
-      }
-    }
-  }
-
   updates.set(targetId, { status: 'in_progress', completedAt: null });
   return updates;
+}
+
+function effectiveStatus(
+  id: string,
+  nodes: WfNode[],
+  updates: Map<string, { status: string; completedAt?: string | null }>,
+): string {
+  return updates.get(id)?.status ?? nodes.find((n) => n.id === id)?.status ?? 'not_reached';
 }
 
 export function completeNode(
@@ -53,8 +49,24 @@ export function completeNode(
 ): Map<string, { status: string; completedAt?: string | null }> {
   const updates = new Map<string, { status: string; completedAt?: string | null }>();
   updates.set(nodeId, { status: 'completed', completedAt: new Date().toISOString() });
-  void edges;
-  void nodes;
+  const queue = successorIds(nodeId, edges);
+  const seen = new Set<string>();
+  while (queue.length) {
+    const succ = queue.pop()!;
+    if (seen.has(succ)) continue;
+    seen.add(succ);
+    const preds = predecessorIds(succ, edges);
+    const ready = preds.every((p) => {
+      const st = effectiveStatus(p, nodes, updates);
+      return st === 'completed' || st === 'not_applicable';
+    });
+    if (!ready) continue;
+    const cur = effectiveStatus(succ, nodes, updates);
+    if (cur === 'not_reached') {
+      updates.set(succ, { status: 'in_progress', completedAt: null });
+    }
+    for (const next of successorIds(succ, edges)) queue.push(next);
+  }
   return updates;
 }
 

@@ -18,10 +18,13 @@ import type { Sql } from '@studio/db';
 import { Hono } from 'hono';
 import { jsonError } from './api-error';
 import { CommercialEngine } from './commercial/engine';
+import { TemplateEngine } from './commercial/template-engine';
+import { acceptHermesProposal, rejectHermesProposal } from './commercial/hermes';
 
 export function createCommercialRoutes(db: Sql) {
   const app = new Hono();
   const engine = new CommercialEngine(db);
+  const templates = new TemplateEngine(db);
 
   app.get('/home', async (c) => {
     return c.json(homeDashboardSchema.parse(await engine.getHomeDashboard()));
@@ -224,6 +227,58 @@ export function createCommercialRoutes(db: Sql) {
     } catch (err) {
       return routeErr(c, err);
     }
+  });
+
+  app.get('/hermes/proposals/:id', async (c) => {
+    const rows = await db<
+      { id: string; status: string; operation: string; payload: unknown; confidence: number }[]
+    >`SELECT id, status, operation, payload, confidence FROM hermes_write_proposals WHERE id = ${c.req.param('id')}`;
+    if (!rows[0]) return jsonError(c, 404, 'proposal not found');
+    return c.json(rows[0]);
+  });
+
+  app.post('/hermes/proposals/:id/accept', async (c) => {
+    try {
+      return c.json(await acceptHermesProposal(engine, c.req.param('id')));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/hermes/proposals/:id/reject', async (c) => {
+    const body = (await c.req.json()) as { reason?: string };
+    return c.json(await rejectHermesProposal(engine, c.req.param('id'), body.reason ?? ''));
+  });
+
+  app.get('/templates/versions', async (c) => c.json({ items: await templates.listVersions() }));
+
+  app.get('/templates/versions/:id/graph', async (c) =>
+    c.json(await templates.getTemplateGraph(c.req.param('id'))),
+  );
+
+  app.post('/templates/draft-from-default', async (c) =>
+    c.json(await templates.createDraftFromDefault()),
+  );
+
+  app.post('/templates/versions/:id/publish', async (c) =>
+    c.json(await templates.publishDraft(c.req.param('id'))),
+  );
+
+  app.post('/templates/versions/:id/edges', async (c) => {
+    const body = createGraphEdgeBodySchema.parse(await c.req.json());
+    await templates.addTemplateEdge(c.req.param('id'), body.fromNodeId, body.toNodeId);
+    return c.json(await templates.getTemplateGraph(c.req.param('id')));
+  });
+
+  app.post('/projects/:id/open-items/:itemId/pin-primary-block', async (c) => {
+    const itemId = c.req.param('itemId');
+    const projectId = c.req.param('id');
+    await db`
+      UPDATE wf_nodes n SET primary_block_pinned_item_id = ${itemId}
+      FROM open_items o
+      WHERE o.id = ${itemId} AND o.project_id = ${projectId} AND o.blocks_node_id = n.id
+    `;
+    return c.json({ ok: true });
   });
 
   return app;

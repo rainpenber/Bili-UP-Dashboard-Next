@@ -13,6 +13,7 @@ export function ProjectsPage() {
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
   const dateFrom = params.get('dateFrom') ?? '';
+  const dateTo = params.get('dateTo') ?? '';
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
@@ -20,11 +21,12 @@ export function ProjectsPage() {
   const qc = useQueryClient();
 
   const list = useQuery({
-    queryKey: ['commercial', 'projects-grouped', q, dateFrom],
+    queryKey: ['commercial', 'projects-grouped', q, dateFrom, dateTo],
     queryFn: () =>
       fetchProjectsGrouped({
         ...(q ? { q } : {}),
         ...(dateFrom ? { dateFrom: new Date(dateFrom).toISOString() } : {}),
+        ...(dateTo ? { dateTo: new Date(`${dateTo}T23:59:59`).toISOString() } : {}),
       }),
   });
 
@@ -79,12 +81,23 @@ export function ProjectsPage() {
             />
             <Input
               type="date"
-              aria-label="更新时间起"
+              aria-label="用户死线起"
               value={dateFrom}
               onChange={(e) => {
                 const next = new URLSearchParams(params);
                 if (e.target.value) next.set('dateFrom', e.target.value);
                 else next.delete('dateFrom');
+                setParams(next);
+              }}
+            />
+            <Input
+              type="date"
+              aria-label="用户死线止"
+              value={dateTo}
+              onChange={(e) => {
+                const next = new URLSearchParams(params);
+                if (e.target.value) next.set('dateTo', e.target.value);
+                else next.delete('dateTo');
                 setParams(next);
               }}
             />
@@ -100,6 +113,11 @@ export function ProjectsPage() {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
             />
+            {create.isError ? (
+              <p className="text-destructive w-full text-sm">
+                {create.error instanceof Error ? create.error.message : '创建失败'}
+              </p>
+            ) : null}
             <Button
               type="button"
               disabled={!newName.trim() || create.isPending}
@@ -137,13 +155,32 @@ export function ProjectsPage() {
                 </Button>
               </CardHeader>
               {expanded === p.id ? (
-                <CardContent className="space-y-1 text-sm text-muted-foreground">
-                  {p.openItemsPreview.map((item) => (
-                    <p key={item.id}>
-                      {item.title} · {item.nextAction ?? '—'}{' '}
-                      {item.impact === 'blocking' ? '（阻塞）' : ''}
-                    </p>
-                  ))}
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  {p.openItemsPreview.filter((i) => i.impact === 'blocking').length > 0 ? (
+                    <div>
+                      <p className="font-medium text-foreground">阻塞事项</p>
+                      {p.openItemsPreview
+                        .filter((i) => i.impact === 'blocking')
+                        .map((item) => (
+                          <p key={item.id}>
+                            {item.title} · {item.nextAction ?? '—'}
+                          </p>
+                        ))}
+                    </div>
+                  ) : null}
+                  {p.openItemsPreview.filter((i) => i.impact !== 'blocking').length > 0 ? (
+                    <div>
+                      <p className="font-medium text-foreground">其他待闭环</p>
+                      {p.openItemsPreview
+                        .filter((i) => i.impact !== 'blocking')
+                        .map((item) => (
+                          <p key={item.id}>
+                            {item.title} · {item.nextAction ?? '—'}
+                          </p>
+                        ))}
+                    </div>
+                  ) : null}
+                  {p.openItemsPreview.length === 0 ? <p>暂无待闭环预览</p> : null}
                 </CardContent>
               ) : null}
             </Card>

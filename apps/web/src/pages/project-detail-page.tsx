@@ -1,13 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import {
   advanceToNode,
   completeNode,
   connectNodes,
+  createGraphNode,
   createOpenItem,
+  deleteGraphEdge,
+  deleteGraphNode,
   fetchProject,
-  patchOpenItem,
   publishProject,
   rollbackNode,
   updateNodeLayout,
@@ -17,8 +19,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
+import { OpenItemCard } from '@/features/commercial/open-item-card';
 import { WorkflowFlowEditor } from '@/features/commercial/workflow-flow-editor';
 import { overallStageLabel, nodeStatusLabel } from '@/lib/commercial-labels';
+import { formatFullLocalTime } from '@/lib/format-time';
 
 export function ProjectDetailPage() {
   const { id } = useParams();
@@ -27,18 +31,24 @@ export function ProjectDetailPage() {
   const [publishOpen, setPublishOpen] = useState(false);
   const [bvid, setBvid] = useState('');
   const [publishedAt, setPublishedAt] = useState('');
+  const [itemFormOpen, setItemFormOpen] = useState(false);
+  const [newItemTitle, setNewItemTitle] = useState('');
+  const [newItemNextAction, setNewItemNextAction] = useState('');
+  const [newItemActor, setNewItemActor] = useState<'us' | 'client'>('us');
+  const [newItemImpact, setNewItemImpact] = useState<'normal' | 'blocking'>('normal');
+  const [newItemBlocksNode, setNewItemBlocksNode] = useState('');
+
+  const focusNodeId = useMemo(() => {
+    const hash = location.hash.replace('#', '');
+    if (hash.startsWith('node-')) return hash.slice('node-'.length);
+    return undefined;
+  }, [location.hash]);
+
   const project = useQuery({
     queryKey: ['commercial', 'project', id],
     queryFn: () => fetchProject(id!),
     enabled: Boolean(id),
   });
-
-  useEffect(() => {
-    const hash = location.hash.replace('#', '');
-    if (hash) {
-      document.getElementById(hash)?.focus();
-    }
-  }, [location.hash, project.data]);
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['commercial'] });
 
@@ -47,6 +57,7 @@ export function ProjectDetailPage() {
       type: string;
       nodeId: string;
       pos?: { x: number; y: number };
+      create?: { name: string; posX: number; posY: number };
     }) => {
       if (!id) throw new Error('missing id');
       if (action.type === 'advance') return advanceToNode(id, action.nodeId);
@@ -55,6 +66,10 @@ export function ProjectDetailPage() {
       if (action.type === 'move' && action.pos) {
         return updateNodeLayout(id, action.nodeId, action.pos.x, action.pos.y);
       }
+      if (action.type === 'delete') return deleteGraphNode(id, action.nodeId);
+      if (action.type === 'create' && action.create) {
+        return createGraphNode(id, action.create);
+      }
       throw new Error('unknown');
     },
     onSuccess: invalidate,
@@ -62,6 +77,11 @@ export function ProjectDetailPage() {
 
   const connectMut = useMutation({
     mutationFn: ({ from, to }: { from: string; to: string }) => connectNodes(id!, from, to),
+    onSuccess: invalidate,
+  });
+
+  const deleteEdgeMut = useMutation({
+    mutationFn: (edgeId: string) => deleteGraphEdge(id!, edgeId),
     onSuccess: invalidate,
   });
 
@@ -81,11 +101,20 @@ export function ProjectDetailPage() {
   const itemMut = useMutation({
     mutationFn: () =>
       createOpenItem(id!, {
-        title: '新待闭环事项',
-        nextActor: 'us',
-        nextAction: '跟进处理',
+        title: newItemTitle.trim(),
+        nextActor: newItemActor,
+        nextAction: newItemNextAction.trim() || undefined,
+        impact: newItemImpact,
+        ...(newItemImpact === 'blocking' && newItemBlocksNode
+          ? { blocksNodeId: newItemBlocksNode }
+          : {}),
       }),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setItemFormOpen(false);
+      setNewItemTitle('');
+      setNewItemNextAction('');
+      invalidate();
+    },
   });
 
   if (!id) return <ErrorState message="缺少项目 ID" />;
@@ -102,17 +131,39 @@ export function ProjectDetailPage() {
   const p = project.data!;
   const wf = p.workflow;
   const pending =
-    graphMut.isPending || connectMut.isPending || publishMut.isPending || itemMut.isPending;
+    graphMut.isPending ||
+    connectMut.isPending ||
+    deleteEdgeMut.isPending ||
+    publishMut.isPending ||
+    itemMut.isPending;
+
+  const connectError =
+    connectMut.isError && connectMut.error instanceof Error ? connectMut.error.message : null;
+
+  const statusSummary =
+    [
+      overallStageLabel(p.overallStage),
+      p.inProgressNodes.length
+        ? `进行中：${p.inProgressNodes.map((n) => n.name).join('、')}`
+        : null,
+      p.primaryBlockReason ? `主要阻塞：${p.primaryBlockReason}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || '暂无进行中的节点';
+
+  const forcedAudit = Array.isArray(p.publish?.forcedCompleteAudit)
+    ? (p.publish!.forcedCompleteAudit as { name?: string; nodeId?: string }[])
+    : null;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 overflow-x-hidden px-1">
-      <PageHeader title={p.name} description={`当前阶段：${overallStageLabel(p.overallStage)}`} />
+      <PageHeader title={p.name} description={statusSummary} />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">概要</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm md:grid-cols-2">
-          <p>主要阻塞：{p.primaryBlockReason ?? '—'}</p>
+          <p>主要阻塞：{p.primaryBlockReason ?? '当前无阻塞事项'}</p>
           <p>
             到手 / 返点：{p.netAmount?.toLocaleString('zh-CN') ?? '—'} /{' '}
             {p.rebateAmount?.toLocaleString('zh-CN') ?? '—'}
@@ -120,29 +171,40 @@ export function ProjectDetailPage() {
           <div className="md:col-span-2">
             <p className="mb-1 font-medium">未完成节点计划</p>
             <ul className="list-disc pl-5 text-muted-foreground">
-              {p.pendingPlannedNodes.map((n) => (
-                <li key={n.id}>
-                  {n.name} · {n.plannedAt ?? '未设计划时间'}
-                </li>
-              ))}
+              {p.pendingPlannedNodes.length === 0 ? (
+                <li>暂无带计划时间的未完成节点</li>
+              ) : (
+                p.pendingPlannedNodes.map((n) => (
+                  <li key={n.id}>
+                    <Link to={`#node-${n.id}`}>{n.name}</Link> ·{' '}
+                    {n.plannedAt ? formatFullLocalTime(n.plannedAt) : '未设计划时间'}
+                  </li>
+                ))
+              )}
             </ul>
           </div>
           <div className="md:col-span-2">
             <p className="mb-1 font-medium">进行中节点</p>
             <p>
-              {p.inProgressNodes
-                .map((n) => `${n.name}（${nodeStatusLabel(n.status)}）`)
-                .join('、') || '—'}
+              {p.inProgressNodes.length === 0
+                ? '暂无进行中节点'
+                : p.inProgressNodes
+                    .map((n) => `${n.name}（${nodeStatusLabel(n.status)}）`)
+                    .join('、')}
             </p>
           </div>
           <details className="md:col-span-2">
             <summary className="cursor-pointer">已完成节点</summary>
             <ul className="mt-2 list-disc pl-5 text-muted-foreground">
-              {p.completedNodes.map((n) => (
-                <li key={n.id}>
-                  {n.name} · {n.completedAt ?? '—'}
-                </li>
-              ))}
+              {p.completedNodes.length === 0 ? (
+                <li>尚无已完成节点</li>
+              ) : (
+                p.completedNodes.map((n) => (
+                  <li key={n.id}>
+                    {n.name} · {n.completedAt ? formatFullLocalTime(n.completedAt) : '—'}
+                  </li>
+                ))
+              )}
             </ul>
           </details>
         </CardContent>
@@ -161,7 +223,7 @@ export function ProjectDetailPage() {
           {p.publish ? (
             <>
               <p>
-                已上线 {p.publish.bvid} · {p.publish.publishedAt}
+                已上线 {p.publish.bvid} · {formatFullLocalTime(p.publish.publishedAt)}
               </p>
               {p.monitorContract?.linkedBvid ? (
                 <Link
@@ -173,9 +235,15 @@ export function ProjectDetailPage() {
               ) : null}
               <details>
                 <summary className="cursor-pointer">发布时强制完成审计</summary>
-                <pre className="mt-2 overflow-auto rounded bg-muted p-2 text-xs">
-                  {JSON.stringify(p.publish.forcedCompleteAudit, null, 2)}
-                </pre>
+                {forcedAudit && forcedAudit.length > 0 ? (
+                  <ul className="mt-2 list-disc pl-5 text-muted-foreground">
+                    {forcedAudit.map((row, i) => (
+                      <li key={row.nodeId ?? i}>{row.name ?? row.nodeId ?? '节点'}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-muted-foreground">无额外强制完成节点</p>
+                )}
               </details>
             </>
           ) : publishOpen ? (
@@ -224,14 +292,46 @@ export function ProjectDetailPage() {
             ) : null}
             <WorkflowFlowEditor
               graph={wf}
+              {...(focusNodeId ? { focusNodeId } : {})}
               pending={pending}
-              onMoveNode={(nodeId, x, y) =>
-                graphMut.mutate({ type: 'move', nodeId, pos: { x, y } })
-              }
-              onConnect={(from, to) => connectMut.mutate({ from, to })}
+              connectError={connectError}
+              onMoveNode={async (nodeId, x, y) => {
+                await graphMut.mutateAsync({ type: 'move', nodeId, pos: { x, y } });
+              }}
+              onConnect={async (from, to) => {
+                await connectMut.mutateAsync({ from, to });
+              }}
+              onDeleteEdge={async (edgeId) => {
+                await deleteEdgeMut.mutateAsync(edgeId);
+              }}
               onAdvanceTo={(nodeId) => graphMut.mutate({ type: 'advance', nodeId })}
               onComplete={(nodeId) => graphMut.mutate({ type: 'complete', nodeId })}
               onRollback={(nodeId) => graphMut.mutate({ type: 'rollback', nodeId })}
+              onDeleteNode={(nodeId) => graphMut.mutate({ type: 'delete', nodeId })}
+              onAddSerialNode={(afterId) => {
+                const n = wf.nodes.find((x) => x.id === afterId);
+                void graphMut.mutate({
+                  type: 'create',
+                  nodeId: afterId,
+                  create: {
+                    name: '新串行节点',
+                    posX: (n?.posX ?? 0) + 200,
+                    posY: n?.posY ?? 0,
+                  },
+                });
+              }}
+              onAddParallelNode={(sibId) => {
+                const n = wf.nodes.find((x) => x.id === sibId);
+                void graphMut.mutate({
+                  type: 'create',
+                  nodeId: sibId,
+                  create: {
+                    name: '新并行节点',
+                    posX: n?.posX ?? 0,
+                    posY: (n?.posY ?? 0) + 140,
+                  },
+                });
+              }}
             />
           </CardContent>
         </Card>
@@ -240,38 +340,95 @@ export function ProjectDetailPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">待闭环事项</CardTitle>
-          <Button type="button" size="sm" disabled={pending} onClick={() => itemMut.mutate()}>
-            {itemMut.isPending ? '创建中…' : '新建事项'}
+          <Button type="button" size="sm" disabled={pending} onClick={() => setItemFormOpen((v) => !v)}>
+            {itemFormOpen ? '收起表单' : '新建事项'}
           </Button>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          {p.openItems.map((item) => (
-            <div
-              key={item.id}
-              id={`item-${item.id}`}
-              tabIndex={0}
-              className="rounded border p-2 outline-none focus:ring-2"
-            >
-              <p className="font-medium">{item.title}</p>
-              <p className="text-muted-foreground">
-                {item.nextAction ?? '—'} · {item.nextActor === 'us' ? '我方' : '甲方'} ·{' '}
-                {item.impact === 'blocking' ? '阻塞' : '普通'}
-              </p>
+        <CardContent className="space-y-3 text-sm">
+          {itemFormOpen ? (
+            <div className="space-y-2 rounded border p-3">
+              <Input
+                aria-label="事项标题"
+                placeholder="标题"
+                value={newItemTitle}
+                onChange={(e) => setNewItemTitle(e.target.value)}
+              />
+              <Input
+                aria-label="下一步动作"
+                placeholder="下一步动作"
+                value={newItemNextAction}
+                onChange={(e) => setNewItemNextAction(e.target.value)}
+              />
+              <label className="flex items-center gap-2">
+                行动方
+                <select
+                  className="rounded border px-2 py-1"
+                  value={newItemActor}
+                  onChange={(e) => setNewItemActor(e.target.value as 'us' | 'client')}
+                >
+                  <option value="us">我方</option>
+                  <option value="client">甲方</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                影响
+                <select
+                  className="rounded border px-2 py-1"
+                  value={newItemImpact}
+                  onChange={(e) => setNewItemImpact(e.target.value as 'normal' | 'blocking')}
+                >
+                  <option value="normal">普通</option>
+                  <option value="blocking">阻塞</option>
+                </select>
+              </label>
+              {newItemImpact === 'blocking' ? (
+                <select
+                  className="w-full rounded border px-2 py-1"
+                  value={newItemBlocksNode}
+                  onChange={(e) => setNewItemBlocksNode(e.target.value)}
+                >
+                  <option value="">选择阻塞节点</option>
+                  {wf?.nodes.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {itemMut.isError ? (
+                <p className="text-destructive text-xs">
+                  {itemMut.error instanceof Error ? itemMut.error.message : '创建失败'}
+                </p>
+              ) : null}
               <Button
                 type="button"
                 size="sm"
-                variant="ghost"
-                className="mt-1"
-                onClick={() =>
-                  patchOpenItem(id!, item.id, {
-                    impact: item.impact === 'blocking' ? 'normal' : 'blocking',
-                  }).then(invalidate)
+                disabled={
+                  pending ||
+                  !newItemTitle.trim() ||
+                  (newItemImpact === 'blocking' && !newItemBlocksNode)
                 }
+                onClick={() => itemMut.mutate()}
               >
-                切换阻塞影响
+                {itemMut.isPending ? '创建中…' : '提交事项'}
               </Button>
             </div>
-          ))}
+          ) : null}
+          {p.openItems.filter((i) => i.lifecycle === 'open').length === 0 ? (
+            <p className="text-muted-foreground">暂无待闭环事项</p>
+          ) : (
+            p.openItems
+              .filter((i) => i.lifecycle === 'open')
+              .map((item) => (
+                <OpenItemCard
+                  key={item.id}
+                  projectId={id}
+                  item={item}
+                  workflow={wf}
+                  disabled={pending}
+                />
+              ))
+          )}
         </CardContent>
       </Card>
     </div>

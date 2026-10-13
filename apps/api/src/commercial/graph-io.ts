@@ -74,10 +74,11 @@ export async function assertEdgeAllowed(
   if (fromNodeId === toNodeId) {
     throw Object.assign(new Error('self loop'), { status: 409 });
   }
-  const nodes = await tx<{ id: string }[]>`
-    SELECT id FROM wf_nodes WHERE workflow_id = ${workflowId} AND id IN (${fromNodeId}, ${toNodeId})
+  const allNodes = await tx<{ id: string }[]>`
+    SELECT id FROM wf_nodes WHERE workflow_id = ${workflowId}
   `;
-  if (nodes.length !== 2) {
+  const ids = new Set(allNodes.map((n) => n.id));
+  if (!ids.has(fromNodeId) || !ids.has(toNodeId)) {
     throw Object.assign(new Error('edge nodes must belong to workflow'), { status: 409 });
   }
   const edges = await tx<{ id: string; from_node_id: string; to_node_id: string }[]>`
@@ -88,7 +89,7 @@ export async function assertEdgeAllowed(
     .map((e) => ({ fromId: e.from_node_id, toId: e.to_node_id }));
   next.push({ fromId: fromNodeId, toId: toNodeId });
   const cycle = detectCycle(
-    nodes.map((n) => ({ id: n.id, status: 'not_reached' })),
+    allNodes.map((n) => ({ id: n.id, status: 'not_reached' })),
     next,
   );
   if (cycle) throw Object.assign(new Error(cycle), { status: 409 });

@@ -30,6 +30,26 @@ export async function seedCommercialFixtures(sql: Sql): Promise<void> {
     `;
     const workflowId = wfRow[0]?.id;
     if (!workflowId) continue;
+    const existingNodes = await sql<{ c: string }[]>`
+      SELECT count(*)::text AS c FROM wf_nodes WHERE workflow_id = ${workflowId}
+    `;
+    if (Number(existingNodes[0]?.c ?? '0') > 0) continue;
+
+    const tplPackages = await sql<
+      { id: string; name: string; sort_order: number }[]
+    >`
+      SELECT id, name, sort_order FROM wf_template_packages WHERE template_version_id = ${DEFAULT_TEMPLATE}
+    `;
+    const pkgMap = new Map<string, string>();
+    for (const pkg of tplPackages) {
+      const pkgId = crypto.randomUUID();
+      pkgMap.set(pkg.id, pkgId);
+      await sql`
+        INSERT INTO wf_packages (id, workflow_id, name, sort_order)
+        VALUES (${pkgId}, ${workflowId}, ${pkg.name}, ${pkg.sort_order})
+        ON CONFLICT DO NOTHING
+      `;
+    }
 
     const tplNodes = await sql<
       {
@@ -78,9 +98,10 @@ export async function seedCommercialFixtures(sql: Sql): Promise<void> {
       }
       if (projectId === FIXTURE_PROJECT_IDS.publishedOpen && tn.slug === 'settlement')
         status = 'in_progress';
+      const instancePkg = tn.package_id ? (pkgMap.get(tn.package_id) ?? null) : null;
       await sql`
         INSERT INTO wf_nodes (id, workflow_id, project_id, template_node_id, package_id, name, status, is_optional, pos_x, pos_y, phase, source)
-        VALUES (${nodeId}, ${workflowId}, ${projectId}, ${tn.id}, ${tn.package_id}, ${tn.name}, ${status}, ${tn.is_optional}, ${tn.pos_x}, ${tn.pos_y}, ${tn.phase}, 'template')
+        VALUES (${nodeId}, ${workflowId}, ${projectId}, ${tn.id}, ${instancePkg}, ${tn.name}, ${status}, ${tn.is_optional}, ${tn.pos_x}, ${tn.pos_y}, ${tn.phase}, 'template')
         ON CONFLICT DO NOTHING
       `;
     }

@@ -90,7 +90,7 @@ export const openItemSchema = z.object({
   blocksRequiredForClose: z.boolean(),
 });
 
-export const createOpenItemBodySchema = z.object({
+const openItemBodyBaseSchema = z.object({
   title: z.string().min(1).max(300),
   nextActor: nextActorSchema,
   description: z.string().max(5000).optional(),
@@ -105,7 +105,17 @@ export const createOpenItemBodySchema = z.object({
   sortRank: z.number().int().optional(),
 });
 
-export const patchOpenItemBodySchema = createOpenItemBodySchema.partial().extend({
+export const createOpenItemBodySchema = openItemBodyBaseSchema.superRefine((data, ctx) => {
+  if (data.impact === 'blocking' && !data.blocksNodeId) {
+    ctx.addIssue({
+      code: 'custom',
+      message: '阻塞事项必须指定 blocksNodeId',
+      path: ['blocksNodeId'],
+    });
+  }
+});
+
+export const patchOpenItemBodySchema = openItemBodyBaseSchema.partial().extend({
   blocksRequiredForClose: z.boolean().optional(),
 });
 
