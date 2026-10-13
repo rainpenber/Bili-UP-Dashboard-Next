@@ -298,7 +298,7 @@ describe('commercial API integration', () => {
     const project = await createProject(app, 'test-hermes-concurrent');
     const body = {
       idempotencyKey: `hermes-conc-${project.id}`,
-      operation: 'complete_node',
+      operation: 'advance_node',
       confidence: 1,
       autoApply: true,
       payload: {

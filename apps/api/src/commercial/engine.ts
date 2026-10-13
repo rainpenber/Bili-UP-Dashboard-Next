@@ -114,9 +114,9 @@ export class CommercialEngine {
       return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
     });
     return {
-      blocked: enriched.filter((p) => p.sortKey === 0).map(stripSort),
-      prePublish: enriched.filter((p) => p.sortKey === 1).map(stripSort),
-      postPublishOpen: enriched.filter((p) => p.sortKey === 2).map(stripSort),
+      blocked: enriched.filter((p) => p.sortKey === 0).map(stripListRow),
+      prePublish: enriched.filter((p) => p.sortKey === 1).map(stripListRow),
+      postPublishOpen: enriched.filter((p) => p.sortKey === 2).map(stripListRow),
     };
   }
 
@@ -641,8 +641,10 @@ export class CommercialEngine {
   }
 }
 
-function stripSort<T extends { sortKey: number }>(row: T): Omit<T, 'sortKey'> {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- omit sortKey for API response
-  const { sortKey, ...rest } = row;
+function stripListRow<
+  T extends { sortKey: number; blockedSinceAt?: string | null; stageEnteredAt?: string },
+>(row: T) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- omit internal sort fields
+  const { sortKey, blockedSinceAt, stageEnteredAt, ...rest } = row;
   return rest;
 }
