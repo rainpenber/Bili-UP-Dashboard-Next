@@ -1,5 +1,22 @@
 import type { Sql } from '@studio/db';
 import type { Db } from './graph-io';
+import {
+  pushTemplateUndoSnapshot,
+  redoTemplateGraph,
+  undoTemplateGraph,
+} from './template-undo-stack';
+
+async function mutateTemplateDraft(
+  tx: Db,
+  versionId: string,
+  fn: (tx: Db) => Promise<void>,
+  opts?: { recordUndo?: boolean },
+) {
+  await assertDraftTx(tx, versionId);
+  if (opts?.recordUndo) await pushTemplateUndoSnapshot(tx, versionId);
+  await fn(tx);
+}
+
 export class TemplateEngine {
   constructor(private readonly db: Sql) {}
 
@@ -135,71 +152,135 @@ export class TemplateEngine {
       isOptional?: boolean;
       packageId?: string | null;
     },
+    opts?: { recordUndo?: boolean },
   ) {
     return this.db.begin(async (tx) => {
-      await assertDraftTx(tx, versionId);
-      const id = body.id ?? crypto.randomUUID();
-      if (body.id) {
-        const row = await tx<{ template_version_id: string }[]>`
-          SELECT template_version_id FROM wf_template_nodes WHERE id = ${body.id}
-        `;
-        if (row[0] && row[0].template_version_id !== versionId) {
-          throw Object.assign(new Error('node belongs to another template version'), {
-            status: 409,
-          });
-        }
-      }
-      await tx`
-        INSERT INTO wf_template_nodes (id, template_version_id, package_id, slug, name, is_optional, pos_x, pos_y, phase)
-        VALUES (${id}, ${versionId}, ${body.packageId ?? null}, ${body.slug}, ${body.name}, ${body.isOptional ?? false}, ${body.posX}, ${body.posY}, ${body.phase})
-        ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          slug = EXCLUDED.slug,
-          package_id = EXCLUDED.package_id,
-          is_optional = EXCLUDED.is_optional,
-          pos_x = EXCLUDED.pos_x,
-          pos_y = EXCLUDED.pos_y,
-          phase = EXCLUDED.phase
-        WHERE wf_template_nodes.template_version_id = ${versionId}
-      `;
-      return id;
+      const nodeId = body.id ?? crypto.randomUUID();
+      await mutateTemplateDraft(
+        tx,
+        versionId,
+        async (tx) => {
+          if (body.id) {
+            const row = await tx<{ template_version_id: string }[]>`
+              SELECT template_version_id FROM wf_template_nodes WHERE id = ${body.id}
+            `;
+            if (row[0] && row[0].template_version_id !== versionId) {
+              throw Object.assign(new Error('node belongs to another template version'), {
+                status: 409,
+              });
+            }
+          }
+          await tx`
+            INSERT INTO wf_template_nodes (id, template_version_id, package_id, slug, name, is_optional, pos_x, pos_y, phase)
+            VALUES (${nodeId}, ${versionId}, ${body.packageId ?? null}, ${body.slug}, ${body.name}, ${body.isOptional ?? false}, ${body.posX}, ${body.posY}, ${body.phase})
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              slug = EXCLUDED.slug,
+              package_id = EXCLUDED.package_id,
+              is_optional = EXCLUDED.is_optional,
+              pos_x = EXCLUDED.pos_x,
+              pos_y = EXCLUDED.pos_y,
+              phase = EXCLUDED.phase
+            WHERE wf_template_nodes.template_version_id = ${versionId}
+          `;
+        },
+        { recordUndo: opts?.recordUndo ?? true },
+      );
+      return nodeId;
     });
   }
 
   async deleteTemplateNode(versionId: string, nodeId: string) {
     return this.db.begin(async (tx) => {
-      await assertDraftTx(tx, versionId);
-      const deleted = await tx<{ id: string }[]>`
+      await mutateTemplateDraft(
+        tx,
+        versionId,
+        async (tx) => {
+          const deleted = await tx<{ id: string }[]>`
         DELETE FROM wf_template_nodes WHERE id = ${nodeId} AND template_version_id = ${versionId}
         RETURNING id
       `;
-      if (!deleted.length) {
-        throw Object.assign(new Error('template node not found'), { status: 404 });
-      }
+          if (!deleted.length) {
+            throw Object.assign(new Error('template node not found'), { status: 404 });
+          }
+        },
+        { recordUndo: true },
+      );
     });
   }
 
   async deleteTemplateEdge(versionId: string, edgeId: string) {
     return this.db.begin(async (tx) => {
-      await assertDraftTx(tx, versionId);
-      const deleted = await tx<{ id: string }[]>`
+      await mutateTemplateDraft(
+        tx,
+        versionId,
+        async (tx) => {
+          const deleted = await tx<{ id: string }[]>`
         DELETE FROM wf_template_edges WHERE id = ${edgeId} AND template_version_id = ${versionId}
         RETURNING id
       `;
-      if (!deleted.length) {
-        throw Object.assign(new Error('template edge not found'), { status: 404 });
-      }
+          if (!deleted.length) {
+            throw Object.assign(new Error('template edge not found'), { status: 404 });
+          }
+        },
+        { recordUndo: true },
+      );
     });
   }
 
   async addTemplateEdge(versionId: string, fromNodeId: string, toNodeId: string) {
     return this.db.begin(async (tx) => {
-      await assertDraftTx(tx, versionId);
-      await assertTemplateEdgeAllowed(tx, versionId, fromNodeId, toNodeId);
-      await tx`
+      await mutateTemplateDraft(
+        tx,
+        versionId,
+        async (tx) => {
+          await assertTemplateEdgeAllowed(tx, versionId, fromNodeId, toNodeId);
+          await tx`
         INSERT INTO wf_template_edges (id, template_version_id, from_node_id, to_node_id)
         VALUES (${crypto.randomUUID()}, ${versionId}, ${fromNodeId}, ${toNodeId})
       `;
+        },
+        { recordUndo: true },
+      );
+    });
+  }
+
+  async applyBatchTemplateLayout(
+    versionId: string,
+    updates: Array<{ nodeId: string; posX: number; posY: number }>,
+  ) {
+    return this.db.begin(async (tx) => {
+      await mutateTemplateDraft(
+        tx,
+        versionId,
+        async (tx) => {
+          for (const u of updates) {
+            const rows = await tx<{ id: string }[]>`
+              UPDATE wf_template_nodes SET pos_x = ${u.posX}, pos_y = ${u.posY}
+              WHERE id = ${u.nodeId} AND template_version_id = ${versionId}
+              RETURNING id
+            `;
+            if (!rows.length) {
+              throw Object.assign(new Error('template node not found'), { status: 404 });
+            }
+          }
+        },
+        { recordUndo: true },
+      );
+    });
+  }
+
+  async undoTemplate(versionId: string) {
+    return this.db.begin(async (tx) => {
+      await assertDraftTx(tx, versionId);
+      await undoTemplateGraph(tx, versionId);
+    });
+  }
+
+  async redoTemplate(versionId: string) {
+    return this.db.begin(async (tx) => {
+      await assertDraftTx(tx, versionId);
+      await redoTemplateGraph(tx, versionId);
     });
   }
 

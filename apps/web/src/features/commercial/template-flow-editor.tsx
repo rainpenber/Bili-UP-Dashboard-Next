@@ -39,6 +39,7 @@ type Props = {
   onDeleteEdge: (edgeId: string) => Promise<void>;
   onSaveNode: (node: TemplateGraphNode) => Promise<void>;
   onDeleteNode: (nodeId: string) => Promise<void>;
+  onCreateNode?: (node: TemplateGraphNode) => Promise<void>;
   onAutoLayout: (positions: Map<string, { posX: number; posY: number }>) => Promise<void>;
   pending: boolean;
   error: string | null;
@@ -75,6 +76,17 @@ export function TemplateFlowEditor(props: Props) {
   );
 
   const [draft, setDraft] = useState<TemplateGraphNode | null>(null);
+  const [newNodeOpen, setNewNodeOpen] = useState(false);
+  const [newNode, setNewNode] = useState<TemplateGraphNode>({
+    id: '',
+    name: '',
+    slug: '',
+    phase: 'pre_publish',
+    is_optional: false,
+    pos_x: 120,
+    pos_y: 120,
+    package_id: null,
+  });
 
   useEffect(() => {
     setDraft(selected ? { ...selected } : null);
@@ -153,7 +165,62 @@ export function TemplateFlowEditor(props: Props) {
         >
           自动布局
         </Button>
+        {props.onCreateNode ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={props.pending}
+            onClick={() => setNewNodeOpen((v) => !v)}
+          >
+            {newNodeOpen ? '收起新建' : '新建模板节点'}
+          </Button>
+        ) : null}
       </div>
+      {newNodeOpen && props.onCreateNode ? (
+        <div className="grid gap-2 rounded border p-3 text-sm md:grid-cols-2">
+          <Input
+            aria-label="节点名称"
+            placeholder="名称"
+            value={newNode.name}
+            onChange={(e) => setNewNode({ ...newNode, name: e.target.value })}
+          />
+          <Input
+            aria-label="slug"
+            placeholder="slug（唯一）"
+            value={newNode.slug}
+            onChange={(e) => setNewNode({ ...newNode, slug: e.target.value })}
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={props.pending || !newNode.name.trim() || !newNode.slug.trim()}
+            onClick={() => {
+              void props.onCreateNode!({
+                ...newNode,
+                name: newNode.name.trim(),
+                slug: newNode.slug.trim(),
+              })
+                .then(() => {
+                  setNewNodeOpen(false);
+                  setNewNode({
+                    id: '',
+                    name: '',
+                    slug: '',
+                    phase: 'pre_publish',
+                    is_optional: false,
+                    pos_x: 120,
+                    pos_y: 120,
+                    package_id: null,
+                  });
+                })
+                .catch(() => undefined);
+            }}
+          >
+            创建节点
+          </Button>
+        </div>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
         <div className="h-[480px] rounded border">
           <ReactFlow

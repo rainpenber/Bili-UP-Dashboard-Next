@@ -17,6 +17,9 @@ export type GraphNodeRow = {
   package_id: string | null;
   slug: string | null;
   primary_block_pinned_item_id: string | null;
+  template_node_id: string | null;
+  source: string;
+  status_before_block: string | null;
 };
 
 export async function loadWorkflowGraph(tx: Db, projectId: string, lock = false) {
@@ -32,7 +35,7 @@ export async function loadWorkflowGraph(tx: Db, projectId: string, lock = false)
   const nodes = lock
     ? await tx<GraphNodeRow[]>`
         SELECT n.id, n.name, n.status, n.phase, n.is_optional, n.planned_at, n.completed_at, n.pos_x, n.pos_y,
-          n.package_id, n.primary_block_pinned_item_id, t.slug
+          n.package_id, n.primary_block_pinned_item_id, n.template_node_id, n.source, n.status_before_block, t.slug
         FROM wf_nodes n
         LEFT JOIN wf_template_nodes t ON t.id = n.template_node_id
         WHERE n.workflow_id = ${workflowId}
@@ -40,7 +43,7 @@ export async function loadWorkflowGraph(tx: Db, projectId: string, lock = false)
       `
     : await tx<GraphNodeRow[]>`
         SELECT n.id, n.name, n.status, n.phase, n.is_optional, n.planned_at, n.completed_at, n.pos_x, n.pos_y,
-          n.package_id, n.primary_block_pinned_item_id, t.slug
+          n.package_id, n.primary_block_pinned_item_id, n.template_node_id, n.source, n.status_before_block, t.slug
         FROM wf_nodes n
         LEFT JOIN wf_template_nodes t ON t.id = n.template_node_id
         WHERE n.workflow_id = ${workflowId}

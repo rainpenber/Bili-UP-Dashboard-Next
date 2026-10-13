@@ -91,13 +91,6 @@ async function insertProposalTx(tx: Db, envelope: HermesWriteEnvelope) {
     SELECT id, status, operation, project_id, payload FROM hermes_write_proposals WHERE idempotency_key = ${envelope.idempotencyKey}
   `;
   if (existing[0]) {
-    if (
-      existing[0].status === 'pending' &&
-      existing[0].operation === envelope.operation &&
-      (existing[0].project_id ?? null) === (projectId ?? null)
-    ) {
-      return { mode: 'proposal', proposalId: existing[0].id, status: existing[0].status };
-    }
     assertProposalMatches(envelope, existing[0]);
     return { mode: 'proposal', proposalId: existing[0].id, status: existing[0].status };
   }
@@ -105,7 +98,7 @@ async function insertProposalTx(tx: Db, envelope: HermesWriteEnvelope) {
   const payloadJson = JSON.parse(canonicalJson(envelope.payload)) as Record<string, unknown>;
   const inserted = await tx<{ id: string }[]>`
     INSERT INTO hermes_write_proposals (id, project_id, idempotency_key, operation, status, payload, source_evidence, confidence)
-    VALUES (${id}, ${projectId}, ${envelope.idempotencyKey}, ${envelope.operation}, 'pending', ${JSON.stringify(payloadJson)}::jsonb, ${envelope.sourceEvidence ? JSON.stringify(envelope.sourceEvidence) : null}::jsonb, ${envelope.confidence})
+    VALUES (${id}, ${projectId}, ${envelope.idempotencyKey}, ${envelope.operation}, 'pending', ${payloadJson as never}, ${envelope.sourceEvidence ? (envelope.sourceEvidence as never) : null}, ${envelope.confidence})
     ON CONFLICT (idempotency_key) DO NOTHING
     RETURNING id
   `;
@@ -125,9 +118,22 @@ async function insertProposalTx(tx: Db, envelope: HermesWriteEnvelope) {
   return { mode: 'proposal', proposalId: row.id, status: row.status };
 }
 
+function normalizePayloadObject(payload: unknown): Record<string, unknown> | null {
+  let parsed: unknown = payload;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return JSON.parse(JSON.stringify(parsed)) as Record<string, unknown>;
+}
+
 function stripProjectIdFromPayload(payload: unknown): unknown {
-  if (!payload || typeof payload !== 'object') return payload;
-  const rest = { ...(payload as Record<string, unknown>) };
+  const rest = normalizePayloadObject(payload);
+  if (!rest) return payload;
   delete rest.projectId;
   return rest;
 }

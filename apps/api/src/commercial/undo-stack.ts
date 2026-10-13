@@ -27,10 +27,22 @@ function normalizeSnapshot(raw: unknown): WorkflowUndoSnapshot {
   };
 }
 
+function parseUndoJson(raw: unknown): unknown {
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as unknown;
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
+}
+
 function asSnapshotArray(raw: unknown): WorkflowUndoSnapshot[] {
-  if (raw == null) return [];
-  if (Array.isArray(raw)) return raw.map(normalizeSnapshot);
-  return [normalizeSnapshot(raw)];
+  const parsed = parseUndoJson(raw);
+  if (parsed == null) return [];
+  if (Array.isArray(parsed)) return parsed.map(normalizeSnapshot);
+  return [normalizeSnapshot(parsed)];
 }
 
 async function captureSnapshot(tx: Db, projectId: string): Promise<WorkflowUndoSnapshot | null> {
@@ -77,8 +89,8 @@ export async function pushUndoSnapshot(tx: Db, projectId: string) {
   const next = [...prevSnaps, snap].slice(-MAX_UNDO);
   await tx`
     INSERT INTO workflow_undo_stacks (project_id, undo_json, redo_json)
-    VALUES (${projectId}, ${JSON.stringify(next)}::jsonb, '[]'::jsonb)
-    ON CONFLICT (project_id) DO UPDATE SET undo_json = ${JSON.stringify(next)}::jsonb, redo_json = '[]'::jsonb, updated_at = now()
+    VALUES (${projectId}, ${next as never}, '[]'::jsonb)
+    ON CONFLICT (project_id) DO UPDATE SET undo_json = ${next as never}, redo_json = '[]'::jsonb, updated_at = now()
   `;
 }
 
@@ -106,10 +118,18 @@ export async function restoreWorkflowSnapshot(
     `;
   }
   for (const n of snap.graph.nodes) {
+    const source = n.source ?? 'template';
+    const templateNodeId = n.templateNodeId ?? null;
     await tx`
-      INSERT INTO wf_nodes (id, workflow_id, project_id, name, status, is_optional, pos_x, pos_y, phase, planned_at, completed_at, package_id, source)
-      VALUES (${n.id}, ${workflowId}, ${projectId}, ${n.name}, ${n.status}, ${n.isOptional}, ${n.posX}, ${n.posY}, ${n.phase},
-        ${n.plannedAt}, ${n.completedAt}, ${n.packageId}, 'web')
+      INSERT INTO wf_nodes (
+        id, workflow_id, project_id, template_node_id, name, status, is_optional, pos_x, pos_y, phase,
+        planned_at, completed_at, package_id, source, status_before_block
+      )
+      VALUES (
+        ${n.id}, ${workflowId}, ${projectId}, ${templateNodeId}, ${n.name}, ${n.status}, ${n.isOptional},
+        ${n.posX}, ${n.posY}, ${n.phase}, ${n.plannedAt}, ${n.completedAt}, ${n.packageId}, ${source},
+        ${(n as { statusBeforeBlock?: string | null }).statusBeforeBlock ?? null}
+      )
     `;
   }
   for (const e of snap.graph.edges) {
@@ -146,10 +166,10 @@ export async function undoProjectGraph(tx: Db, projectId: string) {
   const nextRedo = current ? [...redo, current] : redo;
   await tx`
     INSERT INTO workflow_undo_stacks (project_id, undo_json, redo_json)
-    VALUES (${projectId}, ${JSON.stringify(undo.slice(0, -1))}::jsonb, ${JSON.stringify(nextRedo)}::jsonb)
+    VALUES (${projectId}, ${undo.slice(0, -1) as never}, ${nextRedo as never})
     ON CONFLICT (project_id) DO UPDATE SET
-      undo_json = ${JSON.stringify(undo.slice(0, -1))}::jsonb,
-      redo_json = ${JSON.stringify(nextRedo)}::jsonb,
+      undo_json = ${undo.slice(0, -1) as never},
+      redo_json = ${nextRedo as never},
       updated_at = now()
   `;
   const { syncBlockedAndStage } = await import('./sync-state');
@@ -170,8 +190,8 @@ export async function redoProjectGraph(tx: Db, projectId: string) {
   const nextUndo = current ? [...undo, current] : undo;
   await tx`
     UPDATE workflow_undo_stacks SET
-      undo_json = ${JSON.stringify(nextUndo)}::jsonb,
-      redo_json = ${JSON.stringify(redo.slice(0, -1))}::jsonb,
+      undo_json = ${nextUndo as never},
+      redo_json = ${redo.slice(0, -1) as never},
       updated_at = now()
     WHERE project_id = ${projectId}
   `;

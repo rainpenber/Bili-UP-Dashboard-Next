@@ -4,6 +4,7 @@ import { assertEdgeAllowed, loadWorkflowGraph, type Db } from './graph-io';
 import {
   applyUpdates,
   assertNodeInGraph,
+  assertNodesInProject,
   audit,
   auditItem,
   executePublishEffects,
@@ -284,6 +285,7 @@ export async function applyHermesEnvelopeTx(
     case 'create_open_item': {
       const itemId = crypto.randomUUID();
       const { projectId, ...body } = payload;
+      await assertNodesInProject(tx, projectId, [body.blocksNodeId, body.workflowNodeId]);
       await tx`
         INSERT INTO open_items (id, project_id, title, description, close_criteria, next_action, next_actor, impact, blocks_node_id, workflow_node_id, planned_at, sort_rank)
         VALUES (${itemId}, ${projectId}, ${body.title}, ${body.description ?? null}, ${body.closeCriteria ?? null}, ${body.nextAction ?? null},
@@ -305,6 +307,7 @@ export async function applyHermesEnvelopeTx(
         patch.blocksNodeId !== undefined ? patch.blocksNodeId : current[0].blocks_node_id;
       if (nextImpact === 'blocking' && !nextBlocks)
         throw Object.assign(new Error('blocking item requires blocksNodeId'), { status: 409 });
+      await assertNodesInProject(tx, projectId, [patch.blocksNodeId, patch.workflowNodeId]);
       if (patch.title !== undefined)
         await tx`UPDATE open_items SET title = ${patch.title}, updated_at = now() WHERE id = ${itemId}`;
       if (patch.description !== undefined)

@@ -4,11 +4,17 @@ import { join } from 'node:path';
 import { readDbConfigFromEnv } from './config';
 import { createSql } from './client';
 import { runMigrations } from './migrate';
+import { integrationTestSql, isPostgresRequiredEnv } from './require-postgres';
 import { postgresAvailable } from './postgres-available';
 
 describe('WP-004 legacy upgrade path', () => {
   test('004–009 preserves legacy projects, nodes, items, proposals', async () => {
-    if (!(await postgresAvailable())) return;
+    if (!(await postgresAvailable())) {
+      if (isPostgresRequiredEnv()) {
+        await integrationTestSql();
+      }
+      return;
+    }
 
     const cfg = readDbConfigFromEnv();
     const admin = createSql();
@@ -17,8 +23,14 @@ describe('WP-004 legacy upgrade path', () => {
       await admin.unsafe(`CREATE DATABASE "${dbName}"`);
     } catch (err) {
       await admin.end({ timeout: 5 });
-      // Shared CI Postgres may forbid CREATE DATABASE; skip instead of mutating public schema.
-      if (process.env.CI) return;
+      if (isPostgresRequiredEnv()) {
+        throw Object.assign(
+          new Error(
+            `CI requires isolated migration DB but CREATE DATABASE failed: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+          { cause: err },
+        );
+      }
       throw err;
     }
     await admin.end({ timeout: 5 });

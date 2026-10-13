@@ -2,14 +2,19 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createSql } from './client';
 import { countCommercialFixtureRows, seedCommercialFixtures } from './commercial-fixtures';
 import { runMigrations } from './migrate';
-import { postgresAvailable } from './postgres-available';
+import { integrationTestSql, isPostgresRequiredEnv } from './require-postgres';
 
 describe('commercial fixtures', () => {
   let sql: ReturnType<typeof createSql> | null = null;
 
   beforeAll(async () => {
-    if (!(await postgresAvailable())) return;
-    sql = createSql();
+    sql = await integrationTestSql();
+    if (!sql) {
+      if (isPostgresRequiredEnv()) {
+        throw new Error('PostgreSQL required in CI but unavailable');
+      }
+      return;
+    }
     await runMigrations(sql);
   });
 
@@ -24,8 +29,8 @@ describe('commercial fixtures', () => {
     expect(afterFirst.commercialProjects).toBe(13);
     expect(afterFirst.projectWorkflows).toBe(13);
     expect(afterFirst.wfNodes).toBe(169);
-    expect(afterFirst.wfEdges).toBe(195);
-    expect(afterFirst.wfPackages).toBe(13);
+    expect(afterFirst.wfEdges).toBe(189);
+    expect(afterFirst.wfPackages).toBe(10);
     expect(afterFirst.openItems).toBe(5);
     expect(afterFirst.publishRecords).toBe(5);
     expect(afterFirst.monitorContracts).toBe(1);

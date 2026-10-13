@@ -52,6 +52,21 @@ export const wfNodeSchema = z.object({
   posY: z.number(),
   packageId: z.string().uuid().nullable(),
   slug: z.string().nullable(),
+  templateNodeId: z.string().uuid().nullable().optional(),
+  source: z.enum(['template', 'web', 'hermes', 'manual']).optional(),
+  statusBeforeBlock: z.string().nullable().optional(),
+});
+
+export const batchGraphLayoutBodySchema = z.object({
+  nodes: z
+    .array(
+      z.object({
+        nodeId: z.string().uuid(),
+        posX: z.number(),
+        posY: z.number(),
+      }),
+    )
+    .min(1),
 });
 
 export const wfEdgeSchema = z.object({

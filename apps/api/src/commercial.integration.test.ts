@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createSql, postgresAvailable, runMigrations, seedCommercialFixtures } from '@studio/db';
+import {
+  integrationTestSql,
+  isPostgresRequiredEnv,
+  runMigrations,
+  seedCommercialFixtures,
+} from '@studio/db';
+import { createSql } from '@studio/db';
 import { createApp } from './app';
 import { createCommercialRoutes } from './commercial-routes';
 
@@ -18,8 +24,13 @@ describe('commercial API integration', () => {
   let app: ReturnType<typeof createApp>;
 
   beforeAll(async () => {
-    if (!(await postgresAvailable())) return;
-    sql = createSql();
+    sql = await integrationTestSql();
+    if (!sql) {
+      if (isPostgresRequiredEnv()) {
+        throw new Error('PostgreSQL required in CI but unavailable');
+      }
+      return;
+    }
     await runMigrations(sql);
     await seedCommercialFixtures(sql);
     app = createApp({ skipDb: true });
@@ -344,5 +355,184 @@ describe('commercial API integration', () => {
       SELECT count(*)::text AS c FROM wf_nodes
     `;
     expect(after[0]!.c).toBe(before[0]!.c);
+  });
+
+  test('hermes proposal idempotency rejects payload drift with 409', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'test-hermes-drift');
+    const key = `hermes-drift-${project.id}`;
+    const base = {
+      idempotencyKey: key,
+      operation: 'create_open_item',
+      confidence: 0.5,
+      autoApply: false,
+      payload: { projectId: project.id, title: 'A', nextActor: 'us' },
+    };
+    const r1 = await app.request('/api/v1/commercial/hermes/write', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(base),
+    });
+    expect(r1.status).toBe(200);
+    const r2 = await app.request('/api/v1/commercial/hermes/write', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...base,
+        payload: { projectId: project.id, title: 'B', nextActor: 'us' },
+      }),
+    });
+    expect(r2.status).toBe(409);
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
+
+  test('hermes proposal canonical payload matches reordered keys', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'test-hermes-canonical');
+    const key = `hermes-can-${project.id}`;
+    const bodyA = {
+      idempotencyKey: key,
+      operation: 'create_open_item',
+      confidence: 0.5,
+      autoApply: false,
+      payload: { nextActor: 'us', projectId: project.id, title: 'Same' },
+    };
+    const bodyB = {
+      idempotencyKey: key,
+      operation: 'create_open_item',
+      confidence: 0.5,
+      autoApply: false,
+      payload: { projectId: project.id, title: 'Same', nextActor: 'us' },
+    };
+    const r1 = await app.request('/api/v1/commercial/hermes/write', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(bodyA),
+    });
+    const r2 = await app.request('/api/v1/commercial/hermes/write', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(bodyB),
+    });
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    const j1 = await r1.json();
+    const j2 = await r2.json();
+    expect(j1.proposalId).toBe(j2.proposalId);
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
+
+  test('open item cannot reference node from another project', async () => {
+    if (!sql) return;
+    const a = await createProject(app, 'test-item-cross-a');
+    const b = await createProject(app, 'test-item-cross-b');
+    const wfB = await (await app.request(`/api/v1/commercial/projects/${b.id}/workflow`)).json();
+    const nodeB = wfB.nodes[0];
+    const bad = await app.request(`/api/v1/commercial/projects/${a.id}/open-items`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: '跨项目引用',
+        nextActor: 'us',
+        workflowNodeId: nodeB.id,
+      }),
+    });
+    expect(bad.status).toBe(409);
+    await sql`DELETE FROM commercial_projects WHERE id IN (${a.id}, ${b.id})`;
+  });
+
+  test('undo restores template_node_id and source on template nodes', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'test-undo-template-id');
+    const wf0 = await (
+      await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)
+    ).json();
+    const tplNode = wf0.nodes.find((n: { templateNodeId?: string | null }) => n.templateNodeId);
+    expect(tplNode).toBeTruthy();
+    await app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '临时', posX: 50, posY: 50 }),
+    });
+    const undo = await app.request(`/api/v1/commercial/projects/${project.id}/workflow/undo`, {
+      method: 'POST',
+    });
+    expect(undo.status).toBe(200);
+    const wf1 = await undo.json();
+    const restored = wf1.nodes.find((n: { id: string }) => n.id === tplNode.id);
+    expect(restored?.templateNodeId).toBe(tplNode.templateNodeId);
+    expect(restored?.source).toBe('template');
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
+
+  test('batch graph layout rolls back atomically on invalid node', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'test-layout-rollback');
+    const wf = await (
+      await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)
+    ).json();
+    const n = wf.nodes[0];
+    const beforeX = n.posX;
+    const bad = await app.request(`/api/v1/commercial/projects/${project.id}/workflow/layout`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        nodes: [
+          { nodeId: n.id, posX: 9999, posY: 8888 },
+          { nodeId: crypto.randomUUID(), posX: 1, posY: 1 },
+        ],
+      }),
+    });
+    expect(bad.status).toBe(404);
+    const wf2 = await (
+      await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)
+    ).json();
+    expect(wf2.nodes.find((x: { id: string }) => x.id === n.id)!.posX).toBe(beforeX);
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
+
+  test('concurrent hermes direct writes return identical canonical workflow', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'test-hermes-canonical-wf');
+    const outlineId = (
+      await (await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)).json()
+    ).nodes.find((n: { slug: string | null }) => n.slug === 'outline').id;
+    const body = {
+      idempotencyKey: `hermes-wf-can-${project.id}`,
+      operation: 'advance_node',
+      confidence: 1,
+      autoApply: true,
+      payload: { projectId: project.id, nodeId: outlineId },
+    };
+    const [r1, r2] = await Promise.all([
+      app.request('/api/v1/commercial/hermes/write', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      app.request('/api/v1/commercial/hermes/write', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    ]);
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    const idem = await sql<{ c: string }[]>`
+      SELECT count(*)::text AS c FROM hermes_idempotency WHERE idempotency_key = ${body.idempotencyKey}
+    `;
+    expect(idem[0]?.c).toBe('1');
+    const wf = await (
+      await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)
+    ).json();
+    expect(wf.nodes.find((n: { slug: string | null }) => n.slug === 'outline')!.status).toBe(
+      'in_progress',
+    );
+    const audit = await sql<{ c: string }[]>`
+      SELECT count(*)::text AS c FROM workflow_audit_log
+      WHERE project_id = ${project.id} AND entity_type = 'hermes'
+    `;
+    expect(Number(audit[0]?.c)).toBe(1);
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
 });

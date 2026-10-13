@@ -8,7 +8,10 @@ import {
   fetchTemplateGraph,
   fetchTemplateVersions,
   publishTemplateDraft,
+  applyTemplateBatchLayout,
+  redoTemplateWorkflow,
   saveTemplateNode,
+  undoTemplateWorkflow,
   validateTemplateDraft,
 } from '@/api/commercial-client';
 import { PageHeader } from '@/components/layout/page-header';
@@ -172,67 +175,101 @@ export function WorkflowSettingsPage() {
                 onRetry={() => void graphQuery.refetch()}
               />
             ) : graph ? (
-              <TemplateFlowEditor
-                graph={graph}
-                pending={pending}
-                error={editorError}
-                onMoveNode={async (nodeId, posX, posY) => {
-                  const n = graph.nodes.find((x) => x.id === nodeId);
-                  if (!n) return;
-                  await graphMut.mutateAsync(() =>
-                    saveTemplateNode(draftId, {
-                      id: n.id,
-                      name: n.name,
-                      slug: n.slug,
-                      phase: n.phase,
-                      posX,
-                      posY,
-                      isOptional: n.is_optional,
-                      packageId: n.package_id,
-                    }),
-                  );
-                }}
-                onConnect={async (from, to) => {
-                  await graphMut.mutateAsync(() => connectTemplateNodes(draftId, from, to));
-                }}
-                onDeleteEdge={async (edgeId) => {
-                  await graphMut.mutateAsync(() => deleteTemplateEdge(draftId, edgeId));
-                }}
-                onSaveNode={async (node) => {
-                  await graphMut.mutateAsync(() =>
-                    saveTemplateNode(draftId, {
-                      id: node.id,
-                      name: node.name,
-                      slug: node.slug,
-                      phase: node.phase,
-                      posX: node.pos_x,
-                      posY: node.pos_y,
-                      isOptional: node.is_optional,
-                      packageId: node.package_id,
-                    }),
-                  );
-                }}
-                onDeleteNode={async (nodeId) => {
-                  await graphMut.mutateAsync(() => deleteTemplateNode(draftId, nodeId));
-                }}
-                onAutoLayout={async (positions) => {
-                  for (const [nodeId, pos] of positions) {
+              <>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={pending}
+                    onClick={() => graphMut.mutate(() => undoTemplateWorkflow(draftId!))}
+                  >
+                    撤销
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={pending}
+                    onClick={() => graphMut.mutate(() => redoTemplateWorkflow(draftId!))}
+                  >
+                    重做
+                  </Button>
+                </div>
+                <TemplateFlowEditor
+                  graph={graph}
+                  pending={pending}
+                  error={editorError}
+                  onCreateNode={async (node) => {
+                    await graphMut.mutateAsync(() =>
+                      saveTemplateNode(draftId, {
+                        name: node.name,
+                        slug: node.slug,
+                        phase: node.phase,
+                        posX: node.pos_x,
+                        posY: node.pos_y,
+                        isOptional: node.is_optional,
+                        packageId: node.package_id,
+                      }),
+                    );
+                  }}
+                  onMoveNode={async (nodeId, posX, posY) => {
                     const n = graph.nodes.find((x) => x.id === nodeId);
-                    if (!n) continue;
-                    await saveTemplateNode(draftId, {
-                      id: n.id,
-                      name: n.name,
-                      slug: n.slug,
-                      phase: n.phase,
-                      posX: pos.posX,
-                      posY: pos.posY,
-                      isOptional: n.is_optional,
-                      packageId: n.package_id,
-                    });
-                  }
-                  await graphQuery.refetch();
-                }}
-              />
+                    if (!n) return;
+                    await graphMut.mutateAsync(() =>
+                      saveTemplateNode(
+                        draftId,
+                        {
+                          id: n.id,
+                          name: n.name,
+                          slug: n.slug,
+                          phase: n.phase,
+                          posX,
+                          posY,
+                          isOptional: n.is_optional,
+                          packageId: n.package_id,
+                        },
+                        { recordUndo: false },
+                      ),
+                    );
+                  }}
+                  onConnect={async (from, to) => {
+                    await graphMut.mutateAsync(() => connectTemplateNodes(draftId, from, to));
+                  }}
+                  onDeleteEdge={async (edgeId) => {
+                    await graphMut.mutateAsync(() => deleteTemplateEdge(draftId, edgeId));
+                  }}
+                  onSaveNode={async (node) => {
+                    await graphMut.mutateAsync(() =>
+                      saveTemplateNode(draftId, {
+                        id: node.id,
+                        name: node.name,
+                        slug: node.slug,
+                        phase: node.phase,
+                        posX: node.pos_x,
+                        posY: node.pos_y,
+                        isOptional: node.is_optional,
+                        packageId: node.package_id,
+                      }),
+                    );
+                  }}
+                  onDeleteNode={async (nodeId) => {
+                    await graphMut.mutateAsync(() => deleteTemplateNode(draftId, nodeId));
+                  }}
+                  onAutoLayout={async (positions) => {
+                    await graphMut.mutateAsync(() =>
+                      applyTemplateBatchLayout(
+                        draftId,
+                        [...positions.entries()].map(([nodeId, pos]) => ({
+                          nodeId,
+                          posX: pos.posX,
+                          posY: pos.posY,
+                        })),
+                      ),
+                    );
+                  }}
+                />
+              </>
             ) : null}
           </CardContent>
         </Card>

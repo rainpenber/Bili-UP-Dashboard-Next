@@ -106,6 +106,44 @@ export async function updateNodeLayout(
   );
 }
 
+export async function applyBatchGraphLayout(
+  projectId: string,
+  nodes: Array<{ nodeId: string; posX: number; posY: number }>,
+) {
+  return workflowGraphSchema.parse(
+    await requestJson(`/projects/${encodeURIComponent(projectId)}/workflow/layout`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodes }),
+    }),
+  );
+}
+
+export async function patchGraphNode(
+  projectId: string,
+  nodeId: string,
+  body: {
+    name?: string;
+    posX?: number;
+    posY?: number;
+    plannedAt?: string | null;
+    phase?: string;
+    isOptional?: boolean;
+    packageId?: string | null;
+  },
+) {
+  return workflowGraphSchema.parse(
+    await requestJson(
+      `/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    ),
+  );
+}
+
 export async function connectNodes(projectId: string, fromNodeId: string, toNodeId: string) {
   return workflowGraphSchema.parse(
     await requestJson(`/projects/${encodeURIComponent(projectId)}/edges`, {
@@ -293,13 +331,38 @@ export async function saveTemplateNode(
     isOptional?: boolean;
     packageId?: string | null;
   },
+  opts?: { recordUndo?: boolean },
 ) {
-  await requestJson(`/templates/versions/${encodeURIComponent(versionId)}/nodes`, {
+  const qs = opts?.recordUndo === false ? '?recordUndo=false' : '';
+  await requestJson(`/templates/versions/${encodeURIComponent(versionId)}/nodes${qs}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
   return fetchTemplateGraph(versionId);
+}
+
+export async function applyTemplateBatchLayout(
+  versionId: string,
+  nodes: Array<{ nodeId: string; posX: number; posY: number }>,
+) {
+  return requestJson(`/templates/versions/${encodeURIComponent(versionId)}/workflow/layout`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ nodes }),
+  }) as ReturnType<typeof fetchTemplateGraph>;
+}
+
+export async function undoTemplateWorkflow(versionId: string) {
+  return requestJson(`/templates/versions/${encodeURIComponent(versionId)}/workflow/undo`, {
+    method: 'POST',
+  }) as ReturnType<typeof fetchTemplateGraph>;
+}
+
+export async function redoTemplateWorkflow(versionId: string) {
+  return requestJson(`/templates/versions/${encodeURIComponent(versionId)}/workflow/redo`, {
+    method: 'POST',
+  }) as ReturnType<typeof fetchTemplateGraph>;
 }
 
 export async function connectTemplateNodes(

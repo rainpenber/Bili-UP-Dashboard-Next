@@ -20,6 +20,7 @@ import {
   executePublishEffects,
   mapNode,
   mapOpenItem,
+  assertNodesInProject,
 } from './engine-shared';
 import { hermesPayloadHash } from './canonical-json';
 
@@ -420,6 +421,29 @@ export class CommercialEngine {
     return (await this.getWorkflow(projectId))!;
   }
 
+  async applyBatchGraphLayout(
+    projectId: string,
+    updates: Array<{ nodeId: string; posX: number; posY: number }>,
+  ) {
+    await this.mutateGraph(
+      projectId,
+      async (tx, graph) => {
+        for (const u of updates) {
+          const rows = await tx<{ id: string }[]>`
+            UPDATE wf_nodes SET pos_x = ${u.posX}, pos_y = ${u.posY}, updated_at = now()
+            WHERE id = ${u.nodeId} AND project_id = ${projectId} AND workflow_id = ${graph.workflowId}
+            RETURNING id
+          `;
+          if (!rows.length) {
+            throw Object.assign(new Error('节点不存在或不属于该项目'), { status: 404 });
+          }
+        }
+      },
+      { recordUndo: true },
+    );
+    return (await this.getWorkflow(projectId))!;
+  }
+
   async listOpenItems(projectId: string): Promise<OpenItemDto[]> {
     const rows = await this.db<
       {
@@ -465,6 +489,10 @@ export class CommercialEngine {
       if (patch.impact === 'normal') {
         patch.blocksNodeId = null;
       }
+      await assertNodesInProject(tx, projectId, [
+        patch.blocksNodeId as string | null | undefined,
+        patch.workflowNodeId as string | null | undefined,
+      ]);
       const fields: string[] = [];
       if (patch.title !== undefined)
         await tx`UPDATE open_items SET title = ${String(patch.title)}, updated_at = now() WHERE id = ${itemId}`;
@@ -495,6 +523,10 @@ export class CommercialEngine {
   async createOpenItem(projectId: string, body: Record<string, unknown>) {
     const id = crypto.randomUUID();
     await this.db.begin(async (tx) => {
+      await assertNodesInProject(tx, projectId, [
+        body.blocksNodeId as string | null | undefined,
+        body.workflowNodeId as string | null | undefined,
+      ]);
       await tx`
         INSERT INTO open_items (id, project_id, title, description, close_criteria, next_action, next_actor, impact, blocks_node_id, workflow_node_id, planned_at, source_evidence, confidence, sort_rank)
         VALUES (

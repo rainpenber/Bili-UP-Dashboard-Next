@@ -14,6 +14,9 @@ export function mapNode(n: {
   pos_y: number;
   package_id: string | null;
   slug: string | null;
+  template_node_id?: string | null;
+  source?: string;
+  status_before_block?: string | null;
 }) {
   return {
     id: n.id,
@@ -27,7 +30,26 @@ export function mapNode(n: {
     posY: n.pos_y,
     packageId: n.package_id,
     slug: n.slug,
+    templateNodeId: n.template_node_id ?? null,
+    source: (n.source ?? 'template') as NonNullable<WorkflowGraph['nodes'][number]['source']>,
+    statusBeforeBlock: n.status_before_block ?? null,
   };
+}
+
+export async function assertNodesInProject(
+  tx: Db,
+  projectId: string,
+  nodeIds: (string | null | undefined)[],
+) {
+  for (const nodeId of nodeIds) {
+    if (!nodeId) continue;
+    const rows = await tx<{ id: string }[]>`
+      SELECT id FROM wf_nodes WHERE id = ${nodeId} AND project_id = ${projectId}
+    `;
+    if (!rows.length) {
+      throw Object.assign(new Error('workflow node not in project'), { status: 409 });
+    }
+  }
 }
 
 export async function getWorkflowTx(tx: Db, projectId: string): Promise<WorkflowGraph | null> {

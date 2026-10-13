@@ -1,4 +1,5 @@
 import {
+  batchGraphLayoutBodySchema,
   createGraphEdgeBodySchema,
   createGraphNodeBodySchema,
   createOpenItemBodySchema,
@@ -85,6 +86,16 @@ export function createCommercialRoutes(db: Sql) {
     }
   });
 
+  app.post('/projects/:id/workflow/layout', async (c) => {
+    try {
+      const body = batchGraphLayoutBodySchema.parse(await c.req.json());
+      const wf = await engine.applyBatchGraphLayout(c.req.param('id'), body.nodes);
+      return c.json(workflowGraphSchema.parse(wf));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
   app.post('/projects/:id/nodes/:nodeId/advance-to', async (c) => {
     try {
       const wf = await engine.advanceToNode(c.req.param('id'), c.req.param('nodeId'));
@@ -144,6 +155,9 @@ export function createCommercialRoutes(db: Sql) {
         ...(body.posX !== undefined ? { posX: body.posX } : {}),
         ...(body.posY !== undefined ? { posY: body.posY } : {}),
         ...(body.plannedAt !== undefined ? { plannedAt: body.plannedAt } : {}),
+        ...(body.phase !== undefined ? { phase: body.phase } : {}),
+        ...(body.isOptional !== undefined ? { isOptional: body.isOptional } : {}),
+        ...(body.packageId !== undefined ? { packageId: body.packageId } : {}),
       });
       return c.json(workflowGraphSchema.parse(wf));
     } catch (err) {
@@ -190,7 +204,7 @@ export function createCommercialRoutes(db: Sql) {
       const item = await engine.createOpenItem(c.req.param('id'), body);
       return c.json(openItemSchema.parse(item), 201);
     } catch (err) {
-      return jsonError(c, 400, err instanceof Error ? err.message : 'bad request');
+      return routeErr(c, err);
     }
   });
 
@@ -308,16 +322,52 @@ export function createCommercialRoutes(db: Sql) {
   app.put('/templates/versions/:id/nodes', async (c) => {
     try {
       const body = updateTemplateNodeBodySchema.parse(await c.req.json());
-      await templates.upsertTemplateNode(c.req.param('id'), {
-        ...(body.id ? { id: body.id } : {}),
-        name: body.name,
-        slug: body.slug,
-        phase: body.phase,
-        posX: body.posX,
-        posY: body.posY,
-        ...(body.isOptional !== undefined ? { isOptional: body.isOptional } : {}),
-        ...(body.packageId !== undefined ? { packageId: body.packageId } : {}),
-      });
+      const recordUndo = c.req.query('recordUndo') !== 'false';
+      await templates.upsertTemplateNode(
+        c.req.param('id'),
+        {
+          ...(body.id ? { id: body.id } : {}),
+          name: body.name,
+          slug: body.slug,
+          phase: body.phase,
+          posX: body.posX,
+          posY: body.posY,
+          ...(body.isOptional !== undefined ? { isOptional: body.isOptional } : {}),
+          ...(body.packageId !== undefined ? { packageId: body.packageId } : {}),
+        },
+        { recordUndo },
+      );
+      return c.json(await templates.getTemplateGraph(c.req.param('id')));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/templates/versions/:id/workflow/undo', async (c) => {
+    try {
+      await templates.undoTemplate(c.req.param('id'));
+      return c.json(await templates.getTemplateGraph(c.req.param('id')));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/templates/versions/:id/workflow/redo', async (c) => {
+    try {
+      await templates.redoTemplate(c.req.param('id'));
+      return c.json(await templates.getTemplateGraph(c.req.param('id')));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/templates/versions/:id/workflow/layout', async (c) => {
+    try {
+      const body = batchGraphLayoutBodySchema.parse(await c.req.json());
+      await templates.applyBatchTemplateLayout(
+        c.req.param('id'),
+        body.nodes.map((n) => ({ nodeId: n.nodeId, posX: n.posX, posY: n.posY })),
+      );
       return c.json(await templates.getTemplateGraph(c.req.param('id')));
     } catch (err) {
       return routeErr(c, err);
@@ -343,14 +393,37 @@ export function createCommercialRoutes(db: Sql) {
   });
 
   app.post('/projects/:id/open-items/:itemId/pin-primary-block', async (c) => {
-    const itemId = c.req.param('itemId');
-    const projectId = c.req.param('id');
-    await db`
-      UPDATE wf_nodes n SET primary_block_pinned_item_id = ${itemId}
-      FROM open_items o
-      WHERE o.id = ${itemId} AND o.project_id = ${projectId} AND o.blocks_node_id = n.id
-    `;
-    return c.json({ ok: true });
+    try {
+      const itemId = c.req.param('itemId');
+      const projectId = c.req.param('id');
+      await db.begin(async (tx) => {
+        const item = await tx<{ blocks_node_id: string | null }[]>`
+          SELECT blocks_node_id FROM open_items WHERE id = ${itemId} AND project_id = ${projectId}
+        `;
+        if (!item[0]?.blocks_node_id) {
+          throw Object.assign(new Error('item does not block a node in this project'), {
+            status: 409,
+          });
+        }
+        await tx`
+          UPDATE wf_nodes SET primary_block_pinned_item_id = NULL
+          WHERE project_id = ${projectId} AND primary_block_pinned_item_id = ${itemId}
+        `;
+        const updated = await tx<{ id: string }[]>`
+          UPDATE wf_nodes n SET primary_block_pinned_item_id = ${itemId}
+          FROM open_items o
+          WHERE o.id = ${itemId} AND o.project_id = ${projectId} AND o.blocks_node_id = n.id
+            AND n.project_id = ${projectId}
+          RETURNING n.id
+        `;
+        if (!updated.length) {
+          throw Object.assign(new Error('blocks node not in project'), { status: 409 });
+        }
+      });
+      return c.json({ ok: true });
+    } catch (err) {
+      return routeErr(c, err);
+    }
   });
 
   return app;

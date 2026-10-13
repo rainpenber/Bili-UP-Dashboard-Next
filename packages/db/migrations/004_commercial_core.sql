@@ -2,7 +2,13 @@
 
 DO $$
 BEGIN
-  IF to_regclass('public.projects') IS NOT NULL AND to_regclass('public.commercial_projects') IS NULL THEN
+  IF to_regclass('public.commercial_projects') IS NOT NULL THEN
+    RETURN;
+  END IF;
+
+  IF to_regclass('public.projects') IS NOT NULL
+    OR to_regclass('public.workflow_nodes') IS NOT NULL
+    OR to_regclass('public.project_workflows') IS NOT NULL THEN
     ALTER TABLE IF EXISTS hermes_change_proposals RENAME TO _legacy_wp004_hermes_change_proposals;
     ALTER TABLE IF EXISTS open_items RENAME TO _legacy_wp004_open_items;
     ALTER TABLE IF EXISTS workflow_node_status_history RENAME TO _legacy_wp004_workflow_node_status_history;
@@ -268,10 +274,41 @@ BEGIN
   FROM _legacy_wp004_projects p
   ON CONFLICT (id) DO NOTHING;
 
+  INSERT INTO wf_template_versions (id, slug, name, version, is_default, is_draft)
+  SELECT
+    lt.id,
+    lt.slug,
+    lt.name,
+    lt.version,
+    FALSE,
+    FALSE
+  FROM _legacy_wp004_workflow_templates lt
+  WHERE NOT EXISTS (SELECT 1 FROM wf_template_versions v WHERE v.id = lt.id)
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO wf_template_nodes (id, template_version_id, slug, name, is_optional, pos_x, pos_y, phase)
+  SELECT
+    ltn.id,
+    ltn.template_id,
+    ltn.slug,
+    ltn.label,
+    NOT ltn.is_required,
+    ltn.sort_order * 80.0,
+    0,
+    'pre_publish'
+  FROM _legacy_wp004_workflow_template_nodes ltn
+  WHERE EXISTS (SELECT 1 FROM wf_template_versions v WHERE v.id = ltn.template_id)
+  ON CONFLICT (id) DO NOTHING;
+
   INSERT INTO project_workflows (id, project_id, template_version_id, created_at)
-  SELECT pw.id, pw.project_id, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', pw.created_at
+  SELECT pw.id, pw.project_id, pw.template_id, pw.created_at
   FROM _legacy_wp004_project_workflows pw
   ON CONFLICT (id) DO NOTHING;
+
+  UPDATE project_workflows pw
+  SET template_version_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  WHERE pw.template_version_id IS NULL
+     OR NOT EXISTS (SELECT 1 FROM wf_template_versions v WHERE v.id = pw.template_version_id);
 
   INSERT INTO wf_nodes (
     id, workflow_id, template_node_id, name, status, is_optional, planned_at, completed_at, pos_x, pos_y, source, created_at, updated_at
@@ -279,7 +316,7 @@ BEGIN
   SELECT
     wn.id,
     wn.project_workflow_id,
-    NULL,
+    tn.id,
     wn.label,
     CASE wn.status
       WHEN 'completed' THEN 'completed'
@@ -298,7 +335,35 @@ BEGIN
     wn.status_changed_at,
     wn.status_changed_at
   FROM _legacy_wp004_workflow_nodes wn
+  INNER JOIN project_workflows pw ON pw.id = wn.project_workflow_id
+  LEFT JOIN wf_template_nodes tn
+    ON tn.template_version_id = pw.template_version_id AND tn.slug = wn.slug
   ON CONFLICT (id) DO NOTHING;
+
+  CREATE TABLE IF NOT EXISTS wf_node_status_history (
+    id BIGSERIAL PRIMARY KEY,
+    project_id UUID NOT NULL REFERENCES commercial_projects (id) ON DELETE CASCADE,
+    node_id UUID NOT NULL,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    source TEXT NOT NULL DEFAULT 'migration',
+    detail JSONB
+  );
+
+  INSERT INTO wf_node_status_history (project_id, node_id, from_status, to_status, changed_at, source, detail)
+  SELECT
+    pw.project_id,
+    h.node_id,
+    h.from_status,
+    h.to_status,
+    h.changed_at,
+    COALESCE(h.source, 'legacy'),
+    h.detail
+  FROM _legacy_wp004_workflow_node_status_history h
+  INNER JOIN wf_nodes n ON n.id = h.node_id
+  INNER JOIN project_workflows pw ON pw.id = n.workflow_id
+  WHERE to_regclass('public._legacy_wp004_workflow_node_status_history') IS NOT NULL;
 
   INSERT INTO wf_edges (id, workflow_id, from_node_id, to_node_id)
   SELECT

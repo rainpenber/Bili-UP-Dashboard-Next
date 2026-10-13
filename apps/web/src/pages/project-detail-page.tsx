@@ -14,6 +14,7 @@ import {
   rollbackNode,
   redoWorkflow,
   undoWorkflow,
+  applyBatchGraphLayout,
   updateNodeLayout,
 } from '@/api/commercial-client';
 import { autoLayoutPositions } from '@/features/commercial/graph-auto-layout';
@@ -40,6 +41,11 @@ export function ProjectDetailPage() {
   const [newItemActor, setNewItemActor] = useState<'us' | 'client'>('us');
   const [newItemImpact, setNewItemImpact] = useState<'normal' | 'blocking'>('normal');
   const [newItemBlocksNode, setNewItemBlocksNode] = useState('');
+  const [layoutPending, setLayoutPending] = useState(false);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
+  const [newNodeName, setNewNodeName] = useState('');
+  const [newNodePrompt, setNewNodePrompt] = useState<'serial' | 'parallel' | null>(null);
+  const [newNodeAnchorId, setNewNodeAnchorId] = useState<string | null>(null);
 
   const focusNodeId = useMemo(() => {
     const hash = location.hash.replace('#', '');
@@ -337,19 +343,32 @@ export function ProjectDetailPage() {
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={pending}
+                disabled={pending || layoutPending}
                 onClick={async () => {
-                  const positions = autoLayoutPositions(
-                    wf.nodes.map((n) => ({ id: n.id, posX: n.posX, posY: n.posY })),
-                    wf.edges.map((e) => ({ fromNodeId: e.fromNodeId, toNodeId: e.toNodeId })),
-                  );
-                  for (const [nodeId, pos] of positions) {
-                    await updateNodeLayout(id!, nodeId, pos.posX, pos.posY);
+                  setLayoutError(null);
+                  setLayoutPending(true);
+                  try {
+                    const positions = autoLayoutPositions(
+                      wf.nodes.map((n) => ({ id: n.id, posX: n.posX, posY: n.posY })),
+                      wf.edges.map((e) => ({ fromNodeId: e.fromNodeId, toNodeId: e.toNodeId })),
+                    );
+                    await applyBatchGraphLayout(
+                      id!,
+                      [...positions.entries()].map(([nodeId, pos]) => ({
+                        nodeId,
+                        posX: pos.posX,
+                        posY: pos.posY,
+                      })),
+                    );
+                    invalidate();
+                  } catch (e) {
+                    setLayoutError(e instanceof Error ? e.message : '自动布局失败');
+                  } finally {
+                    setLayoutPending(false);
                   }
-                  invalidate();
                 }}
               >
-                自动布局
+                {layoutPending ? '布局中…' : '自动布局'}
               </Button>
             </div>
           </CardHeader>
@@ -358,6 +377,46 @@ export function ProjectDetailPage() {
               <p className="text-destructive mb-2 text-sm">
                 {graphMut.error instanceof Error ? graphMut.error.message : '操作失败'}
               </p>
+            ) : null}
+            {layoutError ? <p className="text-destructive mb-2 text-sm">{layoutError}</p> : null}
+            {newNodePrompt ? (
+              <div className="mb-3 flex flex-wrap items-end gap-2 rounded border p-2">
+                <Input
+                  aria-label="新节点名称"
+                  placeholder="节点名称"
+                  value={newNodeName}
+                  onChange={(e) => setNewNodeName(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={pending || !newNodeName.trim()}
+                  onClick={() => {
+                    const n = wf.nodes.find((x) => x.id === newNodeAnchorId);
+                    void graphMut.mutate({
+                      type: 'create',
+                      nodeId: newNodeAnchorId!,
+                      create: {
+                        name: newNodeName.trim(),
+                        posX: (n?.posX ?? 0) + (newNodePrompt === 'serial' ? 200 : 0),
+                        posY: (n?.posY ?? 0) + (newNodePrompt === 'parallel' ? 140 : 0),
+                      },
+                    });
+                    setNewNodePrompt(null);
+                    setNewNodeName('');
+                  }}
+                >
+                  创建
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setNewNodePrompt(null)}
+                >
+                  取消
+                </Button>
+              </div>
             ) : null}
             <WorkflowFlowEditor
               graph={wf}
@@ -378,28 +437,14 @@ export function ProjectDetailPage() {
               onRollback={(nodeId) => graphMut.mutate({ type: 'rollback', nodeId })}
               onDeleteNode={(nodeId) => graphMut.mutate({ type: 'delete', nodeId })}
               onAddSerialNode={(afterId) => {
-                const n = wf.nodes.find((x) => x.id === afterId);
-                void graphMut.mutate({
-                  type: 'create',
-                  nodeId: afterId,
-                  create: {
-                    name: '新串行节点',
-                    posX: (n?.posX ?? 0) + 200,
-                    posY: n?.posY ?? 0,
-                  },
-                });
+                setNewNodeAnchorId(afterId);
+                setNewNodePrompt('serial');
+                setNewNodeName('');
               }}
               onAddParallelNode={(sibId) => {
-                const n = wf.nodes.find((x) => x.id === sibId);
-                void graphMut.mutate({
-                  type: 'create',
-                  nodeId: sibId,
-                  create: {
-                    name: '新并行节点',
-                    posX: n?.posX ?? 0,
-                    posY: (n?.posY ?? 0) + 140,
-                  },
-                });
+                setNewNodeAnchorId(sibId);
+                setNewNodePrompt('parallel');
+                setNewNodeName('');
               }}
             />
           </CardContent>
@@ -503,6 +548,29 @@ export function ProjectDetailPage() {
                 />
               ))
           )}
+          <details className="pt-2">
+            <summary className="cursor-pointer font-medium">已闭环 / 已取消历史</summary>
+            <ul className="mt-2 space-y-2">
+              {p.openItems
+                .filter((i) => i.lifecycle !== 'open')
+                .map((item) => (
+                  <li key={item.id} id={`item-${item.id}`} tabIndex={-1}>
+                    <Link to={`#item-${item.id}`} className="text-primary underline">
+                      {item.title}
+                    </Link>
+                    <span className="text-muted-foreground">
+                      {' '}
+                      · {item.lifecycle === 'closed' ? '已闭环' : '已取消'}
+                      {item.closeConclusion ? ` · ${item.closeConclusion}` : ''}
+                      {item.cancelReason ? ` · ${item.cancelReason}` : ''}
+                    </span>
+                  </li>
+                ))}
+              {p.openItems.filter((i) => i.lifecycle !== 'open').length === 0 ? (
+                <li className="text-muted-foreground">暂无历史事项</li>
+              ) : null}
+            </ul>
+          </details>
         </CardContent>
       </Card>
     </div>
