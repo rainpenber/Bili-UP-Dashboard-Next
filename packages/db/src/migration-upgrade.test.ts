@@ -26,11 +26,18 @@ describe('WP-004 legacy upgrade path', () => {
     const legacyDb = createSql({ ...cfg, database: dbName });
     const adminDrop = createSql();
     try {
-      for (const file of ['001_monitoring.sql', '002_import_evidence.sql', '003_video_comment_count.sql']) {
+      for (const file of [
+        '001_monitoring.sql',
+        '002_import_evidence.sql',
+        '003_video_comment_count.sql',
+      ]) {
         const body = readFileSync(join(import.meta.dir, '../migrations', file), 'utf8');
         await legacyDb.unsafe(body);
       }
-      const legacySeed = readFileSync(join(import.meta.dir, '../test/legacy_wp004_minimal.sql'), 'utf8');
+      const legacySeed = readFileSync(
+        join(import.meta.dir, '../test/legacy_wp004_minimal.sql'),
+        'utf8',
+      );
       await legacyDb.unsafe(legacySeed);
       await runMigrations(legacyDb);
       const projects = await legacyDb<{ c: string }[]>`
