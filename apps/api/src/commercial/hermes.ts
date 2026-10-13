@@ -150,7 +150,14 @@ async function runDirectWriteTx(
   }
   await tx`
     INSERT INTO workflow_audit_log (project_id, entity_type, entity_id, action, detail, source)
-    VALUES (${projectId}, 'hermes', ${envelope.idempotencyKey}, ${envelope.operation}, ${JSON.stringify({ payload: envelope.payload })}::jsonb, 'hermes')
+    VALUES (
+      ${projectId},
+      'hermes',
+      NULL,
+      ${envelope.operation},
+      ${JSON.stringify({ idempotencyKey: envelope.idempotencyKey, payload: envelope.payload })}::jsonb,
+      'hermes'
+    )
   `;
   return result;
 }
