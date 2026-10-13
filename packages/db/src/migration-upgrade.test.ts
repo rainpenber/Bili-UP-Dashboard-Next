@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildConnectionString, readDbConfigFromEnv } from './config';
+import { readDbConfigFromEnv } from './config';
 import { createSql } from './client';
 import { runMigrations } from './migrate';
 import { postgresAvailable } from './postgres-available';
@@ -23,7 +23,7 @@ describe('WP-004 legacy upgrade path', () => {
     }
     await admin.end({ timeout: 5 });
 
-    const legacyDb = createSql(buildConnectionString({ ...cfg, database: dbName }));
+    const legacyDb = createSql({ ...cfg, database: dbName });
     const adminDrop = createSql();
     try {
       for (const file of ['001_monitoring.sql', '002_import_evidence.sql', '003_video_comment_count.sql']) {
