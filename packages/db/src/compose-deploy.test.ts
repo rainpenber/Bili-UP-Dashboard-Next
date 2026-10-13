@@ -36,6 +36,22 @@ describe('deploy docker-compose isolation', () => {
     expect(api).toContain('POSTGRES_PORT: 5432');
   });
 
+  test('production api and web use immutable image builds without source bind mounts', () => {
+    const api = serviceBlock(deployCompose, 'api');
+    const web = serviceBlock(deployCompose, 'web');
+    expect(api).toMatch(/^\s+build:/m);
+    expect(web).toMatch(/^\s+build:/m);
+    expect(api).not.toMatch(/\/app\s*$/m);
+    expect(api).not.toContain('./:/app');
+    expect(web).not.toContain('./:/app');
+  });
+
+  test('web publishes HTTP and depends on healthy api', () => {
+    const web = serviceBlock(deployCompose, 'web');
+    expect(web).toContain('${WEB_PORT:-8080}:8080');
+    expect(deployCompose).toContain('condition: service_healthy');
+  });
+
   test('postgres uses a named volume for data', () => {
     expect(deployCompose).toMatch(/^\s+postgres_data:/m);
     const postgres = serviceBlock(deployCompose, 'postgres');
