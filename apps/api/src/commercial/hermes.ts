@@ -91,6 +91,13 @@ async function insertProposalTx(tx: Db, envelope: HermesWriteEnvelope) {
     SELECT id, status, operation, project_id, payload FROM hermes_write_proposals WHERE idempotency_key = ${envelope.idempotencyKey}
   `;
   if (existing[0]) {
+    if (
+      existing[0].status === 'pending' &&
+      existing[0].operation === envelope.operation &&
+      (existing[0].project_id ?? null) === (projectId ?? null)
+    ) {
+      return { mode: 'proposal', proposalId: existing[0].id, status: existing[0].status };
+    }
     assertProposalMatches(envelope, existing[0]);
     return { mode: 'proposal', proposalId: existing[0].id, status: existing[0].status };
   }
