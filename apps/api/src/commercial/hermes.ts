@@ -1,5 +1,6 @@
 import { hermesWriteEnvelopeSchema, type HermesWriteEnvelope } from '@studio/contracts';
 import type { CommercialEngine } from './engine';
+import { canonicalJson } from './canonical-json';
 import { hermesPayloadHash } from './canonical-json';
 import { applyHermesEnvelopeTx } from './engine-mutations';
 import type { Db } from './graph-io';
@@ -48,14 +49,13 @@ export async function acceptHermesProposal(engine: CommercialEngine, proposalId:
       autoApply: true,
     });
     const result = await runDirectWriteTx(engine, tx, envelope, { proposalId: row.id });
+    const projectId = effectiveProjectId(envelope, result);
     await tx`
-      UPDATE hermes_write_proposals SET status = 'accepted', resolved_at = now(), result_json = ${JSON.stringify(result)}::jsonb
+      UPDATE hermes_write_proposals SET status = 'accepted', resolved_at = now(), result_json = ${JSON.stringify(result)}::jsonb,
+        project_id = COALESCE(project_id, ${projectId})
       WHERE id = ${proposalId}
     `;
-    await tx`
-      INSERT INTO workflow_audit_log (project_id, entity_type, entity_id, action, detail, source)
-      VALUES (${resolveProjectId(envelope)}, 'hermes_proposal', ${proposalId}, 'accept', ${JSON.stringify({ result })}::jsonb, 'hermes')
-    `;
+    await auditHermes(tx, projectId, 'hermes_proposal', proposalId, 'accept', { result });
     return { mode: 'accepted', result };
   });
 }
@@ -73,24 +73,26 @@ export async function rejectHermesProposal(
     if (!row) throw Object.assign(new Error('proposal not found'), { status: 404 });
     if (row.status !== 'pending')
       throw Object.assign(new Error('proposal not pending'), { status: 409 });
-    await tx`
+    const updated = await tx`
       UPDATE hermes_write_proposals SET status = 'rejected', rejection_reason = ${reason}, resolved_at = now()
-      WHERE id = ${proposalId}
+      WHERE id = ${proposalId} AND status = 'pending'
+      RETURNING id
     `;
-    await tx`
-      INSERT INTO workflow_audit_log (project_id, entity_type, entity_id, action, detail, source)
-      VALUES (${row.project_id}, 'hermes_proposal', ${proposalId}, 'reject', ${JSON.stringify({ reason })}::jsonb, 'hermes')
-    `;
+    if (!updated.length) throw Object.assign(new Error('proposal not pending'), { status: 409 });
+    await auditHermes(tx, row.project_id, 'hermes_proposal', proposalId, 'reject', { reason });
     return { status: 'rejected' };
   });
 }
 
 async function insertProposalTx(tx: Db, envelope: HermesWriteEnvelope) {
   const projectId = resolveProjectId(envelope);
-  const existing = await tx<{ id: string; status: string }[]>`
-    SELECT id, status FROM hermes_write_proposals WHERE idempotency_key = ${envelope.idempotencyKey}
+  const existing = await tx<
+    { id: string; status: string; operation: string; project_id: string | null; payload: unknown }[]
+  >`
+    SELECT id, status, operation, project_id, payload FROM hermes_write_proposals WHERE idempotency_key = ${envelope.idempotencyKey}
   `;
   if (existing[0]) {
+    assertProposalMatches(envelope, existing[0]);
     return { mode: 'proposal', proposalId: existing[0].id, status: existing[0].status };
   }
   const id = crypto.randomUUID();
@@ -100,15 +102,34 @@ async function insertProposalTx(tx: Db, envelope: HermesWriteEnvelope) {
     ON CONFLICT (idempotency_key) DO NOTHING
     RETURNING id
   `;
-  const proposalId =
-    inserted[0]?.id ??
-    (
-      await tx<{ id: string; status: string }[]>`
-      SELECT id, status FROM hermes_write_proposals WHERE idempotency_key = ${envelope.idempotencyKey}
-    `
-    )[0]?.id;
-  if (!proposalId) throw Object.assign(new Error('proposal insert failed'), { status: 500 });
-  return { mode: 'proposal', proposalId, status: 'pending' };
+  const row = (
+    await tx<
+      {
+        id: string;
+        status: string;
+        operation: string;
+        project_id: string | null;
+        payload: unknown;
+      }[]
+    >`SELECT id, status, operation, project_id, payload FROM hermes_write_proposals WHERE idempotency_key = ${envelope.idempotencyKey}`
+  )[0];
+  if (!row) throw Object.assign(new Error('proposal insert failed'), { status: 500 });
+  if (!inserted[0]) assertProposalMatches(envelope, row);
+  return { mode: 'proposal', proposalId: row.id, status: row.status };
+}
+
+function assertProposalMatches(
+  envelope: HermesWriteEnvelope,
+  existing: { operation: string; project_id: string | null; payload: unknown },
+) {
+  const projectId = resolveProjectId(envelope);
+  if (
+    existing.operation !== envelope.operation ||
+    (existing.project_id ?? null) !== projectId ||
+    canonicalJson(existing.payload) !== canonicalJson(envelope.payload)
+  ) {
+    throw Object.assign(new Error('idempotency key conflict'), { status: 409 });
+  }
 }
 
 async function runDirectWriteTx(
@@ -118,8 +139,8 @@ async function runDirectWriteTx(
   opts?: { proposalId?: string },
 ) {
   await tx`SELECT pg_advisory_xact_lock(hashtext(${envelope.idempotencyKey}))`;
-  const projectId = resolveProjectId(envelope);
-  const payloadHash = hermesPayloadHash(envelope.operation, projectId, envelope.payload);
+  const projectIdBefore = resolveProjectId(envelope);
+  const payloadHash = hermesPayloadHash(envelope.operation, projectIdBefore, envelope.payload);
   const prior = await tx<
     { operation: string; project_id: string | null; payload_hash: string; result_json: unknown }[]
   >`
@@ -129,7 +150,7 @@ async function runDirectWriteTx(
   if (prior[0]) {
     if (
       prior[0].operation !== envelope.operation ||
-      (prior[0].project_id ?? null) !== projectId ||
+      (prior[0].project_id ?? null) !== projectIdBefore ||
       prior[0].payload_hash !== payloadHash
     ) {
       throw Object.assign(new Error('idempotency key conflict'), { status: 409 });
@@ -139,27 +160,41 @@ async function runDirectWriteTx(
   const result = await applyHermesEnvelopeTx(tx, envelope, (innerTx) =>
     engine.resolveDefaultTemplateVersionId(innerTx),
   );
+  const projectIdAfter = effectiveProjectId(envelope, result);
+  const storedHash = hermesPayloadHash(
+    envelope.operation,
+    projectIdAfter ?? projectIdBefore,
+    envelope.payload,
+  );
   await tx`
     INSERT INTO hermes_idempotency (idempotency_key, operation, project_id, payload_hash, result_json)
-    VALUES (${envelope.idempotencyKey}, ${envelope.operation}, ${projectId}, ${payloadHash}, ${JSON.stringify(result)}::jsonb)
+    VALUES (${envelope.idempotencyKey}, ${envelope.operation}, ${projectIdAfter ?? projectIdBefore}, ${storedHash}, ${JSON.stringify(result)}::jsonb)
   `;
   if (opts?.proposalId) {
     await tx`
-      UPDATE hermes_write_proposals SET result_json = ${JSON.stringify(result)}::jsonb WHERE id = ${opts.proposalId}
+      UPDATE hermes_write_proposals SET result_json = ${JSON.stringify(result)}::jsonb, project_id = COALESCE(project_id, ${projectIdAfter})
+      WHERE id = ${opts.proposalId}
     `;
   }
+  await auditHermes(tx, projectIdAfter, 'hermes', null, envelope.operation, {
+    idempotencyKey: envelope.idempotencyKey,
+    payload: envelope.payload,
+  });
+  return result;
+}
+
+async function auditHermes(
+  tx: Db,
+  projectId: string | null,
+  entityType: string,
+  entityId: string | null,
+  action: string,
+  detail: unknown,
+) {
   await tx`
     INSERT INTO workflow_audit_log (project_id, entity_type, entity_id, action, detail, source)
-    VALUES (
-      ${projectId},
-      'hermes',
-      NULL,
-      ${envelope.operation},
-      ${JSON.stringify({ idempotencyKey: envelope.idempotencyKey, payload: envelope.payload })}::jsonb,
-      'hermes'
-    )
+    VALUES (${projectId}, ${entityType}, ${entityId}, ${action}, ${JSON.stringify(detail)}::jsonb, 'hermes')
   `;
-  return result;
 }
 
 async function loadIdempotentResult(tx: Db, idempotencyKey: string) {
@@ -172,4 +207,14 @@ async function loadIdempotentResult(tx: Db, idempotencyKey: string) {
 function resolveProjectId(envelope: HermesWriteEnvelope): string | null {
   const p = envelope.payload as { projectId?: string };
   return p.projectId ?? null;
+}
+
+function effectiveProjectId(envelope: HermesWriteEnvelope, result: unknown): string | null {
+  const fromPayload = resolveProjectId(envelope);
+  if (fromPayload) return fromPayload;
+  if (result && typeof result === 'object' && result !== null && 'projectId' in result) {
+    const id = (result as { projectId?: string }).projectId;
+    if (typeof id === 'string') return id;
+  }
+  return null;
 }

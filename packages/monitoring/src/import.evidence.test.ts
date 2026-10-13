@@ -1,10 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { createSql, runMigrations } from '@studio/db';
+import { createSql, postgresAvailable, runMigrations } from '@studio/db';
 import { runImport } from './import-run';
 import { IMPORTER_VERSION } from './importer-version';
 
-const pgAvailable = Boolean(process.env.CI || process.env.POSTGRES_PASSWORD);
 const mockRoot = join(import.meta.dir, '../fixtures/mock-data');
 const backendRoot = join(mockRoot, 'backend');
 const frontendRoot = join(mockRoot, 'frontend');
@@ -47,10 +46,11 @@ describe('mirror and canonical grouping', () => {
 });
 
 describe('import evidence and idempotency', () => {
-  const sql = pgAvailable ? createSql() : null;
+  let sql: ReturnType<typeof createSql> | null = null;
 
   beforeAll(async () => {
-    if (!sql) return;
+    if (!(await postgresAvailable())) return;
+    sql = createSql();
     await runMigrations(sql);
     await truncateAll(sql);
   });

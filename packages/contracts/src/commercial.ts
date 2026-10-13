@@ -83,6 +83,7 @@ export const openItemSchema = z.object({
   sourceEvidence: z.record(z.unknown()).nullable(),
   confidence: z.number().nullable(),
   closeConclusion: z.string().nullable(),
+  cancelReason: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   closedAt: z.string().datetime().nullable(),
@@ -212,6 +213,20 @@ export const updateGraphNodeBodySchema = z.object({
   posX: z.number().optional(),
   posY: z.number().optional(),
   plannedAt: z.string().datetime().nullable().optional(),
+  phase: nodePhaseSchema.optional(),
+  isOptional: z.boolean().optional(),
+  packageId: z.string().uuid().nullable().optional(),
+});
+
+export const updateTemplateNodeBodySchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(120),
+  slug: z.string().min(1).max(80),
+  phase: nodePhaseSchema,
+  posX: z.number(),
+  posY: z.number(),
+  isOptional: z.boolean().optional(),
+  packageId: z.string().uuid().nullable().optional(),
 });
 
 export const createGraphEdgeBodySchema = z.object({

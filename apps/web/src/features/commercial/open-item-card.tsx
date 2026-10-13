@@ -24,6 +24,7 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
   const [blocksNodeId, setBlocksNodeId] = useState(item.blocksNodeId ?? '');
   const [workflowNodeId, setWorkflowNodeId] = useState(item.workflowNodeId ?? '');
   const [closeConclusion, setCloseConclusion] = useState('');
+  const [cancelReason, setCancelReason] = useState('');
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['commercial'] });
 
@@ -53,7 +54,7 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
   });
 
   const cancelMut = useMutation({
-    mutationFn: () => cancelOpenItem(projectId, item.id),
+    mutationFn: () => cancelOpenItem(projectId, item.id, cancelReason.trim()),
     onSuccess: invalidate,
   });
 
@@ -67,6 +68,8 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
     return (
       <div className="rounded border p-2 text-sm text-muted-foreground">
         {item.title}（{item.lifecycle === 'closed' ? '已闭环' : '已取消'}）
+        {item.lifecycle === 'closed' && item.closeConclusion ? ` · ${item.closeConclusion}` : null}
+        {item.lifecycle === 'cancelled' && item.cancelReason ? ` · ${item.cancelReason}` : null}
       </div>
     );
   }
@@ -203,11 +206,18 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
             >
               {closeMut.isPending ? '闭环中…' : '闭环'}
             </Button>
+            <Input
+              className="max-w-xs"
+              aria-label="取消原因"
+              placeholder="取消原因"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+            />
             <Button
               type="button"
               size="sm"
               variant="ghost"
-              disabled={pending}
+              disabled={pending || !cancelReason.trim()}
               onClick={() => cancelMut.mutate()}
             >
               取消事项

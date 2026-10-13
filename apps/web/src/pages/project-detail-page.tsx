@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import {
   advanceToNode,
@@ -12,8 +12,11 @@ import {
   fetchProject,
   publishProject,
   rollbackNode,
+  redoWorkflow,
+  undoWorkflow,
   updateNodeLayout,
 } from '@/api/commercial-client';
+import { autoLayoutPositions } from '@/features/commercial/graph-auto-layout';
 import { PageHeader } from '@/components/layout/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -44,11 +47,27 @@ export function ProjectDetailPage() {
     return undefined;
   }, [location.hash]);
 
+  const focusItemId = useMemo(() => {
+    const hash = location.hash.replace('#', '');
+    if (hash.startsWith('item-')) return hash.slice('item-'.length);
+    return undefined;
+  }, [location.hash]);
+
   const project = useQuery({
     queryKey: ['commercial', 'project', id],
     queryFn: () => fetchProject(id!),
     enabled: Boolean(id),
   });
+
+  useEffect(() => {
+    if (!focusItemId || !project.data) return;
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(`item-${focusItemId}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el?.focus();
+    }, 200);
+    return () => window.clearTimeout(t);
+  }, [focusItemId, project.data]);
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['commercial'] });
 
@@ -82,6 +101,16 @@ export function ProjectDetailPage() {
 
   const deleteEdgeMut = useMutation({
     mutationFn: (edgeId: string) => deleteGraphEdge(id!, edgeId),
+    onSuccess: invalidate,
+  });
+
+  const undoMut = useMutation({
+    mutationFn: () => undoWorkflow(id!),
+    onSuccess: invalidate,
+  });
+
+  const redoMut = useMutation({
+    mutationFn: () => redoWorkflow(id!),
     onSuccess: invalidate,
   });
 
@@ -135,7 +164,9 @@ export function ProjectDetailPage() {
     connectMut.isPending ||
     deleteEdgeMut.isPending ||
     publishMut.isPending ||
-    itemMut.isPending;
+    itemMut.isPending ||
+    undoMut.isPending ||
+    redoMut.isPending;
 
   const connectError =
     connectMut.isError && connectMut.error instanceof Error ? connectMut.error.message : null;
@@ -281,8 +312,46 @@ export function ProjectDetailPage() {
 
       {wf ? (
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-base">工作流图</CardTitle>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={pending || undoMut.isPending}
+                onClick={() => undoMut.mutate()}
+              >
+                撤销
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={pending || redoMut.isPending}
+                onClick={() => redoMut.mutate()}
+              >
+                重做
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={async () => {
+                  const positions = autoLayoutPositions(
+                    wf.nodes.map((n) => ({ id: n.id, posX: n.posX, posY: n.posY })),
+                    wf.edges.map((e) => ({ fromNodeId: e.fromNodeId, toNodeId: e.toNodeId })),
+                  );
+                  for (const [nodeId, pos] of positions) {
+                    await updateNodeLayout(id!, nodeId, pos.posX, pos.posY);
+                  }
+                  invalidate();
+                }}
+              >
+                自动布局
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {graphMut.isError ? (

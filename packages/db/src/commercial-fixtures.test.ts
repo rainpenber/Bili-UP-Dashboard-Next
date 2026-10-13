@@ -1,18 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createSql } from './client';
-import {
-  countCommercialFixtureRows,
-  seedCommercialFixtures,
-} from './commercial-fixtures';
+import { countCommercialFixtureRows, seedCommercialFixtures } from './commercial-fixtures';
 import { runMigrations } from './migrate';
-
-const pgAvailable = Boolean(process.env.CI || process.env.POSTGRES_PASSWORD);
+import { postgresAvailable } from './postgres-available';
 
 describe('commercial fixtures', () => {
-  const sql = pgAvailable ? createSql() : null;
+  let sql: ReturnType<typeof createSql> | null = null;
 
   beforeAll(async () => {
-    if (!sql) return;
+    if (!(await postgresAvailable())) return;
+    sql = createSql();
     await runMigrations(sql);
   });
 

@@ -1,9 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createSql, runMigrations, seedCommercialFixtures } from '@studio/db';
+import { createSql, postgresAvailable, runMigrations, seedCommercialFixtures } from '@studio/db';
 import { createApp } from './app';
 import { createCommercialRoutes } from './commercial-routes';
-
-const pgAvailable = Boolean(process.env.CI || process.env.POSTGRES_PASSWORD);
 
 async function createProject(app: ReturnType<typeof createApp>, name: string) {
   const createRes = await app.request('/api/v1/commercial/projects', {
@@ -16,11 +14,12 @@ async function createProject(app: ReturnType<typeof createApp>, name: string) {
 }
 
 describe('commercial API integration', () => {
-  const sql = pgAvailable ? createSql() : null;
+  let sql: ReturnType<typeof createSql> | null = null;
   let app: ReturnType<typeof createApp>;
 
   beforeAll(async () => {
-    if (!sql) return;
+    if (!(await postgresAvailable())) return;
+    sql = createSql();
     await runMigrations(sql);
     await seedCommercialFixtures(sql);
     app = createApp({ skipDb: true });

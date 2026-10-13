@@ -62,16 +62,15 @@ function fixturePackageId(projectId: string, templatePackageId: string): string 
   return fixtureDerivedUuid('package', projectId, templatePackageId);
 }
 
-function fixtureEdgeId(projectId: string, fromTemplateNodeId: string, toTemplateNodeId: string): string {
+function fixtureEdgeId(
+  projectId: string,
+  fromTemplateNodeId: string,
+  toTemplateNodeId: string,
+): string {
   return fixtureDerivedUuid('edge', projectId, fromTemplateNodeId, toTemplateNodeId);
 }
 
-type NodeStatus =
-  | 'not_reached'
-  | 'in_progress'
-  | 'completed'
-  | 'blocked'
-  | 'not_applicable';
+type NodeStatus = 'not_reached' | 'in_progress' | 'completed' | 'blocked' | 'not_applicable';
 
 function defaultNodeStatus(projectId: string, slug: string): NodeStatus {
   if (slug === 'inquiry') return 'completed';
@@ -129,7 +128,11 @@ function defaultNodeStatus(projectId: string, slug: string): NodeStatus {
   }
 
   if (projectId === FIXTURE_PROJECT_IDS.publishReady) {
-    if (['inquiry', 'outline', 'copy', 'pre_shoot', 'a_roll', 'b_roll', 'ai_post', 'review'].includes(slug)) {
+    if (
+      ['inquiry', 'outline', 'copy', 'pre_shoot', 'a_roll', 'b_roll', 'ai_post', 'review'].includes(
+        slug,
+      )
+    ) {
       return 'completed';
     }
     if (slug === 'publish') return 'in_progress';

@@ -116,6 +116,7 @@ export function mapOpenItem(r: {
   source_evidence: Record<string, unknown> | null;
   confidence: number | null;
   close_conclusion: string | null;
+  cancel_reason?: string | null;
   created_at: Date;
   updated_at: Date;
   closed_at: Date | null;
@@ -138,6 +139,7 @@ export function mapOpenItem(r: {
     sourceEvidence: r.source_evidence,
     confidence: r.confidence,
     closeConclusion: r.close_conclusion,
+    cancelReason: r.cancel_reason ?? null,
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),
     closedAt: r.closed_at?.toISOString() ?? null,

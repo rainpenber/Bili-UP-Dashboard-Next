@@ -12,6 +12,7 @@ import {
   publishProjectBodySchema,
   publishResultSchema,
   updateGraphNodeBodySchema,
+  updateTemplateNodeBodySchema,
   workflowGraphSchema,
 } from '@studio/contracts';
 import type { Sql } from '@studio/db';
@@ -219,7 +220,12 @@ export function createCommercialRoutes(db: Sql) {
 
   app.post('/projects/:id/open-items/:itemId/cancel', async (c) => {
     try {
-      const item = await engine.cancelOpenItem(c.req.param('id'), c.req.param('itemId'));
+      const body = (await c.req.json()) as { reason?: string };
+      const item = await engine.cancelOpenItem(
+        c.req.param('id'),
+        c.req.param('itemId'),
+        body.reason ?? '',
+      );
       return c.json(openItemSchema.parse(item));
     } catch (err) {
       return routeErr(c, err);
@@ -281,9 +287,59 @@ export function createCommercialRoutes(db: Sql) {
   );
 
   app.post('/templates/versions/:id/edges', async (c) => {
-    const body = createGraphEdgeBodySchema.parse(await c.req.json());
-    await templates.addTemplateEdge(c.req.param('id'), body.fromNodeId, body.toNodeId);
-    return c.json(await templates.getTemplateGraph(c.req.param('id')));
+    try {
+      const body = createGraphEdgeBodySchema.parse(await c.req.json());
+      await templates.addTemplateEdge(c.req.param('id'), body.fromNodeId, body.toNodeId);
+      return c.json(await templates.getTemplateGraph(c.req.param('id')));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.delete('/templates/versions/:versionId/edges/:edgeId', async (c) => {
+    try {
+      await templates.deleteTemplateEdge(c.req.param('versionId'), c.req.param('edgeId'));
+      return c.json(await templates.getTemplateGraph(c.req.param('versionId')));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.put('/templates/versions/:id/nodes', async (c) => {
+    try {
+      const body = updateTemplateNodeBodySchema.parse(await c.req.json());
+      await templates.upsertTemplateNode(c.req.param('id'), {
+        ...(body.id ? { id: body.id } : {}),
+        name: body.name,
+        slug: body.slug,
+        phase: body.phase,
+        posX: body.posX,
+        posY: body.posY,
+        ...(body.isOptional !== undefined ? { isOptional: body.isOptional } : {}),
+        ...(body.packageId !== undefined ? { packageId: body.packageId } : {}),
+      });
+      return c.json(await templates.getTemplateGraph(c.req.param('id')));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.delete('/templates/versions/:versionId/nodes/:nodeId', async (c) => {
+    try {
+      await templates.deleteTemplateNode(c.req.param('versionId'), c.req.param('nodeId'));
+      return c.json(await templates.getTemplateGraph(c.req.param('versionId')));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/templates/versions/:id/validate', async (c) => {
+    try {
+      await templates.validateDraft(c.req.param('id'));
+      return c.json({ ok: true });
+    } catch (err) {
+      return routeErr(c, err);
+    }
   });
 
   app.post('/projects/:id/open-items/:itemId/pin-primary-block', async (c) => {

@@ -16,6 +16,7 @@ import {
   applyUpdates,
   assertNodeInGraph,
   audit,
+  auditItem,
   executePublishEffects,
   mapNode,
   mapOpenItem,
@@ -298,28 +299,64 @@ export class CommercialEngine {
   async updateGraphNode(
     projectId: string,
     nodeId: string,
-    body: { name?: string; posX?: number; posY?: number; plannedAt?: string | null },
+    body: {
+      name?: string;
+      posX?: number;
+      posY?: number;
+      plannedAt?: string | null;
+      phase?: string;
+      isOptional?: boolean;
+      packageId?: string | null;
+    },
   ) {
     await this.mutateGraph(
       projectId,
       async (tx) => {
+        const touch = async (rows: { id: string }[]) => {
+          if (!rows.length) {
+            throw Object.assign(new Error('节点不存在或不属于该项目'), { status: 404 });
+          }
+        };
         if (body.name !== undefined) {
-          await tx`UPDATE wf_nodes SET name = ${body.name}, updated_at = now() WHERE id = ${nodeId} AND project_id = ${projectId}`;
+          await touch(
+            await tx`UPDATE wf_nodes SET name = ${body.name}, updated_at = now() WHERE id = ${nodeId} AND project_id = ${projectId} RETURNING id`,
+          );
         }
         if (body.posX !== undefined || body.posY !== undefined) {
-          await tx`
+          await touch(
+            await tx`
           UPDATE wf_nodes SET
             pos_x = COALESCE(${body.posX ?? null}, pos_x),
             pos_y = COALESCE(${body.posY ?? null}, pos_y),
             updated_at = now()
           WHERE id = ${nodeId} AND project_id = ${projectId}
-        `;
+          RETURNING id
+        `,
+          );
         }
         if (body.plannedAt !== undefined) {
-          await tx`
+          await touch(
+            await tx`
           UPDATE wf_nodes SET planned_at = ${body.plannedAt}, updated_at = now()
           WHERE id = ${nodeId} AND project_id = ${projectId}
-        `;
+          RETURNING id
+        `,
+          );
+        }
+        if (body.phase !== undefined) {
+          await touch(
+            await tx`UPDATE wf_nodes SET phase = ${body.phase}, updated_at = now() WHERE id = ${nodeId} AND project_id = ${projectId} RETURNING id`,
+          );
+        }
+        if (body.isOptional !== undefined) {
+          await touch(
+            await tx`UPDATE wf_nodes SET is_optional = ${body.isOptional}, updated_at = now() WHERE id = ${nodeId} AND project_id = ${projectId} RETURNING id`,
+          );
+        }
+        if (body.packageId !== undefined) {
+          await touch(
+            await tx`UPDATE wf_nodes SET package_id = ${body.packageId}, updated_at = now() WHERE id = ${nodeId} AND project_id = ${projectId} RETURNING id`,
+          );
         }
       },
       { recordUndo: true },
@@ -460,25 +497,45 @@ export class CommercialEngine {
   }
 
   async closeOpenItem(projectId: string, itemId: string, conclusion: string) {
+    if (!conclusion.trim()) {
+      throw Object.assign(new Error('闭环结论必填'), { status: 400 });
+    }
     await this.db.begin(async (tx) => {
-      await tx`
-        UPDATE open_items SET lifecycle = 'closed', close_conclusion = ${conclusion}, closed_at = now(), updated_at = now()
-        WHERE id = ${itemId} AND project_id = ${projectId}
+      const updated = await tx<{ id: string }[]>`
+        UPDATE open_items SET lifecycle = 'closed', close_conclusion = ${conclusion.trim()}, closed_at = now(), updated_at = now()
+        WHERE id = ${itemId} AND project_id = ${projectId} AND lifecycle = 'open'
+        RETURNING id
       `;
+      if (!updated.length) {
+        throw Object.assign(new Error('事项不存在或不可闭环'), { status: 404 });
+      }
+      await auditItem(tx, projectId, 'close', itemId, { conclusion }, 'web');
       await syncBlockedAndStage(tx, projectId);
     });
-    return (await this.listOpenItems(projectId)).find((i) => i.id === itemId)!;
+    const item = (await this.listOpenItems(projectId)).find((i) => i.id === itemId);
+    if (!item) throw Object.assign(new Error('事项不存在'), { status: 404 });
+    return item;
   }
 
-  async cancelOpenItem(projectId: string, itemId: string) {
+  async cancelOpenItem(projectId: string, itemId: string, reason: string) {
+    if (!reason.trim()) {
+      throw Object.assign(new Error('取消原因必填'), { status: 400 });
+    }
     await this.db.begin(async (tx) => {
-      await tx`
-        UPDATE open_items SET lifecycle = 'cancelled', updated_at = now()
-        WHERE id = ${itemId} AND project_id = ${projectId}
+      const updated = await tx<{ id: string }[]>`
+        UPDATE open_items SET lifecycle = 'cancelled', cancel_reason = ${reason.trim()}, updated_at = now()
+        WHERE id = ${itemId} AND project_id = ${projectId} AND lifecycle = 'open'
+        RETURNING id
       `;
+      if (!updated.length) {
+        throw Object.assign(new Error('事项不存在或不可取消'), { status: 404 });
+      }
+      await auditItem(tx, projectId, 'cancel', itemId, { reason }, 'web');
       await syncBlockedAndStage(tx, projectId);
     });
-    return (await this.listOpenItems(projectId)).find((i) => i.id === itemId)!;
+    const item = (await this.listOpenItems(projectId)).find((i) => i.id === itemId);
+    if (!item) throw Object.assign(new Error('事项不存在'), { status: 404 });
+    return item;
   }
 
   async publishProject(

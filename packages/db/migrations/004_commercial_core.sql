@@ -1,15 +1,31 @@
--- WP-004R: commercial project core (replaces legacy WP-004 workflow model)
+-- WP-004R: commercial project core (replaces legacy WP-004 workflow model with data preserve)
 
-DROP TABLE IF EXISTS hermes_change_proposals CASCADE;
-DROP TABLE IF EXISTS open_items CASCADE;
-DROP TABLE IF EXISTS workflow_node_status_history CASCADE;
-DROP TABLE IF EXISTS workflow_node_dependencies CASCADE;
-DROP TABLE IF EXISTS workflow_nodes CASCADE;
-DROP TABLE IF EXISTS project_workflows CASCADE;
-DROP TABLE IF EXISTS workflow_template_node_dependencies CASCADE;
-DROP TABLE IF EXISTS workflow_template_nodes CASCADE;
-DROP TABLE IF EXISTS workflow_templates CASCADE;
-DROP TABLE IF EXISTS projects CASCADE;
+DO $$
+BEGIN
+  IF to_regclass('public.projects') IS NOT NULL AND to_regclass('public.commercial_projects') IS NULL THEN
+    ALTER TABLE IF EXISTS hermes_change_proposals RENAME TO _legacy_wp004_hermes_change_proposals;
+    ALTER TABLE IF EXISTS open_items RENAME TO _legacy_wp004_open_items;
+    ALTER TABLE IF EXISTS workflow_node_status_history RENAME TO _legacy_wp004_workflow_node_status_history;
+    ALTER TABLE IF EXISTS workflow_node_dependencies RENAME TO _legacy_wp004_workflow_node_dependencies;
+    ALTER TABLE IF EXISTS workflow_nodes RENAME TO _legacy_wp004_workflow_nodes;
+    ALTER TABLE IF EXISTS project_workflows RENAME TO _legacy_wp004_project_workflows;
+    ALTER TABLE IF EXISTS workflow_template_node_dependencies RENAME TO _legacy_wp004_workflow_template_node_dependencies;
+    ALTER TABLE IF EXISTS workflow_template_nodes RENAME TO _legacy_wp004_workflow_template_nodes;
+    ALTER TABLE IF EXISTS workflow_templates RENAME TO _legacy_wp004_workflow_templates;
+    ALTER TABLE IF EXISTS projects RENAME TO _legacy_wp004_projects;
+  ELSE
+    DROP TABLE IF EXISTS hermes_change_proposals CASCADE;
+    DROP TABLE IF EXISTS open_items CASCADE;
+    DROP TABLE IF EXISTS workflow_node_status_history CASCADE;
+    DROP TABLE IF EXISTS workflow_node_dependencies CASCADE;
+    DROP TABLE IF EXISTS workflow_nodes CASCADE;
+    DROP TABLE IF EXISTS project_workflows CASCADE;
+    DROP TABLE IF EXISTS workflow_template_node_dependencies CASCADE;
+    DROP TABLE IF EXISTS workflow_template_nodes CASCADE;
+    DROP TABLE IF EXISTS workflow_templates CASCADE;
+    DROP TABLE IF EXISTS projects CASCADE;
+  END IF;
+END $$;
 
 CREATE TABLE commercial_projects (
   id UUID PRIMARY KEY,
@@ -186,7 +202,6 @@ CREATE TABLE workflow_audit_log (
 
 CREATE INDEX idx_workflow_audit_project ON workflow_audit_log (project_id, created_at DESC);
 
--- Default template v1 (DAG)
 INSERT INTO wf_template_versions (id, slug, name, version, is_default)
 VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'default_sponsorship', '默认商单流程', 1, TRUE)
 ON CONFLICT DO NOTHING;
@@ -229,3 +244,125 @@ VALUES
   ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee12', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd009', 'dddddddd-dddd-4ddd-8ddd-ddddddddd012'),
   ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee13', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd009', 'dddddddd-dddd-4ddd-8ddd-ddddddddd013')
 ON CONFLICT DO NOTHING;
+
+-- Migrate legacy WP-004 rows into commercial core (no-op when legacy tables absent)
+DO $$
+BEGIN
+  IF to_regclass('public._legacy_wp004_projects') IS NULL THEN
+    RETURN;
+  END IF;
+
+  INSERT INTO commercial_projects (id, name, overall_stage, user_deadline_at, archived_at, created_at, updated_at)
+  SELECT
+    p.id,
+    p.name,
+    CASE
+      WHEN p.archived_at IS NOT NULL THEN 'archived'
+      WHEN p.derived_stage IN ('published', 'live') THEN 'published_winding_down'
+      ELSE 'pre_publish'
+    END,
+    p.planned_publish_at,
+    p.archived_at,
+    p.created_at,
+    p.updated_at
+  FROM _legacy_wp004_projects p
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO project_workflows (id, project_id, template_version_id, created_at)
+  SELECT pw.id, pw.project_id, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', pw.created_at
+  FROM _legacy_wp004_project_workflows pw
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO wf_nodes (
+    id, workflow_id, template_node_id, name, status, is_optional, planned_at, completed_at, pos_x, pos_y, source, created_at, updated_at
+  )
+  SELECT
+    wn.id,
+    wn.project_workflow_id,
+    NULL,
+    wn.label,
+    CASE wn.status
+      WHEN 'completed' THEN 'completed'
+      WHEN 'blocked' THEN 'blocked'
+      WHEN 'in_progress' THEN 'in_progress'
+      WHEN 'waiting_external' THEN 'in_progress'
+      WHEN 'skipped' THEN 'not_applicable'
+      ELSE 'not_reached'
+    END,
+    NOT wn.is_required,
+    wn.due_at,
+    wn.completed_at,
+    wn.sort_order * 80.0,
+    0,
+    'template',
+    wn.status_changed_at,
+    wn.status_changed_at
+  FROM _legacy_wp004_workflow_nodes wn
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO wf_edges (id, workflow_id, from_node_id, to_node_id)
+  SELECT
+    ('f0000000-0000-4000-8000-' || lpad(to_hex(dep.id), 12, '0'))::uuid,
+    n.workflow_id,
+    dep.depends_on_node_id,
+    dep.node_id
+  FROM _legacy_wp004_workflow_node_dependencies dep
+  INNER JOIN wf_nodes n ON n.id = dep.node_id
+  WHERE NOT EXISTS (
+    SELECT 1 FROM wf_edges e
+    WHERE e.workflow_id = n.workflow_id AND e.from_node_id = dep.depends_on_node_id AND e.to_node_id = dep.node_id
+  );
+
+  INSERT INTO open_items (
+    id, project_id, workflow_node_id, title, description, close_criteria, next_action, next_actor, lifecycle, impact,
+    planned_at, source_evidence, confidence, created_at, updated_at, closed_at
+  )
+  SELECT
+    o.id,
+    o.project_id,
+    o.workflow_node_id,
+    o.title,
+    o.description,
+    o.close_condition,
+    o.title,
+    CASE WHEN o.responsible_party = 'client' THEN 'client' ELSE 'us' END,
+    CASE o.status WHEN 'resolved' THEN 'closed' WHEN 'cancelled' THEN 'cancelled' ELSE 'open' END,
+    'normal',
+    o.due_at,
+    CASE WHEN o.external_evidence_ref IS NOT NULL THEN jsonb_build_object('ref', o.external_evidence_ref) ELSE NULL END,
+    o.confidence,
+    o.created_at,
+    o.updated_at,
+    CASE WHEN o.status = 'resolved' THEN o.updated_at ELSE NULL END
+  FROM _legacy_wp004_open_items o
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO hermes_write_proposals (
+    id, project_id, idempotency_key, operation, status, payload, source_evidence, confidence, rejection_reason, created_at, resolved_at
+  )
+  SELECT
+    h.id,
+    h.project_id,
+    h.idempotency_key,
+    h.suggested_action,
+    CASE h.status WHEN 'accepted' THEN 'accepted' WHEN 'rejected' THEN 'rejected' ELSE 'pending' END,
+    h.payload,
+    h.source_evidence,
+    h.confidence,
+    h.rejection_reason,
+    h.created_at,
+    h.resolved_at
+  FROM _legacy_wp004_hermes_change_proposals h
+  ON CONFLICT (id) DO NOTHING;
+
+  DROP TABLE IF EXISTS _legacy_wp004_hermes_change_proposals CASCADE;
+  DROP TABLE IF EXISTS _legacy_wp004_open_items CASCADE;
+  DROP TABLE IF EXISTS _legacy_wp004_workflow_node_status_history CASCADE;
+  DROP TABLE IF EXISTS _legacy_wp004_workflow_node_dependencies CASCADE;
+  DROP TABLE IF EXISTS _legacy_wp004_workflow_nodes CASCADE;
+  DROP TABLE IF EXISTS _legacy_wp004_project_workflows CASCADE;
+  DROP TABLE IF EXISTS _legacy_wp004_workflow_template_node_dependencies CASCADE;
+  DROP TABLE IF EXISTS _legacy_wp004_workflow_template_nodes CASCADE;
+  DROP TABLE IF EXISTS _legacy_wp004_workflow_templates CASCADE;
+  DROP TABLE IF EXISTS _legacy_wp004_projects CASCADE;
+END $$;

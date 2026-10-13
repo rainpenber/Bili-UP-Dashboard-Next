@@ -45,6 +45,12 @@ export class TemplateEngine {
       `;
       const src = base[0];
       if (!src) throw Object.assign(new Error('no default template'), { status: 500 });
+      const existingDraft = await tx<{ id: string }[]>`
+        SELECT id FROM wf_template_versions WHERE slug = ${src.slug} AND is_draft = TRUE LIMIT 1
+      `;
+      if (existingDraft[0]) {
+        throw Object.assign(new Error('draft already exists for template slug'), { status: 409 });
+      }
       const nextVersion = src.version + 1;
       const draftId = crypto.randomUUID();
       await tx`
@@ -107,6 +113,7 @@ export class TemplateEngine {
       `;
       if (!draft[0]?.is_draft)
         throw Object.assign(new Error('not a draft version'), { status: 409 });
+      await validateTemplateGraphTx(tx, draftVersionId);
       await tx`UPDATE wf_template_versions SET is_default = FALSE WHERE is_default = TRUE`;
       await tx`
         UPDATE wf_template_versions SET is_default = TRUE, is_draft = FALSE, published_at = now()
@@ -126,21 +133,68 @@ export class TemplateEngine {
       posX: number;
       posY: number;
       isOptional?: boolean;
+      packageId?: string | null;
     },
   ) {
-    await this.assertDraft(versionId);
-    const id = body.id ?? crypto.randomUUID();
-    await this.db`
-      INSERT INTO wf_template_nodes (id, template_version_id, slug, name, is_optional, pos_x, pos_y, phase)
-      VALUES (${id}, ${versionId}, ${body.slug}, ${body.name}, ${body.isOptional ?? false}, ${body.posX}, ${body.posY}, ${body.phase})
-      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, pos_x = EXCLUDED.pos_x, pos_y = EXCLUDED.pos_y, phase = EXCLUDED.phase
-    `;
-    return id;
+    return this.db.begin(async (tx) => {
+      await assertDraftTx(tx, versionId);
+      const id = body.id ?? crypto.randomUUID();
+      if (body.id) {
+        const row = await tx<{ template_version_id: string }[]>`
+          SELECT template_version_id FROM wf_template_nodes WHERE id = ${body.id}
+        `;
+        if (row[0] && row[0].template_version_id !== versionId) {
+          throw Object.assign(new Error('node belongs to another template version'), {
+            status: 409,
+          });
+        }
+      }
+      await tx`
+        INSERT INTO wf_template_nodes (id, template_version_id, package_id, slug, name, is_optional, pos_x, pos_y, phase)
+        VALUES (${id}, ${versionId}, ${body.packageId ?? null}, ${body.slug}, ${body.name}, ${body.isOptional ?? false}, ${body.posX}, ${body.posY}, ${body.phase})
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          slug = EXCLUDED.slug,
+          package_id = EXCLUDED.package_id,
+          is_optional = EXCLUDED.is_optional,
+          pos_x = EXCLUDED.pos_x,
+          pos_y = EXCLUDED.pos_y,
+          phase = EXCLUDED.phase
+        WHERE wf_template_nodes.template_version_id = ${versionId}
+      `;
+      return id;
+    });
+  }
+
+  async deleteTemplateNode(versionId: string, nodeId: string) {
+    return this.db.begin(async (tx) => {
+      await assertDraftTx(tx, versionId);
+      const deleted = await tx<{ id: string }[]>`
+        DELETE FROM wf_template_nodes WHERE id = ${nodeId} AND template_version_id = ${versionId}
+        RETURNING id
+      `;
+      if (!deleted.length) {
+        throw Object.assign(new Error('template node not found'), { status: 404 });
+      }
+    });
+  }
+
+  async deleteTemplateEdge(versionId: string, edgeId: string) {
+    return this.db.begin(async (tx) => {
+      await assertDraftTx(tx, versionId);
+      const deleted = await tx<{ id: string }[]>`
+        DELETE FROM wf_template_edges WHERE id = ${edgeId} AND template_version_id = ${versionId}
+        RETURNING id
+      `;
+      if (!deleted.length) {
+        throw Object.assign(new Error('template edge not found'), { status: 404 });
+      }
+    });
   }
 
   async addTemplateEdge(versionId: string, fromNodeId: string, toNodeId: string) {
-    await this.assertDraft(versionId);
-    await this.db.begin(async (tx) => {
+    return this.db.begin(async (tx) => {
+      await assertDraftTx(tx, versionId);
       await assertTemplateEdgeAllowed(tx, versionId, fromNodeId, toNodeId);
       await tx`
         INSERT INTO wf_template_edges (id, template_version_id, from_node_id, to_node_id)
@@ -149,12 +203,57 @@ export class TemplateEngine {
     });
   }
 
-  private async assertDraft(versionId: string) {
-    const rows = await this.db<{ is_draft: boolean }[]>`
-      SELECT is_draft FROM wf_template_versions WHERE id = ${versionId}
-    `;
-    if (!rows[0]?.is_draft)
-      throw Object.assign(new Error('only draft templates are editable'), { status: 409 });
+  async validateDraft(versionId: string) {
+    return this.db.begin(async (tx) => validateTemplateGraphTx(tx, versionId));
+  }
+}
+
+async function assertDraftTx(tx: Db, versionId: string) {
+  const rows = await tx<{ is_draft: boolean }[]>`
+    SELECT is_draft FROM wf_template_versions WHERE id = ${versionId} FOR UPDATE
+  `;
+  if (!rows[0]?.is_draft)
+    throw Object.assign(new Error('only draft templates are editable'), { status: 409 });
+}
+
+async function validateTemplateGraphTx(tx: Db, versionId: string) {
+  const nodes = await tx<{ id: string; slug: string }[]>`
+    SELECT id, slug FROM wf_template_nodes WHERE template_version_id = ${versionId}
+  `;
+  if (!nodes.length) throw Object.assign(new Error('template has no nodes'), { status: 409 });
+  const slugs = new Set<string>();
+  for (const n of nodes) {
+    if (slugs.has(n.slug))
+      throw Object.assign(new Error('duplicate template node slug'), { status: 409 });
+    slugs.add(n.slug);
+  }
+  const edges = await tx<{ from_node_id: string; to_node_id: string }[]>`
+    SELECT from_node_id, to_node_id FROM wf_template_edges WHERE template_version_id = ${versionId}
+  `;
+  const { detectCycle } = await import('@studio/workflow');
+  const cycle = detectCycle(
+    nodes.map((n) => ({ id: n.id, status: 'not_reached' as const })),
+    edges.map((e) => ({ fromId: e.from_node_id, toId: e.to_node_id })),
+  );
+  if (cycle) throw Object.assign(new Error(cycle), { status: 409 });
+  const reachable = new Set<string>();
+  const out = new Map<string, string[]>();
+  for (const e of edges) {
+    const list = out.get(e.from_node_id) ?? [];
+    list.push(e.to_node_id);
+    out.set(e.from_node_id, list);
+  }
+  const roots = nodes.filter((n) => !edges.some((e) => e.to_node_id === n.id));
+  if (!roots.length) throw Object.assign(new Error('template graph has no root'), { status: 409 });
+  const stack = roots.map((r) => r.id);
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (reachable.has(id)) continue;
+    reachable.add(id);
+    for (const next of out.get(id) ?? []) stack.push(next);
+  }
+  if (reachable.size !== nodes.length) {
+    throw Object.assign(new Error('template graph has unreachable nodes'), { status: 409 });
   }
 }
 

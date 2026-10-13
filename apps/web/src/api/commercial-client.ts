@@ -209,12 +209,32 @@ export async function closeOpenItem(projectId: string, itemId: string, conclusio
   );
 }
 
-export async function cancelOpenItem(projectId: string, itemId: string) {
+export async function cancelOpenItem(projectId: string, itemId: string, reason: string) {
   return openItemSchema.parse(
     await requestJson(
       `/projects/${encodeURIComponent(projectId)}/open-items/${encodeURIComponent(itemId)}/cancel`,
-      { method: 'POST' },
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      },
     ),
+  );
+}
+
+export async function undoWorkflow(projectId: string): Promise<WorkflowGraph> {
+  return workflowGraphSchema.parse(
+    await requestJson(`/projects/${encodeURIComponent(projectId)}/workflow/undo`, {
+      method: 'POST',
+    }),
+  );
+}
+
+export async function redoWorkflow(projectId: string): Promise<WorkflowGraph> {
+  return workflowGraphSchema.parse(
+    await requestJson(`/projects/${encodeURIComponent(projectId)}/workflow/redo`, {
+      method: 'POST',
+    }),
   );
 }
 
@@ -242,6 +262,76 @@ export async function publishTemplateDraft(versionId: string) {
   return requestJson(`/templates/versions/${encodeURIComponent(versionId)}/publish`, {
     method: 'POST',
   }) as Promise<{ publishedVersionId: string }>;
+}
+
+export async function fetchTemplateGraph(versionId: string) {
+  return requestJson(`/templates/versions/${encodeURIComponent(versionId)}/graph`) as Promise<{
+    versionId: string;
+    nodes: Array<{
+      id: string;
+      name: string;
+      slug: string;
+      phase: string;
+      is_optional: boolean;
+      pos_x: number;
+      pos_y: number;
+      package_id: string | null;
+    }>;
+    edges: Array<{ id: string; fromNodeId: string; toNodeId: string }>;
+  }>;
+}
+
+export async function saveTemplateNode(
+  versionId: string,
+  body: {
+    id?: string;
+    name: string;
+    slug: string;
+    phase: string;
+    posX: number;
+    posY: number;
+    isOptional?: boolean;
+    packageId?: string | null;
+  },
+) {
+  await requestJson(`/templates/versions/${encodeURIComponent(versionId)}/nodes`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return fetchTemplateGraph(versionId);
+}
+
+export async function connectTemplateNodes(
+  versionId: string,
+  fromNodeId: string,
+  toNodeId: string,
+) {
+  return requestJson(`/templates/versions/${encodeURIComponent(versionId)}/edges`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ fromNodeId, toNodeId }),
+  }) as ReturnType<typeof fetchTemplateGraph>;
+}
+
+export async function deleteTemplateEdge(versionId: string, edgeId: string) {
+  return requestJson(
+    `/templates/versions/${encodeURIComponent(versionId)}/edges/${encodeURIComponent(edgeId)}`,
+    { method: 'DELETE' },
+  ) as ReturnType<typeof fetchTemplateGraph>;
+}
+
+export async function deleteTemplateNode(versionId: string, nodeId: string) {
+  return requestJson(
+    `/templates/versions/${encodeURIComponent(versionId)}/nodes/${encodeURIComponent(nodeId)}`,
+    { method: 'DELETE' },
+  ) as ReturnType<typeof fetchTemplateGraph>;
+}
+
+export async function validateTemplateDraft(versionId: string) {
+  return requestJson(`/templates/versions/${encodeURIComponent(versionId)}/validate`, {
+    method: 'POST',
+  }) as Promise<{ ok: boolean }>;
 }
 
 export async function publishProject(projectId: string, body: unknown) {
