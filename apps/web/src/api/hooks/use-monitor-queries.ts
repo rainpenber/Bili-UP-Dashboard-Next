@@ -1,9 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import {
+  fetchCreator,
   fetchCreatorMetrics,
   fetchCreators,
+  fetchDynamic,
   fetchDynamicMetrics,
   fetchDynamics,
+  fetchVideo,
   fetchVideoMetrics,
   fetchVideos,
 } from '@/api/monitor-client';
@@ -38,6 +41,66 @@ export function useDynamicsQuery(page: number, enabled: boolean) {
     queryKey: monitorQueryKeys.dynamics(page),
     queryFn: () => fetchDynamics({ page }),
     enabled,
+  });
+}
+
+export function useVideoDetailQuery(bvid: string) {
+  return useQuery({
+    queryKey: ['monitor', 'video', bvid] as const,
+    queryFn: () => fetchVideo(bvid),
+    enabled: Boolean(bvid),
+    retry: (count, err) => {
+      if (err instanceof Error && err.message === 'not found') return false;
+      return count < 1;
+    },
+  });
+}
+
+export function useCreatorDetailQuery(mid: string) {
+  return useQuery({
+    queryKey: ['monitor', 'creator', mid] as const,
+    queryFn: () => fetchCreator(mid),
+    enabled: Boolean(mid),
+    retry: (count, err) => {
+      if (err instanceof Error && err.message === 'not found') return false;
+      return count < 1;
+    },
+  });
+}
+
+export function useDynamicDetailQuery(dynamicId: string) {
+  return useQuery({
+    queryKey: ['monitor', 'dynamic', dynamicId] as const,
+    queryFn: () => fetchDynamic(dynamicId),
+    enabled: Boolean(dynamicId),
+    retry: (count, err) => {
+      if (err instanceof Error && err.message === 'not found') return false;
+      return count < 1;
+    },
+  });
+}
+
+export function useVideoMetricsDetailQuery(bvid: string) {
+  return useQuery({
+    queryKey: ['monitor', 'video-metrics', bvid] as const,
+    queryFn: () => fetchVideoMetrics(bvid),
+    enabled: Boolean(bvid),
+  });
+}
+
+export function useCreatorMetricsDetailQuery(mid: string) {
+  return useQuery({
+    queryKey: ['monitor', 'creator-metrics', mid] as const,
+    queryFn: () => fetchCreatorMetrics(mid),
+    enabled: Boolean(mid),
+  });
+}
+
+export function useDynamicMetricsDetailQuery(dynamicId: string) {
+  return useQuery({
+    queryKey: ['monitor', 'dynamic-metrics', dynamicId] as const,
+    queryFn: () => fetchDynamicMetrics(dynamicId),
+    enabled: Boolean(dynamicId),
   });
 }
 

@@ -119,6 +119,7 @@ export async function bulkInsertVideoSamples(
       favorite_count: pgBigint(s.favoriteCount),
       share_count: pgBigint(s.shareCount),
       danmaku_count: pgBigint(s.danmakuCount),
+      comment_count: pgBigint(s.commentCount),
       import_batch_id: batchId,
       source_file_id: canonicalFileId,
     }));

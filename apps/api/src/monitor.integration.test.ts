@@ -54,6 +54,21 @@ describe('monitor API integration', () => {
     expect(res.status).toBe(400);
   });
 
+  test('video metrics expose nullable commentCount', async () => {
+    if (!sql) return;
+    const res = await app.request('/api/v1/monitor/videos/BVTEST001/metrics?limit=10');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.items[0]).toHaveProperty('commentCount');
+    expect(body.items[0].commentCount).toBeNull();
+  });
+
+  test('dynamic detail 404 for unknown id', async () => {
+    if (!sql) return;
+    const res = await app.request('/api/v1/monitor/dynamics/__missing__');
+    expect(res.status).toBe(404);
+  });
+
   test('serves registered cover asset or placeholder', async () => {
     if (!sql) return;
     const list = await app.request('/api/v1/monitor/videos?page=1');

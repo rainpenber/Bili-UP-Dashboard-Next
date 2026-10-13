@@ -164,10 +164,11 @@ export function createMonitorRoutes(db: Sql) {
           favorite_count: bigint | null;
           share_count: bigint | null;
           danmaku_count: bigint | null;
+          comment_count: bigint | null;
         }[]
       >`
         SELECT sampled_at, raw_time, source_timezone, timestamp_precision,
-          view_count, online_viewers, online_viewers_raw, like_count, coin_count, favorite_count, share_count, danmaku_count
+          view_count, online_viewers, online_viewers_raw, like_count, coin_count, favorite_count, share_count, danmaku_count, comment_count
         FROM video_metric_samples
         WHERE bvid = ${bvid}
         AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
@@ -188,6 +189,7 @@ export function createMonitorRoutes(db: Sql) {
         favoriteCount: bigintToJson(r.favorite_count),
         shareCount: bigintToJson(r.share_count),
         danmakuCount: bigintToJson(r.danmaku_count),
+        commentCount: bigintToJson(r.comment_count),
       }));
       return c.json({ bvid, limit: Math.min(limit, MONITOR_MAX_METRICS_LIMIT), items });
     } catch (err) {
@@ -398,6 +400,35 @@ export function createMonitorRoutes(db: Sql) {
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
     }
+  });
+
+  app.get('/dynamics/:id', async (c) => {
+    const dynamicId = c.req.param('id');
+    const rows = await db<
+      {
+        dynamic_id: string;
+        mid: bigint | null;
+        category: string | null;
+        monitoring_enabled: boolean;
+        archived_at: Date | null;
+        deleted_at: Date | null;
+        metadata: Record<string, unknown>;
+      }[]
+    >`
+      SELECT dynamic_id, mid, category, monitoring_enabled, archived_at, deleted_at, metadata
+      FROM dynamics WHERE dynamic_id = ${dynamicId}
+    `;
+    const row = rows[0];
+    if (!row) return c.json({ error: 'not found' }, 404);
+    return c.json({
+      dynamicId: row.dynamic_id,
+      mid: row.mid != null ? bigintToJson(row.mid) : null,
+      category: row.category,
+      monitoringEnabled: row.monitoring_enabled,
+      archivedAt: row.archived_at?.toISOString() ?? null,
+      deletedAt: row.deleted_at?.toISOString() ?? null,
+      metadata: row.metadata,
+    });
   });
 
   app.get('/dynamics/:id/metrics', async (c) => {
