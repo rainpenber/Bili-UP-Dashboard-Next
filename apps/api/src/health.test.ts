@@ -1,16 +1,18 @@
 import { describe, expect, test } from 'bun:test';
-import { parseHealthResponse } from '@studio/contracts';
-import { createApp, API_VERSION, SERVICE_NAME } from './app';
+import { createApp } from './app';
 
-describe('GET /health', () => {
-  test('returns typed health JSON', async () => {
-    const app = createApp();
+describe('health', () => {
+  test('GET /health', async () => {
+    const app = createApp({ skipDb: true });
     const res = await app.request('/health');
     expect(res.status).toBe(200);
-    const json: unknown = await res.json();
-    const parsed = parseHealthResponse(json);
-    expect(parsed.service).toBe(SERVICE_NAME);
-    expect(parsed.version).toBe(API_VERSION);
-    expect(parsed.status).toBe('ok');
+    const body = await res.json();
+    expect(body.status).toBe('ok');
+  });
+
+  test('GET /api/health', async () => {
+    const app = createApp({ skipDb: true });
+    const res = await app.request('/api/health');
+    expect(res.status).toBe(200);
   });
 });

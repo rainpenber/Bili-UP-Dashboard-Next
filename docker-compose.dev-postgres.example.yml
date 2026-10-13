@@ -1,0 +1,12 @@
+# Opt-in ONLY for local maintainers who need host tools (psql, migrate from the host).
+# Do NOT use this file in deployment instructions.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev-postgres.example.yml up -d postgres
+#
+# Binds PostgreSQL to loopback only (127.0.0.1), not all interfaces.
+
+services:
+  postgres:
+    ports:
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432'
