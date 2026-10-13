@@ -29,10 +29,15 @@ bun run build
 
 ## 本地运行
 
-终端 1 — PostgreSQL：
+终端 1 — PostgreSQL（仅开发、需从宿主机连库时）：
+
+默认 **部署** Compose **不会**把 PostgreSQL 映射到宿主机；API 在容器内通过 `postgres:5432` 访问。
+
+若要在本机用 `migrate` / `psql`，显式加载 **仅开发** 的 override（绑定 `127.0.0.1`）：
 
 ```bash
-docker compose up -d postgres
+docker compose -f docker-compose.yml -f docker-compose.dev-postgres.example.yml up -d postgres
+export POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432
 ```
 
 终端 2 — 迁移与 Mock 导入：
@@ -87,9 +92,14 @@ MOCK_DATA_ROOT=/path/to/your/mock-data-tree
 
 Compose 将上述目录挂载为容器内 `/mock-data`，并设置 `MOCK_DATA_ROOT=/mock-data`、`MONITOR_ASSETS_ROOT=/mock-data/assets`（仅当 `assets/` 存在时由 API 使用）。
 
+为隔离不同部署实例，请为每个环境设置 **Compose 项目名**（影响网络、容器与卷前缀，避免与其它栈共用同一 PostgreSQL 卷）：
+
 ```bash
-docker compose up postgres api mock-import web
+export COMPOSE_PROJECT_NAME=bili-up-dashboard-prod   # 示例：生产/预发/个人环境各用不同名
+docker compose up -d postgres api mock-import web
 ```
+
+**不要**在部署命令中加入 `docker-compose.dev-postgres.example.yml`。默认栈内 PostgreSQL 仅在 Compose 网络内可达；数据保存在项目作用域的命名卷 `postgres_data` 中（实际名为 `<COMPOSE_PROJECT_NAME>_postgres_data`）。
 
 `web` 容器通过 `VITE_API_PROXY_TARGET=http://api:3000` 将浏览器请求的 `/api/*` 代理到 Compose 内的 `api` 服务（本地裸跑 `bun run dev` 时默认仍为 `http://localhost:3000`）。
 
