@@ -368,8 +368,23 @@ export class CommercialEngine {
     await this.mutateGraph(
       projectId,
       async (tx) => {
+        await tx`
+          UPDATE wf_nodes SET primary_block_pinned_item_id = NULL
+          WHERE project_id = ${projectId} AND primary_block_pinned_item_id IN (
+            SELECT id FROM open_items WHERE project_id = ${projectId} AND (workflow_node_id = ${nodeId} OR blocks_node_id = ${nodeId})
+          )
+        `;
+        await tx`
+          UPDATE open_items SET workflow_node_id = NULL, blocks_node_id = NULL, updated_at = now()
+          WHERE project_id = ${projectId} AND (workflow_node_id = ${nodeId} OR blocks_node_id = ${nodeId})
+        `;
         await tx`DELETE FROM wf_edges WHERE workflow_id IN (SELECT id FROM project_workflows WHERE project_id = ${projectId}) AND (from_node_id = ${nodeId} OR to_node_id = ${nodeId})`;
-        await tx`DELETE FROM wf_nodes WHERE id = ${nodeId} AND project_id = ${projectId}`;
+        const deleted = await tx<{ id: string }[]>`
+          DELETE FROM wf_nodes WHERE id = ${nodeId} AND project_id = ${projectId} RETURNING id
+        `;
+        if (!deleted.length) {
+          throw Object.assign(new Error('节点不存在或不属于该项目'), { status: 404 });
+        }
       },
       { recordUndo: true },
     );

@@ -24,7 +24,7 @@ describe('commercial fixtures', () => {
     expect(afterFirst.commercialProjects).toBe(13);
     expect(afterFirst.projectWorkflows).toBe(13);
     expect(afterFirst.wfNodes).toBe(169);
-    expect(afterFirst.wfEdges).toBe(169);
+    expect(afterFirst.wfEdges).toBe(195);
     expect(afterFirst.wfPackages).toBe(13);
     expect(afterFirst.openItems).toBe(5);
     expect(afterFirst.publishRecords).toBe(5);

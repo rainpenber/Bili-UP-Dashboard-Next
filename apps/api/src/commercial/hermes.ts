@@ -123,11 +123,13 @@ function assertProposalMatches(
   existing: { operation: string; project_id: string | null; payload: unknown },
 ) {
   const projectId = resolveProjectId(envelope);
-  if (
-    existing.operation !== envelope.operation ||
-    (existing.project_id ?? null) !== projectId ||
-    canonicalJson(existing.payload) !== canonicalJson(envelope.payload)
-  ) {
+  const expectedHash = hermesPayloadHash(envelope.operation, projectId, envelope.payload);
+  const storedHash = hermesPayloadHash(
+    existing.operation,
+    existing.project_id ?? null,
+    existing.payload,
+  );
+  if (expectedHash !== storedHash) {
     throw Object.assign(new Error('idempotency key conflict'), { status: 409 });
   }
 }

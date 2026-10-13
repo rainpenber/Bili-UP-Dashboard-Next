@@ -88,11 +88,12 @@ describe('commercial API integration', () => {
     expect(extra.status).toBe(201);
     const wf2 = await extra.json();
     const temp = wf2.nodes.find((n: { name: string }) => n.name === '临时节点');
-    const review = wf2.nodes.find((n: { slug: string | null }) => n.slug === 'review');
+    const other = wf2.nodes.find((n: { slug: string | null }) => n.slug === 'other');
+    expect(temp && other).toBeTruthy();
     const connect = await app.request(`/api/v1/commercial/projects/${project.id}/edges`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ fromNodeId: temp.id, toNodeId: review.id }),
+      body: JSON.stringify({ fromNodeId: temp!.id, toNodeId: other!.id }),
     });
     expect(connect.status).toBe(201);
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
