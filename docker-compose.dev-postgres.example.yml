@@ -2,7 +2,7 @@
 # Do NOT use this file in deployment instructions.
 #
 # Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.dev-postgres.example.yml up -d postgres
+#   docker compose -p bili-test -f docker-compose.dev.yml -f docker-compose.dev-postgres.example.yml up -d postgres
 #
 # Binds PostgreSQL to loopback only (127.0.0.1), not all interfaces.
 

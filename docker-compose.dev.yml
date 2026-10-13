@@ -1,10 +1,10 @@
-# Local development: source bind mounts + Vite hot reload (not for deployment).
+# Developer hot-reload stack — NOT production. Reuse one test project name only.
 #
-# Usage:
-#   docker compose -f docker-compose.dev.yml up
+#   docker compose -p bili-test -f docker-compose.dev.yml up -d
 #
-# Optional loopback PostgreSQL for host tools:
-#   docker compose -f docker-compose.dev.yml -f docker-compose.dev-postgres.example.yml up -d postgres
+# Optional loopback PostgreSQL for host-side psql (127.0.0.1 only):
+#   docker compose -p bili-test -f docker-compose.dev.yml \
+#     -f docker-compose.dev-postgres.example.yml up -d postgres
 
 services:
   postgres:
@@ -45,24 +45,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-
-  mock-import:
-    image: curlimages/curl:8.5.0
-    depends_on:
-      api:
-        condition: service_started
-    environment:
-      API_URL: http://api:3000
-    entrypoint: ['/bin/sh', '-c']
-    command:
-      - |
-        set -e
-        until curl -sf "$$API_URL/api/health"; do echo "waiting for api..."; sleep 2; done
-        curl -sf -X POST "$$API_URL/api/v1/imports/csv" \
-          -H 'content-type: application/json' \
-          -d '{"mode":"apply","sourceTimezone":"Asia/Shanghai"}'
-        echo "mock import completed"
-    restart: 'no'
 
   web:
     image: oven/bun:1.3.10-debian

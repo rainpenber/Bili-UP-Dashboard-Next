@@ -23,32 +23,53 @@ function serviceBlock(yaml: string, service: string): string {
   return out.join('\n');
 }
 
+function topLevelServices(yaml: string): string[] {
+  const lines = yaml.split('\n');
+  const start = lines.findIndex((l) => l === 'services:');
+  if (start === -1) return [];
+  const names: string[] = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (line === 'volumes:') break;
+    const m = line.match(/^ {2}([a-z0-9_-]+):$/);
+    if (m) names.push(m[1] ?? '');
+  }
+  return names;
+}
+
 describe('deploy docker-compose isolation', () => {
+  test('production compose defines exactly postgres and app', () => {
+    expect(topLevelServices(deployCompose).sort()).toEqual(['app', 'postgres']);
+    expect(deployCompose).not.toMatch(/^\s+api:/m);
+    expect(deployCompose).not.toMatch(/^\s+web:/m);
+    expect(deployCompose).not.toMatch(/^\s+mock-import:/m);
+  });
+
   test('postgres is not published to the host in default compose', () => {
     const postgres = serviceBlock(deployCompose, 'postgres');
     expect(postgres).not.toMatch(/^\s+ports:/m);
     expect(deployCompose).not.toContain('container_name:');
+    expect(deployCompose).not.toMatch(/^\s+networks:/m);
   });
 
-  test('api connects to postgres via internal service DNS', () => {
-    const api = serviceBlock(deployCompose, 'api');
-    expect(api).toContain('POSTGRES_HOST: postgres');
-    expect(api).toContain('POSTGRES_PORT: 5432');
+  test('app connects to postgres via internal service DNS and one host port', () => {
+    const app = serviceBlock(deployCompose, 'app');
+    expect(app).toContain('POSTGRES_HOST: postgres');
+    expect(app).toContain('POSTGRES_PORT: 5432');
+    expect(app).toContain('${APP_PORT:-8080}:3000');
+    expect((app.match(/^\s+- '\$\{APP_PORT:-8080\}:3000'/gm) ?? []).length).toBe(1);
   });
 
-  test('production api and web use immutable image builds without source bind mounts', () => {
-    const api = serviceBlock(deployCompose, 'api');
-    const web = serviceBlock(deployCompose, 'web');
-    expect(api).toMatch(/^\s+build:/m);
-    expect(web).toMatch(/^\s+build:/m);
-    expect(api).not.toMatch(/\/app\s*$/m);
-    expect(api).not.toContain('./:/app');
-    expect(web).not.toContain('./:/app');
+  test('production app uses immutable image build without source or node_modules bind mounts', () => {
+    const app = serviceBlock(deployCompose, 'app');
+    expect(app).toMatch(/^\s+build:/m);
+    expect(app).toContain('dockerfile: Dockerfile');
+    expect(app).not.toContain('./:/app');
+    expect(app).not.toContain('node_modules');
+    expect(deployCompose).not.toContain('nginx');
   });
 
-  test('web publishes HTTP and depends on healthy api', () => {
-    const web = serviceBlock(deployCompose, 'web');
-    expect(web).toContain('${WEB_PORT:-8080}:8080');
+  test('app depends on healthy postgres', () => {
     expect(deployCompose).toContain('condition: service_healthy');
   });
 
