@@ -12,11 +12,8 @@ const { createAssetsRoutes } = await import('./assets-routes');
 const { createImportRoutes } = await import('./import-routes');
 app.route('/api/v1/assets', createAssetsRoutes(sql));
 app.route('/api/v1/imports', createImportRoutes(sql));
-const { createDashboardRoutes, createHermesRoutes, createProjectRoutes } =
-  await import('./project-routes');
-app.route('/api/v1/projects', createProjectRoutes(sql));
-app.route('/api/v1/dashboard', createDashboardRoutes(sql));
-app.route('/api/v1/hermes', createHermesRoutes(sql));
+const { createCommercialRoutes } = await import('./commercial-routes');
+app.route('/api/v1/commercial', createCommercialRoutes(sql));
 
 export default {
   port,

@@ -1,7 +1,6 @@
 import {
   Activity,
   Blocks,
-  CircleDollarSign,
   LayoutDashboard,
   Palette,
   Plug,
@@ -20,15 +19,15 @@ export type NavItem = {
 export const primaryNav: NavItem[] = [
   {
     to: '/',
-    label: '今日看板',
-    description: '逾期、阻塞与待办优先事项',
+    label: '首页',
+    description: '我方待办、等待甲方与阻塞项目',
     icon: LayoutDashboard,
     implemented: true,
   },
   {
     to: '/projects',
     label: '项目',
-    description: '商单看板、列表与详情',
+    description: '商单列表与详情',
     icon: Blocks,
     implemented: true,
   },
@@ -38,13 +37,6 @@ export const primaryNav: NavItem[] = [
     description: 'B 站账号与内容指标',
     icon: Activity,
     implemented: true,
-  },
-  {
-    to: '/finance',
-    label: '财务结案',
-    description: '对账与结案（后续里程碑）',
-    icon: CircleDollarSign,
-    implemented: false,
   },
   {
     to: '/content',
