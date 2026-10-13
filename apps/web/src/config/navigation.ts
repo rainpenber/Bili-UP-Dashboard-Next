@@ -21,16 +21,16 @@ export const primaryNav: NavItem[] = [
   {
     to: '/',
     label: '今日看板',
-    description: '当日商单、发布与监控摘要（后续里程碑）',
+    description: '逾期、阻塞与待办优先事项',
     icon: LayoutDashboard,
-    implemented: false,
+    implemented: true,
   },
   {
     to: '/projects',
     label: '项目',
-    description: '商单与制作流程（后续里程碑）',
+    description: '商单看板、列表与详情',
     icon: Blocks,
-    implemented: false,
+    implemented: true,
   },
   {
     to: '/monitoring',

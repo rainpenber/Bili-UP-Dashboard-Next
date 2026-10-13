@@ -9,8 +9,10 @@ describe('web app shell', () => {
     expect(ds?.implemented).toBe(true);
   });
 
-  test('placeholder routes stay unimplemented', () => {
+  test('projects and today dashboard are implemented', () => {
     const projects = primaryNav.find((n) => n.to === '/projects');
-    expect(projects?.implemented).toBe(false);
+    const today = primaryNav.find((n) => n.to === '/');
+    expect(projects?.implemented).toBe(true);
+    expect(today?.implemented).toBe(true);
   });
 });
