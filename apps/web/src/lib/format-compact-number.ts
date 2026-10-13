@@ -58,6 +58,19 @@ export function formatMetricCount(
   return formatCompactNumber(value);
 }
 
+/** 播放量展示：不得传入 onlineViewersRaw，避免与在线下界串值 */
+export function formatViewCountDisplay(viewCount: string | null | undefined): string {
+  return formatMetricCount(viewCount);
+}
+
+/** 在线观看人数（含 1000+ 下界） */
+export function formatOnlineViewersDisplay(
+  onlineViewers: string | null | undefined,
+  onlineViewersRaw: string | null | undefined,
+): string {
+  return formatMetricCount(onlineViewers, onlineViewersRaw);
+}
+
 export function formatUnknownMetric(value: string | null | undefined): string {
   if (value === null || value === undefined) return '暂无数据';
   return formatCompactNumber(value);

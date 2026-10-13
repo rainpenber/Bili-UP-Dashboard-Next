@@ -5,7 +5,11 @@ import { ErrorState, LoadingListSkeleton } from '@/components/states/async-state
 import { Badge } from '@/components/ui/badge';
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
 import { MonitoringDetailLayout } from '@/features/monitoring/monitoring-detail-layout';
-import { formatMetricCount, formatUnknownMetric } from '@/lib/format-compact-number';
+import {
+  formatOnlineViewersDisplay,
+  formatUnknownMetric,
+  formatViewCountDisplay,
+} from '@/lib/format-compact-number';
 import { formatFullLocalTime, formatShortTime } from '@/lib/format-time';
 
 export function MonitoringVideoDetailPage() {
@@ -71,7 +75,13 @@ export function MonitoringVideoDetailPage() {
         },
         {
           label: '最新播放',
-          value: latest ? formatMetricCount(latest.viewCount, latest.onlineViewersRaw) : '—',
+          value: latest ? formatViewCountDisplay(latest.viewCount) : '—',
+        },
+        {
+          label: '在线观看',
+          value: latest
+            ? formatOnlineViewersDisplay(latest.onlineViewers, latest.onlineViewersRaw)
+            : '—',
         },
         {
           label: '评论数',

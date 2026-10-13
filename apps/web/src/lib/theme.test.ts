@@ -44,5 +44,7 @@ describe('theme persistence', () => {
     persistTheme('dark', 'rose');
     expect(readStoredThemeMode()).toBe('dark');
     expect(readStoredAccent()).toBe('rose');
+    expect(memory.get(THEME_STORAGE_KEY)).toBe('dark');
+    expect(memory.get(ACCENT_STORAGE_KEY)).toBe('rose');
   });
 });
