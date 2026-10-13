@@ -1,11 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { OpenItemDto, WorkflowGraph } from '@studio/contracts';
-import {
-  cancelOpenItem,
-  closeOpenItem,
-  patchOpenItem,
-} from '@/api/commercial-client';
+import { cancelOpenItem, closeOpenItem, patchOpenItem } from '@/api/commercial-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -63,7 +59,7 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
 
   const pending = patchMut.isPending || closeMut.isPending || cancelMut.isPending || disabled;
   const err =
-    patchMut.error ?? closeMut.error ?? cancelMut.error
+    (patchMut.error ?? closeMut.error ?? cancelMut.error)
       ? ((patchMut.error ?? closeMut.error ?? cancelMut.error) as Error).message
       : null;
 
@@ -158,7 +154,12 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
           </label>
           {err ? <p className="text-destructive text-xs">{err}</p> : null}
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" disabled={pending || !title.trim()} onClick={() => patchMut.mutate()}>
+            <Button
+              type="button"
+              size="sm"
+              disabled={pending || !title.trim()}
+              onClick={() => patchMut.mutate()}
+            >
               {patchMut.isPending ? '保存中…' : '保存'}
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>
@@ -173,10 +174,18 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
             {item.nextAction ?? '暂无下一步'} · {item.nextActor === 'us' ? '我方' : '甲方'} ·{' '}
             {item.impact === 'blocking' ? '阻塞' : '普通'}
           </p>
-          {item.description ? <p className="text-muted-foreground mt-1">{item.description}</p> : null}
+          {item.description ? (
+            <p className="text-muted-foreground mt-1">{item.description}</p>
+          ) : null}
           {err ? <p className="text-destructive text-xs">{err}</p> : null}
           <div className="mt-2 flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => setEditing(true)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={() => setEditing(true)}
+            >
               编辑
             </Button>
             <Input
@@ -194,7 +203,13 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
             >
               {closeMut.isPending ? '闭环中…' : '闭环'}
             </Button>
-            <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => cancelMut.mutate()}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              onClick={() => cancelMut.mutate()}
+            >
               取消事项
             </Button>
           </div>

@@ -35,9 +35,7 @@ export async function seedCommercialFixtures(sql: Sql): Promise<void> {
     `;
     if (Number(existingNodes[0]?.c ?? '0') > 0) continue;
 
-    const tplPackages = await sql<
-      { id: string; name: string; sort_order: number }[]
-    >`
+    const tplPackages = await sql<{ id: string; name: string; sort_order: number }[]>`
       SELECT id, name, sort_order FROM wf_template_packages WHERE template_version_id = ${DEFAULT_TEMPLATE}
     `;
     const pkgMap = new Map<string, string>();

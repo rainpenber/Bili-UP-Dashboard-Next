@@ -100,7 +100,8 @@ export function WorkflowSettingsPage() {
             ))}
           </ul>
           <p className="text-muted-foreground text-xs">
-            草稿编辑（节点/边/布局）可通过模板 API 与项目工作流编辑器同一套交互扩展；发布后新项目将使用新默认版本。
+            草稿编辑（节点/边/布局）可通过模板 API
+            与项目工作流编辑器同一套交互扩展；发布后新项目将使用新默认版本。
           </p>
         </CardContent>
       </Card>

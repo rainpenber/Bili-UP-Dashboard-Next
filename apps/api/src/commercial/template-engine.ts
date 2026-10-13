@@ -5,7 +5,15 @@ export class TemplateEngine {
 
   async listVersions() {
     const rows = await this.db<
-      { id: string; slug: string; name: string; version: number; is_default: boolean; is_draft: boolean; published_at: Date }[]
+      {
+        id: string;
+        slug: string;
+        name: string;
+        version: number;
+        is_default: boolean;
+        is_draft: boolean;
+        published_at: Date;
+      }[]
     >`SELECT id, slug, name, version, is_default, is_draft, published_at FROM wf_template_versions ORDER BY version DESC`;
     return rows.map((r) => ({
       id: r.id,
@@ -56,7 +64,16 @@ export class TemplateEngine {
         `;
       }
       const nodes = await tx<
-        { id: string; slug: string; name: string; phase: string; is_optional: boolean; pos_x: number; pos_y: number; package_id: string | null }[]
+        {
+          id: string;
+          slug: string;
+          name: string;
+          phase: string;
+          is_optional: boolean;
+          pos_x: number;
+          pos_y: number;
+          package_id: string | null;
+        }[]
       >`SELECT id, slug, name, phase, is_optional, pos_x, pos_y, package_id FROM wf_template_nodes WHERE template_version_id = ${src.id}`;
       const nodeMap = new Map<string, string>();
       for (const n of nodes) {
@@ -64,7 +81,7 @@ export class TemplateEngine {
         nodeMap.set(n.id, newId);
         await tx`
           INSERT INTO wf_template_nodes (id, template_version_id, package_id, slug, name, is_optional, pos_x, pos_y, phase)
-          VALUES (${newId}, ${draftId}, ${n.package_id ? pkgMap.get(n.package_id) ?? null : null}, ${n.slug + '_v' + nextVersion}, ${n.name}, ${n.is_optional}, ${n.pos_x}, ${n.pos_y}, ${n.phase})
+          VALUES (${newId}, ${draftId}, ${n.package_id ? (pkgMap.get(n.package_id) ?? null) : null}, ${n.slug + '_v' + nextVersion}, ${n.name}, ${n.is_optional}, ${n.pos_x}, ${n.pos_y}, ${n.phase})
         `;
       }
       const edges = await tx<{ from_node_id: string; to_node_id: string }[]>`
@@ -88,7 +105,8 @@ export class TemplateEngine {
       const draft = await tx<{ id: string; is_draft: boolean }[]>`
         SELECT id, is_draft FROM wf_template_versions WHERE id = ${draftVersionId} FOR UPDATE
       `;
-      if (!draft[0]?.is_draft) throw Object.assign(new Error('not a draft version'), { status: 409 });
+      if (!draft[0]?.is_draft)
+        throw Object.assign(new Error('not a draft version'), { status: 409 });
       await tx`UPDATE wf_template_versions SET is_default = FALSE WHERE is_default = TRUE`;
       await tx`
         UPDATE wf_template_versions SET is_default = TRUE, is_draft = FALSE, published_at = now()
@@ -100,7 +118,15 @@ export class TemplateEngine {
 
   async upsertTemplateNode(
     versionId: string,
-    body: { id?: string; name: string; slug: string; phase: string; posX: number; posY: number; isOptional?: boolean },
+    body: {
+      id?: string;
+      name: string;
+      slug: string;
+      phase: string;
+      posX: number;
+      posY: number;
+      isOptional?: boolean;
+    },
   ) {
     await this.assertDraft(versionId);
     const id = body.id ?? crypto.randomUUID();
@@ -127,7 +153,8 @@ export class TemplateEngine {
     const rows = await this.db<{ is_draft: boolean }[]>`
       SELECT is_draft FROM wf_template_versions WHERE id = ${versionId}
     `;
-    if (!rows[0]?.is_draft) throw Object.assign(new Error('only draft templates are editable'), { status: 409 });
+    if (!rows[0]?.is_draft)
+      throw Object.assign(new Error('only draft templates are editable'), { status: 409 });
   }
 }
 
@@ -136,7 +163,8 @@ async function assertTemplateEdgeAllowed(tx: Db, versionId: string, fromId: stri
     SELECT id FROM wf_template_nodes WHERE template_version_id = ${versionId}
   `;
   const ids = new Set(nodes.map((n) => n.id));
-  if (!ids.has(fromId) || !ids.has(toId)) throw Object.assign(new Error('unknown template node'), { status: 409 });
+  if (!ids.has(fromId) || !ids.has(toId))
+    throw Object.assign(new Error('unknown template node'), { status: 409 });
   const edges = await tx<{ from_node_id: string; to_node_id: string }[]>`
     SELECT from_node_id, to_node_id FROM wf_template_edges WHERE template_version_id = ${versionId}
   `;

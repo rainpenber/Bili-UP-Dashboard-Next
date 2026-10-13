@@ -86,9 +86,7 @@ export function WorkflowFlowEditor(props: Props) {
     if (!props.focusNodeId) return;
     const t = window.setTimeout(() => {
       reactFlowRef.current?.fitView({ nodes: [{ id: props.focusNodeId! }] });
-      setNodes((nds) =>
-        nds.map((n) => ({ ...n, selected: n.id === props.focusNodeId })),
-      );
+      setNodes((nds) => nds.map((n) => ({ ...n, selected: n.id === props.focusNodeId })));
     }, 120);
     return () => window.clearTimeout(t);
   }, [props.focusNodeId]);

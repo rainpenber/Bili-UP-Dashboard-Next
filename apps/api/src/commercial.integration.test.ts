@@ -248,14 +248,11 @@ describe('commercial API integration', () => {
       'blocked',
     );
     const item = await good.json();
-    await app.request(
-      `/api/v1/commercial/projects/${project.id}/open-items/${item.id}/close`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ conclusion: '已确认' }),
-      },
-    );
+    await app.request(`/api/v1/commercial/projects/${project.id}/open-items/${item.id}/close`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ conclusion: '已确认' }),
+    });
     const wfOpen = await (
       await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)
     ).json();
@@ -285,10 +282,9 @@ describe('commercial API integration', () => {
       }),
     });
     expect(itemRes.status).toBe(201);
-    const del = await app.request(
-      `/api/v1/commercial/projects/${project.id}/nodes/${node.id}`,
-      { method: 'DELETE' },
-    );
+    const del = await app.request(`/api/v1/commercial/projects/${project.id}/nodes/${node.id}`, {
+      method: 'DELETE',
+    });
     expect(del.status).toBe(200);
     const items = await (
       await app.request(`/api/v1/commercial/projects/${project.id}/open-items`)

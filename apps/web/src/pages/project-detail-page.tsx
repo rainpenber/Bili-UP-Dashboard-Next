@@ -340,7 +340,12 @@ export function ProjectDetailPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">待闭环事项</CardTitle>
-          <Button type="button" size="sm" disabled={pending} onClick={() => setItemFormOpen((v) => !v)}>
+          <Button
+            type="button"
+            size="sm"
+            disabled={pending}
+            onClick={() => setItemFormOpen((v) => !v)}
+          >
             {itemFormOpen ? '收起表单' : '新建事项'}
           </Button>
         </CardHeader>

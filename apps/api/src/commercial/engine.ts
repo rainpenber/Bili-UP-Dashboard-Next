@@ -718,7 +718,8 @@ async function applyUpdates(
       WHERE id = ${id} AND workflow_id = ${workflowId}
       RETURNING id
     `;
-    if (!rows.length) throw Object.assign(new Error('node update out of workflow scope'), { status: 409 });
+    if (!rows.length)
+      throw Object.assign(new Error('node update out of workflow scope'), { status: 409 });
   }
 }
 

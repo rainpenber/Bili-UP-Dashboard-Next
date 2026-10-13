@@ -37,7 +37,11 @@ describe('node lifecycle parallel', () => {
     const updates = completeNode('b1', nodes, edges);
     expect(updates.get('b1')?.status).toBe('completed');
     expect(updates.get('c')).toBeUndefined();
-    const updates2 = completeNode('b2', [...nodes.map((n) => (n.id === 'b1' ? { ...n, status: 'completed' } : n))], edges);
+    const updates2 = completeNode(
+      'b2',
+      [...nodes.map((n) => (n.id === 'b1' ? { ...n, status: 'completed' } : n))],
+      edges,
+    );
     expect(updates2.get('c')?.status).toBe('in_progress');
   });
 

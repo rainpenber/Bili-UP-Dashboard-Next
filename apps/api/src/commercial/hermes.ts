@@ -63,7 +63,8 @@ export async function acceptHermesProposal(engine: CommercialEngine, proposalId:
     const row = rows[0];
     if (!row) throw Object.assign(new Error('proposal not found'), { status: 404 });
     if (row.status === 'accepted') return { mode: 'accepted', result: null };
-    if (row.status === 'rejected') throw Object.assign(new Error('proposal rejected'), { status: 409 });
+    if (row.status === 'rejected')
+      throw Object.assign(new Error('proposal rejected'), { status: 409 });
     const body = hermesWriteBodySchema.parse({
       idempotencyKey: row.idempotency_key,
       operation: row.operation,
@@ -80,7 +81,11 @@ export async function acceptHermesProposal(engine: CommercialEngine, proposalId:
   });
 }
 
-export async function rejectHermesProposal(engine: CommercialEngine, proposalId: string, reason: string) {
+export async function rejectHermesProposal(
+  engine: CommercialEngine,
+  proposalId: string,
+  reason: string,
+) {
   await engine.db`
     UPDATE hermes_write_proposals SET status = 'rejected', rejection_reason = ${reason}, resolved_at = now()
     WHERE id = ${proposalId} AND status = 'pending'
@@ -102,7 +107,9 @@ async function applyHermesDirectTx(
 ) {
   await tx`SELECT pg_advisory_xact_lock(hashtext(${body.idempotencyKey}))`;
   const payloadHash = JSON.stringify(body.payload);
-  const prior = await tx<{ payload_hash: string; result_json: unknown; project_id: string | null }[]>`
+  const prior = await tx<
+    { payload_hash: string; result_json: unknown; project_id: string | null }[]
+  >`
     SELECT payload_hash, result_json, project_id FROM hermes_idempotency
     WHERE idempotency_key = ${body.idempotencyKey} FOR UPDATE
   `;
@@ -126,10 +133,16 @@ async function applyHermesDirectTx(
       break;
     }
     case 'advance_node':
-      result = await engine.advanceToNode(String(body.payload.projectId), String(body.payload.nodeId));
+      result = await engine.advanceToNode(
+        String(body.payload.projectId),
+        String(body.payload.nodeId),
+      );
       break;
     case 'rollback_node':
-      result = await engine.rollbackNode(String(body.payload.projectId), String(body.payload.nodeId));
+      result = await engine.rollbackNode(
+        String(body.payload.projectId),
+        String(body.payload.nodeId),
+      );
       break;
     case 'publish_video':
       result = await engine.publishProject(String(body.payload.projectId), {
