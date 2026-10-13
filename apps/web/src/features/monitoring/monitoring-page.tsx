@@ -26,6 +26,7 @@ import {
   writeMonitorSearchParams,
   type MonitorTab,
 } from '@/features/monitoring/monitor-url-state';
+import { formatVideoCardMetricsSummary } from '@/features/monitoring/video-card-metrics';
 import { cn } from '@/lib/utils';
 import { OfflineEnvironmentBadge } from '@/features/monitoring/offline-environment-badge';
 import { formatShortTime } from '@/lib/format-time';
@@ -167,12 +168,9 @@ export function MonitoringPage() {
                                   {'latestMetrics' in v && v.latestMetrics.sampledAt
                                     ? formatShortTime(v.latestMetrics.sampledAt)
                                     : '—'}{' '}
-                                  · 播放{' '}
+                                  ·{' '}
                                   {'latestMetrics' in v
-                                    ? formatCount(
-                                        v.latestMetrics.viewCount,
-                                        v.latestMetrics.onlineViewersRaw,
-                                      )
+                                    ? formatVideoCardMetricsSummary(v.latestMetrics)
                                     : '—'}
                                 </p>
                               </div>
