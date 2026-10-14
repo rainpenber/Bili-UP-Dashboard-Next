@@ -1,11 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
-  integrationTestSql,
-  isPostgresRequiredEnv,
-  runMigrations,
+  createIsolatedTestDatabase,
+  dropIsolatedTestDatabase,
   seedCommercialFixtures,
 } from '@studio/db';
-import { createSql } from '@studio/db';
+import type { createSql } from '@studio/db';
 import { createApp } from './app';
 import { createCommercialRoutes } from './commercial-routes';
 
@@ -21,17 +20,14 @@ async function createProject(app: ReturnType<typeof createApp>, name: string) {
 
 describe('commercial API integration', () => {
   let sql: ReturnType<typeof createSql> | null = null;
+  let isolatedDbName: string | null = null;
   let app: ReturnType<typeof createApp>;
 
   beforeAll(async () => {
-    sql = await integrationTestSql();
-    if (!sql) {
-      if (isPostgresRequiredEnv()) {
-        throw new Error('PostgreSQL required in CI but unavailable');
-      }
-      return;
-    }
-    await runMigrations(sql);
+    const isolated = await createIsolatedTestDatabase();
+    if (!isolated) return;
+    sql = isolated.sql;
+    isolatedDbName = isolated.databaseName;
     await seedCommercialFixtures(sql);
     app = createApp({ skipDb: true });
     app.route('/api/v1/commercial', createCommercialRoutes(sql));
@@ -39,6 +35,7 @@ describe('commercial API integration', () => {
 
   afterAll(async () => {
     if (sql) await sql.end({ timeout: 5 });
+    if (isolatedDbName) await dropIsolatedTestDatabase(isolatedDbName);
   });
 
   test('advance-to vs complete semantics on parallel graph', async () => {

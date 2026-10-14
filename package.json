@@ -15,7 +15,8 @@
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun run --filter '*' test",
     "build": "bun run --filter '*' build",
-    "e2e": "playwright test -c e2e/playwright.config.ts"
+    "e2e": "playwright test -c e2e/playwright.config.ts",
+    "e2e:stack": "bun scripts/e2e-stack.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1",

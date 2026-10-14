@@ -170,22 +170,6 @@ async function seedProjectWorkflowGraph(
   const slugToNodeId = new Map<string, string>();
   if (!resolvedWorkflowId) return slugToNodeId;
 
-  const existingNodes = await sql<{ c: string }[]>`
-    SELECT count(*)::text AS c FROM wf_nodes WHERE workflow_id = ${resolvedWorkflowId}
-  `;
-  if (Number(existingNodes[0]?.c ?? '0') > 0) {
-    const existing = await sql<{ id: string; slug: string | null }[]>`
-      SELECT n.id, t.slug
-      FROM wf_nodes n
-      LEFT JOIN wf_template_nodes t ON t.id = n.template_node_id
-      WHERE n.workflow_id = ${resolvedWorkflowId}
-    `;
-    for (const row of existing) {
-      if (row.slug) slugToNodeId.set(row.slug, row.id);
-    }
-    return slugToNodeId;
-  }
-
   const tplPackages = await sql<{ id: string; name: string; sort_order: number }[]>`
     SELECT id, name, sort_order FROM wf_template_packages WHERE template_version_id = ${DEFAULT_TEMPLATE}
   `;
@@ -243,7 +227,52 @@ async function seedProjectWorkflowGraph(
     `;
   }
 
+  const existing = await sql<{ id: string; slug: string | null }[]>`
+    SELECT n.id, t.slug
+    FROM wf_nodes n
+    LEFT JOIN wf_template_nodes t ON t.id = n.template_node_id
+    WHERE n.workflow_id = ${resolvedWorkflowId}
+  `;
+  for (const row of existing) {
+    if (row.slug) slugToNodeId.set(row.slug, row.id);
+  }
+
   return slugToNodeId;
+}
+
+/** Per-project counts derived from the default template (× 13 fixture projects). */
+export async function expectedCommercialFixtureCounts(sql: Sql): Promise<{
+  commercialProjects: number;
+  projectWorkflows: number;
+  wfNodes: number;
+  wfEdges: number;
+  wfPackages: number;
+  openItems: number;
+  publishRecords: number;
+  monitorContracts: number;
+  hermesProposals: number;
+}> {
+  const projects = FIXTURE_PROJECT_ID_LIST.length;
+  const [tpl] = await sql<{ nodes: string; edges: string; packages: string }[]>`
+    SELECT
+      (SELECT count(*)::text FROM wf_template_nodes WHERE template_version_id = ${DEFAULT_TEMPLATE}) AS nodes,
+      (SELECT count(*)::text FROM wf_template_edges WHERE template_version_id = ${DEFAULT_TEMPLATE}) AS edges,
+      (SELECT count(*)::text FROM wf_template_packages WHERE template_version_id = ${DEFAULT_TEMPLATE}) AS packages
+  `;
+  const nodesPer = Number(tpl?.nodes ?? 0);
+  const edgesPer = Number(tpl?.edges ?? 0);
+  const packagesPer = Number(tpl?.packages ?? 0);
+  return {
+    commercialProjects: projects,
+    projectWorkflows: projects,
+    wfNodes: nodesPer * projects,
+    wfEdges: edgesPer * projects,
+    wfPackages: packagesPer * projects,
+    openItems: 5,
+    publishRecords: 5,
+    monitorContracts: 1,
+    hermesProposals: 1,
+  };
 }
 
 export async function seedCommercialFixtures(sql: Sql): Promise<void> {

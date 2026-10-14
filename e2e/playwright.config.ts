@@ -20,9 +20,9 @@ export default defineConfig({
   webServer: process.env.E2E_SKIP_WEB_SERVER
     ? undefined
     : {
-        command: 'cd apps/web && bun run dev --host 127.0.0.1 --port 5173',
+        command: 'bun run e2e:stack',
         url: 'http://127.0.0.1:5173',
         reuseExistingServer: !process.env.CI,
-        timeout: 120_000,
+        timeout: 180_000,
       },
 });

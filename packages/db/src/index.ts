@@ -9,6 +9,11 @@ export {
   assertIntegrationSql,
 } from './require-postgres';
 export {
+  createIsolatedTestDatabase,
+  createEmptyIsolatedTestDatabase,
+  dropIsolatedTestDatabase,
+} from './test-isolated-db';
+export {
   seedCommercialFixtures,
   FIXTURE_PROJECT_IDS,
   fixtureNodeId,

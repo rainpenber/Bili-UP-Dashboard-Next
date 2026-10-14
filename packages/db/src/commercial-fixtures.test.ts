@@ -1,43 +1,40 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createSql } from './client';
-import { countCommercialFixtureRows, seedCommercialFixtures } from './commercial-fixtures';
-import { runMigrations } from './migrate';
-import { integrationTestSql, isPostgresRequiredEnv } from './require-postgres';
+import type { Sql } from './client';
+import {
+  countCommercialFixtureRows,
+  expectedCommercialFixtureCounts,
+  seedCommercialFixtures,
+} from './commercial-fixtures';
+import { createIsolatedTestDatabase, dropIsolatedTestDatabase } from './test-isolated-db';
 
 describe('commercial fixtures', () => {
-  let sql: ReturnType<typeof createSql> | null = null;
+  let sql: Sql | null = null;
+  let databaseName: string | null = null;
+  let expected: Awaited<ReturnType<typeof expectedCommercialFixtureCounts>> | null = null;
 
   beforeAll(async () => {
-    sql = await integrationTestSql();
-    if (!sql) {
-      if (isPostgresRequiredEnv()) {
-        throw new Error('PostgreSQL required in CI but unavailable');
-      }
-      return;
-    }
-    await runMigrations(sql);
+    const isolated = await createIsolatedTestDatabase();
+    if (!isolated) return;
+    sql = isolated.sql;
+    databaseName = isolated.databaseName;
+    expected = await expectedCommercialFixtureCounts(sql);
   });
 
   afterAll(async () => {
     if (sql) await sql.end({ timeout: 5 });
+    if (databaseName) await dropIsolatedTestDatabase(databaseName);
   });
 
   test('seed is idempotent for fixture table counts', async () => {
-    if (!sql) return;
+    if (!sql || !expected) return;
+
     await seedCommercialFixtures(sql);
     const afterFirst = await countCommercialFixtureRows(sql);
-    expect(afterFirst.commercialProjects).toBe(13);
-    expect(afterFirst.projectWorkflows).toBe(13);
-    expect(afterFirst.wfNodes).toBe(169);
-    expect(afterFirst.wfEdges).toBe(189);
-    expect(afterFirst.wfPackages).toBe(10);
-    expect(afterFirst.openItems).toBe(5);
-    expect(afterFirst.publishRecords).toBe(5);
-    expect(afterFirst.monitorContracts).toBe(1);
-    expect(afterFirst.hermesProposals).toBe(1);
+    expect(afterFirst).toEqual(expected);
 
     await seedCommercialFixtures(sql);
     const afterSecond = await countCommercialFixtureRows(sql);
+    expect(afterSecond).toEqual(expected);
     expect(afterSecond).toEqual(afterFirst);
   });
 });

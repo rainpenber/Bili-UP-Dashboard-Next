@@ -274,19 +274,18 @@ BEGIN
   FROM _legacy_wp004_projects p
   ON CONFLICT (id) DO NOTHING;
 
-  INSERT INTO wf_template_versions (id, slug, name, version, is_default, is_draft)
+  INSERT INTO wf_template_versions (id, slug, name, version, is_default)
   SELECT
     lt.id,
     lt.slug,
     lt.name,
     lt.version,
-    FALSE,
     FALSE
   FROM _legacy_wp004_workflow_templates lt
   WHERE NOT EXISTS (SELECT 1 FROM wf_template_versions v WHERE v.id = lt.id)
   ON CONFLICT (id) DO NOTHING;
 
-  INSERT INTO wf_template_nodes (id, template_version_id, slug, name, is_optional, pos_x, pos_y, phase)
+  INSERT INTO wf_template_nodes (id, template_version_id, slug, name, is_optional, pos_x, pos_y)
   SELECT
     ltn.id,
     ltn.template_id,
@@ -294,8 +293,7 @@ BEGIN
     ltn.label,
     NOT ltn.is_required,
     ltn.sort_order * 80.0,
-    0,
-    'pre_publish'
+    0
   FROM _legacy_wp004_workflow_template_nodes ltn
   WHERE EXISTS (SELECT 1 FROM wf_template_versions v WHERE v.id = ltn.template_id)
   ON CONFLICT (id) DO NOTHING;
