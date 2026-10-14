@@ -160,46 +160,53 @@ describe('WP-004R round11 integration', () => {
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
 
-  test('reset without confirm races concurrent custom node insert — custom survives or reset 409', async () => {
+  test('reset without confirm cannot observe stale zero custom count under workflow lock', async () => {
     if (!sql) return;
-    const project = await createProject(app, 'r11-reset-race');
-    const [resetRes, nodeRes] = await Promise.all([
-      app.request('/api/v1/commercial/hermes/write', {
+    const project = await createProject(app, 'r11-reset-lock');
+    await app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '锁内自定义', posX: 10, posY: 10 }),
+    });
+    const insertBlocked = (async () => {
+      return app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '锁等待节点', posX: 20, posY: 20 }),
+      });
+    })();
+    await new Promise((r) => setTimeout(r, 30));
+    const resetDuringLock = await sql.begin(async (tx) => {
+      await tx`SELECT id FROM project_workflows WHERE project_id = ${project.id} FOR UPDATE`;
+      const resetRes = await app.request('/api/v1/commercial/hermes/write', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          idempotencyKey: `race-reset-${project.id}`,
+          idempotencyKey: `r11-lock-reset-${project.id}`,
           operation: 'reset_project_workflow',
           confidence: 1,
           autoApply: true,
           payload: {
             projectId: project.id,
             templateVersionId: (
-              await sql<{ template_version_id: string }[]>`
+              await tx<{ template_version_id: string }[]>`
                 SELECT template_version_id FROM project_workflows WHERE project_id = ${project.id}
               `
             )[0]!.template_version_id,
             confirmDestroyCustomGraph: false,
           },
         }),
-      }),
-      app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Race 自定义', posX: 50, posY: 50 }),
-      }),
-    ]);
+      });
+      return resetRes.status;
+    });
+    const insertRes = await insertBlocked;
+    expect(resetDuringLock).toBe(409);
+    expect(insertRes.status).toBeLessThan(500);
     const custom = await sql<{ c: string }[]>`
       SELECT count(*)::text AS c FROM wf_nodes
       WHERE project_id = ${project.id} AND source <> 'template'
     `;
-    const customCount = Number(custom[0]?.c ?? '0');
-    if (customCount > 0) {
-      expect(resetRes.status).toBe(409);
-    } else if (resetRes.status === 200) {
-      expect(customCount).toBe(0);
-    }
-    expect(nodeRes.status).toBeLessThan(500);
+    expect(Number(custom[0]?.c ?? '0')).toBeGreaterThan(0);
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
 
