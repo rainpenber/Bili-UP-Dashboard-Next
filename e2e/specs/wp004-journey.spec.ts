@@ -36,7 +36,7 @@ test.describe('WP-004R project workflow journey', () => {
     const name = `E2E WF ${Date.now()}`;
     await createBlankProject(page, name);
     await expect(page.getByRole('heading', { name })).toBeVisible();
-    await selectWorkflowNode(page, '商务立项');
+    await selectWorkflowNode(page, '大纲');
     await page.getByRole('button', { name: '添加串行节点' }).click();
     await page.getByLabel('新节点名称').fill('串行验收节点');
     await page.getByRole('button', { name: '创建', exact: true }).click();
