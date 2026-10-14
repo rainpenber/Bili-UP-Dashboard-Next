@@ -52,6 +52,8 @@ test.describe('WP-004R round11 deep link viewport', () => {
 test.describe('WP-004R round11 strict acceptance', () => {
   test('invalid edge connect shows Chinese error in UI', async ({ page }) => {
     const projectId = await createBlankProject(page, `E2E R11 EdgeUI ${Date.now()}`);
+    await expect(page.getByRole('heading', { name: '工作流图' })).toBeVisible();
+    await expect(page.locator('.react-flow__node').first()).toBeVisible({ timeout: 15_000 });
     const wf = await page.request.get(`/api/v1/commercial/projects/${projectId}/workflow`);
     const body = (await wf.json()) as {
       nodes: { id: string; slug: string | null; name: string }[];
@@ -59,14 +61,32 @@ test.describe('WP-004R round11 strict acceptance', () => {
     const publish = body.nodes.find((n) => n.slug === 'publish')!;
     const inquiry = body.nodes.find((n) => n.slug === 'inquiry')!;
     const sourceHandle = page.locator(
-      `.react-flow__node[data-id="${publish.id}"] .react-flow__handle.source`,
+      `.react-flow__node[data-id="${publish.id}"] .react-flow__handle-source`,
     );
     const targetHandle = page.locator(
-      `.react-flow__node[data-id="${inquiry.id}"] .react-flow__handle.target`,
+      `.react-flow__node[data-id="${inquiry.id}"] .react-flow__handle-target`,
     );
     await sourceHandle.scrollIntoViewIfNeeded();
     await targetHandle.scrollIntoViewIfNeeded();
-    await sourceHandle.dragTo(targetHandle);
+    const edgeResponse = page.waitForResponse(
+      (res) =>
+        res.url().includes(`/projects/${projectId}/edges`) && res.request().method() === 'POST',
+    );
+    const sourceBox = await sourceHandle.boundingBox();
+    const targetBox = await targetHandle.boundingBox();
+    expect(sourceBox && targetBox).toBeTruthy();
+    await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      targetBox!.x + targetBox!.width / 2,
+      targetBox!.y + targetBox!.height / 2,
+      { steps: 20 },
+    );
+    await page.mouse.up();
+    const res = await edgeResponse;
+    expect(res.status()).toBe(409);
+    const errBody = (await res.json()) as { error?: string };
+    expect(errBody.error).toBe('连线会形成环路，已拒绝');
     await expect(page.getByText('连线会形成环路，已拒绝')).toBeVisible({ timeout: 15_000 });
   });
 
