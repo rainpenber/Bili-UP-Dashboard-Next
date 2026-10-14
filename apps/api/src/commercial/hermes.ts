@@ -233,11 +233,39 @@ async function auditHermes(
   `;
 }
 
+function normalizeHermesIdempotentResult(
+  operation: string,
+  storedProjectId: string | null,
+  resultJson: unknown,
+): unknown {
+  let parsed = resultJson;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed) as unknown;
+    } catch {
+      return resultJson;
+    }
+  }
+  if (operation !== 'upsert_project') return parsed;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return storedProjectId ? { projectId: storedProjectId } : parsed;
+  }
+  const obj = parsed as Record<string, unknown>;
+  if (obj.projectId == null && storedProjectId) {
+    return { ...obj, projectId: storedProjectId };
+  }
+  return parsed;
+}
+
 async function loadIdempotentResult(tx: Db, idempotencyKey: string) {
-  const rows = await tx<{ result_json: unknown }[]>`
-    SELECT result_json FROM hermes_idempotency WHERE idempotency_key = ${idempotencyKey}
+  const rows = await tx<
+    { operation: string; project_id: string | null; result_json: unknown }[]
+  >`
+    SELECT operation, project_id, result_json FROM hermes_idempotency WHERE idempotency_key = ${idempotencyKey}
   `;
-  return rows[0]?.result_json ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  return normalizeHermesIdempotentResult(row.operation, row.project_id, row.result_json);
 }
 
 function resolveProjectId(envelope: HermesWriteEnvelope): string | null {
