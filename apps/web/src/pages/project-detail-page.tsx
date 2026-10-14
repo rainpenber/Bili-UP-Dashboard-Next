@@ -183,8 +183,7 @@ export function ProjectDetailPage() {
       setMergeTitle('');
       invalidate();
     },
-    onError: (e) =>
-      setMergeError(e instanceof Error ? e.message : '合并事项失败，请检查后重试'),
+    onError: (e) => setMergeError(e instanceof Error ? e.message : '合并事项失败，请检查后重试'),
   });
 
   const wfForShortcuts = project.data?.workflow;
