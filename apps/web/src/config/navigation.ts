@@ -21,16 +21,16 @@ export const primaryNav: NavItem[] = [
   {
     to: '/',
     label: '今日看板',
-    description: '当日商单、发布与监控摘要（后续里程碑）',
+    description: '今天要处理的事、等甲方的事，以及项目卡点汇总',
     icon: LayoutDashboard,
-    implemented: false,
+    implemented: true,
   },
   {
     to: '/projects',
     label: '项目',
-    description: '商单与制作流程（后续里程碑）',
+    description: '商单列表与每个项目的流程详情',
     icon: Blocks,
-    implemented: false,
+    implemented: true,
   },
   {
     to: '/monitoring',
@@ -56,9 +56,9 @@ export const primaryNav: NavItem[] = [
   {
     to: '/integrations',
     label: '集成与设置',
-    description: '通知渠道与系统设置（后续里程碑）',
+    description: '默认商单流程与后续通知对接',
     icon: Plug,
-    implemented: false,
+    implemented: true,
   },
   {
     to: '/design-system',

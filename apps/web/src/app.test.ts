@@ -9,8 +9,12 @@ describe('web app shell', () => {
     expect(ds?.implemented).toBe(true);
   });
 
-  test('placeholder routes stay unimplemented', () => {
+  test('commercial surfaces are implemented', () => {
+    const home = primaryNav.find((n) => n.to === '/');
     const projects = primaryNav.find((n) => n.to === '/projects');
-    expect(projects?.implemented).toBe(false);
+    const integrations = primaryNav.find((n) => n.to === '/integrations');
+    expect(home?.implemented).toBe(true);
+    expect(projects?.implemented).toBe(true);
+    expect(integrations?.implemented).toBe(true);
   });
 });
