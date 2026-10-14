@@ -192,7 +192,11 @@ async function runDirectWriteTx(
     ) {
       throw Object.assign(new Error('idempotency key conflict'), { status: 409 });
     }
-    return prior[0].result_json;
+    return normalizeHermesIdempotentResult(
+      envelope.operation,
+      prior[0].project_id,
+      prior[0].result_json,
+    );
   }
   const result = await applyHermesEnvelopeTx(tx, envelope, (innerTx) =>
     engine.resolveDefaultTemplateVersionId(innerTx),
