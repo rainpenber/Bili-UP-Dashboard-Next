@@ -70,6 +70,24 @@ export function WorkflowSettingsPage() {
     onSuccess: () => void graphQuery.refetch(),
   });
 
+  const pending = graphMut.isPending || draftMut.isPending || publishMut.isPending;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!draftId || pending || versions.isLoading || versions.isError) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.key.toLowerCase() !== 'z') return;
+      e.preventDefault();
+      if (e.shiftKey) {
+        void graphMut.mutate(() => redoTemplateWorkflow(draftId));
+      } else {
+        void graphMut.mutate(() => undoTemplateWorkflow(draftId));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [draftId, pending, graphMut, versions.isLoading, versions.isError]);
+
   if (versions.isLoading) return <LoadingListSkeleton rows={4} />;
   if (versions.isError) {
     return (
@@ -83,27 +101,10 @@ export function WorkflowSettingsPage() {
   const items = versions.data ?? [];
   const defaultVersion = items.find((v) => v.isDefault);
   const graph = graphQuery.data;
-  const pending = graphMut.isPending || draftMut.isPending || publishMut.isPending;
   const editorError =
     (graphMut.error ?? publishMut.error)
       ? ((graphMut.error ?? publishMut.error) as Error).message
       : null;
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!draftId || pending) return;
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod || e.key.toLowerCase() !== 'z') return;
-      e.preventDefault();
-      if (e.shiftKey) {
-        void graphMut.mutate(() => redoTemplateWorkflow(draftId));
-      } else {
-        void graphMut.mutate(() => undoTemplateWorkflow(draftId));
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [draftId, pending, graphMut]);
 
   return (
     <div className="space-y-6">

@@ -10,15 +10,36 @@ async function createBlankProject(page: import('@playwright/test').Page, name: s
   await expect(page).toHaveURL(/\/projects\/[0-9a-f-]+/i);
 }
 
+async function selectWorkflowNode(page: import('@playwright/test').Page, label: string) {
+  const node = page.locator('.react-flow__node').filter({ hasText: label }).first();
+  await expect(node).toBeVisible({ timeout: 20_000 });
+  await node.click();
+}
+
+async function openTemplateDraftEditor(page: import('@playwright/test').Page) {
+  await page.goto('/settings/workflow');
+  await expect(page.getByRole('heading', { name: '工作流模板' })).toBeVisible({ timeout: 20_000 });
+  const copyBtn = page.getByRole('button', { name: '从当前默认复制草稿' });
+  if (await copyBtn.isVisible()) {
+    const enabled = await copyBtn.isEnabled();
+    if (enabled) {
+      await copyBtn.click();
+    } else {
+      await page.getByRole('button', { name: '编辑' }).first().click();
+    }
+  }
+  await expect(page.getByText('草稿图编辑')).toBeVisible({ timeout: 20_000 });
+}
+
 test.describe('WP-004R project workflow journey', () => {
   test('create project, edit node, add serial node, undo', async ({ page }) => {
     const name = `E2E WF ${Date.now()}`;
     await createBlankProject(page, name);
     await expect(page.getByRole('heading', { name })).toBeVisible();
-    await page.getByText('商务立项', { exact: false }).first().click();
+    await selectWorkflowNode(page, '商务立项');
     await page.getByRole('button', { name: '添加串行节点' }).click();
     await page.getByLabel('新节点名称').fill('串行验收节点');
-    await page.getByRole('button', { name: '创建' }).click();
+    await page.getByRole('button', { name: '创建', exact: true }).click();
     await expect(page.getByText('串行验收节点')).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: '撤销' }).click();
     await expect(page.getByText('串行验收节点')).not.toBeVisible({ timeout: 15_000 });
@@ -41,12 +62,7 @@ test.describe('WP-004R project workflow journey', () => {
 
 test.describe('WP-004R template draft journey', () => {
   test('draft from default, empty graph add node, undo/redo shortcuts', async ({ page }) => {
-    await page.goto('/settings/workflow');
-    const copyBtn = page.getByRole('button', { name: '从当前默认复制草稿' });
-    if (await copyBtn.isEnabled()) {
-      await copyBtn.click();
-    }
-    await expect(page.getByText('草稿图编辑')).toBeVisible({ timeout: 20_000 });
+    await openTemplateDraftEditor(page);
     await page.getByRole('button', { name: '新建模板节点' }).click();
     await page.getByLabel('节点名称').fill('E2E 模板节点');
     await page.getByLabel('slug').fill(`e2e_node_${Date.now()}`);

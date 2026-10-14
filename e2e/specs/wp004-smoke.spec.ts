@@ -23,6 +23,7 @@ test.describe('WP-004R commercial E2E', () => {
     await expect(page.getByRole('heading', { name: '工作流模板' })).toBeVisible({
       timeout: 20_000,
     });
+    await expect(page.getByRole('button', { name: '从当前默认复制草稿' })).toBeVisible();
   });
 
   test('narrow viewport still renders project list', async ({ page }) => {
