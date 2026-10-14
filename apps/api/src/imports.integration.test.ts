@@ -1,17 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { createSql, runMigrations } from '@studio/db';
+import { createSql, postgresAvailable, runMigrations } from '@studio/db';
 import { createApp } from './app';
 
-const pgAvailable = Boolean(process.env.CI || process.env.POSTGRES_PASSWORD);
 const mockRoot = join(import.meta.dir, '../../../packages/monitoring/fixtures/mock-data');
 
 describe('HTTP imports API', () => {
-  const sql = pgAvailable ? createSql() : null;
+  let sql: ReturnType<typeof createSql> | null = null;
   let app: ReturnType<typeof createApp>;
 
   beforeAll(async () => {
-    if (!sql) return;
+    if (!(await postgresAvailable())) return;
+    sql = createSql();
     process.env.MOCK_DATA_ROOT = mockRoot;
     process.env.MONITOR_ASSETS_ROOT = join(mockRoot, 'assets');
     await runMigrations(sql);

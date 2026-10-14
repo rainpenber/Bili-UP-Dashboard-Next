@@ -52,7 +52,7 @@ export function MetricCharts(props: Props) {
   );
 
   if (points.length === 0) {
-    return <p className="text-sm text-muted-foreground">暂无指标时序数据</p>;
+    return <p className="text-sm text-muted-foreground">暂无趋势数据</p>;
   }
 
   if (props.kind === 'video') {

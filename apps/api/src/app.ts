@@ -5,6 +5,7 @@ import { readMonitorDataSource } from './data-source';
 import { createAssetsRoutes } from './assets-routes';
 import { createImportRoutes } from './import-routes';
 import { createMonitorRoutes } from './monitor-routes';
+import { createCommercialRoutes } from './commercial-routes';
 import { registerWebSpa, resolveWebStaticRoot } from './static-spa';
 
 export const API_VERSION = '0.1.0';
@@ -43,6 +44,7 @@ export function createApp(options: CreateAppOptions = {}) {
     app.route('/api/v1/monitor', createMonitorRoutes(sql));
     app.route('/api/v1/assets', createAssetsRoutes(sql));
     app.route('/api/v1/imports', createImportRoutes(sql));
+    app.route('/api/v1/commercial', createCommercialRoutes(sql));
   }
 
   const staticRoot = resolveWebStaticRoot();

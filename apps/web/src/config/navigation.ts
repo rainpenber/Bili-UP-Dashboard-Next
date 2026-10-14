@@ -1,7 +1,6 @@
 import {
   Activity,
   Blocks,
-  CircleDollarSign,
   LayoutDashboard,
   Palette,
   Plug,
@@ -20,17 +19,17 @@ export type NavItem = {
 export const primaryNav: NavItem[] = [
   {
     to: '/',
-    label: '今日看板',
-    description: '当日商单、发布与监控摘要（后续里程碑）',
+    label: '首页',
+    description: '我方待办、等待甲方与阻塞项目',
     icon: LayoutDashboard,
-    implemented: false,
+    implemented: true,
   },
   {
     to: '/projects',
     label: '项目',
-    description: '商单与制作流程（后续里程碑）',
+    description: '商单列表与详情',
     icon: Blocks,
-    implemented: false,
+    implemented: true,
   },
   {
     to: '/monitoring',
@@ -40,13 +39,6 @@ export const primaryNav: NavItem[] = [
     implemented: true,
   },
   {
-    to: '/finance',
-    label: '财务结案',
-    description: '对账与结案（后续里程碑）',
-    icon: CircleDollarSign,
-    implemented: false,
-  },
-  {
     to: '/content',
     label: '内容与工具',
     description: '素材与辅助工具（后续里程碑）',
@@ -54,11 +46,11 @@ export const primaryNav: NavItem[] = [
     implemented: false,
   },
   {
-    to: '/integrations',
-    label: '集成与设置',
-    description: '通知渠道与系统设置（后续里程碑）',
+    to: '/settings/workflow',
+    label: '工作流设置',
+    description: '默认模板版本与可视化编辑',
     icon: Plug,
-    implemented: false,
+    implemented: true,
   },
   {
     to: '/design-system',

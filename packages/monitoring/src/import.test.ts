@@ -1,13 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { createSql, runMigrations } from '@studio/db';
+import { createSql, postgresAvailable, runMigrations } from '@studio/db';
 import { runImport } from './import-run';
 import { runInventory } from './inventory';
 
 const fixtureBackend = join(import.meta.dir, '../fixtures/backend');
 const fixtureFrontend = join(import.meta.dir, '../fixtures/frontend');
-
-const pgAvailable = Boolean(process.env.POSTGRES_PASSWORD || process.env.CI);
 
 describe('inventory', () => {
   test('lists unsupported commentlist explicitly', async () => {
@@ -21,10 +19,11 @@ describe('inventory', () => {
 });
 
 describe('import apply idempotency', () => {
-  const sql = pgAvailable ? createSql() : null;
+  let sql: ReturnType<typeof createSql> | null = null;
 
   beforeAll(async () => {
-    if (!sql) return;
+    if (!(await postgresAvailable())) return;
+    sql = createSql();
     await runMigrations(sql);
     await sql`TRUNCATE source_metric_rows, import_conflicts_or_rejects, source_file_provenance, source_files, applied_canonical_sources, applied_source_provenance, applied_source_files, creator_follower_samples, video_metric_samples, dynamic_metric_samples, static_assets, creators, videos, dynamics, import_batches RESTART IDENTITY CASCADE`;
   });

@@ -1,0 +1,152 @@
+import type { GraphEdge, GraphNode } from './graph-dag';
+import { predecessorIds, successorIds } from './graph-dag';
+
+export type WfNode = GraphNode & {
+  name?: string;
+  phase?: 'pre_publish' | 'post_publish_required' | 'post_publish_optional';
+  isOptional?: boolean;
+};
+
+export function advanceToNode(
+  targetId: string,
+  nodes: WfNode[],
+  edges: GraphEdge[],
+): Map<string, { status: string; completedAt?: string | null }> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const updates = new Map<string, { status: string; completedAt?: string | null }>();
+  const preds = predecessorIds(targetId, edges);
+  const completePreds = new Set<string>();
+  const predStack = [...preds];
+  while (predStack.length) {
+    const pid = predStack.pop()!;
+    if (completePreds.has(pid)) continue;
+    completePreds.add(pid);
+    for (const pp of predecessorIds(pid, edges)) predStack.push(pp);
+  }
+  for (const pid of completePreds) {
+    const p = byId.get(pid);
+    if (!p) continue;
+    if (p.status !== 'completed' && p.status !== 'not_applicable') {
+      updates.set(pid, { status: 'completed', completedAt: new Date().toISOString() });
+    }
+  }
+
+  updates.set(targetId, { status: 'in_progress', completedAt: null });
+  return updates;
+}
+
+function effectiveStatus(
+  id: string,
+  nodes: WfNode[],
+  updates: Map<string, { status: string; completedAt?: string | null }>,
+): string {
+  return updates.get(id)?.status ?? nodes.find((n) => n.id === id)?.status ?? 'not_reached';
+}
+
+export class NodeCompletionBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NodeCompletionBlockedError';
+  }
+}
+
+/** Required (non-optional) predecessors must be completed or NA before finishing this node. */
+export function assertCanCompleteNode(nodeId: string, nodes: WfNode[], edges: GraphEdge[]): void {
+  const node = nodes.find((n) => n.id === nodeId);
+  if (!node) throw new NodeCompletionBlockedError('node not found');
+  for (const pid of predecessorIds(nodeId, edges)) {
+    const pred = nodes.find((n) => n.id === pid);
+    if (!pred || pred.isOptional) continue;
+    const st = pred.status;
+    if (st !== 'completed' && st !== 'not_applicable') {
+      throw new NodeCompletionBlockedError(
+        `required predecessor "${pred.name ?? pred.id}" is not completed`,
+      );
+    }
+  }
+}
+
+export function completeNode(
+  nodeId: string,
+  nodes: WfNode[],
+  edges: GraphEdge[],
+): Map<string, { status: string; completedAt?: string | null }> {
+  assertCanCompleteNode(nodeId, nodes, edges);
+  const updates = new Map<string, { status: string; completedAt?: string | null }>();
+  updates.set(nodeId, { status: 'completed', completedAt: new Date().toISOString() });
+  const queue = successorIds(nodeId, edges);
+  const seen = new Set<string>();
+  while (queue.length) {
+    const succ = queue.pop()!;
+    if (seen.has(succ)) continue;
+    seen.add(succ);
+    const preds = predecessorIds(succ, edges);
+    const ready = preds.every((p) => {
+      const st = effectiveStatus(p, nodes, updates);
+      return st === 'completed' || st === 'not_applicable';
+    });
+    if (!ready) continue;
+    const cur = effectiveStatus(succ, nodes, updates);
+    if (cur === 'not_reached') {
+      updates.set(succ, { status: 'in_progress', completedAt: null });
+    }
+    for (const next of successorIds(succ, edges)) queue.push(next);
+  }
+  return updates;
+}
+
+export function rollbackToNode(
+  targetId: string,
+  nodes: WfNode[],
+  edges: GraphEdge[],
+): Map<string, { status: string; completedAt?: string | null }> {
+  const downstream = new Set<string>();
+  const stack = successorIds(targetId, edges);
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (downstream.has(id)) continue;
+    downstream.add(id);
+    for (const s of successorIds(id, edges)) stack.push(s);
+  }
+  const updates = new Map<string, { status: string; completedAt?: string | null }>();
+  for (const id of downstream) {
+    updates.set(id, { status: 'not_reached', completedAt: null });
+  }
+  updates.set(targetId, { status: 'in_progress', completedAt: null });
+  void nodes;
+  return updates;
+}
+
+export type NodePhase = 'pre_publish' | 'post_publish_required' | 'post_publish_optional';
+
+export function deriveProjectCloseState(input: {
+  published: boolean;
+  nodes: Array<{ status: string; phase: NodePhase; isOptional?: boolean }>;
+  openItemsBlockingClose: boolean;
+}): { overallStage: 'pre_publish' | 'published_winding_down' | 'closed'; businessClosed: boolean } {
+  if (!input.published) {
+    return { overallStage: 'pre_publish', businessClosed: false };
+  }
+  const requiredPost = input.nodes.filter(
+    (n) => n.phase === 'post_publish_required' && n.status !== 'not_applicable',
+  );
+  const optionalOther = input.nodes.filter((n) => n.phase === 'post_publish_optional');
+  const requiredDone = requiredPost.every((n) => n.status === 'completed');
+  const optionalOk = optionalOther.every(
+    (n) => n.status === 'completed' || n.status === 'not_applicable',
+  );
+  const preLeaves = input.nodes.filter(
+    (n) =>
+      n.phase === 'pre_publish' &&
+      n.status !== 'completed' &&
+      n.status !== 'not_applicable' &&
+      n.status !== 'not_reached',
+  );
+  if (preLeaves.length > 0) {
+    return { overallStage: 'published_winding_down', businessClosed: false };
+  }
+  if (requiredDone && optionalOk && !input.openItemsBlockingClose) {
+    return { overallStage: 'closed', businessClosed: true };
+  }
+  return { overallStage: 'published_winding_down', businessClosed: false };
+}

@@ -5,6 +5,10 @@ import { primaryNav } from '@/config/navigation';
 import { DesignSystemPage } from '@/pages/design-system-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { PlaceholderPage } from '@/pages/placeholder-page';
+import { TodayDashboardPage } from '@/pages/today-dashboard-page';
+import { ProjectsPage } from '@/pages/projects-page';
+import { ProjectDetailPage } from '@/pages/project-detail-page';
+import { WorkflowSettingsPage } from '@/pages/workflow-settings-page';
 import { MonitoringPage } from '@/features/monitoring/monitoring-page';
 import { MonitoringCreatorDetailPage } from '@/pages/monitoring-creator-detail-page';
 import { MonitoringDynamicDetailPage } from '@/pages/monitoring-dynamic-detail-page';
@@ -21,15 +25,15 @@ export const appRouteConfig: RouteObject[] = [
     path: '/',
     element: <AppShell />,
     children: [
-      { index: true, element: placeholderFor('/') },
-      { path: 'projects', element: placeholderFor('/projects') },
+      { index: true, element: <TodayDashboardPage /> },
+      { path: 'projects', element: <ProjectsPage /> },
+      { path: 'projects/:id', element: <ProjectDetailPage /> },
+      { path: 'settings/workflow', element: <WorkflowSettingsPage /> },
       { path: 'monitoring', element: <MonitoringPage /> },
       { path: 'monitoring/videos/:bvid', element: <MonitoringVideoDetailPage /> },
       { path: 'monitoring/creators/:mid', element: <MonitoringCreatorDetailPage /> },
       { path: 'monitoring/dynamics/:id', element: <MonitoringDynamicDetailPage /> },
-      { path: 'finance', element: placeholderFor('/finance') },
       { path: 'content', element: placeholderFor('/content') },
-      { path: 'integrations', element: placeholderFor('/integrations') },
       { path: 'design-system', element: <DesignSystemPage /> },
       { path: 'monitor', element: <Navigate to="/monitoring" replace /> },
       { path: '*', element: <NotFoundPage /> },

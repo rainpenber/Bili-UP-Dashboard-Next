@@ -2,12 +2,10 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createSql, runMigrations } from '@studio/db';
+import { createSql, postgresAvailable, runMigrations } from '@studio/db';
 import { countHeldImportAdvisoryLocks } from './import-advisory';
 import { runImport } from './import-run';
 import { writeScaleMockDataTree } from './scale-fixture';
-
-const pgAvailable = Boolean(process.env.CI || process.env.POSTGRES_PASSWORD);
 
 /** 101+101 tree with modest row counts — validates bulk path without 309k-row runtime. */
 const SCALE_ROWS_PER_FILE = 12;
@@ -16,7 +14,7 @@ const SCALE_IMPORT_TEST_TIMEOUT_MS = 180_000;
 const CONCURRENT_IMPORT_TEST_TIMEOUT_MS = 120_000;
 
 describe('import advisory lock lifecycle', () => {
-  const sql = pgAvailable ? createSql() : null;
+  let sql: ReturnType<typeof createSql> | null = null;
   let scaleRoot = '';
   const mockRoot = join(import.meta.dir, '../fixtures/mock-data');
   const backendRoot = join(mockRoot, 'backend');
@@ -24,7 +22,8 @@ describe('import advisory lock lifecycle', () => {
   const assetsRoot = join(mockRoot, 'assets');
 
   beforeAll(async () => {
-    if (!sql) return;
+    if (!(await postgresAvailable())) return;
+    sql = createSql();
     await runMigrations(sql);
     scaleRoot = mkdtempSync(join(tmpdir(), 'mock-scale-'));
     writeScaleMockDataTree(scaleRoot, { rowsPerFile: SCALE_ROWS_PER_FILE });
