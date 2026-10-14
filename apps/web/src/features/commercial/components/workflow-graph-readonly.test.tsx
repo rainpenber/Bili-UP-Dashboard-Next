@@ -1,17 +1,8 @@
-import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { render, waitFor } from '@testing-library/react';
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { commercialProjectsMock } from '../mock-data';
 import { layoutWorkflowGraph } from '../workflow-graph-flow-layout';
 import { WorkflowGraphReadonly } from './workflow-graph-readonly';
-
-beforeAll(() => {
-  GlobalRegistrator.register();
-});
-
-afterAll(() => {
-  GlobalRegistrator.unregister();
-});
 
 describe('WorkflowGraphReadonly render', () => {
   test('renders one SVG edge path per layout edge for board prop', async () => {
@@ -20,7 +11,7 @@ describe('WorkflowGraphReadonly render', () => {
     expect(layout.edges.length).toBeGreaterThan(0);
 
     const { container } = render(
-      <div style={{ width: 1280, height: 720 }}>
+      <div style={{ width: 1280, height: 900 }}>
         <WorkflowGraphReadonly graph={project.workflow} />
       </div>,
     );
@@ -46,7 +37,7 @@ describe('WorkflowGraphReadonly render', () => {
       const project = commercialProjectsMock.find((p) => p.id === id)!;
       const layout = layoutWorkflowGraph(project.workflow);
       const { container } = render(
-        <div style={{ width: 1280, height: 720 }}>
+        <div style={{ width: 1280, height: 900 }}>
           <WorkflowGraphReadonly graph={project.workflow} />
         </div>,
       );

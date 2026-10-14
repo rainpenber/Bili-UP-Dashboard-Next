@@ -5,7 +5,8 @@ import type { WorkflowGraph, WorkflowGraphNode, WorkflowGraphStep } from './type
 export const LAYOUT_NODE_WIDTH = 176;
 export const LAYOUT_NODE_HEIGHT = 44;
 export const LAYOUT_NODE_GAP_X = 28;
-export const LAYOUT_NODE_GAP_Y = 56;
+/** Vertical rank spacing (with {@link LAYOUT_NODE_HEIGHT} ≈ 76px pitch between ranks). */
+export const LAYOUT_NODE_GAP_Y = 28;
 
 export interface LayoutEdge {
   from: string;
@@ -198,7 +199,7 @@ export function layoutWorkflowGraph(graph: WorkflowGraph): WorkflowGraphLayout {
     nodesep: LAYOUT_NODE_GAP_X,
     ranksep: LAYOUT_NODE_GAP_Y,
     marginx: 24,
-    marginy: 24,
+    marginy: 12,
   });
 
   g.setNode(SOURCE, { width: 0, height: 0 });

@@ -29,11 +29,14 @@ const defaultEdgeOptions = {
   style: { strokeWidth: 1, stroke: 'var(--border)' },
 };
 
+/** Default fit must stay legible; user can still zoom out via controls/scroll. */
+const FIT_VIEW_MIN_ZOOM = 0.85;
+
 function FitViewOnLoad({ layoutHeight, edgeCount }: { layoutHeight: number; edgeCount: number }) {
   const { fitView } = useReactFlow();
   useEffect(() => {
     const t = window.setTimeout(() => {
-      void fitView({ padding: 0.15, maxZoom: 1.2, minZoom: 0.35 });
+      void fitView({ padding: 0.1, maxZoom: 1.25, minZoom: FIT_VIEW_MIN_ZOOM });
     }, 80);
     return () => window.clearTimeout(t);
   }, [fitView, layoutHeight, edgeCount]);
@@ -77,7 +80,7 @@ function WorkflowGraphCanvas({ graph }: { graph: WorkflowGraph }) {
 
   return (
     <div
-      className="h-[min(70vh,560px)] min-h-[280px] w-full overflow-hidden rounded-lg border bg-muted/10"
+      className="h-[720px] min-h-[680px] w-full overflow-hidden rounded-lg border bg-muted/10"
       style={{ maxWidth: '100%' }}
     >
       <ReactFlow
@@ -95,7 +98,7 @@ function WorkflowGraphCanvas({ graph }: { graph: WorkflowGraph }) {
         edgesFocusable={false}
         panOnScroll
         zoomOnScroll
-        minZoom={0.25}
+        minZoom={0.45}
         maxZoom={1.5}
         proOptions={{ hideAttribution: true }}
       >

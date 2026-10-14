@@ -11,9 +11,8 @@ import {
 
 const memory = new Map<string, string>();
 
-beforeEach(() => {
-  memory.clear();
-  globalThis.localStorage = {
+function installMemoryStorage() {
+  const storage = {
     getItem: (key: string) => memory.get(key) ?? null,
     setItem: (key: string, value: string) => {
       memory.set(key, value);
@@ -25,6 +24,16 @@ beforeEach(() => {
     key: () => null,
     length: 0,
   } as Storage;
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: storage,
+    configurable: true,
+    writable: true,
+  });
+}
+
+beforeEach(() => {
+  memory.clear();
+  installMemoryStorage();
 });
 
 describe('theme persistence', () => {
