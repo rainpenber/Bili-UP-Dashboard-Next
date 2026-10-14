@@ -11,7 +11,7 @@ test.describe('WP-004R commercial E2E', () => {
     await page.getByRole('button', { name: '新建空白项目' }).click();
     const name = `E2E ${Date.now()}`;
     await page.getByLabel('项目名称').fill(name);
-    await page.getByRole('button', { name: '创建' }).click();
+    await page.getByRole('button', { name: '创建', exact: true }).click();
     await expect(page.getByText(name)).toBeVisible({ timeout: 20_000 });
     await page.getByRole('link', { name: name }).click();
     await expect(page).toHaveURL(/\/projects\/[0-9a-f-]+/i);
