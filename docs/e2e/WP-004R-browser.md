@@ -1,6 +1,6 @@
 # WP-004R 浏览器验收方案
 
-## 状态：**PASS（待 CI 绿）**
+## 状态：**PASS**（CI verify 全绿）
 
 CI job `verify` 启用 **真实 PostgreSQL + API + Web + Playwright**（`.github/workflows/ci.yml`：`migrate` → `bun run e2e` → `e2e:stack`）。
 
