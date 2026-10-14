@@ -189,6 +189,7 @@ export function OpenItemCard({
         <label className="mb-2 flex items-center gap-2 text-xs">
           <input
             type="checkbox"
+            aria-label="参与合并"
             checked={mergeSelection?.includes(item.id) ?? false}
             onChange={() => onToggleMerge(item.id)}
           />

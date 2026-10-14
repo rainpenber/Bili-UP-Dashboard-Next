@@ -27,28 +27,27 @@ test.describe('WP-004R round9 items', () => {
     await expect(page.getByText('合并结果')).toBeVisible({ timeout: 15_000 });
   });
 
-  test('merge failure shows Chinese error', async ({ page, context }) => {
+  test('merge failure shows Chinese error', async ({ page }) => {
     const name = `E2E MergeErr ${Date.now()}`;
     await createBlankProject(page, name);
-    await page.getByRole('button', { name: '新建事项' }).click();
-    await page.getByLabel('事项标题').fill('仅一条');
-    await page.getByRole('button', { name: '提交事项' }).click();
-    await page.getByLabel('参与合并').check();
-    await page.getByRole('button', { name: '新建事项' }).click();
-    await page.getByLabel('事项标题').fill('第二条');
-    await page.getByRole('button', { name: '提交事项' }).click();
-    await page.getByLabel('参与合并').nth(1).check();
-    await page.getByLabel('合并后标题').fill('应失败');
-
-    await context.route('**/api/v1/commercial/projects/*/open-items/merge', (route) =>
+    await page.route('**/api/v1/commercial/projects/*/open-items/merge', (route) =>
       route.fulfill({
         status: 404,
         contentType: 'application/json',
         body: JSON.stringify({ error: '找不到可合并的开放事项' }),
       }),
     );
+    for (const title of ['合并项 A', '合并项 B']) {
+      await page.getByRole('button', { name: '新建事项' }).click();
+      await page.getByLabel('事项标题').fill(title);
+      await page.getByRole('button', { name: '提交事项' }).click();
+      await expect(page.getByText(title)).toBeVisible({ timeout: 15_000 });
+    }
+    await page.getByRole('checkbox', { name: '参与合并' }).nth(0).check();
+    await page.getByRole('checkbox', { name: '参与合并' }).nth(1).check();
+    await page.getByLabel('合并后标题').fill('应失败');
     await page.getByRole('button', { name: '合并 2 条事项' }).click();
-    await expect(page.getByText('找不到可合并的开放事项')).toBeVisible();
+    await expect(page.getByText('找不到可合并的开放事项')).toBeVisible({ timeout: 15_000 });
   });
 
   test('item history deep link expands closed item section', async ({ page }) => {

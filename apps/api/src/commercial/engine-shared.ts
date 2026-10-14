@@ -181,6 +181,19 @@ export function mapOpenItem(r: {
   sort_rank: number;
   blocks_required_for_close: boolean;
 }): OpenItemDto {
+  let sourceEvidence: Record<string, unknown> | null = null;
+  const rawEvidence = r.source_evidence as unknown;
+  if (rawEvidence != null) {
+    if (typeof rawEvidence === 'string') {
+      try {
+        sourceEvidence = JSON.parse(rawEvidence) as Record<string, unknown>;
+      } catch {
+        sourceEvidence = { raw: rawEvidence };
+      }
+    } else if (typeof rawEvidence === 'object' && !Array.isArray(rawEvidence)) {
+      sourceEvidence = rawEvidence as Record<string, unknown>;
+    }
+  }
   return {
     id: r.id,
     projectId: r.project_id,
