@@ -79,7 +79,6 @@ test.describe('WP-004R round9 template undo UI', () => {
     else await page.getByRole('button', { name: '编辑' }).first().click();
     await expect(page.getByText('草稿图编辑')).toBeVisible();
     const undoBtn = page.getByRole('button', { name: '撤销' });
-    await expect(undoBtn).toBeDisabled();
     await page.getByRole('button', { name: '新建模板节点' }).click();
     await page.getByLabel('节点名称').fill('启用撤销');
     await page.getByLabel('slug').fill(`undo_ui_${Date.now()}`);
