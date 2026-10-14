@@ -1,6 +1,6 @@
 # WP-004R 浏览器验收方案
 
-## 状态：**PASS（待 CI 绿 — 第十一轮加强）**
+## 状态：**PASS（第十一轮 — CI [38531524314](https://github.com/rainpenber/Bili-UP-Dashboard-Next/actions/runs/38531524314) @ `451ed71`）**
 
 CI job `verify`：`migrate`（含 `013` 主阻塞 pin 删除语义）→ 全量测试 → `bun run e2e`（`e2e/harness.ts` 对 `/api/v1` 5xx 与控制台 ZodError 零容忍）。
 
