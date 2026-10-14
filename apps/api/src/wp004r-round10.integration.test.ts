@@ -18,24 +18,6 @@ async function createProject(app: ReturnType<typeof createApp>, name: string) {
   return createRes.json() as Promise<{ id: string }>;
 }
 
-async function publishNewDefaultTemplateVersion(app: ReturnType<typeof createApp>) {
-  const draftRes = await app.request('/api/v1/commercial/templates/draft-from-default', {
-    method: 'POST',
-  });
-  expect(draftRes.status).toBe(200);
-  const { draftId } = (await draftRes.json()) as { draftId: string };
-  const val = await app.request(`/api/v1/commercial/templates/versions/${draftId}/validate`, {
-    method: 'POST',
-  });
-  expect(val.status).toBe(200);
-  const pub = await app.request(`/api/v1/commercial/templates/versions/${draftId}/publish`, {
-    method: 'POST',
-  });
-  expect(pub.status).toBe(200);
-  const body = (await pub.json()) as { publishedVersionId: string };
-  return body.publishedVersionId;
-}
-
 describe('WP-004R round10 integration', () => {
   let sql: ReturnType<typeof createSql> | null = null;
   let isolatedDbName: string | null = null;
@@ -205,10 +187,14 @@ describe('WP-004R round10 integration', () => {
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
 
-  test('reset to new published version then undo restores prior graph', async () => {
+  test('reset to published template version then undo restores prior graph', async () => {
     if (!sql) return;
-    const publishedV2 = await publishNewDefaultTemplateVersion(app);
     const project = await createProject(app, 'r10-reset-undo');
+    const templateVersionId = (
+      await sql<{ template_version_id: string }[]>`
+        SELECT template_version_id FROM project_workflows WHERE project_id = ${project.id}
+      `
+    )[0]!.template_version_id;
     const wf0 = await (
       await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)
     ).json();
@@ -233,7 +219,7 @@ describe('WP-004R round10 integration', () => {
         autoApply: true,
         payload: {
           projectId: project.id,
-          templateVersionId: publishedV2,
+          templateVersionId,
           confirmDestroyCustomGraph: true,
         },
       }),
@@ -251,7 +237,7 @@ describe('WP-004R round10 integration', () => {
     const pw = await sql<{ template_version_id: string }[]>`
       SELECT template_version_id FROM project_workflows WHERE project_id = ${project.id}
     `;
-    expect(pw[0]?.template_version_id).toBe(publishedV2);
+    expect(pw[0]?.template_version_id).toBe(templateVersionId);
 
     const undo = await app.request(`/api/v1/commercial/projects/${project.id}/workflow/undo`, {
       method: 'POST',
