@@ -304,16 +304,18 @@ BEGIN
   WHERE EXISTS (SELECT 1 FROM wf_template_versions v WHERE v.id = ltn.template_id)
   ON CONFLICT (template_version_id, slug) DO NOTHING;
 
-  INSERT INTO wf_template_edges (id, template_version_id, from_node_id, to_node_id)
-  SELECT
-    ('e2000000-0000-4000-8000-' || lpad(to_hex(ltd.id), 12, '0'))::uuid,
-    from_n.template_version_id,
-    ltd.depends_on_node_id,
-    ltd.node_id
-  FROM _legacy_wp004_workflow_template_node_dependencies ltd
-  INNER JOIN wf_template_nodes from_n ON from_n.id = ltd.depends_on_node_id
-  INNER JOIN wf_template_nodes to_n ON to_n.id = ltd.node_id AND to_n.template_version_id = from_n.template_version_id
-  ON CONFLICT (template_version_id, from_node_id, to_node_id) DO NOTHING;
+  IF to_regclass('public._legacy_wp004_workflow_template_node_dependencies') IS NOT NULL THEN
+    INSERT INTO wf_template_edges (id, template_version_id, from_node_id, to_node_id)
+    SELECT
+      ('e2000000-0000-4000-8000-' || lpad(to_hex(ltd.id), 12, '0'))::uuid,
+      from_n.template_version_id,
+      ltd.depends_on_node_id,
+      ltd.node_id
+    FROM _legacy_wp004_workflow_template_node_dependencies ltd
+    INNER JOIN wf_template_nodes from_n ON from_n.id = ltd.depends_on_node_id
+    INNER JOIN wf_template_nodes to_n ON to_n.id = ltd.node_id AND to_n.template_version_id = from_n.template_version_id
+    ON CONFLICT (template_version_id, from_node_id, to_node_id) DO NOTHING;
+  END IF;
 
   INSERT INTO project_workflows (id, project_id, template_version_id, created_at)
   SELECT pw.id, pw.project_id, pw.template_id, pw.created_at
