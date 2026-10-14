@@ -1,7 +1,10 @@
 import {
   Background,
+  ConnectionMode,
   ReactFlow,
   ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
   useReactFlow,
   type NodeMouseHandler,
 } from '@xyflow/react';
@@ -21,33 +24,48 @@ const LEGEND = [
 
 const nodeTypes = { workflowNode: WorkflowFlowNode };
 
-function FitViewOnLoad({ layoutHeight }: { layoutHeight: number }) {
+const defaultEdgeOptions = {
+  type: 'smoothstep' as const,
+  style: { strokeWidth: 1, stroke: 'var(--border)' },
+};
+
+function FitViewOnLoad({ layoutHeight, edgeCount }: { layoutHeight: number; edgeCount: number }) {
   const { fitView } = useReactFlow();
   useEffect(() => {
     const t = window.setTimeout(() => {
       void fitView({ padding: 0.15, maxZoom: 1.2, minZoom: 0.35 });
-    }, 0);
+    }, 80);
     return () => window.clearTimeout(t);
-  }, [fitView, layoutHeight]);
+  }, [fitView, layoutHeight, edgeCount]);
   return null;
 }
 
 function WorkflowGraphCanvas({ graph }: { graph: WorkflowGraph }) {
   const layout = useMemo(() => layoutWorkflowGraph(graph), [graph]);
-  const base = useMemo(() => toReactFlowElements(layout), [layout]);
+  const elements = useMemo(() => toReactFlowElements(layout), [layout]);
+  const [nodes, setNodes, onNodesChange] = useNodesState(elements.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(elements.edges);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const nodes = useMemo(
-    () =>
-      base.nodes.map((n) => ({
+  useEffect(() => {
+    setNodes(elements.nodes);
+  }, [elements.nodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(elements.edges);
+  }, [elements.edges, setEdges]);
+
+  useEffect(() => {
+    setNodes((nds) =>
+      nds.map((n) => ({
         ...n,
         data: {
           ...n.data,
           expanded: n.id === expandedId,
         },
       })),
-    [base.nodes, expandedId],
-  );
+    );
+  }, [expandedId, setNodes]);
 
   const onNodeClick: NodeMouseHandler = useCallback((_evt, node) => {
     setExpandedId((cur) => (cur === node.id ? null : node.id));
@@ -64,9 +82,13 @@ function WorkflowGraphCanvas({ graph }: { graph: WorkflowGraph }) {
     >
       <ReactFlow
         nodes={nodes}
-        edges={base.edges}
+        edges={edges}
         nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
+        defaultEdgeOptions={defaultEdgeOptions}
+        connectionMode={ConnectionMode.Loose}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
@@ -76,10 +98,9 @@ function WorkflowGraphCanvas({ graph }: { graph: WorkflowGraph }) {
         minZoom={0.25}
         maxZoom={1.5}
         proOptions={{ hideAttribution: true }}
-        fitView
       >
         <Background gap={16} size={1} />
-        <FitViewOnLoad layoutHeight={layout.height} />
+        <FitViewOnLoad layoutHeight={layout.height} edgeCount={edges.length} />
       </ReactFlow>
     </div>
   );

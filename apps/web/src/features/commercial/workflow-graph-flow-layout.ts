@@ -1,5 +1,5 @@
 import dagre from '@dagrejs/dagre';
-import type { Edge, Node } from '@xyflow/react';
+import { Position, type Edge, type Node } from '@xyflow/react';
 import type { WorkflowGraph, WorkflowGraphNode, WorkflowGraphStep } from './types';
 
 export const LAYOUT_NODE_WIDTH = 176;
@@ -279,20 +279,47 @@ export function toReactFlowElements(layout: WorkflowGraphLayout): {
     data: { wfNode: p.node, expanded: false },
     draggable: false,
     selectable: false,
-    connectable: false,
+    connectable: true,
     width: p.width,
     height: p.height,
+    measured: { width: p.width, height: p.height },
+    handles: [
+      {
+        id: 'target',
+        type: 'target',
+        position: Position.Top,
+        x: p.width / 2,
+        y: 0,
+        width: 1,
+        height: 1,
+      },
+      {
+        id: 'source',
+        type: 'source',
+        position: Position.Bottom,
+        x: p.width / 2,
+        y: p.height,
+        width: 1,
+        height: 1,
+      },
+    ],
   }));
 
-  const edges: Edge[] = layout.edges.map((e) => ({
-    id: `${e.from}->${e.to}`,
-    source: e.from,
-    target: e.to,
-    type: 'smoothstep',
-    animated: false,
-    selectable: false,
-    focusable: false,
-  }));
+  const nodeIds = new Set(nodes.map((n) => n.id));
+  const edges: Edge[] = layout.edges
+    .filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to))
+    .map((e) => ({
+      id: `e-${e.from}-${e.to}`,
+      source: e.from,
+      target: e.to,
+      sourceHandle: 'source',
+      targetHandle: 'target',
+      type: 'smoothstep',
+      animated: false,
+      selectable: false,
+      focusable: false,
+      style: { strokeWidth: 1, stroke: 'var(--border)' },
+    }));
 
   return { nodes, edges };
 }

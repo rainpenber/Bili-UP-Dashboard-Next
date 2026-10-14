@@ -77,7 +77,9 @@ describe('workflow flow layout geometry', () => {
   });
 
   test('main-axis serial nodes share centre x', () => {
-    const layout = layoutWorkflowGraph(createProjectWorkflow({ outline: { status: 'in_progress' } }));
+    const layout = layoutWorkflowGraph(
+      createProjectWorkflow({ outline: { status: 'in_progress' } }),
+    );
     const axis = cx('inq', layout);
     for (const id of ['outline', 'rev', 'pub']) {
       expect(Math.abs(cx(id, layout) - axis)).toBeLessThan(4);
