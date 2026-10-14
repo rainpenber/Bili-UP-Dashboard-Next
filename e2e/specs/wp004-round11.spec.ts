@@ -22,14 +22,22 @@ test.describe('WP-004R round11 deep link viewport', () => {
     const itemId = (await card.getAttribute('id'))!.replace(/^item-/, '');
     await card.getByLabel('闭环结论').fill('完成');
     await card.getByRole('button', { name: '闭环' }).click();
-
-    const histBefore = await page.request.get(
-      `/api/v1/commercial/projects/${projectId}/open-items/${itemId}/history`,
-    );
-    expect(histBefore.ok()).toBeTruthy();
-    const histBody = (await histBefore.json()) as { items: { action: string }[] };
-    expect(histBody.items.some((e) => e.action === 'create')).toBe(true);
-    expect(histBody.items.some((e) => e.action === 'close')).toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const hist = await page.request.get(
+            `/api/v1/commercial/projects/${projectId}/open-items/${itemId}/history`,
+          );
+          if (!hist.ok()) return false;
+          const body = (await hist.json()) as { items: { action: string }[] };
+          return (
+            body.items.some((e) => e.action === 'create') &&
+            body.items.some((e) => e.action === 'close')
+          );
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
 
     await page.goto(`/projects/${projectId}#item-${itemId}`);
     await expect(page.getByText('创建')).toBeVisible({ timeout: 15_000 });
@@ -61,10 +69,10 @@ test.describe('WP-004R round11 strict acceptance', () => {
     const publish = body.nodes.find((n) => n.slug === 'publish')!;
     const inquiry = body.nodes.find((n) => n.slug === 'inquiry')!;
     const sourceHandle = page.locator(
-      `.react-flow__node[data-id="${publish.id}"] .react-flow__handle-source`,
+      `.react-flow__node[data-id="${publish.id}"] .react-flow__handle-bottom`,
     );
     const targetHandle = page.locator(
-      `.react-flow__node[data-id="${inquiry.id}"] .react-flow__handle-target`,
+      `.react-flow__node[data-id="${inquiry.id}"] .react-flow__handle-top`,
     );
     await sourceHandle.scrollIntoViewIfNeeded();
     await targetHandle.scrollIntoViewIfNeeded();

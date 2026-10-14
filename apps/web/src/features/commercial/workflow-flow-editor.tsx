@@ -1,13 +1,16 @@
 import {
   Background,
   Controls,
+  Handle,
   MiniMap,
+  Position,
   ReactFlow,
   applyEdgeChanges,
   type Connection,
   type Edge,
   type EdgeChange,
   type Node,
+  type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -26,19 +29,41 @@ const statusStyles: Record<string, { border: string; background: string }> = {
   not_applicable: { border: 'hsl(var(--border))', background: 'hsl(var(--muted) / 0.5)' },
 };
 
+type WorkflowNodeData = { label: string; border: string; background: string };
+
+function WorkflowGraphNode({ data, selected }: NodeProps) {
+  const d = data as WorkflowNodeData;
+  return (
+    <div
+      className={selected ? 'ring-2 ring-primary ring-offset-2' : undefined}
+      style={{
+        borderRadius: 8,
+        padding: 8,
+        border: `2px solid ${d.border}`,
+        background: d.background,
+        minWidth: 140,
+        whiteSpace: 'pre-wrap',
+      }}
+    >
+      <Handle type="target" position={Position.Top} className="!h-3 !w-3" />
+      <div className="whitespace-pre-wrap">{d.label}</div>
+      <Handle type="source" position={Position.Bottom} className="!h-3 !w-3" />
+    </div>
+  );
+}
+
+const nodeTypes = { workflowNode: WorkflowGraphNode };
+
 function flowNodeFromGraph(n: GraphNode, selected: boolean): Node {
   const style = statusStyles[n.status] ?? statusStyles.not_reached!;
   return {
     id: n.id,
+    type: 'workflowNode',
     position: { x: n.posX + 240, y: n.posY },
-    data: { label: `${n.name}\n${nodeStatusLabel(n.status)}` },
-    style: {
-      borderRadius: 8,
-      padding: 8,
-      border: `2px solid ${style.border}`,
+    data: {
+      label: `${n.name}\n${nodeStatusLabel(n.status)}`,
+      border: style.border,
       background: style.background,
-      minWidth: 140,
-      whiteSpace: 'pre-wrap',
     },
     draggable: true,
     focusable: true,
@@ -160,6 +185,7 @@ export function WorkflowFlowEditor(props: Props) {
           <ReactFlow
             nodes={nodes}
             edges={edges}
+            nodeTypes={nodeTypes}
             onInit={(inst) => {
               reactFlowRef.current = inst;
             }}
