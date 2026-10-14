@@ -61,12 +61,13 @@ VALUES (
 );
 
 INSERT INTO open_items (
-  id, project_id, workflow_node_id, title, status, responsible_party, created_at, updated_at
+  id, project_id, workflow_node_id, item_type, title, status, responsible_party, created_at, updated_at
 )
 VALUES (
   '99999999-9999-4999-8999-999999999905',
   '99999999-9999-4999-8999-999999999901',
   '99999999-9999-4999-8999-999999999904',
+  'our_action',
   'Legacy 待办',
   'open',
   'us',
