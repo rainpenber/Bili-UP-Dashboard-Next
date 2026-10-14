@@ -349,19 +349,22 @@ BEGIN
     detail JSONB
   );
 
-  INSERT INTO wf_node_status_history (project_id, node_id, from_status, to_status, changed_at, source, detail)
-  SELECT
-    pw.project_id,
-    h.node_id,
-    h.from_status,
-    h.to_status,
-    h.changed_at,
-    COALESCE(h.source, 'legacy'),
-    h.detail
-  FROM _legacy_wp004_workflow_node_status_history h
-  INNER JOIN wf_nodes n ON n.id = h.node_id
-  INNER JOIN project_workflows pw ON pw.id = n.workflow_id
-  WHERE to_regclass('public._legacy_wp004_workflow_node_status_history') IS NOT NULL;
+  IF to_regclass('public._legacy_wp004_workflow_node_status_history') IS NOT NULL THEN
+    EXECUTE $migrate_history$
+      INSERT INTO wf_node_status_history (project_id, node_id, from_status, to_status, changed_at, source, detail)
+      SELECT
+        pw.project_id,
+        h.node_id,
+        h.from_status,
+        h.to_status,
+        h.changed_at,
+        COALESCE(h.source, 'legacy'),
+        h.detail
+      FROM _legacy_wp004_workflow_node_status_history h
+      INNER JOIN wf_nodes n ON n.id = h.node_id
+      INNER JOIN project_workflows pw ON pw.id = n.workflow_id
+    $migrate_history$;
+  END IF;
 
   INSERT INTO wf_edges (id, workflow_id, from_node_id, to_node_id)
   SELECT
