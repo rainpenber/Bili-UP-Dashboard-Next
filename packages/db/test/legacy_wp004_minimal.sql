@@ -87,13 +87,13 @@ CREATE TABLE IF NOT EXISTS hermes_change_proposals (
 );
 
 INSERT INTO workflow_templates (id, slug, name, version)
-VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'standard_sponsorship', '标准商单', 1)
+VALUES ('88888888-8888-4888-8888-888888888888', 'standard_sponsorship', '标准商单', 1)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO workflow_template_nodes (id, template_id, slug, label, sort_order, is_required)
 VALUES
-  ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbb001', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'business_init', '商务立项', 0, TRUE),
-  ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbb002', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'outline', '大纲', 1, TRUE)
+  ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbb001', '88888888-8888-4888-8888-888888888888', 'business_init', '商务立项', 0, TRUE),
+  ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbb002', '88888888-8888-4888-8888-888888888888', 'outline', '大纲', 1, TRUE)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO projects (id, name)
@@ -101,7 +101,7 @@ VALUES ('99999999-9999-4999-8999-999999999901', 'Legacy 迁移样例')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO project_workflows (id, project_id, template_id)
-VALUES ('99999999-9999-4999-8999-999999999902', '99999999-9999-4999-8999-999999999901', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+VALUES ('99999999-9999-4999-8999-999999999902', '99999999-9999-4999-8999-999999999901', '88888888-8888-4888-8888-888888888888')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO workflow_nodes (id, project_workflow_id, slug, label, sort_order, status)

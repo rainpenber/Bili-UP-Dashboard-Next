@@ -296,7 +296,7 @@ BEGIN
     0
   FROM _legacy_wp004_workflow_template_nodes ltn
   WHERE EXISTS (SELECT 1 FROM wf_template_versions v WHERE v.id = ltn.template_id)
-  ON CONFLICT (id) DO NOTHING;
+  ON CONFLICT (template_version_id, slug) DO NOTHING;
 
   INSERT INTO project_workflows (id, project_id, template_version_id, created_at)
   SELECT pw.id, pw.project_id, pw.template_id, pw.created_at
