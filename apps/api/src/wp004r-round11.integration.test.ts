@@ -160,54 +160,128 @@ describe('WP-004R round11 integration', () => {
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
 
-  test('reset without confirm cannot observe stale zero custom count under workflow lock', async () => {
+  async function templateVersionIdFor(projectId: string) {
+    const rows = await sql!<{ template_version_id: string }[]>`
+      SELECT template_version_id FROM project_workflows WHERE project_id = ${projectId}
+    `;
+    return rows[0]!.template_version_id;
+  }
+
+  test('reset without confirm races concurrent custom node insert — custom survives', async () => {
     if (!sql) return;
-    const project = await createProject(app, 'r11-reset-lock');
+    const project = await createProject(app, 'r11-reset-race');
+    const templateVersionId = await templateVersionIdFor(project.id);
+    const insertDuringReset = app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '并发插入', posX: 30, posY: 30 }),
+    });
+    const resetDuringInsert = app.request('/api/v1/commercial/hermes/write', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        idempotencyKey: `r11-reset-race-${project.id}`,
+        operation: 'reset_project_workflow',
+        confidence: 1,
+        autoApply: true,
+        payload: {
+          projectId: project.id,
+          templateVersionId,
+          confirmDestroyCustomGraph: false,
+        },
+      }),
+    });
+    const [insertRes, resetRes] = await Promise.all([insertDuringReset, resetDuringInsert]);
+    expect(insertRes.status).toBeLessThan(500);
+    expect(resetRes.status).toBeLessThan(500);
+    const custom = await sql<{ c: string }[]>`
+      SELECT count(*)::text AS c FROM wf_nodes
+      WHERE project_id = ${project.id} AND source <> 'template'
+    `;
+    expect(Number(custom[0]?.c ?? '0')).toBeGreaterThanOrEqual(1);
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
+
+  test('reset without confirm returns 409 when custom exists even if another insert races', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'r11-reset-race409');
     await app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: '锁内自定义', posX: 10, posY: 10 }),
+      body: JSON.stringify({ name: '已有自定义', posX: 10, posY: 10 }),
     });
-    const insertBlocked = (async () => {
-      return app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
+    const templateVersionId = await templateVersionIdFor(project.id);
+    const [insertRes, resetRes] = await Promise.all([
+      app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: '锁等待节点', posX: 20, posY: 20 }),
-      });
-    })();
-    await new Promise((r) => setTimeout(r, 30));
-    const resetDuringLock = await sql.begin(async (tx) => {
-      await tx`SELECT id FROM project_workflows WHERE project_id = ${project.id} FOR UPDATE`;
-      const resetRes = await app.request('/api/v1/commercial/hermes/write', {
+        body: JSON.stringify({ name: '并发第二条', posX: 40, posY: 40 }),
+      }),
+      app.request('/api/v1/commercial/hermes/write', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          idempotencyKey: `r11-lock-reset-${project.id}`,
+          idempotencyKey: `r11-reset-race409-${project.id}`,
           operation: 'reset_project_workflow',
           confidence: 1,
           autoApply: true,
           payload: {
             projectId: project.id,
-            templateVersionId: (
-              await tx<{ template_version_id: string }[]>`
-                SELECT template_version_id FROM project_workflows WHERE project_id = ${project.id}
-              `
-            )[0]!.template_version_id,
+            templateVersionId,
             confirmDestroyCustomGraph: false,
           },
         }),
-      });
-      return resetRes.status;
-    });
-    const insertRes = await insertBlocked;
-    expect(resetDuringLock).toBe(409);
+      }),
+    ]);
+    expect(resetRes.status).toBe(409);
     expect(insertRes.status).toBeLessThan(500);
     const custom = await sql<{ c: string }[]>`
       SELECT count(*)::text AS c FROM wf_nodes
       WHERE project_id = ${project.id} AND source <> 'template'
     `;
-    expect(Number(custom[0]?.c ?? '0')).toBeGreaterThan(0);
+    expect(Number(custom[0]?.c ?? '0')).toBeGreaterThanOrEqual(2);
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
+
+  test('migration 013 cleanup clears cross-project primary pin dirty rows', async () => {
+    if (!sql) return;
+    const projectA = await createProject(app, 'r11-pin-clean-a');
+    const projectB = await createProject(app, 'r11-pin-clean-b');
+    const wfA = await (
+      await app.request(`/api/v1/commercial/projects/${projectA.id}/workflow`)
+    ).json();
+    const outlineA = wfA.nodes.find((n: { slug: string | null }) => n.slug === 'outline');
+    const itemBRes = await app.request(`/api/v1/commercial/projects/${projectB.id}/open-items`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: '跨项目脏 pin', nextActor: 'us' }),
+    });
+    const itemB = (await itemBRes.json()) as { id: string };
+    await sql`ALTER TABLE wf_nodes DROP CONSTRAINT IF EXISTS fk_wf_nodes_primary_block_item_project`;
+    await sql`
+      UPDATE wf_nodes SET primary_block_pinned_item_id = ${itemB.id}
+      WHERE id = ${outlineA.id} AND project_id = ${projectA.id}
+    `;
+    await sql`
+      UPDATE wf_nodes n
+      SET primary_block_pinned_item_id = NULL, updated_at = now()
+      WHERE n.primary_block_pinned_item_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM open_items o
+          WHERE o.id = n.primary_block_pinned_item_id AND o.project_id = n.project_id
+        )
+    `;
+    const pin = await sql<{ primary_block_pinned_item_id: string | null }[]>`
+      SELECT primary_block_pinned_item_id FROM wf_nodes WHERE id = ${outlineA.id}
+    `;
+    expect(pin[0]?.primary_block_pinned_item_id).toBeNull();
+    await sql`
+      ALTER TABLE wf_nodes
+        ADD CONSTRAINT fk_wf_nodes_primary_block_item_project
+        FOREIGN KEY (project_id, primary_block_pinned_item_id) REFERENCES open_items (project_id, id)
+        ON DELETE RESTRICT ON UPDATE RESTRICT
+    `;
+    await sql`DELETE FROM commercial_projects WHERE id IN (${projectA.id}, ${projectB.id})`;
   });
 
   test('publish result exposes monitor job types', async () => {
