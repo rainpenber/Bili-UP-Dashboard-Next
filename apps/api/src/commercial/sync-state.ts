@@ -1,6 +1,7 @@
 import { deriveProjectCloseState, type NodePhase } from '@studio/workflow';
 import type { Db } from './graph-io';
 import { loadWorkflowGraph } from './graph-io';
+import { recordNodeStatusHistory } from './node-status-history';
 
 export async function syncBlockedAndStage(tx: Db, projectId: string) {
   const graph = await loadWorkflowGraph(tx, projectId, true);
@@ -29,10 +30,19 @@ export async function syncBlockedAndStage(tx: Db, projectId: string) {
     let nextStatus = node.status;
     if (hasBlock && node.status !== 'completed' && node.status !== 'not_applicable') {
       if (node.status !== 'blocked') {
+        const fromStatus = node.status;
         await tx`
           UPDATE wf_nodes SET status_before_block = ${node.status}, status = 'blocked', updated_at = now()
           WHERE id = ${node.id}
         `;
+        await recordNodeStatusHistory(tx, {
+          projectId,
+          nodeId: node.id,
+          fromStatus,
+          toStatus: 'blocked',
+          source: 'block',
+          detail: { reason: 'blocking_open_item' },
+        });
         node.status = 'blocked';
       }
       continue;
@@ -45,6 +55,13 @@ export async function syncBlockedAndStage(tx: Db, projectId: string) {
           `
         )[0]?.status_before_block ?? 'not_reached';
       nextStatus = restore;
+      await recordNodeStatusHistory(tx, {
+        projectId,
+        nodeId: node.id,
+        fromStatus: 'blocked',
+        toStatus: nextStatus,
+        source: 'unblock',
+      });
       await tx`
         UPDATE wf_nodes SET status = ${nextStatus}, status_before_block = NULL, updated_at = now()
         WHERE id = ${node.id}

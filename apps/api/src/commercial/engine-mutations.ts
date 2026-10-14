@@ -38,6 +38,7 @@ export async function copyTemplateIntoWorkflow(
   workflowId: string,
   projectId: string,
   templateVersionId: string,
+  opts?: { historySource?: string },
 ) {
   const tplNodes = await tx<
     {
@@ -73,6 +74,17 @@ export async function copyTemplateIntoWorkflow(
       INSERT INTO wf_nodes (id, workflow_id, project_id, template_node_id, package_id, name, status, is_optional, pos_x, pos_y, phase)
       VALUES (${nodeId}, ${workflowId}, ${projectId}, ${tn.id}, ${instancePkg}, ${tn.name}, ${status}, ${tn.is_optional}, ${tn.pos_x}, ${tn.pos_y}, ${tn.phase})
     `;
+    if (opts?.historySource) {
+      const { recordNodeStatusHistory } = await import('./node-status-history');
+      await recordNodeStatusHistory(tx, {
+        projectId,
+        nodeId,
+        fromStatus: null,
+        toStatus: status,
+        source: opts.historySource,
+        detail: { templateNodeId: tn.id },
+      });
+    }
   }
   const tplEdges = await tx<{ from_node_id: string; to_node_id: string }[]>`
     SELECT from_node_id, to_node_id FROM wf_template_edges WHERE template_version_id = ${templateVersionId}
@@ -141,7 +153,11 @@ export async function applyHermesEnvelopeTx(
           graph.nodes.map((n) => ({ id: n.id, status: n.status })),
           graph.graphEdges,
         );
-        await applyUpdates(tx, graph.workflowId, updates);
+        await applyUpdates(tx, graph.workflowId, updates, {
+          projectId: payload.projectId,
+          source: 'hermes',
+          detail: { action: 'advance_to' },
+        });
         await audit(
           tx,
           payload.projectId,
@@ -173,7 +189,11 @@ export async function applyHermesEnvelopeTx(
           }
           throw e;
         }
-        await applyUpdates(tx, graph.workflowId, updates);
+        await applyUpdates(tx, graph.workflowId, updates, {
+          projectId: payload.projectId,
+          source: 'hermes',
+          detail: { action: 'complete' },
+        });
         await audit(
           tx,
           payload.projectId,
@@ -192,7 +212,11 @@ export async function applyHermesEnvelopeTx(
           graph.nodes.map((n) => ({ id: n.id, status: n.status })),
           graph.graphEdges,
         );
-        await applyUpdates(tx, graph.workflowId, updates);
+        await applyUpdates(tx, graph.workflowId, updates, {
+          projectId: payload.projectId,
+          source: 'hermes',
+          detail: { action: 'rollback' },
+        });
         await audit(
           tx,
           payload.projectId,
@@ -216,6 +240,14 @@ export async function applyHermesEnvelopeTx(
             status: 409,
           });
         }
+        const { recordNodeStatusHistory } = await import('./node-status-history');
+        await recordNodeStatusHistory(tx, {
+          projectId: payload.projectId,
+          nodeId: payload.nodeId,
+          fromStatus: node.status,
+          toStatus: 'not_applicable',
+          source: 'not_applicable',
+        });
         await tx`
           UPDATE wf_nodes SET status = 'not_applicable', completed_at = now(), updated_at = now()
           WHERE id = ${payload.nodeId} AND project_id = ${payload.projectId} AND workflow_id = ${graph.workflowId}
@@ -327,7 +359,12 @@ export async function applyHermesEnvelopeTx(
         patch.blocksNodeId !== undefined ? patch.blocksNodeId : current[0].blocks_node_id;
       if (nextImpact === 'blocking' && !nextBlocks)
         throw Object.assign(new Error('blocking item requires blocksNodeId'), { status: 409 });
-      await assertNodesInProject(tx, projectId, [patch.blocksNodeId, patch.workflowNodeId]);
+      const blocksNodeIdForUpdate =
+        nextImpact === 'normal' ? null : patch.blocksNodeId !== undefined ? patch.blocksNodeId : undefined;
+      await assertNodesInProject(tx, projectId, [
+        blocksNodeIdForUpdate ?? (nextImpact === 'blocking' ? nextBlocks : null),
+        patch.workflowNodeId,
+      ]);
       if (patch.title !== undefined)
         await tx`UPDATE open_items SET title = ${patch.title}, updated_at = now() WHERE id = ${itemId}`;
       if (patch.description !== undefined)
@@ -342,8 +379,8 @@ export async function applyHermesEnvelopeTx(
         await tx`UPDATE open_items SET planned_at = ${patch.plannedAt ?? null}, updated_at = now() WHERE id = ${itemId}`;
       if (patch.impact !== undefined)
         await tx`UPDATE open_items SET impact = ${patch.impact}, updated_at = now() WHERE id = ${itemId}`;
-      if (patch.blocksNodeId !== undefined)
-        await tx`UPDATE open_items SET blocks_node_id = ${patch.blocksNodeId ?? null}, updated_at = now() WHERE id = ${itemId}`;
+      if (blocksNodeIdForUpdate !== undefined || nextImpact === 'normal')
+        await tx`UPDATE open_items SET blocks_node_id = ${blocksNodeIdForUpdate ?? null}, updated_at = now() WHERE id = ${itemId}`;
       if (patch.workflowNodeId !== undefined)
         await tx`UPDATE open_items SET workflow_node_id = ${patch.workflowNodeId ?? null}, updated_at = now() WHERE id = ${itemId}`;
       await auditItem(tx, projectId, 'update', itemId, patch, 'hermes');
@@ -486,12 +523,16 @@ export async function applyHermesEnvelopeTx(
         SELECT id FROM project_workflows WHERE project_id = ${payload.projectId} FOR UPDATE
       `;
       if (!wf[0]) throw Object.assign(new Error('workflow not found'), { status: 404 });
+      const { assertResetTemplateVersionAllowed } = await import('./template-reset');
+      await assertResetTemplateVersionAllowed(tx, payload.projectId, payload.templateVersionId);
       await pushUndoSnapshot(tx, payload.projectId);
       await tx`DELETE FROM wf_edges WHERE workflow_id = ${wf[0].id}`;
       await tx`DELETE FROM wf_nodes WHERE workflow_id = ${wf[0].id}`;
       await tx`DELETE FROM wf_packages WHERE workflow_id = ${wf[0].id}`;
       await tx`UPDATE project_workflows SET template_version_id = ${payload.templateVersionId} WHERE id = ${wf[0].id}`;
-      await copyTemplateIntoWorkflow(tx, wf[0].id, payload.projectId, payload.templateVersionId);
+      await copyTemplateIntoWorkflow(tx, wf[0].id, payload.projectId, payload.templateVersionId, {
+        historySource: 'reset',
+      });
       await syncBlockedAndStage(tx, payload.projectId);
       return getWorkflowTx(tx, payload.projectId);
     }

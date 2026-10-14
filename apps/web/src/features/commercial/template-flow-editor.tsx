@@ -156,7 +156,7 @@ export function TemplateFlowEditor(props: Props) {
   const emptyGraph = props.graph.nodes.length === 0;
 
   return (
-    <div className="space-y-3">
+    <div className="w-full max-w-full space-y-3 overflow-hidden">
       {props.error ? <p className="text-destructive text-sm">{props.error}</p> : null}
       {emptyGraph ? (
         <p className="text-muted-foreground text-sm">空图草稿：请先添加第一个模板节点。</p>
@@ -250,8 +250,8 @@ export function TemplateFlowEditor(props: Props) {
       {props.onCreatePackage ? (
         <div className="flex flex-wrap items-end gap-2 rounded border p-2 text-sm">
           <Input
-            aria-label="新建 package 名称"
-            placeholder="新建 package"
+            aria-label="新建制作包名称"
+            placeholder="新建制作包"
             value={newPackageName}
             onChange={(e) => setNewPackageName(e.target.value)}
           />
@@ -265,12 +265,12 @@ export function TemplateFlowEditor(props: Props) {
                 .catch(() => undefined);
             }}
           >
-            添加 package
+            添加制作包
           </Button>
         </div>
       ) : null}
-      <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
-        <div className="h-[480px] rounded border">
+      <div className="grid w-full max-w-full gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="h-[480px] min-w-0 max-w-full overflow-hidden rounded border">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -320,7 +320,7 @@ export function TemplateFlowEditor(props: Props) {
                 可选 / 允许 NA
               </label>
               <label className="flex flex-col gap-1">
-                Package
+                制作包
                 <select
                   className="rounded border px-2 py-1"
                   value={draft.package_id ?? ''}
@@ -348,7 +348,13 @@ export function TemplateFlowEditor(props: Props) {
                   size="sm"
                   variant="destructive"
                   disabled={props.pending}
-                  onClick={() => void props.onDeleteNode(draft.id)}
+                  onClick={() => {
+                    const ok = window.confirm(
+                      `确定删除模板节点「${draft.name}」？此操作不可从界面恢复，需撤销草稿才能找回。`,
+                    );
+                    if (!ok) return;
+                    void props.onDeleteNode(draft.id);
+                  }}
                 >
                   删除节点
                 </Button>

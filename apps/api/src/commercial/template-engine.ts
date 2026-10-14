@@ -337,7 +337,7 @@ async function assertDraftTx(tx: Db, versionId: string) {
     throw Object.assign(new Error('only draft templates are editable'), { status: 409 });
 }
 
-async function validateTemplateGraphTx(tx: Db, versionId: string) {
+export async function validateTemplateGraphTx(tx: Db, versionId: string) {
   const nodes = await tx<{ id: string; slug: string }[]>`
     SELECT id, slug FROM wf_template_nodes WHERE template_version_id = ${versionId}
   `;

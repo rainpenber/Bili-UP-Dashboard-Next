@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { OpenItemDto, WorkflowGraph } from '@studio/contracts';
 import {
   cancelOpenItem,
@@ -23,6 +23,8 @@ type Props = {
   disabled: boolean;
   mergeSelection?: string[];
   onToggleMerge?: (itemId: string) => void;
+  /** Deep-link / history section: start expanded to show audit trail */
+  defaultExpanded?: boolean;
 };
 
 function HistoryBlock({ projectId, itemId }: { projectId: string; itemId: string }) {
@@ -51,6 +53,7 @@ export function OpenItemCard({
   disabled,
   mergeSelection,
   onToggleMerge,
+  defaultExpanded = false,
 }: Props) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -66,7 +69,11 @@ export function OpenItemCard({
   const [cancelReason, setCancelReason] = useState('');
   const [splitTitles, setSplitTitles] = useState('');
   const [promoteName, setPromoteName] = useState('');
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  useEffect(() => {
+    if (defaultExpanded) setExpanded(true);
+  }, [defaultExpanded]);
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['commercial'] });
 

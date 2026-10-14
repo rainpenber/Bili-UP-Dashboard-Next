@@ -48,6 +48,34 @@ function asSnapshotArray(raw: unknown): WorkflowUndoSnapshot[] {
   return [normalizeSnapshot(parsed)];
 }
 
+async function captureNodeStatuses(tx: Db, projectId: string): Promise<Map<string, string>> {
+  const rows = await tx<{ id: string; status: string }[]>`
+    SELECT id, status FROM wf_nodes WHERE project_id = ${projectId}
+  `;
+  return new Map(rows.map((r) => [r.id, r.status]));
+}
+
+async function recordWorkflowStatusDiff(
+  tx: Db,
+  projectId: string,
+  before: Map<string, string>,
+  after: Map<string, string>,
+  source: 'undo' | 'redo',
+) {
+  const { recordNodeStatusHistory } = await import('./node-status-history');
+  for (const [nodeId, toStatus] of after) {
+    const fromStatus = before.get(nodeId) ?? null;
+    if (fromStatus === toStatus) continue;
+    await recordNodeStatusHistory(tx, {
+      projectId,
+      nodeId,
+      fromStatus,
+      toStatus,
+      source,
+    });
+  }
+}
+
 async function captureSnapshot(tx: Db, projectId: string): Promise<WorkflowUndoSnapshot | null> {
   const graph = await getWorkflowTx(tx, projectId);
   if (!graph) return null;
@@ -180,7 +208,10 @@ export async function undoProjectGraph(tx: Db, projectId: string) {
   if (!undo.length) throw Object.assign(new Error('nothing to undo'), { status: 409 });
   const snap = undo[undo.length - 1]!;
   const current = await captureSnapshot(tx, projectId);
+  const beforeStatuses = await captureNodeStatuses(tx, projectId);
   await restoreWorkflowSnapshot(tx, projectId, snap);
+  const afterStatuses = await captureNodeStatuses(tx, projectId);
+  await recordWorkflowStatusDiff(tx, projectId, beforeStatuses, afterStatuses, 'undo');
   const redo = asSnapshotArray(rows[0]?.redo_json);
   const nextRedo = current ? [...redo, current] : redo;
   await tx`
@@ -204,7 +235,10 @@ export async function redoProjectGraph(tx: Db, projectId: string) {
   if (!redo.length) throw Object.assign(new Error('nothing to redo'), { status: 409 });
   const snap = redo[redo.length - 1]!;
   const current = await captureSnapshot(tx, projectId);
+  const beforeStatuses = await captureNodeStatuses(tx, projectId);
   await restoreWorkflowSnapshot(tx, projectId, snap);
+  const afterStatuses = await captureNodeStatuses(tx, projectId);
+  await recordWorkflowStatusDiff(tx, projectId, beforeStatuses, afterStatuses, 'redo');
   const undo = asSnapshotArray(rows[0]?.undo_json);
   const nextUndo = current ? [...undo, current] : undo;
   await tx`

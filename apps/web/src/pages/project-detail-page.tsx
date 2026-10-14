@@ -720,26 +720,23 @@ export function ProjectDetailPage() {
             >
               已闭环 / 已取消历史
             </summary>
-            <ul className="mt-2 space-y-2">
+            <div className="mt-2 space-y-2">
               {p.openItems
                 .filter((i) => i.lifecycle !== 'open')
                 .map((item) => (
-                  <li key={item.id} id={`item-${item.id}`} tabIndex={-1}>
-                    <Link to={`#item-${item.id}`} className="text-primary underline">
-                      {item.title}
-                    </Link>
-                    <span className="text-muted-foreground">
-                      {' '}
-                      · {item.lifecycle === 'closed' ? '已闭环' : '已取消'}
-                      {item.closeConclusion ? ` · ${item.closeConclusion}` : ''}
-                      {item.cancelReason ? ` · ${item.cancelReason}` : ''}
-                    </span>
-                  </li>
+                  <OpenItemCard
+                    key={item.id}
+                    projectId={id!}
+                    item={item}
+                    workflow={wf}
+                    disabled={pending}
+                    defaultExpanded={focusItemId === item.id}
+                  />
                 ))}
               {p.openItems.filter((i) => i.lifecycle !== 'open').length === 0 ? (
-                <li className="text-muted-foreground">暂无历史事项</li>
+                <p className="text-muted-foreground text-sm">暂无历史事项</p>
               ) : null}
-            </ul>
+            </div>
           </details>
         </CardContent>
       </Card>

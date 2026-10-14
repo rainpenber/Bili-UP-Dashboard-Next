@@ -107,8 +107,22 @@ export async function applyUpdates(
   tx: Db,
   workflowId: string,
   updates: Map<string, { status: string; completedAt?: string | null }>,
+  opts?: { projectId?: string; source?: string; detail?: Record<string, unknown> },
 ) {
+  let projectId = opts?.projectId;
+  if (!projectId) {
+    const pw = await tx<{ project_id: string }[]>`
+      SELECT project_id FROM project_workflows WHERE id = ${workflowId}
+    `;
+    projectId = pw[0]?.project_id;
+  }
+  const source = opts?.source ?? 'web';
+  const { recordNodeStatusHistory } = await import('./node-status-history');
   for (const [id, u] of updates) {
+    const before = await tx<{ status: string }[]>`
+      SELECT status FROM wf_nodes WHERE id = ${id} AND workflow_id = ${workflowId}
+    `;
+    const fromStatus = before[0]?.status ?? null;
     const rows = await tx`
       UPDATE wf_nodes SET status = ${u.status},
         completed_at = ${u.completedAt ?? null},
@@ -118,6 +132,16 @@ export async function applyUpdates(
     `;
     if (!rows.length)
       throw Object.assign(new Error('node update out of workflow scope'), { status: 409 });
+    if (projectId) {
+      await recordNodeStatusHistory(tx, {
+        projectId,
+        nodeId: id,
+        fromStatus,
+        toStatus: u.status,
+        source,
+        detail: opts?.detail ?? null,
+      });
+    }
   }
 }
 
@@ -275,9 +299,18 @@ export async function executePublishEffects(
   const graph = await loadWorkflowGraph(tx, projectId, true);
   if (!graph) throw Object.assign(new Error('workflow not found'), { status: 404 });
   const forced: { nodeId: string; name: string }[] = [];
+  const { recordNodeStatusHistory } = await import('./node-status-history');
   for (const n of graph.nodes) {
     if (n.phase !== 'pre_publish') continue;
     if (n.status === 'completed' || n.status === 'not_applicable') continue;
+    await recordNodeStatusHistory(tx, {
+      projectId,
+      nodeId: n.id,
+      fromStatus: n.status,
+      toStatus: 'completed',
+      source: 'publish_force_complete',
+      detail: { bvid: body.bvid },
+    });
     await tx`
       UPDATE wf_nodes SET status = 'completed', completed_at = ${body.publishedAt}, updated_at = now()
       WHERE id = ${n.id}

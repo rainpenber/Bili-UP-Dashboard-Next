@@ -238,7 +238,10 @@ export class CommercialEngine {
         graph.nodes.map((n) => ({ id: n.id, status: n.status })),
         graph.graphEdges,
       );
-      await applyUpdates(tx, graph.workflowId, updates);
+      await applyUpdates(tx, graph.workflowId, updates, {
+        projectId,
+        source: 'advance_to',
+      });
       await audit(tx, projectId, 'advance_to', nodeId, Object.fromEntries(updates));
     });
     return (await this.getWorkflow(projectId))!;
@@ -265,7 +268,7 @@ export class CommercialEngine {
         }
         throw e;
       }
-      await applyUpdates(tx, graph.workflowId, updates);
+      await applyUpdates(tx, graph.workflowId, updates, { projectId, source: 'complete' });
       await audit(tx, projectId, 'complete', nodeId, Object.fromEntries(updates));
     });
     return (await this.getWorkflow(projectId))!;
@@ -279,7 +282,7 @@ export class CommercialEngine {
         graph.nodes.map((n) => ({ id: n.id, status: n.status })),
         graph.graphEdges,
       );
-      await applyUpdates(tx, graph.workflowId, updates);
+      await applyUpdates(tx, graph.workflowId, updates, { projectId, source: 'rollback' });
       await audit(tx, projectId, 'rollback', nodeId, Object.fromEntries(updates));
     });
     return (await this.getWorkflow(projectId))!;
@@ -298,6 +301,14 @@ export class CommercialEngine {
           status: 409,
         });
       }
+      const { recordNodeStatusHistory } = await import('./node-status-history');
+      await recordNodeStatusHistory(tx, {
+        projectId,
+        nodeId,
+        fromStatus: node.status,
+        toStatus: 'not_applicable',
+        source: 'not_applicable',
+      });
       await tx`
         UPDATE wf_nodes SET status = 'not_applicable', completed_at = now(), updated_at = now()
         WHERE id = ${nodeId} AND project_id = ${projectId} AND workflow_id = ${graph.workflowId}
@@ -543,7 +554,7 @@ export class CommercialEngine {
       if (nextImpact === 'blocking' && !nextBlocks) {
         throw Object.assign(new Error('blocking item requires blocksNodeId'), { status: 409 });
       }
-      if (patch.impact === 'normal') {
+      if (nextImpact === 'normal') {
         patch.blocksNodeId = null;
       }
       await assertNodesInProject(tx, projectId, [
