@@ -112,7 +112,7 @@ test.describe('WP-004R round10 promote pin publish', () => {
     await page.getByLabel('BV号').fill(bvid);
     await page.getByLabel('上线时间').fill('2026-02-01T10:00');
     await page.getByRole('button', { name: '确认发布' }).click();
-    await expect(page.getByText('已上线', { exact: false })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(bvid)).toBeVisible({ timeout: 20_000 });
     const detail = await page.request.get(`/api/v1/commercial/projects/${projectId}`);
     const body = (await detail.json()) as {
       overallStage: string;
