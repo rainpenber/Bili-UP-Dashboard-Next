@@ -1,22 +1,33 @@
-import type { WorkflowGraph, WorkflowGraphNode, WorkflowNodeStatus } from './types';
+import type {
+  WorkflowGraph,
+  WorkflowGraphNode,
+  WorkflowGraphStep,
+  WorkflowNodeStatus,
+} from './types';
 
 export type FlatGraphRow =
-  { kind: 'node'; node: WorkflowGraphNode } | { kind: 'parallel'; nodes: WorkflowGraphNode[] };
+  | { kind: 'serial'; node: WorkflowGraphNode }
+  | { kind: 'parallel'; nodes: WorkflowGraphNode[]; joinId: string };
 
-/** 将分段图展开为纵向行（并行组为一行） */
+/** 将流程展开为纵向行；并行组在同一行且带汇合 id */
 export function flattenWorkflowGraph(graph: WorkflowGraph): FlatGraphRow[] {
-  const rows: FlatGraphRow[] = [];
-  for (const section of graph.sections) {
-    for (const n of section.nodes) {
-      rows.push({ kind: 'node', node: n });
+  return graph.steps.map((step, index) => {
+    if (step.kind === 'serial') {
+      return { kind: 'serial', node: step.node };
     }
-    if (section.parallelGroups) {
-      for (const group of section.parallelGroups) {
-        if (group.length > 0) rows.push({ kind: 'parallel', nodes: group });
-      }
-    }
-  }
-  return rows;
+    return { kind: 'parallel', nodes: step.nodes, joinId: `parallel-${index}` };
+  });
+}
+
+export function parallelSiblingCount(rows: FlatGraphRow[]): number[] {
+  return rows
+    .filter((r): r is Extract<FlatGraphRow, { kind: 'parallel' }> => r.kind === 'parallel')
+    .map((r) => r.nodes.length);
+}
+
+export function hasForkJoinPair(rows: FlatGraphRow[]): boolean {
+  const parallel = rows.filter((r) => r.kind === 'parallel');
+  return parallel.some((r) => r.kind === 'parallel' && r.nodes.length >= 2);
 }
 
 export function workflowNodeStatusClass(status: WorkflowNodeStatus): string {
@@ -43,4 +54,30 @@ export function workflowNodeStatusLabel(status: WorkflowNodeStatus): string {
     default:
       return '未到';
   }
+}
+
+export function countSteps(graph: WorkflowGraph): { serial: number; parallel: number } {
+  let serial = 0;
+  let parallel = 0;
+  for (const step of graph.steps) {
+    if (step.kind === 'serial') serial += 1;
+    else parallel += 1;
+  }
+  return { serial, parallel };
+}
+
+export function includesPostPublishWindDown(graph: WorkflowGraph): boolean {
+  return graph.steps.some(
+    (step) =>
+      step.kind === 'parallel' &&
+      step.nodes.some((n) => n.id === 'settle' || n.name.includes('结算')),
+  );
+}
+
+export function isPrepParallelStep(step: WorkflowGraphStep): boolean {
+  return (
+    step.kind === 'parallel' &&
+    step.nodes.some((n) => n.id === 'script') &&
+    step.nodes.some((n) => n.id === 'pre-shoot')
+  );
 }

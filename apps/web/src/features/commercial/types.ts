@@ -27,17 +27,11 @@ export interface WorkflowGraphNode {
   blockingReason?: string;
 }
 
-/** 纵向主链；parallelGroups 为同一阶段的并行分支（横向排列） */
-export interface WorkflowGraphSection {
-  id: string;
-  /** 主链节点（纵向） */
-  nodes: WorkflowGraphNode[];
-  /** 并行组：每组内节点横向并列，组与组之间仍纵向连接 */
-  parallelGroups?: WorkflowGraphNode[][];
-}
+export type WorkflowGraphStep =
+  { kind: 'serial'; node: WorkflowGraphNode } | { kind: 'parallel'; nodes: WorkflowGraphNode[] };
 
 export interface WorkflowGraph {
-  sections: WorkflowGraphSection[];
+  steps: WorkflowGraphStep[];
 }
 
 export type ProjectListBucket =

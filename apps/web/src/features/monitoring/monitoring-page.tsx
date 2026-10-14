@@ -70,7 +70,7 @@ export function MonitoringPage() {
     <>
       <PageHeader
         title="监控中心"
-        description="查看已导入的视频、UP 主与动态指标时序，支持筛选、分页与趋势对比。"
+        description="查看已导入的视频、UP 主与动态数据，支持筛选、分页与趋势对比。"
         crumbs={[{ label: '工作室', to: '/' }, { label: '监控' }]}
         actions={<OfflineEnvironmentBadge />}
       />
@@ -301,7 +301,7 @@ export function MonitoringPage() {
 
             <Card className="min-w-0 lg:sticky lg:top-20">
               <CardHeader className="flex-row items-center justify-between space-y-0">
-                <CardTitle className="text-base">时序指标</CardTitle>
+                <CardTitle className="text-base">播放与互动趋势</CardTitle>
                 {state.selected ? (
                   <Badge
                     variant="outline"
@@ -322,7 +322,7 @@ export function MonitoringPage() {
                     message={
                       metricsQuery.error instanceof Error
                         ? metricsQuery.error.message
-                        : '无法获取时序数据'
+                        : '暂时拉不到趋势数据'
                     }
                     onRetry={() => void metricsQuery.refetch()}
                   />

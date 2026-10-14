@@ -15,7 +15,7 @@ export function IntegrationsSettingsPage() {
         crumbs={[{ label: '工作室', to: '/' }, { label: '集成与设置' }]}
       />
 
-      <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,22rem)_1fr] xl:items-start">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">通知与集成（规划中）</CardTitle>
@@ -25,7 +25,7 @@ export function IntegrationsSettingsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle className="text-base">新项目默认流程</CardTitle>
             {query.data ? (

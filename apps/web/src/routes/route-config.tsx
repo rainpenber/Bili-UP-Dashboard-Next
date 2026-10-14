@@ -32,7 +32,6 @@ export const appRouteConfig: RouteObject[] = [
       { path: 'monitoring/videos/:bvid', element: <MonitoringVideoDetailPage /> },
       { path: 'monitoring/creators/:mid', element: <MonitoringCreatorDetailPage /> },
       { path: 'monitoring/dynamics/:id', element: <MonitoringDynamicDetailPage /> },
-      { path: 'finance', element: placeholderFor('/finance') },
       { path: 'content', element: placeholderFor('/content') },
       { path: 'integrations', element: <IntegrationsSettingsPage /> },
       { path: 'design-system', element: <DesignSystemPage /> },

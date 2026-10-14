@@ -94,7 +94,7 @@ export function ProjectListPage() {
             }
           />
         ) : (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {list.map((project) => (
               <ProjectListCard key={project.id} project={project} />
             ))}

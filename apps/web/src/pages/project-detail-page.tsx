@@ -74,89 +74,117 @@ export function ProjectDetailPage() {
       />
 
       <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">概要</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm">
-            <div>
-              <p className="mb-1 text-muted-foreground">未完成节点的计划时间</p>
-              {project.upcomingNodeSchedule.length > 0 ? (
-                <p className="flex flex-wrap gap-x-3 gap-y-1">
-                  {project.upcomingNodeSchedule.map((s) => (
-                    <ScheduleLine key={s.name} name={s.name} dateLabel={s.dateLabel} />
-                  ))}
-                </p>
-              ) : (
-                <p className="text-muted-foreground">暂无排期。</p>
-              )}
-            </div>
-
-            {project.finishedNodeSchedule.length > 0 ? (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle className="text-base">概要</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
               <div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-auto px-0 text-muted-foreground"
-                  aria-expanded={finishedOpen}
-                  onClick={() => setFinishedOpen((v) => !v)}
-                >
-                  {finishedOpen ? '收起已完成节点时间' : '展开已完成节点时间'}
-                  <ChevronDown className={cn('size-4', finishedOpen && 'rotate-180')} aria-hidden />
-                </Button>
-                {finishedOpen ? (
-                  <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
-                    {project.finishedNodeSchedule.map((s) => (
+                <p className="mb-1 text-muted-foreground">未完成节点的计划时间</p>
+                {project.upcomingNodeSchedule.length > 0 ? (
+                  <p className="flex flex-wrap gap-x-3 gap-y-1">
+                    {project.upcomingNodeSchedule.map((s) => (
                       <ScheduleLine key={s.name} name={s.name} dateLabel={s.dateLabel} />
                     ))}
                   </p>
-                ) : null}
+                ) : (
+                  <p className="text-muted-foreground">暂无排期。</p>
+                )}
               </div>
-            ) : null}
 
-            <p>
-              <span className="text-muted-foreground">整体阶段：</span>
-              {project.overallStage}
-            </p>
-            {project.inProgressNodeNames.length > 0 ? (
-              <p>
-                <span className="text-muted-foreground">进行中的节点：</span>
-                {project.inProgressNodeNames.join('、')}
-              </p>
-            ) : null}
-            {project.mainBlockingItem ? (
-              <p>
-                <span className="text-muted-foreground">主要阻塞项：</span>
-                {project.mainBlockingItem}
-              </p>
-            ) : null}
-            <div className="flex flex-wrap gap-6">
-              <p>
-                <span className="text-muted-foreground">到手金额：</span>
-                {formatYuan(project.netAmountYuan)}
-              </p>
-              <p>
-                <span className="text-muted-foreground">返点金额：</span>
-                {formatYuan(project.rebateAmountYuan)}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+              {project.finishedNodeSchedule.length > 0 ? (
+                <div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto px-0 text-muted-foreground"
+                    aria-expanded={finishedOpen}
+                    onClick={() => setFinishedOpen((v) => !v)}
+                  >
+                    {finishedOpen ? '收起已完成节点时间' : '展开已完成节点时间'}
+                    <ChevronDown
+                      className={cn('size-4', finishedOpen && 'rotate-180')}
+                      aria-hidden
+                    />
+                  </Button>
+                  {finishedOpen ? (
+                    <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
+                      {project.finishedNodeSchedule.map((s) => (
+                        <ScheduleLine key={s.name} name={s.name} dateLabel={s.dateLabel} />
+                      ))}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">当前状态</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm">{statusText}</p>
-            <PublishPanel
-              project={project}
-              override={publishOverride}
-              onPublished={setPublishOverride}
-            />
-          </CardContent>
-        </Card>
+              <p>
+                <span className="text-muted-foreground">整体阶段：</span>
+                {project.overallStage}
+              </p>
+              {project.inProgressNodeNames.length > 0 ? (
+                <p>
+                  <span className="text-muted-foreground">进行中的节点：</span>
+                  {project.inProgressNodeNames.join('、')}
+                </p>
+              ) : null}
+              {project.mainBlockingItem ? (
+                <p>
+                  <span className="text-muted-foreground">主要阻塞项：</span>
+                  {project.mainBlockingItem}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-6">
+                <p>
+                  <span className="text-muted-foreground">到手金额：</span>
+                  {formatYuan(project.netAmountYuan)}
+                </p>
+                <p>
+                  <span className="text-muted-foreground">返点金额：</span>
+                  {formatYuan(project.rebateAmountYuan)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle className="text-base">当前状态</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm">{statusText}</p>
+              <PublishPanel
+                project={project}
+                override={publishOverride}
+                onPublished={setPublishOverride}
+              />
+            </CardContent>
+          </Card>
+
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle className="text-base">开放事项</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {project.openItems.length > 0 ? (
+                <ul className="space-y-2 text-sm">
+                  {project.openItems.map((item) => (
+                    <li key={item.id} className="rounded-md border px-3 py-2">
+                      <p className="font-medium">{item.title}</p>
+                      <p className="text-muted-foreground">下一步：{item.nextAction}</p>
+                      {item.plannedTime ? (
+                        <p className="text-muted-foreground">{item.plannedTime}</p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">暂无开放事项。</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
         <Card>
           <CardHeader>
@@ -169,27 +197,6 @@ export function ProjectDetailPage() {
             <WorkflowGraphReadonly graph={project.workflow} />
           </CardContent>
         </Card>
-
-        {project.openItems.length > 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">开放事项</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2 text-sm">
-                {project.openItems.map((item) => (
-                  <li key={item.id} className="rounded-md border px-3 py-2">
-                    <p className="font-medium">{item.title}</p>
-                    <p className="text-muted-foreground">下一步：{item.nextAction}</p>
-                    {item.plannedTime ? (
-                      <p className="text-muted-foreground">{item.plannedTime}</p>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        ) : null}
 
         <Button variant="outline" asChild>
           <Link to="/projects">返回项目列表</Link>

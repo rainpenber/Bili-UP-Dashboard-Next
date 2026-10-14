@@ -1,11 +1,12 @@
-import type { CommercialProject, DefaultWorkflowTemplate } from './types';
+import type { CommercialProject, DefaultWorkflowTemplate, WorkflowGraphNode } from './types';
+import { createProjectWorkflow, defaultTemplateWorkflow } from './workflow-graph-canonical';
 
 function node(
   id: string,
   name: string,
-  status: CommercialProject['workflow']['sections'][0]['nodes'][0]['status'],
-  extra?: Partial<CommercialProject['workflow']['sections'][0]['nodes'][0]>,
-): CommercialProject['workflow']['sections'][0]['nodes'][0] {
+  status: WorkflowGraphNode['status'],
+  extra?: Partial<WorkflowGraphNode>,
+): WorkflowGraphNode {
   return { id, name, status, ...extra };
 }
 
@@ -13,39 +14,8 @@ function node(
 export const defaultWorkflowTemplate: DefaultWorkflowTemplate = {
   title: '新商单默认流程',
   description:
-    '短剧式商单从询单到发布，再到结算与后续维护。并行制作包与结算类节点在主干之后分叉，可在具体项目里微调。',
-  graph: {
-    sections: [
-      {
-        id: 'main',
-        nodes: [
-          node('inq', '询单', 'not_reached'),
-          node('outline', '大纲', 'not_reached'),
-          node('script', '文案', 'not_reached'),
-          node('pre-shoot', '预拍摄', 'not_reached'),
-        ],
-        parallelGroups: [
-          [
-            node('a-roll', 'A-roll 拍摄', 'not_reached'),
-            node('b-roll', 'B-roll 素材', 'not_reached'),
-            node('ai-post', 'AI 后期', 'not_reached'),
-          ],
-        ],
-      },
-      {
-        id: 'post-main',
-        nodes: [node('review', '审核', 'not_reached'), node('publish', '发布', 'not_reached')],
-        parallelGroups: [
-          [
-            node('settle', '结算', 'not_reached'),
-            node('distribute', '全平台分发', 'not_reached'),
-            node('data-care', '数据维护', 'not_reached'),
-            node('other', '其他', 'not_reached'),
-          ],
-        ],
-      },
-    ],
-  },
+    '短剧式商单从询单到发布，再到结算与后续维护。文案与预拍摄、制作并行包、发布后收尾都会在图上并列展示。',
+  graph: defaultTemplateWorkflow(),
 };
 
 export const commercialProjectsMock: CommercialProject[] = [
@@ -95,36 +65,17 @@ export const commercialProjectsMock: CommercialProject[] = [
         isBlocking: true,
       },
     ],
-    workflow: {
-      sections: [
-        {
-          id: 's1',
-          nodes: [
-            node('inq', '询单', 'done', { finishedDateLabel: '2月18日' }),
-            node('outline', '大纲', 'blocked', {
-              plannedDateLabel: '3月10日',
-              blockingReason: '甲方反馈写作方向',
-            }),
-            node('script', '文案', 'not_reached', { plannedDateLabel: '3月14日' }),
-            node('pre', '预拍摄', 'not_reached', { plannedDateLabel: '3月16日' }),
-          ],
-          parallelGroups: [
-            [
-              node('ar', 'A-roll', 'not_reached'),
-              node('br', 'B-roll', 'not_reached'),
-              node('ai', 'AI 后期', 'not_reached'),
-            ],
-          ],
-        },
-        {
-          id: 's2',
-          nodes: [
-            node('rev', '审核', 'not_reached'),
-            node('pub', '发布', 'not_reached', { plannedDateLabel: '3月22日' }),
-          ],
-        },
-      ],
-    },
+    workflow: createProjectWorkflow({
+      inq: { status: 'done', finishedDateLabel: '2月18日' },
+      outline: {
+        status: 'blocked',
+        plannedDateLabel: '3月10日',
+        blockingReason: '甲方反馈写作方向',
+      },
+      script: { plannedDateLabel: '3月14日' },
+      'pre-shoot': { plannedDateLabel: '3月16日' },
+      pub: { plannedDateLabel: '3月22日' },
+    }),
   },
   {
     id: 'proj-snack-crisp',
@@ -158,18 +109,11 @@ export const commercialProjectsMock: CommercialProject[] = [
         isBlocking: false,
       },
     ],
-    workflow: {
-      sections: [
-        {
-          id: 's1',
-          nodes: [
-            node('inq', '询单', 'done', { finishedDateLabel: '2月25日' }),
-            node('outline', '大纲', 'in_progress', { plannedDateLabel: '3月9日' }),
-            node('script', '文案', 'not_reached', { plannedDateLabel: '3月12日' }),
-          ],
-        },
-      ],
-    },
+    workflow: createProjectWorkflow({
+      inq: { status: 'done', finishedDateLabel: '2月25日' },
+      outline: { status: 'in_progress', plannedDateLabel: '3月9日' },
+      script: { plannedDateLabel: '3月12日' },
+    }),
   },
   {
     id: 'proj-game-collab',
@@ -205,26 +149,12 @@ export const commercialProjectsMock: CommercialProject[] = [
         isBlocking: false,
       },
     ],
-    workflow: {
-      sections: [
-        {
-          id: 's1',
-          nodes: [
-            node('inq', '询单', 'done', { finishedDateLabel: '2月20日' }),
-            node('outline', '大纲', 'done', { finishedDateLabel: '2月28日' }),
-            node('script', '文案', 'in_progress', { plannedDateLabel: '3月8日' }),
-            node('pre', '预拍摄', 'not_reached'),
-          ],
-          parallelGroups: [
-            [
-              node('ar', 'A-roll', 'not_reached'),
-              node('br', 'B-roll 素材', 'in_progress'),
-              node('ai', 'AI 后期', 'not_reached'),
-            ],
-          ],
-        },
-      ],
-    },
+    workflow: createProjectWorkflow({
+      inq: { status: 'done', finishedDateLabel: '2月20日' },
+      outline: { status: 'done', finishedDateLabel: '2月28日' },
+      script: { status: 'in_progress', plannedDateLabel: '3月8日' },
+      br: { status: 'in_progress', name: 'B-roll 素材' },
+    }),
   },
   {
     id: 'proj-phone-gen',
@@ -271,33 +201,17 @@ export const commercialProjectsMock: CommercialProject[] = [
         isBlocking: false,
       },
     ],
-    workflow: {
-      sections: [
-        {
-          id: 's1',
-          nodes: [
-            node('outline', '大纲', 'done', { finishedDateLabel: '2月22日' }),
-            node('script', '文案', 'done', { finishedDateLabel: '2月26日' }),
-          ],
-          parallelGroups: [
-            [
-              node('ar', 'A-roll', 'done', { finishedDateLabel: '3月1日' }),
-              node('br', 'B-roll', 'done', { finishedDateLabel: '3月2日' }),
-              node('ai', 'AI 后期', 'in_progress'),
-            ],
-          ],
-        },
-        {
-          id: 's2',
-          nodes: [
-            node('rev', '审核', 'blocked', {
-              blockingReason: '缺甲方暗光原图',
-            }),
-            node('pub', '发布', 'not_reached', { plannedDateLabel: '3月7日' }),
-          ],
-        },
-      ],
-    },
+    workflow: createProjectWorkflow({
+      inq: { status: 'done', finishedDateLabel: '2月15日' },
+      outline: { status: 'done', finishedDateLabel: '2月22日' },
+      script: { status: 'done', finishedDateLabel: '2月26日' },
+      'pre-shoot': { status: 'done', finishedDateLabel: '2月27日' },
+      ar: { status: 'done', finishedDateLabel: '3月1日' },
+      br: { status: 'done', finishedDateLabel: '3月2日' },
+      ai: { status: 'in_progress' },
+      rev: { status: 'blocked', blockingReason: '缺甲方暗光原图' },
+      pub: { plannedDateLabel: '3月7日' },
+    }),
   },
   {
     id: 'proj-cosmetics-set',
@@ -333,32 +247,17 @@ export const commercialProjectsMock: CommercialProject[] = [
         isBlocking: false,
       },
     ],
-    workflow: {
-      sections: [
-        {
-          id: 's1',
-          nodes: [
-            node('outline', '大纲', 'done', { finishedDateLabel: '2月24日' }),
-            node('script', '文案', 'done', { finishedDateLabel: '2月27日' }),
-            node('pre', '预拍摄', 'done', { finishedDateLabel: '3月1日' }),
-          ],
-          parallelGroups: [
-            [
-              node('ar', 'A-roll', 'in_progress'),
-              node('br', 'B-roll', 'in_progress'),
-              node('ai', 'AI 后期', 'in_progress'),
-            ],
-          ],
-        },
-        {
-          id: 's2',
-          nodes: [
-            node('rev', '审核', 'not_reached', { plannedDateLabel: '3月11日' }),
-            node('pub', '发布', 'not_reached', { plannedDateLabel: '3月13日' }),
-          ],
-        },
-      ],
-    },
+    workflow: createProjectWorkflow({
+      inq: { status: 'done', finishedDateLabel: '2月18日' },
+      outline: { status: 'done', finishedDateLabel: '2月24日' },
+      script: { status: 'done', finishedDateLabel: '2月27日' },
+      'pre-shoot': { status: 'done', finishedDateLabel: '3月1日' },
+      ar: { status: 'in_progress' },
+      br: { status: 'in_progress' },
+      ai: { status: 'in_progress' },
+      rev: { plannedDateLabel: '3月11日' },
+      pub: { plannedDateLabel: '3月13日' },
+    }),
   },
   {
     id: 'proj-camp-gear',
@@ -378,28 +277,25 @@ export const commercialProjectsMock: CommercialProject[] = [
     keywordHaystack: '露营 炉具 外拍 山地',
     sortDate: '2026-03-16',
     openItems: [],
-    workflow: {
-      sections: [
-        {
-          id: 's1',
-          nodes: [
-            node('script', '文案', 'done', { finishedDateLabel: '3月3日' }),
-            node('pre', '预拍摄', 'done', { finishedDateLabel: '3月4日' }),
-          ],
-          parallelGroups: [
-            [
-              node('ar', 'A-roll 棚拍', 'in_progress'),
-              node('out', '外拍补充镜头', 'in_progress'),
-              node('br', 'B-roll', 'not_reached'),
-            ],
-          ],
-        },
-        {
-          id: 's2',
-          nodes: [node('rev', '审核', 'not_reached'), node('pub', '发布', 'not_reached')],
-        },
-      ],
-    },
+    workflow: createProjectWorkflow(
+      {
+        inq: { status: 'done', finishedDateLabel: '2月20日' },
+        outline: { status: 'done', finishedDateLabel: '2月25日' },
+        script: { status: 'done', finishedDateLabel: '3月3日' },
+        'pre-shoot': { status: 'done', finishedDateLabel: '3月4日' },
+        ar: { status: 'in_progress', name: 'A-roll 棚拍' },
+        out: { status: 'in_progress', name: '外拍补充镜头' },
+        rev: { status: 'not_reached' },
+        pub: { plannedDateLabel: '3月16日' },
+      },
+      {
+        productionNodes: [
+          node('ar', 'A-roll 棚拍', 'in_progress'),
+          node('out', '外拍补充镜头', 'in_progress'),
+          node('br', 'B-roll', 'not_reached'),
+        ],
+      },
+    ),
   },
   {
     id: 'proj-board-prop',
@@ -437,22 +333,24 @@ export const commercialProjectsMock: CommercialProject[] = [
         isBlocking: true,
       },
     ],
-    workflow: {
-      sections: [
-        {
-          id: 's1',
-          nodes: [
-            node('outline', '大纲', 'done', { finishedDateLabel: '2月26日' }),
-            node('script', '文案', 'done', { finishedDateLabel: '3月1日' }),
-            node('prop', '道具制作', 'in_progress', { plannedDateLabel: '3月11日' }),
-            node('ar', 'A-roll 拍摄', 'blocked', {
-              plannedDateLabel: '3月12日',
-              blockingReason: '等手工船模',
-            }),
-          ],
+    workflow: createProjectWorkflow(
+      {
+        inq: { status: 'done', finishedDateLabel: '2月20日' },
+        outline: { status: 'done', finishedDateLabel: '2月26日' },
+        script: { status: 'done', finishedDateLabel: '3月1日' },
+        prop: { status: 'in_progress', plannedDateLabel: '3月11日' },
+        ar: {
+          status: 'blocked',
+          plannedDateLabel: '3月12日',
+          blockingReason: '等手工船模',
+          name: 'A-roll 拍摄',
         },
-      ],
-    },
+        pub: { plannedDateLabel: '3月20日' },
+      },
+      {
+        serialAfterPrep: [node('prop', '道具制作', 'in_progress', { plannedDateLabel: '3月11日' })],
+      },
+    ),
   },
   {
     id: 'proj-drink-live',
@@ -498,25 +396,20 @@ export const commercialProjectsMock: CommercialProject[] = [
         isBlocking: false,
       },
     ],
-    workflow: {
-      sections: [
-        {
-          id: 's1',
-          nodes: [
-            node('rev', '审核', 'done', { finishedDateLabel: '2月27日' }),
-            node('pub', '发布', 'done', { finishedDateLabel: '2月28日' }),
-          ],
-          parallelGroups: [
-            [
-              node('settle', '结算', 'in_progress', { plannedDateLabel: '3月31日' }),
-              node('dist', '全平台分发', 'in_progress'),
-              node('data', '数据维护', 'in_progress'),
-              node('other', '其他', 'not_reached'),
-            ],
-          ],
-        },
-      ],
-    },
+    workflow: createProjectWorkflow({
+      inq: { status: 'done', finishedDateLabel: '2月1日' },
+      outline: { status: 'done', finishedDateLabel: '2月8日' },
+      script: { status: 'done', finishedDateLabel: '2月12日' },
+      'pre-shoot': { status: 'done', finishedDateLabel: '2月14日' },
+      ar: { status: 'done', finishedDateLabel: '2月18日' },
+      br: { status: 'done', finishedDateLabel: '2月19日' },
+      ai: { status: 'done', finishedDateLabel: '2月25日' },
+      rev: { status: 'done', finishedDateLabel: '2月27日' },
+      pub: { status: 'done', finishedDateLabel: '2月28日' },
+      settle: { status: 'in_progress', plannedDateLabel: '3月31日' },
+      distribute: { status: 'in_progress' },
+      'data-care': { status: 'in_progress' },
+    }),
   },
   {
     id: 'proj-earbuds-rebate',
@@ -553,23 +446,20 @@ export const commercialProjectsMock: CommercialProject[] = [
         isBlocking: true,
       },
     ],
-    workflow: {
-      sections: [
-        {
-          id: 's1',
-          nodes: [node('pub', '发布', 'done', { finishedDateLabel: '1月15日' })],
-          parallelGroups: [
-            [
-              node('settle', '结算', 'blocked', {
-                blockingReason: '甲方未开票',
-              }),
-              node('dist', '全平台分发', 'done', { finishedDateLabel: '1月16日' }),
-              node('data', '数据维护', 'in_progress'),
-            ],
-          ],
-        },
-      ],
-    },
+    workflow: createProjectWorkflow({
+      inq: { status: 'done', finishedDateLabel: '2025年12月1日' },
+      outline: { status: 'done', finishedDateLabel: '12月8日' },
+      script: { status: 'done', finishedDateLabel: '12月12日' },
+      'pre-shoot': { status: 'done', finishedDateLabel: '12月14日' },
+      ar: { status: 'done', finishedDateLabel: '12月20日' },
+      br: { status: 'done', finishedDateLabel: '12月21日' },
+      ai: { status: 'done', finishedDateLabel: '1月5日' },
+      rev: { status: 'done', finishedDateLabel: '1月12日' },
+      pub: { status: 'done', finishedDateLabel: '1月15日' },
+      settle: { status: 'blocked', blockingReason: '甲方未开票' },
+      distribute: { status: 'done', finishedDateLabel: '1月16日' },
+      'data-care': { status: 'in_progress' },
+    }),
   },
   {
     id: 'proj-camera-return',
@@ -599,19 +489,25 @@ export const commercialProjectsMock: CommercialProject[] = [
         isBlocking: false,
       },
     ],
-    workflow: {
-      sections: [
-        {
-          id: 's1',
-          nodes: [
-            node('ar', 'A-roll', 'done', { finishedDateLabel: '3月2日' }),
-            node('rev', '审核', 'in_progress'),
-            node('return', '高价值样机还机', 'in_progress', { plannedDateLabel: '3月9日' }),
-            node('pub', '发布', 'not_reached', { plannedDateLabel: '3月14日' }),
-          ],
-        },
-      ],
-    },
+    workflow: createProjectWorkflow(
+      {
+        inq: { status: 'done', finishedDateLabel: '2月18日' },
+        outline: { status: 'done', finishedDateLabel: '2月22日' },
+        script: { status: 'done', finishedDateLabel: '2月25日' },
+        'pre-shoot': { status: 'done', finishedDateLabel: '2月26日' },
+        ar: { status: 'done', finishedDateLabel: '3月2日' },
+        br: { status: 'done', finishedDateLabel: '3月2日' },
+        ai: { status: 'done', finishedDateLabel: '3月5日' },
+        rev: { status: 'in_progress' },
+        return: { status: 'in_progress', plannedDateLabel: '3月9日', name: '高价值样机还机' },
+        pub: { plannedDateLabel: '3月14日' },
+      },
+      {
+        serialBeforePublish: [
+          node('return', '高价值样机还机', 'in_progress', { plannedDateLabel: '3月9日' }),
+        ],
+      },
+    ),
   },
   {
     id: 'proj-archive-tea',
@@ -636,17 +532,28 @@ export const commercialProjectsMock: CommercialProject[] = [
     keywordHaystack: '茶叶 礼盒 归档 2025',
     sortDate: '2025-10-01',
     openItems: [],
-    workflow: {
-      sections: [
-        {
-          id: 's1',
-          nodes: [
-            node('pub', '发布', 'done', { finishedDateLabel: '2025/10/1' }),
-            node('settle', '结算', 'done', { finishedDateLabel: '2025/11/5' }),
-            node('close', '结案', 'done', { finishedDateLabel: '2025/11/20' }),
-          ],
-        },
-      ],
-    },
+    workflow: createProjectWorkflow(
+      {
+        inq: { status: 'done', finishedDateLabel: '2025年8月1日' },
+        outline: { status: 'done', finishedDateLabel: '8月10日' },
+        script: { status: 'done', finishedDateLabel: '8月15日' },
+        'pre-shoot': { status: 'done', finishedDateLabel: '8月18日' },
+        ar: { status: 'done', finishedDateLabel: '9月1日' },
+        br: { status: 'done', finishedDateLabel: '9月2日' },
+        ai: { status: 'done', finishedDateLabel: '9月20日' },
+        rev: { status: 'done', finishedDateLabel: '9月28日' },
+        pub: { status: 'done', finishedDateLabel: '2025/10/1' },
+        settle: { status: 'done', finishedDateLabel: '2025/11/5' },
+        distribute: { status: 'done', finishedDateLabel: '2025/10/3' },
+        'data-care': { status: 'done', finishedDateLabel: '2025/11/1' },
+        other: { status: 'done', finishedDateLabel: '2025/11/10' },
+        close: { status: 'done', finishedDateLabel: '2025/11/20', name: '结案' },
+      },
+      {
+        serialAfterPostPublish: [
+          node('close', '结案', 'done', { finishedDateLabel: '2025/11/20' }),
+        ],
+      },
+    ),
   },
 ];

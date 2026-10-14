@@ -9,18 +9,21 @@ import {
 } from '@/features/commercial/commercial-selectors';
 import { useCommercialProjectsQuery } from '@/features/commercial/use-commercial-queries';
 import { Link } from 'react-router-dom';
+import { cn } from '@/lib/utils';
 
 function Section({
   title,
   description,
   children,
+  className,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="space-y-3">
+    <section className={cn('space-y-3', className)}>
       <div>
         <h2 className="text-lg font-semibold">{title}</h2>
         {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
@@ -50,7 +53,7 @@ export function CommercialHomePage() {
       ) : null}
 
       {query.isSuccess ? (
-        <div className="space-y-10">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3 xl:items-start">
           <Section title="我方要处理的事项">
             {(() => {
               const items = getOurActionItems(query.data);
@@ -100,6 +103,7 @@ export function CommercialHomePage() {
           </Section>
 
           <Section
+            className="lg:col-span-2 xl:col-span-1"
             title="进行中项目的阻塞节点汇总"
             description="按项目汇总：卡在哪、主要因为什么、对外承诺时间和已卡天数。"
           >

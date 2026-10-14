@@ -1,7 +1,6 @@
 import {
   Activity,
   Blocks,
-  CircleDollarSign,
   LayoutDashboard,
   Palette,
   Plug,
@@ -38,13 +37,6 @@ export const primaryNav: NavItem[] = [
     description: 'B 站账号与内容指标',
     icon: Activity,
     implemented: true,
-  },
-  {
-    to: '/finance',
-    label: '财务结案',
-    description: '对账与结案（后续里程碑）',
-    icon: CircleDollarSign,
-    implemented: false,
   },
   {
     to: '/content',
