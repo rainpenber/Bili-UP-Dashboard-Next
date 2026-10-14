@@ -34,6 +34,63 @@ export interface WorkflowGraphLayout {
 const SOURCE = '__wf_source__';
 const SINK = '__wf_sink__';
 
+export function isRoutingNodeId(id: string): boolean {
+  return id === SOURCE || id === SINK || id.startsWith('__');
+}
+
+function dedupeLayoutEdges(edges: LayoutEdge[]): LayoutEdge[] {
+  const seen = new Set<string>();
+  const out: LayoutEdge[] = [];
+  for (const e of edges) {
+    if (e.from === e.to) continue;
+    const key = `${e.from}->${e.to}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(e);
+  }
+  return out;
+}
+
+/** Replace synthetic join/source/sink hops with direct edges between real workflow nodes. */
+export function collapseRoutingEdges(edges: LayoutEdge[]): LayoutEdge[] {
+  let current = [...edges];
+  let progress = true;
+  while (progress) {
+    progress = false;
+    const byFrom = new Map<string, LayoutEdge[]>();
+    const byTo = new Map<string, LayoutEdge[]>();
+    for (const e of current) {
+      if (!byFrom.has(e.from)) byFrom.set(e.from, []);
+      byFrom.get(e.from)!.push(e);
+      if (!byTo.has(e.to)) byTo.set(e.to, []);
+      byTo.get(e.to)!.push(e);
+    }
+    const routingIds = new Set<string>();
+    for (const e of current) {
+      if (isRoutingNodeId(e.from)) routingIds.add(e.from);
+      if (isRoutingNodeId(e.to)) routingIds.add(e.to);
+    }
+    const consumed = new Set<LayoutEdge>();
+    const bridged: LayoutEdge[] = [];
+    for (const r of routingIds) {
+      const ins = byTo.get(r) ?? [];
+      const outs = byFrom.get(r) ?? [];
+      if (ins.length === 0 || outs.length === 0) continue;
+      for (const inE of ins) consumed.add(inE);
+      for (const outE of outs) consumed.add(outE);
+      for (const inE of ins) {
+        for (const outE of outs) {
+          bridged.push({ from: inE.from, to: outE.to });
+        }
+      }
+      progress = true;
+    }
+    const kept = current.filter((e) => !consumed.has(e));
+    current = dedupeLayoutEdges([...kept, ...bridged]);
+  }
+  return current.filter((e) => !isRoutingNodeId(e.from) && !isRoutingNodeId(e.to));
+}
+
 function isProductionParallel(step: WorkflowGraphStep): boolean {
   return (
     step.kind === 'parallel' && step.nodes.some((n) => n.id === 'ar' || n.name.includes('A-roll'))
@@ -253,10 +310,7 @@ export function layoutWorkflowGraph(graph: WorkflowGraph): WorkflowGraphLayout {
 
   const raw: WorkflowGraphLayout = {
     nodes: placed,
-    edges: edges.filter(
-      (e) =>
-        e.from !== SOURCE && e.to !== SINK && !e.from.startsWith('__') && !e.to.startsWith('__'),
-    ),
+    edges: collapseRoutingEdges(edges),
     width: Math.max(maxX - minX, LAYOUT_NODE_WIDTH) + 48,
     height: maxY + 48,
     axisCenterX,

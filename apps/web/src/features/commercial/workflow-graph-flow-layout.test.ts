@@ -3,6 +3,7 @@ import { commercialProjectsMock } from './mock-data';
 import { createProjectWorkflow } from './workflow-graph-canonical';
 import {
   buildWorkflowDag,
+  collapseRoutingEdges,
   layerRowCenter,
   layoutWorkflowGraph,
   nodeCenter,
@@ -92,6 +93,19 @@ describe('workflow flow layout geometry', () => {
     expect(keys.has('inq->outline')).toBe(true);
     expect(keys.has('outline->script')).toBe(true);
     expect(keys.has('prop->rev')).toBe(false);
+  });
+
+  test('prop branch collapses synthetic join into prep-to-production edges', () => {
+    const project = commercialProjectsMock.find((p) => p.id === 'proj-board-prop')!;
+    const { edges } = buildWorkflowDag(project.workflow.steps);
+    const collapsed = collapseRoutingEdges(edges);
+    const keys = new Set(collapsed.map((e) => `${e.from}->${e.to}`));
+    expect(keys.has('script->prop')).toBe(true);
+    expect(keys.has('pre-shoot->prop')).toBe(true);
+    expect(keys.has('script->br')).toBe(true);
+    expect(keys.has('pre-shoot->ai')).toBe(true);
+    expect(collapsed.some((e) => e.from.includes('__') || e.to.includes('__'))).toBe(false);
+    expect(layoutWorkflowGraph(project.workflow).edges).toEqual(collapsed);
   });
 
   test('early-stage project still contains grey wind-down nodes', () => {
