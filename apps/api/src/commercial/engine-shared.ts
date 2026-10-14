@@ -207,7 +207,7 @@ export function mapOpenItem(r: {
     lifecycle: r.lifecycle as OpenItemDto['lifecycle'],
     impact: r.impact as OpenItemDto['impact'],
     plannedAt: r.planned_at?.toISOString() ?? null,
-    sourceEvidence: r.source_evidence,
+    sourceEvidence,
     confidence: r.confidence,
     closeConclusion: r.close_conclusion,
     cancelReason: r.cancel_reason ?? null,
