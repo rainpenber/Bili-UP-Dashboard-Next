@@ -360,7 +360,11 @@ export async function applyHermesEnvelopeTx(
       if (nextImpact === 'blocking' && !nextBlocks)
         throw Object.assign(new Error('blocking item requires blocksNodeId'), { status: 409 });
       const blocksNodeIdForUpdate =
-        nextImpact === 'normal' ? null : patch.blocksNodeId !== undefined ? patch.blocksNodeId : undefined;
+        nextImpact === 'normal'
+          ? null
+          : patch.blocksNodeId !== undefined
+            ? patch.blocksNodeId
+            : undefined;
       await assertNodesInProject(tx, projectId, [
         blocksNodeIdForUpdate ?? (nextImpact === 'blocking' ? nextBlocks : null),
         patch.workflowNodeId,
