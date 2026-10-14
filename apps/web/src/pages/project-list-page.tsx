@@ -67,15 +67,16 @@ export function ProjectListPage() {
         ) : null}
       </div>
 
-      {query.isLoading ? <LoadingListSkeleton rows={6} /> : null}
       {query.isError ? (
         <ErrorState
           message={query.error instanceof Error ? query.error.message : '加载失败'}
-          onRetry={() => query.refetch()}
+          onRetry={() => void query.refetch()}
         />
       ) : null}
 
-      {query.isSuccess ? (
+      {!query.isError && query.isLoading ? <LoadingListSkeleton rows={6} /> : null}
+
+      {!query.isError && query.isSuccess ? (
         list.length === 0 ? (
           <EmptyState
             title="没有符合条件的项目"

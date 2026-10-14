@@ -19,7 +19,8 @@ export function useCommercialProjectsQuery() {
   const mockError = useCommercialMockErrorFlag();
   return useQuery({
     queryKey: ['commercial', 'projects', mockError ? 'error' : 'ok'],
-    queryFn: fetchCommercialProjects,
+    queryFn: () => fetchCommercialProjects({ simulateError: mockError }),
+    retry: mockError ? false : 1,
   });
 }
 
@@ -27,8 +28,9 @@ export function useCommercialProjectQuery(projectId: string | undefined) {
   const mockError = useCommercialMockErrorFlag();
   return useQuery({
     queryKey: ['commercial', 'project', projectId, mockError ? 'error' : 'ok'],
-    queryFn: () => fetchCommercialProject(projectId!),
+    queryFn: () => fetchCommercialProject(projectId!, { simulateError: mockError }),
     enabled: Boolean(projectId),
+    retry: mockError ? false : 1,
   });
 }
 
@@ -36,6 +38,7 @@ export function useDefaultWorkflowQuery() {
   const mockError = useCommercialMockErrorFlag();
   return useQuery({
     queryKey: ['commercial', 'default-workflow', mockError ? 'error' : 'ok'],
-    queryFn: fetchDefaultWorkflowTemplate,
+    queryFn: () => fetchDefaultWorkflowTemplate({ simulateError: mockError }),
+    retry: mockError ? false : 1,
   });
 }

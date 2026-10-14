@@ -3,34 +3,40 @@ import type { CommercialProject, DefaultWorkflowTemplate } from './types';
 
 const LOAD_DELAY_MS = 280;
 
-function shouldSimulateError(): boolean {
-  if (typeof window === 'undefined') return false;
-  return new URLSearchParams(window.location.search).get('commercialMockError') === '1';
-}
-
 async function delay(): Promise<void> {
   await new Promise((r) => setTimeout(r, LOAD_DELAY_MS));
 }
 
-export async function fetchCommercialProjects(): Promise<CommercialProject[]> {
+export type CommercialFetchOptions = {
+  simulateError?: boolean;
+};
+
+export async function fetchCommercialProjects(
+  options: CommercialFetchOptions = {},
+): Promise<CommercialProject[]> {
   await delay();
-  if (shouldSimulateError()) {
+  if (options.simulateError) {
     throw new Error('演示数据暂时读不出来，请稍后重试。');
   }
   return commercialProjectsMock;
 }
 
-export async function fetchCommercialProject(id: string): Promise<CommercialProject | null> {
+export async function fetchCommercialProject(
+  id: string,
+  options: CommercialFetchOptions = {},
+): Promise<CommercialProject | null> {
   await delay();
-  if (shouldSimulateError()) {
+  if (options.simulateError) {
     throw new Error('项目详情加载失败，请返回列表重试。');
   }
   return commercialProjectsMock.find((p) => p.id === id) ?? null;
 }
 
-export async function fetchDefaultWorkflowTemplate(): Promise<DefaultWorkflowTemplate> {
+export async function fetchDefaultWorkflowTemplate(
+  options: CommercialFetchOptions = {},
+): Promise<DefaultWorkflowTemplate> {
   await delay();
-  if (shouldSimulateError()) {
+  if (options.simulateError) {
     throw new Error('默认流程模板加载失败。');
   }
   return defaultWorkflowTemplate;

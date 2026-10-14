@@ -44,15 +44,16 @@ export function CommercialHomePage() {
         crumbs={[{ label: '工作室', to: '/' }, { label: '今日看板' }]}
       />
 
-      {query.isLoading ? <LoadingListSkeleton rows={5} /> : null}
       {query.isError ? (
         <ErrorState
           message={query.error instanceof Error ? query.error.message : '加载失败'}
-          onRetry={() => query.refetch()}
+          onRetry={() => void query.refetch()}
         />
       ) : null}
 
-      {query.isSuccess ? (
+      {!query.isError && query.isLoading ? <LoadingListSkeleton rows={5} /> : null}
+
+      {!query.isError && query.isSuccess ? (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3 xl:items-start">
           <Section title="我方要处理的事项">
             {(() => {
