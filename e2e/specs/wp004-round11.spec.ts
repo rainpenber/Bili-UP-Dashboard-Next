@@ -64,10 +64,10 @@ test.describe('WP-004R round11 strict acceptance', () => {
     const targetHandle = page.locator(
       `.react-flow__node[data-id="${inquiry.id}"] .react-flow__handle.target`,
     );
-    await sourceHandle.click();
-    await targetHandle.click();
-    await expect(page.locator('.text-destructive').first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator('.text-destructive').first()).not.toHaveText('');
+    await sourceHandle.scrollIntoViewIfNeeded();
+    await targetHandle.scrollIntoViewIfNeeded();
+    await sourceHandle.dragTo(targetHandle);
+    await expect(page.getByText('连线会形成环路，已拒绝')).toBeVisible({ timeout: 15_000 });
   });
 
   test('publish via API asserts monitor jobs and single video', async ({ page, request }) => {

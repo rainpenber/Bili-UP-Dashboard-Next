@@ -23,6 +23,7 @@ import {
 import type { Sql } from '@studio/db';
 import { Hono } from 'hono';
 import { jsonError } from './api-error';
+import { graphErrorMessage } from './commercial/graph-error-messages';
 import { CommercialEngine } from './commercial/engine';
 import { auditItem } from './commercial/engine-shared';
 import { TemplateEngine } from './commercial/template-engine';
@@ -515,6 +516,9 @@ function routeErr(c: Parameters<typeof jsonError>[0], err: unknown) {
     return jsonError(c, 400, err.message);
   }
   if (status === 404) return jsonError(c, 404, err instanceof Error ? err.message : 'error');
-  if (status === 409) return jsonError(c, 409, err instanceof Error ? err.message : 'error');
+  if (status === 409) {
+    const msg = err instanceof Error ? graphErrorMessage(err.message) : 'error';
+    return jsonError(c, 409, msg);
+  }
   return jsonError(c, 400, err instanceof Error ? err.message : 'error');
 }

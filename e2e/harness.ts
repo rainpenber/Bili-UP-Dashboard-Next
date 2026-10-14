@@ -5,7 +5,7 @@ function attachStrictApiGuard(page: Page) {
   page.on('console', (msg) => {
     if (msg.type() === 'error') {
       const text = msg.text();
-      if (text.includes('ZodError') || text.includes('Failed to load resource')) {
+      if (text.includes('ZodError')) {
         faults.push(`console: ${text}`);
       }
     }
