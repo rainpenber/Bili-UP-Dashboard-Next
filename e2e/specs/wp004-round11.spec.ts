@@ -75,7 +75,10 @@ test.describe('WP-004R round11 strict acceptance', () => {
     const sourceBox = await sourceHandle.boundingBox();
     const targetBox = await targetHandle.boundingBox();
     expect(sourceBox && targetBox).toBeTruthy();
-    await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
+    await page.mouse.move(
+      sourceBox!.x + sourceBox!.width / 2,
+      sourceBox!.y + sourceBox!.height / 2,
+    );
     await page.mouse.down();
     await page.mouse.move(
       targetBox!.x + targetBox!.width / 2,
