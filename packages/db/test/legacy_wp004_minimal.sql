@@ -114,6 +114,25 @@ INSERT INTO workflow_node_dependencies (node_id, depends_on_node_id)
 VALUES ('99999999-9999-4999-8999-999999999904', '99999999-9999-4999-8999-999999999903')
 ON CONFLICT DO NOTHING;
 
+CREATE TABLE IF NOT EXISTS workflow_node_status_history (
+  id BIGSERIAL PRIMARY KEY,
+  node_id UUID NOT NULL REFERENCES workflow_nodes (id) ON DELETE CASCADE,
+  from_status TEXT,
+  to_status TEXT NOT NULL,
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT '2020-06-15T08:30:00Z',
+  note TEXT
+);
+
+INSERT INTO workflow_node_status_history (node_id, from_status, to_status, changed_at, note)
+VALUES (
+  '99999999-9999-4999-8999-999999999904',
+  'locked',
+  'in_progress',
+  '2020-06-15T08:30:00Z',
+  'Legacy 状态备注：甲方已确认大纲方向'
+)
+ON CONFLICT DO NOTHING;
+
 INSERT INTO open_items (id, project_id, workflow_node_id, title, description, close_condition)
 VALUES (
   '99999999-9999-4999-8999-999999999905',

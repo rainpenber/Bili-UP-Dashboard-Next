@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   connectTemplateNodes,
   createTemplateDraftFromDefault,
+  createTemplatePackage,
   deleteTemplateEdge,
   deleteTemplateNode,
   fetchTemplateGraph,
@@ -87,6 +88,22 @@ export function WorkflowSettingsPage() {
     (graphMut.error ?? publishMut.error)
       ? ((graphMut.error ?? publishMut.error) as Error).message
       : null;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!draftId || pending) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.key.toLowerCase() !== 'z') return;
+      e.preventDefault();
+      if (e.shiftKey) {
+        void graphMut.mutate(() => redoTemplateWorkflow(draftId));
+      } else {
+        void graphMut.mutate(() => undoTemplateWorkflow(draftId));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [draftId, pending, graphMut]);
 
   return (
     <div className="space-y-6">
@@ -200,6 +217,9 @@ export function WorkflowSettingsPage() {
                   graph={graph}
                   pending={pending}
                   error={editorError}
+                  onCreatePackage={async (name) => {
+                    await graphMut.mutateAsync(() => createTemplatePackage(draftId!, name));
+                  }}
                   onCreateNode={async (node) => {
                     await graphMut.mutateAsync(() =>
                       saveTemplateNode(draftId, {

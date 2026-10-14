@@ -221,6 +221,10 @@ export const createGraphNodeBodySchema = z.object({
   posX: z.number(),
   posY: z.number(),
   phase: nodePhaseSchema.optional(),
+  isOptional: z.boolean().optional(),
+  packageId: z.string().uuid().nullable().optional(),
+  anchorNodeId: z.string().uuid().optional(),
+  connectMode: z.enum(['serial', 'parallel']).optional(),
 });
 
 export const updateGraphNodeBodySchema = z.object({
@@ -247,6 +251,28 @@ export const updateTemplateNodeBodySchema = z.object({
 export const createGraphEdgeBodySchema = z.object({
   fromNodeId: z.string().uuid(),
   toNodeId: z.string().uuid(),
+});
+
+export const splitOpenItemBodySchema = z.object({
+  newTitles: z.array(z.string().min(1).max(300)).min(1).max(20),
+});
+
+export const mergeOpenItemsBodySchema = z.object({
+  itemIds: z.array(z.string().uuid()).min(2).max(20),
+  mergedTitle: z.string().min(1).max(300),
+});
+
+export const promoteOpenItemBodySchema = z.object({
+  nodeName: z.string().min(1).max(120),
+  posX: z.number().optional(),
+  posY: z.number().optional(),
+});
+
+export const openItemHistoryEntrySchema = z.object({
+  action: z.string(),
+  detail: z.record(z.unknown()).nullable(),
+  source: z.string(),
+  createdAt: z.string().datetime(),
 });
 
 export const homeDashboardSchema = z.object({

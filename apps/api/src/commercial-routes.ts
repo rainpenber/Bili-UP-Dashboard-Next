@@ -7,7 +7,11 @@ import {
   hermesWriteEnvelopeSchema,
   homeDashboardSchema,
   openItemSchema,
+  openItemHistoryEntrySchema,
+  mergeOpenItemsBodySchema,
   patchOpenItemBodySchema,
+  promoteOpenItemBodySchema,
+  splitOpenItemBodySchema,
   projectDetailSchema,
   projectListGroupedSchema,
   publishProjectBodySchema,
@@ -140,6 +144,10 @@ export function createCommercialRoutes(db: Sql) {
         posX: body.posX,
         posY: body.posY,
         ...(body.phase ? { phase: body.phase } : {}),
+        ...(body.isOptional !== undefined ? { isOptional: body.isOptional } : {}),
+        ...(body.packageId !== undefined ? { packageId: body.packageId } : {}),
+        ...(body.anchorNodeId ? { anchorNodeId: body.anchorNodeId } : {}),
+        ...(body.connectMode ? { connectMode: body.connectMode } : {}),
       });
       return c.json(workflowGraphSchema.parse(wf), 201);
     } catch (err) {
@@ -246,6 +254,57 @@ export function createCommercialRoutes(db: Sql) {
     }
   });
 
+  app.get('/projects/:id/open-items/:itemId/history', async (c) => {
+    const entries = await engine.listOpenItemHistory(c.req.param('id'), c.req.param('itemId'));
+    return c.json({
+      items: entries.map((e) => openItemHistoryEntrySchema.parse(e)),
+    });
+  });
+
+  app.post('/projects/:id/open-items/:itemId/split', async (c) => {
+    try {
+      const body = splitOpenItemBodySchema.parse(await c.req.json());
+      const items = await engine.splitOpenItem(
+        c.req.param('id'),
+        c.req.param('itemId'),
+        body.newTitles,
+      );
+      return c.json({ items: items.map((i) => openItemSchema.parse(i)) });
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/projects/:id/open-items/merge', async (c) => {
+    try {
+      const body = mergeOpenItemsBodySchema.parse(await c.req.json());
+      const items = await engine.mergeOpenItems(c.req.param('id'), body.itemIds, body.mergedTitle);
+      return c.json({ items: items.map((i) => openItemSchema.parse(i)) });
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/projects/:id/open-items/:itemId/promote-to-node', async (c) => {
+    try {
+      const body = promoteOpenItemBodySchema.parse(await c.req.json());
+      const result = await engine.promoteOpenItemToNode(
+        c.req.param('id'),
+        c.req.param('itemId'),
+        body.nodeName,
+        body.posX !== undefined || body.posY !== undefined
+          ? { x: body.posX ?? 0, y: body.posY ?? 0 }
+          : undefined,
+      );
+      return c.json({
+        nodeId: result.nodeId,
+        workflow: workflowGraphSchema.parse(result.workflow),
+      });
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
   app.post('/projects/:id/publish', async (c) => {
     try {
       const body = publishProjectBodySchema.parse(await c.req.json());
@@ -314,6 +373,18 @@ export function createCommercialRoutes(db: Sql) {
     try {
       await templates.deleteTemplateEdge(c.req.param('versionId'), c.req.param('edgeId'));
       return c.json(await templates.getTemplateGraph(c.req.param('versionId')));
+    } catch (err) {
+      return routeErr(c, err);
+    }
+  });
+
+  app.post('/templates/versions/:id/packages', async (c) => {
+    try {
+      const body = (await c.req.json()) as { name?: string };
+      const name = body.name?.trim();
+      if (!name) return jsonError(c, 400, 'name required');
+      await templates.createTemplatePackage(c.req.param('id'), name);
+      return c.json(await templates.getTemplateGraph(c.req.param('id')), 201);
     } catch (err) {
       return routeErr(c, err);
     }

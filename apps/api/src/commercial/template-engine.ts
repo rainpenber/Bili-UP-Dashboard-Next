@@ -52,7 +52,34 @@ export class TemplateEngine {
       SELECT id, from_node_id AS "fromNodeId", to_node_id AS "toNodeId" FROM wf_template_edges
       WHERE template_version_id = ${versionId}
     `;
-    return { versionId, nodes, edges };
+    const packages = await this.db`
+      SELECT id, name, sort_order AS "sortOrder" FROM wf_template_packages
+      WHERE template_version_id = ${versionId}
+      ORDER BY sort_order, name
+    `;
+    return { versionId, nodes, edges, packages };
+  }
+
+  async createTemplatePackage(versionId: string, name: string) {
+    return this.db.begin(async (tx) => {
+      let packageId = '';
+      await mutateTemplateDraft(
+        tx,
+        versionId,
+        async (tx) => {
+          const max = await tx<{ m: number | null }[]>`
+            SELECT max(sort_order) AS m FROM wf_template_packages WHERE template_version_id = ${versionId}
+          `;
+          packageId = crypto.randomUUID();
+          await tx`
+            INSERT INTO wf_template_packages (id, template_version_id, name, sort_order)
+            VALUES (${packageId}, ${versionId}, ${name}, ${(max[0]?.m ?? -1) + 1})
+          `;
+        },
+        { recordUndo: true },
+      );
+      return packageId;
+    });
   }
 
   async createDraftFromDefault() {

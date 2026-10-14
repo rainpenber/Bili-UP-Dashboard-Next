@@ -1,18 +1,54 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { OpenItemDto, WorkflowGraph } from '@studio/contracts';
-import { cancelOpenItem, closeOpenItem, patchOpenItem } from '@/api/commercial-client';
+import {
+  cancelOpenItem,
+  closeOpenItem,
+  fetchOpenItemHistory,
+  patchOpenItem,
+  pinPrimaryBlock,
+  promoteOpenItemToNode,
+  splitOpenItem,
+} from '@/api/commercial-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatFullLocalTime } from '@/lib/format-time';
 
 type Props = {
   projectId: string;
   item: OpenItemDto;
   workflow: WorkflowGraph | null;
   disabled: boolean;
+  mergeSelection?: string[];
+  onToggleMerge?: (itemId: string) => void;
 };
 
-export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
+function HistoryBlock({ projectId, itemId }: { projectId: string; itemId: string }) {
+  const history = useQuery({
+    queryKey: ['commercial', 'item-history', projectId, itemId],
+    queryFn: () => fetchOpenItemHistory(projectId, itemId),
+  });
+  if (history.isLoading) return <p className="text-muted-foreground text-xs">加载历史…</p>;
+  if (!history.data?.length) return <p className="text-muted-foreground text-xs">暂无审计历史</p>;
+  return (
+    <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
+      {history.data.map((h, i) => (
+        <li key={`${h.createdAt}-${i}`}>
+          {formatFullLocalTime(h.createdAt)} · {h.action} · {h.source}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function OpenItemCard({
+  projectId,
+  item,
+  workflow,
+  disabled,
+  mergeSelection,
+  onToggleMerge,
+}: Props) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(item.title);
@@ -25,6 +61,9 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
   const [workflowNodeId, setWorkflowNodeId] = useState(item.workflowNodeId ?? '');
   const [closeConclusion, setCloseConclusion] = useState('');
   const [cancelReason, setCancelReason] = useState('');
+  const [splitTitles, setSplitTitles] = useState('');
+  const [promoteName, setPromoteName] = useState('');
+  const [expanded, setExpanded] = useState(false);
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['commercial'] });
 
@@ -58,18 +97,79 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
     onSuccess: invalidate,
   });
 
-  const pending = patchMut.isPending || closeMut.isPending || cancelMut.isPending || disabled;
+  const splitMut = useMutation({
+    mutationFn: () =>
+      splitOpenItem(
+        projectId,
+        item.id,
+        splitTitles
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    onSuccess: () => {
+      setSplitTitles('');
+      invalidate();
+    },
+  });
+
+  const promoteMut = useMutation({
+    mutationFn: () => promoteOpenItemToNode(projectId, item.id, { nodeName: promoteName.trim() }),
+    onSuccess: () => {
+      setPromoteName('');
+      invalidate();
+    },
+  });
+
+  const pinMut = useMutation({
+    mutationFn: () => pinPrimaryBlock(projectId, item.id),
+    onSuccess: invalidate,
+  });
+
+  const pending =
+    patchMut.isPending ||
+    closeMut.isPending ||
+    cancelMut.isPending ||
+    splitMut.isPending ||
+    promoteMut.isPending ||
+    pinMut.isPending ||
+    disabled;
   const err =
-    (patchMut.error ?? closeMut.error ?? cancelMut.error)
-      ? ((patchMut.error ?? closeMut.error ?? cancelMut.error) as Error).message
+    (patchMut.error ??
+    closeMut.error ??
+    cancelMut.error ??
+    splitMut.error ??
+    promoteMut.error ??
+    pinMut.error)
+      ? (
+          (patchMut.error ??
+            closeMut.error ??
+            cancelMut.error ??
+            splitMut.error ??
+            promoteMut.error ??
+            pinMut.error) as Error
+        ).message
       : null;
 
   if (item.lifecycle !== 'open') {
     return (
-      <div className="rounded border p-2 text-sm text-muted-foreground">
-        {item.title}（{item.lifecycle === 'closed' ? '已闭环' : '已取消'}）
-        {item.lifecycle === 'closed' && item.closeConclusion ? ` · ${item.closeConclusion}` : null}
-        {item.lifecycle === 'cancelled' && item.cancelReason ? ` · ${item.cancelReason}` : null}
+      <div
+        id={`item-${item.id}`}
+        tabIndex={0}
+        className="rounded border p-2 text-sm outline-none focus:ring-2"
+      >
+        <button
+          type="button"
+          className="w-full text-left font-medium"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {item.title}（{item.lifecycle === 'closed' ? '已闭环' : '已取消'}）
+          {item.lifecycle === 'closed' && item.closeConclusion
+            ? ` · ${item.closeConclusion}`
+            : null}
+          {item.lifecycle === 'cancelled' && item.cancelReason ? ` · ${item.cancelReason}` : null}
+        </button>
+        {expanded ? <HistoryBlock projectId={projectId} itemId={item.id} /> : null}
       </div>
     );
   }
@@ -80,6 +180,16 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
       tabIndex={0}
       className="rounded border p-2 outline-none focus:ring-2"
     >
+      {onToggleMerge ? (
+        <label className="mb-2 flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={mergeSelection?.includes(item.id) ?? false}
+            onChange={() => onToggleMerge(item.id)}
+          />
+          参与合并
+        </label>
+      ) : null}
       {editing ? (
         <div className="space-y-2 text-sm">
           <Input aria-label="标题" value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -191,6 +301,17 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
             >
               编辑
             </Button>
+            {item.impact === 'blocking' && item.blocksNodeId ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={() => pinMut.mutate()}
+              >
+                {pinMut.isPending ? '处理中…' : '设为主要阻塞'}
+              </Button>
+            ) : null}
             <Input
               className="max-w-xs"
               aria-label="闭环结论"
@@ -223,6 +344,45 @@ export function OpenItemCard({ projectId, item, workflow, disabled }: Props) {
               取消事项
             </Button>
           </div>
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs">拆分 / 提升为节点</summary>
+            <div className="mt-2 space-y-2">
+              <textarea
+                className="w-full rounded border p-2 text-sm"
+                aria-label="拆分标题"
+                placeholder="每行一条新事项标题"
+                value={splitTitles}
+                onChange={(e) => setSplitTitles(e.target.value)}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={pending || !splitTitles.trim()}
+                onClick={() => splitMut.mutate()}
+              >
+                拆分
+              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  aria-label="新节点名称"
+                  placeholder="提升为节点名称"
+                  value={promoteName}
+                  onChange={(e) => setPromoteName(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={pending || !promoteName.trim()}
+                  onClick={() => promoteMut.mutate()}
+                >
+                  提升为节点
+                </Button>
+              </div>
+            </div>
+          </details>
+          <HistoryBlock projectId={projectId} itemId={item.id} />
         </>
       )}
     </div>

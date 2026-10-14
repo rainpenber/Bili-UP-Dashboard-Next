@@ -30,6 +30,7 @@ export type TemplateGraph = {
   versionId: string;
   nodes: TemplateGraphNode[];
   edges: Array<{ id: string; fromNodeId: string; toNodeId: string }>;
+  packages?: Array<{ id: string; name: string; sortOrder: number }>;
 };
 
 type Props = {
@@ -41,6 +42,7 @@ type Props = {
   onDeleteNode: (nodeId: string) => Promise<void>;
   onCreateNode?: (node: TemplateGraphNode) => Promise<void>;
   onAutoLayout: (positions: Map<string, { posX: number; posY: number }>) => Promise<void>;
+  onCreatePackage?: (name: string) => Promise<void>;
   pending: boolean;
   error: string | null;
 };
@@ -77,6 +79,7 @@ export function TemplateFlowEditor(props: Props) {
 
   const [draft, setDraft] = useState<TemplateGraphNode | null>(null);
   const [newNodeOpen, setNewNodeOpen] = useState(false);
+  const [newPackageName, setNewPackageName] = useState('');
   const [newNode, setNewNode] = useState<TemplateGraphNode>({
     id: '',
     name: '',
@@ -148,13 +151,14 @@ export function TemplateFlowEditor(props: Props) {
     void props.onAutoLayout(positions).catch(() => undefined);
   };
 
-  if (!props.graph.nodes.length) {
-    return <p className="text-muted-foreground text-sm">该草稿暂无节点。</p>;
-  }
+  const emptyGraph = props.graph.nodes.length === 0;
 
   return (
     <div className="space-y-3">
       {props.error ? <p className="text-destructive text-sm">{props.error}</p> : null}
+      {emptyGraph ? (
+        <p className="text-muted-foreground text-sm">空图草稿：请先添加第一个模板节点。</p>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
@@ -191,6 +195,26 @@ export function TemplateFlowEditor(props: Props) {
             value={newNode.slug}
             onChange={(e) => setNewNode({ ...newNode, slug: e.target.value })}
           />
+          <label className="flex flex-col gap-1">
+            阶段
+            <select
+              className="rounded border px-2 py-1"
+              value={newNode.phase}
+              onChange={(e) => setNewNode({ ...newNode, phase: e.target.value })}
+            >
+              <option value="pre_publish">发布前</option>
+              <option value="post_publish_required">发布后必需</option>
+              <option value="post_publish_optional">发布后可选</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={newNode.is_optional}
+              onChange={(e) => setNewNode({ ...newNode, is_optional: e.target.checked })}
+            />
+            可选 / 允许 NA
+          </label>
           <Button
             type="button"
             size="sm"
@@ -218,6 +242,28 @@ export function TemplateFlowEditor(props: Props) {
             }}
           >
             创建节点
+          </Button>
+        </div>
+      ) : null}
+      {props.onCreatePackage ? (
+        <div className="flex flex-wrap items-end gap-2 rounded border p-2 text-sm">
+          <Input
+            aria-label="新建 package 名称"
+            placeholder="新建 package"
+            value={newPackageName}
+            onChange={(e) => setNewPackageName(e.target.value)}
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={props.pending || !newPackageName.trim()}
+            onClick={() => {
+              void props.onCreatePackage!(newPackageName.trim())
+                .then(() => setNewPackageName(''))
+                .catch(() => undefined);
+            }}
+          >
+            添加 package
           </Button>
         </div>
       ) : null}
@@ -269,7 +315,22 @@ export function TemplateFlowEditor(props: Props) {
                   checked={draft.is_optional}
                   onChange={(e) => setDraft({ ...draft, is_optional: e.target.checked })}
                 />
-                可选节点
+                可选 / 允许 NA
+              </label>
+              <label className="flex flex-col gap-1">
+                Package
+                <select
+                  className="rounded border px-2 py-1"
+                  value={draft.package_id ?? ''}
+                  onChange={(e) => setDraft({ ...draft, package_id: e.target.value || null })}
+                >
+                  <option value="">无</option>
+                  {(props.graph.packages ?? []).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
               </label>
               <div className="flex flex-wrap gap-2 pt-2">
                 <Button

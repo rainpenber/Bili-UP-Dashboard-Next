@@ -50,11 +50,16 @@ export async function createIsolatedTestDatabase(): Promise<IsolatedTestDb | nul
     }
     return null;
   }
+  let isolated: IsolatedTestDb | undefined;
   try {
-    const isolated = await provisionEmptyDatabase();
+    isolated = await provisionEmptyDatabase();
     await runMigrations(isolated.sql);
     return isolated;
   } catch (err) {
+    if (isolated) {
+      await isolated.sql.end({ timeout: 5 }).catch(() => undefined);
+      await dropIsolatedTestDatabase(isolated.databaseName).catch(() => undefined);
+    }
     if (isPostgresRequiredEnv()) throw err;
     return null;
   }

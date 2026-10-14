@@ -53,11 +53,17 @@ describe('WP-004 legacy upgrade path', () => {
       `;
       expect(tplNode[0]?.template_node_id).not.toBeNull();
 
-      const history = await legacyDb<{ c: string }[]>`
-        SELECT count(*)::text AS c FROM wf_node_status_history
+      const history = await legacyDb<
+        { node_id: string; to_status: string; detail: { note?: string } | null; changed_at: Date }[]
+      >`
+        SELECT node_id, to_status, detail, changed_at FROM wf_node_status_history
         WHERE project_id = '99999999-9999-4999-8999-999999999901'
+          AND node_id = '99999999-9999-4999-8999-999999999904'
       `;
-      expect(Number(history[0]?.c)).toBeGreaterThanOrEqual(0);
+      expect(history.length).toBe(1);
+      expect(history[0]?.to_status).toBe('in_progress');
+      expect(history[0]?.detail?.note).toBe('Legacy 状态备注：甲方已确认大纲方向');
+      expect(history[0]?.changed_at.toISOString()).toBe('2020-06-15T08:30:00.000Z');
     } finally {
       await legacyDb.end({ timeout: 5 });
       await dropIsolatedTestDatabase(isolated.databaseName);

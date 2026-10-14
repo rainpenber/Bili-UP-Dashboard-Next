@@ -104,10 +104,8 @@ export async function restoreWorkflowSnapshot(
   `;
   const workflowId = wf[0]?.id;
   if (!workflowId) throw Object.assign(new Error('workflow not found'), { status: 404 });
-  await tx`
-    UPDATE wf_nodes SET primary_block_pinned_item_id = NULL
-    WHERE workflow_id = ${workflowId}
-  `;
+  const { clearAllOpenItemRefsForWorkflow } = await import('./engine-shared');
+  await clearAllOpenItemRefsForWorkflow(tx, projectId, workflowId);
   await tx`DELETE FROM wf_edges WHERE workflow_id = ${workflowId}`;
   await tx`DELETE FROM wf_nodes WHERE workflow_id = ${workflowId}`;
   await tx`DELETE FROM wf_packages WHERE workflow_id = ${workflowId}`;

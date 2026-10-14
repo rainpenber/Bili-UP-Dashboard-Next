@@ -358,8 +358,11 @@ BEGIN
         h.from_status,
         h.to_status,
         h.changed_at,
-        COALESCE(h.source, 'legacy'),
-        h.detail
+        'legacy',
+        CASE
+          WHEN h.note IS NOT NULL AND btrim(h.note) <> '' THEN jsonb_build_object('note', h.note)
+          ELSE NULL
+        END
       FROM _legacy_wp004_workflow_node_status_history h
       INNER JOIN wf_nodes n ON n.id = h.node_id
       INNER JOIN project_workflows pw ON pw.id = n.workflow_id

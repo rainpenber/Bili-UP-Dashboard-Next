@@ -174,7 +174,16 @@ export async function deleteGraphNode(projectId: string, nodeId: string) {
 
 export async function createGraphNode(
   projectId: string,
-  body: { name: string; posX: number; posY: number; phase?: string },
+  body: {
+    name: string;
+    posX: number;
+    posY: number;
+    phase?: string;
+    isOptional?: boolean;
+    packageId?: string | null;
+    anchorNodeId?: string;
+    connectMode?: 'serial' | 'parallel';
+  },
 ) {
   return workflowGraphSchema.parse(
     await requestJson(`/projects/${encodeURIComponent(projectId)}/nodes`, {
@@ -247,6 +256,72 @@ export async function closeOpenItem(projectId: string, itemId: string, conclusio
   );
 }
 
+export async function fetchOpenItemHistory(projectId: string, itemId: string) {
+  const raw = (await requestJson(
+    `/projects/${encodeURIComponent(projectId)}/open-items/${encodeURIComponent(itemId)}/history`,
+  )) as {
+    items: Array<{
+      action: string;
+      detail: Record<string, unknown> | null;
+      source: string;
+      createdAt: string;
+    }>;
+  };
+  return raw.items;
+}
+
+export async function splitOpenItem(projectId: string, itemId: string, newTitles: string[]) {
+  const raw = (await requestJson(
+    `/projects/${encodeURIComponent(projectId)}/open-items/${encodeURIComponent(itemId)}/split`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ newTitles }),
+    },
+  )) as { items: unknown[] };
+  return raw.items.map((i) => openItemSchema.parse(i));
+}
+
+export async function mergeOpenItems(projectId: string, itemIds: string[], mergedTitle: string) {
+  const raw = (await requestJson(`/projects/${encodeURIComponent(projectId)}/open-items/merge`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ itemIds, mergedTitle }),
+  })) as { items: unknown[] };
+  return raw.items.map((i) => openItemSchema.parse(i));
+}
+
+export async function promoteOpenItemToNode(
+  projectId: string,
+  itemId: string,
+  body: { nodeName: string; posX?: number; posY?: number },
+) {
+  return requestJson(
+    `/projects/${encodeURIComponent(projectId)}/open-items/${encodeURIComponent(itemId)}/promote-to-node`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  ) as Promise<{ nodeId: string; workflow: WorkflowGraph }>;
+}
+
+export async function pinPrimaryBlock(projectId: string, itemId: string) {
+  return requestJson(
+    `/projects/${encodeURIComponent(projectId)}/open-items/${encodeURIComponent(itemId)}/pin-primary-block`,
+    { method: 'POST' },
+  );
+}
+
+export async function createTemplatePackage(versionId: string, name: string) {
+  await requestJson(`/templates/versions/${encodeURIComponent(versionId)}/packages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return fetchTemplateGraph(versionId);
+}
+
 export async function cancelOpenItem(projectId: string, itemId: string, reason: string) {
   return openItemSchema.parse(
     await requestJson(
@@ -316,6 +391,7 @@ export async function fetchTemplateGraph(versionId: string) {
       package_id: string | null;
     }>;
     edges: Array<{ id: string; fromNodeId: string; toNodeId: string }>;
+    packages?: Array<{ id: string; name: string; sortOrder: number }>;
   }>;
 }
 

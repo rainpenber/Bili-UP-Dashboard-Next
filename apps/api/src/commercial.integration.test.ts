@@ -306,6 +306,90 @@ describe('commercial API integration', () => {
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
 
+  test('hermes delete_graph_node clears open item refs before delete', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'test-hermes-delete-node');
+    const createNode = await app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Hermes 可删', posX: 80, posY: 80 }),
+    });
+    const wf = await createNode.json();
+    const node = wf.nodes.find((n: { name: string }) => n.name === 'Hermes 可删');
+    const itemRes = await app.request(`/api/v1/commercial/projects/${project.id}/open-items`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Hermes 关联',
+        nextActor: 'us',
+        workflowNodeId: node.id,
+        impact: 'blocking',
+        blocksNodeId: node.id,
+      }),
+    });
+    expect(itemRes.status).toBe(201);
+    const del = await app.request('/api/v1/commercial/hermes/write', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        idempotencyKey: `hermes-del-${project.id}-${node.id}`,
+        operation: 'delete_graph_node',
+        confidence: 1,
+        autoApply: true,
+        payload: { projectId: project.id, nodeId: node.id },
+      }),
+    });
+    expect(del.status).toBe(200);
+    const items = await (
+      await app.request(`/api/v1/commercial/projects/${project.id}/open-items`)
+    ).json();
+    expect(items.items[0].workflowNodeId).toBeNull();
+    expect(items.items[0].blocksNodeId).toBeNull();
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
+
+  test('undo restores open item node refs after graph snapshot', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'test-undo-item-refs');
+    const wf0 = await (
+      await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)
+    ).json();
+    const anchor = wf0.nodes.find((n: { slug: string | null }) => n.slug === 'outline');
+    const itemRes = await app.request(`/api/v1/commercial/projects/${project.id}/open-items`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: '绑定大纲',
+        nextActor: 'us',
+        workflowNodeId: anchor.id,
+      }),
+    });
+    const item = await itemRes.json();
+    const add = await app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: '临时节点',
+        posX: 300,
+        posY: 300,
+        anchorNodeId: anchor.id,
+        connectMode: 'serial',
+      }),
+    });
+    expect(add.status).toBe(201);
+    const undo = await app.request(`/api/v1/commercial/projects/${project.id}/workflow/undo`, {
+      method: 'POST',
+    });
+    expect(undo.status).toBe(200);
+    const items = await (
+      await app.request(`/api/v1/commercial/projects/${project.id}/open-items`)
+    ).json();
+    expect(items.items.find((i: { id: string }) => i.id === item.id)?.workflowNodeId).toBe(
+      anchor.id,
+    );
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
+
   test('concurrent hermes direct writes apply once', async () => {
     if (!sql) return;
     const project = await createProject(app, 'test-hermes-concurrent');

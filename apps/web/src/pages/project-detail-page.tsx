@@ -7,9 +7,11 @@ import {
   connectNodes,
   createGraphNode,
   createOpenItem,
+  mergeOpenItems,
   deleteGraphEdge,
   deleteGraphNode,
   fetchProject,
+  patchGraphNode,
   publishProject,
   rollbackNode,
   redoWorkflow,
@@ -44,8 +46,16 @@ export function ProjectDetailPage() {
   const [layoutPending, setLayoutPending] = useState(false);
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [newNodeName, setNewNodeName] = useState('');
+  const [newNodePhase, setNewNodePhase] = useState<
+    'pre_publish' | 'post_publish_required' | 'post_publish_optional'
+  >('pre_publish');
+  const [newNodeOptional, setNewNodeOptional] = useState(false);
   const [newNodePrompt, setNewNodePrompt] = useState<'serial' | 'parallel' | null>(null);
   const [newNodeAnchorId, setNewNodeAnchorId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [mergeIds, setMergeIds] = useState<string[]>([]);
+  const [mergeTitle, setMergeTitle] = useState('');
+  const [graphActionError, setGraphActionError] = useState<string | null>(null);
 
   const focusNodeId = useMemo(() => {
     const hash = location.hash.replace('#', '');
@@ -67,6 +77,10 @@ export function ProjectDetailPage() {
 
   useEffect(() => {
     if (!focusItemId || !project.data) return;
+    const closed = project.data.openItems.find(
+      (i) => i.id === focusItemId && i.lifecycle !== 'open',
+    );
+    if (closed) setHistoryOpen(true);
     const t = window.setTimeout(() => {
       const el = document.getElementById(`item-${focusItemId}`);
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -82,9 +96,18 @@ export function ProjectDetailPage() {
       type: string;
       nodeId: string;
       pos?: { x: number; y: number };
-      create?: { name: string; posX: number; posY: number };
+      create?: {
+        name: string;
+        posX: number;
+        posY: number;
+        phase?: string;
+        isOptional?: boolean;
+        anchorNodeId?: string;
+        connectMode?: 'serial' | 'parallel';
+      };
     }) => {
       if (!id) throw new Error('missing id');
+      setGraphActionError(null);
       if (action.type === 'advance') return advanceToNode(id, action.nodeId);
       if (action.type === 'complete') return completeNode(id, action.nodeId);
       if (action.type === 'rollback') return rollbackNode(id, action.nodeId);
@@ -98,6 +121,14 @@ export function ProjectDetailPage() {
       throw new Error('unknown');
     },
     onSuccess: invalidate,
+    onError: (e) => setGraphActionError(e instanceof Error ? e.message : '图操作失败'),
+  });
+
+  const patchNodeMut = useMutation({
+    mutationFn: ({ nodeId, patch }: { nodeId: string; patch: Record<string, unknown> }) =>
+      patchGraphNode(id!, nodeId, patch),
+    onSuccess: invalidate,
+    onError: (e) => setGraphActionError(e instanceof Error ? e.message : '保存节点失败'),
   });
 
   const connectMut = useMutation({
@@ -129,6 +160,15 @@ export function ProjectDetailPage() {
       }),
     onSuccess: () => {
       setPublishOpen(false);
+      invalidate();
+    },
+  });
+
+  const mergeMut = useMutation({
+    mutationFn: () => mergeOpenItems(id!, mergeIds, mergeTitle.trim()),
+    onSuccess: () => {
+      setMergeIds([]);
+      setMergeTitle('');
       invalidate();
     },
   });
@@ -172,7 +212,9 @@ export function ProjectDetailPage() {
     publishMut.isPending ||
     itemMut.isPending ||
     undoMut.isPending ||
-    redoMut.isPending;
+    redoMut.isPending ||
+    mergeMut.isPending ||
+    patchNodeMut.isPending;
 
   const connectError =
     connectMut.isError && connectMut.error instanceof Error ? connectMut.error.message : null;
@@ -387,6 +429,29 @@ export function ProjectDetailPage() {
                   value={newNodeName}
                   onChange={(e) => setNewNodeName(e.target.value)}
                 />
+                <select
+                  className="rounded border px-2 py-1 text-sm"
+                  aria-label="新节点阶段"
+                  value={newNodePhase}
+                  onChange={(e) =>
+                    setNewNodePhase(
+                      e.target.value as
+                        'pre_publish' | 'post_publish_required' | 'post_publish_optional',
+                    )
+                  }
+                >
+                  <option value="pre_publish">发布前</option>
+                  <option value="post_publish_required">发布后必需</option>
+                  <option value="post_publish_optional">发布后可选</option>
+                </select>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={newNodeOptional}
+                    onChange={(e) => setNewNodeOptional(e.target.checked)}
+                  />
+                  可选 / 允许 NA
+                </label>
                 <Button
                   type="button"
                   size="sm"
@@ -400,6 +465,10 @@ export function ProjectDetailPage() {
                         name: newNodeName.trim(),
                         posX: (n?.posX ?? 0) + (newNodePrompt === 'serial' ? 200 : 0),
                         posY: (n?.posY ?? 0) + (newNodePrompt === 'parallel' ? 140 : 0),
+                        phase: newNodePhase,
+                        isOptional: newNodeOptional,
+                        anchorNodeId: newNodeAnchorId!,
+                        connectMode: newNodePrompt ?? 'serial',
                       },
                     });
                     setNewNodePrompt(null);
@@ -421,8 +490,12 @@ export function ProjectDetailPage() {
             <WorkflowFlowEditor
               graph={wf}
               {...(focusNodeId ? { focusNodeId } : {})}
-              pending={pending}
+              pending={pending || patchNodeMut.isPending}
               connectError={connectError}
+              actionError={graphActionError}
+              onPatchNode={async (nodeId, patch) => {
+                await patchNodeMut.mutateAsync({ nodeId, patch });
+              }}
               onMoveNode={async (nodeId, x, y) => {
                 await graphMut.mutateAsync({ type: 'move', nodeId, pos: { x, y } });
               }}
@@ -435,7 +508,10 @@ export function ProjectDetailPage() {
               onAdvanceTo={(nodeId) => graphMut.mutate({ type: 'advance', nodeId })}
               onComplete={(nodeId) => graphMut.mutate({ type: 'complete', nodeId })}
               onRollback={(nodeId) => graphMut.mutate({ type: 'rollback', nodeId })}
-              onDeleteNode={(nodeId) => graphMut.mutate({ type: 'delete', nodeId })}
+              onDeleteNode={(nodeId) => {
+                if (!window.confirm('确定删除该节点？关联事项引用将被清空。')) return;
+                graphMut.mutate({ type: 'delete', nodeId });
+              }}
               onAddSerialNode={(afterId) => {
                 setNewNodeAnchorId(afterId);
                 setNewNodePrompt('serial');
@@ -533,6 +609,24 @@ export function ProjectDetailPage() {
               </Button>
             </div>
           ) : null}
+          {mergeIds.length >= 2 ? (
+            <div className="flex flex-wrap items-end gap-2 rounded border p-2">
+              <Input
+                aria-label="合并后标题"
+                placeholder="合并后标题"
+                value={mergeTitle}
+                onChange={(e) => setMergeTitle(e.target.value)}
+              />
+              <Button
+                type="button"
+                size="sm"
+                disabled={pending || !mergeTitle.trim()}
+                onClick={() => mergeMut.mutate()}
+              >
+                合并 {mergeIds.length} 条事项
+              </Button>
+            </div>
+          ) : null}
           {p.openItems.filter((i) => i.lifecycle === 'open').length === 0 ? (
             <p className="text-muted-foreground">暂无待闭环事项</p>
           ) : (
@@ -545,11 +639,22 @@ export function ProjectDetailPage() {
                   item={item}
                   workflow={wf}
                   disabled={pending}
+                  mergeSelection={mergeIds}
+                  onToggleMerge={(itemId) =>
+                    setMergeIds((prev) =>
+                      prev.includes(itemId) ? prev.filter((x) => x !== itemId) : [...prev, itemId],
+                    )
+                  }
                 />
               ))
           )}
-          <details className="pt-2">
-            <summary className="cursor-pointer font-medium">已闭环 / 已取消历史</summary>
+          <details className="pt-2" open={historyOpen}>
+            <summary
+              className="cursor-pointer font-medium"
+              onClick={() => setHistoryOpen((v) => !v)}
+            >
+              已闭环 / 已取消历史
+            </summary>
             <ul className="mt-2 space-y-2">
               {p.openItems
                 .filter((i) => i.lifecycle !== 'open')

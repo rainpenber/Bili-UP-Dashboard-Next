@@ -21,6 +21,7 @@ import {
   mapNode,
   mapOpenItem,
   assertNodesInProject,
+  clearOpenItemRefsBeforeNodeDelete,
 } from './engine-shared';
 import { hermesPayloadHash } from './canonical-json';
 
@@ -281,16 +282,39 @@ export class CommercialEngine {
 
   async createGraphNode(
     projectId: string,
-    body: { name: string; posX: number; posY: number; phase?: string },
+    body: {
+      name: string;
+      posX: number;
+      posY: number;
+      phase?: string;
+      isOptional?: boolean;
+      packageId?: string | null;
+      anchorNodeId?: string;
+      connectMode?: 'serial' | 'parallel';
+    },
   ) {
     const id = crypto.randomUUID();
     await this.mutateGraph(
       projectId,
       async (tx, graph) => {
+        if (body.anchorNodeId) assertNodeInGraph(graph, body.anchorNodeId);
         await tx`
-          INSERT INTO wf_nodes (id, workflow_id, project_id, name, status, pos_x, pos_y, phase, source)
-          VALUES (${id}, ${graph.workflowId}, ${projectId}, ${body.name}, 'not_reached', ${body.posX}, ${body.posY}, ${body.phase ?? 'pre_publish'}, 'web')
+          INSERT INTO wf_nodes (id, workflow_id, project_id, name, status, is_optional, pos_x, pos_y, phase, package_id, source)
+          VALUES (${id}, ${graph.workflowId}, ${projectId}, ${body.name}, 'not_reached', ${body.isOptional ?? false}, ${body.posX}, ${body.posY}, ${body.phase ?? 'pre_publish'}, ${body.packageId ?? null}, 'web')
         `;
+        if (body.anchorNodeId && body.connectMode === 'serial') {
+          await assertEdgeAllowed(tx, graph.workflowId, body.anchorNodeId, id);
+          await tx`INSERT INTO wf_edges (id, workflow_id, from_node_id, to_node_id) VALUES (${crypto.randomUUID()}, ${graph.workflowId}, ${body.anchorNodeId}, ${id})`;
+        }
+        if (body.anchorNodeId && body.connectMode === 'parallel') {
+          const incoming = await tx<{ from_node_id: string }[]>`
+            SELECT from_node_id FROM wf_edges WHERE workflow_id = ${graph.workflowId} AND to_node_id = ${body.anchorNodeId}
+          `;
+          for (const row of incoming) {
+            await assertEdgeAllowed(tx, graph.workflowId, row.from_node_id, id);
+            await tx`INSERT INTO wf_edges (id, workflow_id, from_node_id, to_node_id) VALUES (${crypto.randomUUID()}, ${graph.workflowId}, ${row.from_node_id}, ${id})`;
+          }
+        }
       },
       { recordUndo: true },
     );
@@ -369,16 +393,7 @@ export class CommercialEngine {
     await this.mutateGraph(
       projectId,
       async (tx) => {
-        await tx`
-          UPDATE wf_nodes SET primary_block_pinned_item_id = NULL
-          WHERE project_id = ${projectId} AND primary_block_pinned_item_id IN (
-            SELECT id FROM open_items WHERE project_id = ${projectId} AND (workflow_node_id = ${nodeId} OR blocks_node_id = ${nodeId})
-          )
-        `;
-        await tx`
-          UPDATE open_items SET workflow_node_id = NULL, blocks_node_id = NULL, updated_at = now()
-          WHERE project_id = ${projectId} AND (workflow_node_id = ${nodeId} OR blocks_node_id = ${nodeId})
-        `;
+        await clearOpenItemRefsBeforeNodeDelete(tx, projectId, nodeId);
         await tx`DELETE FROM wf_edges WHERE workflow_id IN (SELECT id FROM project_workflows WHERE project_id = ${projectId}) AND (from_node_id = ${nodeId} OR to_node_id = ${nodeId})`;
         const deleted = await tx<{ id: string }[]>`
           DELETE FROM wf_nodes WHERE id = ${nodeId} AND project_id = ${projectId} RETURNING id
@@ -583,6 +598,95 @@ export class CommercialEngine {
     const item = (await this.listOpenItems(projectId)).find((i) => i.id === itemId);
     if (!item) throw Object.assign(new Error('事项不存在'), { status: 404 });
     return item;
+  }
+
+  async listOpenItemHistory(projectId: string, itemId: string) {
+    const rows = await this.db<
+      { action: string; detail: Record<string, unknown> | null; source: string; created_at: Date }[]
+    >`
+      SELECT action, detail, source, created_at FROM workflow_audit_log
+      WHERE project_id = ${projectId} AND entity_type = 'open_item' AND entity_id = ${itemId}
+      ORDER BY created_at ASC
+    `;
+    return rows.map((r) => ({
+      action: r.action,
+      detail: r.detail,
+      source: r.source,
+      createdAt: r.created_at.toISOString(),
+    }));
+  }
+
+  async splitOpenItem(projectId: string, itemId: string, newTitles: string[]) {
+    await this.db.begin(async (tx) => {
+      const src =
+        await tx`SELECT * FROM open_items WHERE id = ${itemId} AND project_id = ${projectId} FOR UPDATE`;
+      if (!src[0] || src[0].lifecycle !== 'open') {
+        throw Object.assign(new Error('open item not found'), { status: 404 });
+      }
+      await tx`UPDATE open_items SET lifecycle = 'closed', close_conclusion = '拆分为多条', closed_at = now(), updated_at = now() WHERE id = ${itemId}`;
+      const created: string[] = [];
+      for (const title of newTitles) {
+        const id = crypto.randomUUID();
+        await tx`
+          INSERT INTO open_items (id, project_id, title, next_actor, lifecycle, impact)
+          VALUES (${id}, ${projectId}, ${title}, ${src[0].next_actor}, 'open', 'normal')
+        `;
+        created.push(id);
+      }
+      await auditItem(tx, projectId, 'split', itemId, { created }, 'web');
+      await syncBlockedAndStage(tx, projectId);
+    });
+    return this.listOpenItems(projectId);
+  }
+
+  async mergeOpenItems(projectId: string, itemIds: string[], mergedTitle: string) {
+    await this.db.begin(async (tx) => {
+      for (const id of itemIds) {
+        const row =
+          await tx`SELECT id FROM open_items WHERE id = ${id} AND project_id = ${projectId} AND lifecycle = 'open' FOR UPDATE`;
+        if (!row[0]) throw Object.assign(new Error('open item not found'), { status: 404 });
+      }
+      for (const id of itemIds) {
+        await tx`UPDATE open_items SET lifecycle = 'closed', close_conclusion = '合并', closed_at = now(), updated_at = now() WHERE id = ${id}`;
+      }
+      const mergedId = crypto.randomUUID();
+      await tx`
+        INSERT INTO open_items (id, project_id, title, next_actor, lifecycle, impact)
+        VALUES (${mergedId}, ${projectId}, ${mergedTitle}, 'us', 'open', 'normal')
+      `;
+      await auditItem(tx, projectId, 'merge', mergedId, { from: itemIds }, 'web');
+      await syncBlockedAndStage(tx, projectId);
+    });
+    return this.listOpenItems(projectId);
+  }
+
+  async promoteOpenItemToNode(
+    projectId: string,
+    itemId: string,
+    nodeName: string,
+    pos?: { x: number; y: number },
+  ) {
+    let nodeId = '';
+    await this.db.begin(async (tx) => {
+      const item =
+        await tx`SELECT * FROM open_items WHERE id = ${itemId} AND project_id = ${projectId} FOR UPDATE`;
+      if (!item[0]) throw Object.assign(new Error('open item not found'), { status: 404 });
+      nodeId = crypto.randomUUID();
+      await mutateProjectGraph(
+        tx,
+        projectId,
+        async (tx, graph) => {
+          await tx`
+            INSERT INTO wf_nodes (id, workflow_id, project_id, name, status, pos_x, pos_y, phase, source)
+            VALUES (${nodeId}, ${graph.workflowId}, ${projectId}, ${nodeName}, 'not_reached', ${pos?.x ?? 0}, ${pos?.y ?? 0}, 'pre_publish', 'web')
+          `;
+          await tx`UPDATE open_items SET workflow_node_id = ${nodeId}, updated_at = now() WHERE id = ${itemId}`;
+        },
+        { recordUndo: true },
+      );
+      await auditItem(tx, projectId, 'promote_to_node', itemId, { nodeId, nodeName }, 'web');
+    });
+    return { nodeId, workflow: await this.getWorkflow(projectId) };
   }
 
   async publishProject(

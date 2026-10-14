@@ -36,6 +36,34 @@ export function mapNode(n: {
   };
 }
 
+export async function clearOpenItemRefsBeforeNodeDelete(tx: Db, projectId: string, nodeId: string) {
+  await tx`
+    UPDATE wf_nodes SET primary_block_pinned_item_id = NULL
+    WHERE project_id = ${projectId} AND primary_block_pinned_item_id IN (
+      SELECT id FROM open_items WHERE project_id = ${projectId}
+        AND (workflow_node_id = ${nodeId} OR blocks_node_id = ${nodeId})
+    )
+  `;
+  await tx`
+    UPDATE open_items SET workflow_node_id = NULL, blocks_node_id = NULL, updated_at = now()
+    WHERE project_id = ${projectId} AND (workflow_node_id = ${nodeId} OR blocks_node_id = ${nodeId})
+  `;
+}
+
+export async function clearAllOpenItemRefsForWorkflow(
+  tx: Db,
+  projectId: string,
+  workflowId: string,
+) {
+  await tx`
+    UPDATE wf_nodes SET primary_block_pinned_item_id = NULL WHERE workflow_id = ${workflowId}
+  `;
+  await tx`
+    UPDATE open_items SET workflow_node_id = NULL, blocks_node_id = NULL, updated_at = now()
+    WHERE project_id = ${projectId} AND (workflow_node_id IS NOT NULL OR blocks_node_id IS NOT NULL)
+  `;
+}
+
 export async function assertNodesInProject(
   tx: Db,
   projectId: string,

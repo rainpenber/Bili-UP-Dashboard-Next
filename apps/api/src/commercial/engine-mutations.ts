@@ -5,6 +5,7 @@ import {
   applyUpdates,
   assertNodeInGraph,
   assertNodesInProject,
+  clearOpenItemRefsBeforeNodeDelete,
   audit,
   auditItem,
   executePublishEffects,
@@ -252,6 +253,7 @@ export async function applyHermesEnvelopeTx(
         payload.projectId,
         async (tx, graph) => {
           assertNodeInGraph(graph, payload.nodeId);
+          await clearOpenItemRefsBeforeNodeDelete(tx, payload.projectId, payload.nodeId);
           await tx`DELETE FROM wf_edges WHERE workflow_id = ${graph.workflowId} AND (from_node_id = ${payload.nodeId} OR to_node_id = ${payload.nodeId})`;
           await tx`DELETE FROM wf_nodes WHERE id = ${payload.nodeId} AND project_id = ${payload.projectId}`;
         },
