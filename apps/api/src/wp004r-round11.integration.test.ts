@@ -129,6 +129,37 @@ describe('WP-004R round11 integration', () => {
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
 
+  test('reset without confirm returns 409 when custom nodes already exist', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'r11-reset-409');
+    await app.request(`/api/v1/commercial/projects/${project.id}/nodes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '已有自定义', posX: 10, posY: 10 }),
+    });
+    const reset = await app.request('/api/v1/commercial/hermes/write', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        idempotencyKey: `r11-reset-409-${project.id}`,
+        operation: 'reset_project_workflow',
+        confidence: 1,
+        autoApply: true,
+        payload: {
+          projectId: project.id,
+          templateVersionId: (
+            await sql<{ template_version_id: string }[]>`
+              SELECT template_version_id FROM project_workflows WHERE project_id = ${project.id}
+            `
+          )[0]!.template_version_id,
+          confirmDestroyCustomGraph: false,
+        },
+      }),
+    });
+    expect(reset.status).toBe(409);
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
+
   test('reset without confirm races concurrent custom node insert — custom survives or reset 409', async () => {
     if (!sql) return;
     const project = await createProject(app, 'r11-reset-race');

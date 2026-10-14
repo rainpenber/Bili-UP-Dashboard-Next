@@ -108,7 +108,7 @@ export const hermesPublishPayloadSchema = publishProjectBodySchema.extend({
 export const hermesResetWorkflowPayloadSchema = z.object({
   projectId: uuid,
   templateVersionId: uuid,
-  confirmDestroyCustomGraph: z.literal(true),
+  confirmDestroyCustomGraph: z.boolean().default(false),
 });
 
 export const hermesWriteEnvelopeSchema = z.discriminatedUnion('operation', [
