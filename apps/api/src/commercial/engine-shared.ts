@@ -1,6 +1,7 @@
 import type { OpenItemDto, PublishResultDto, WorkflowGraph } from '@studio/contracts';
 import type { Db } from './graph-io';
 import { loadWorkflowGraph } from './graph-io';
+import { auditJson } from './audit-json';
 
 export function mapNode(n: {
   id: string;
@@ -17,6 +18,7 @@ export function mapNode(n: {
   template_node_id?: string | null;
   source?: string;
   status_before_block?: string | null;
+  primary_block_pinned_item_id?: string | null;
 }) {
   return {
     id: n.id,
@@ -33,6 +35,7 @@ export function mapNode(n: {
     templateNodeId: n.template_node_id ?? null,
     source: (n.source ?? 'template') as NonNullable<WorkflowGraph['nodes'][number]['source']>,
     statusBeforeBlock: n.status_before_block ?? null,
+    primaryBlockPinnedItemId: n.primary_block_pinned_item_id ?? null,
   };
 }
 
@@ -155,7 +158,7 @@ export async function audit(
 ) {
   await tx`
     INSERT INTO workflow_audit_log (project_id, entity_type, entity_id, action, detail, source)
-    VALUES (${projectId}, 'node', ${entityId}, ${action}, ${JSON.stringify(detail)}::jsonb, ${source})
+    VALUES (${projectId}, 'node', ${entityId}, ${action}, ${auditJson(detail)}, ${source})
   `;
 }
 
@@ -169,7 +172,7 @@ export async function auditItem(
 ) {
   await tx`
     INSERT INTO workflow_audit_log (project_id, entity_type, entity_id, action, detail, source)
-    VALUES (${projectId}, 'open_item', ${itemId}, ${action}, ${JSON.stringify(detail)}::jsonb, ${source})
+    VALUES (${projectId}, 'open_item', ${itemId}, ${action}, ${auditJson(detail)}, ${source})
   `;
 }
 
@@ -345,11 +348,16 @@ export async function executePublishEffects(
   await runMockMetadataTask(tx, projectId, body.bvid);
   const { syncBlockedAndStage } = await import('./sync-state');
   await syncBlockedAndStage(tx, projectId);
+  const jobTypes = await tx<{ job_type: string }[]>`
+    SELECT job_type FROM monitor_jobs WHERE project_id = ${projectId} ORDER BY job_type
+  `;
   return {
     projectId,
     bvid: body.bvid,
     publishedAt: body.publishedAt,
     forcedCompleteAudit: forced,
     monitor: await getMonitorDto(tx, projectId),
+    monitorJobTypes: jobTypes.map((j) => j.job_type),
+    videoCreated: true,
   };
 }

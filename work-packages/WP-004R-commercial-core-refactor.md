@@ -1,6 +1,6 @@
 # WP-004R｜商单核心模型与页面重构
 
-status: 开发中（Draft PR #5）
+status: 第十一轮验收加强（Draft PR #5 — 假绿修复 + P1 后端）
 
 ## 本迭代已落地
 
@@ -12,6 +12,14 @@ status: 开发中（Draft PR #5）
 - Fixtures：13 个确定性商单场景（`commercial-fixtures.ts`）+ 发布/监控契约样例。
 - 迁移：004 legacy RENAME/INSERT SELECT 保留旧数据；008 审计 project_id 可空；009 事项取消原因。
 
-## 待完成（相对工作包全文）
+## 第十一轮（相对 `e66ad8a`）
 
-- Playwright E2E 浏览器验收套件；模板编辑器撤销/重做、新建模板节点；项目图节点属性表单（phase/optional/package）、拆分/合并/升级阻塞 UI；Hermes/undo/跨项目/发布隔离等集成测试补全；迁移升级测试在 CI Postgres 上必跑。
+- Migration `013`：主阻塞 pin `RESTRICT` + `BEFORE DELETE` 仅清 `primary_block_pinned_item_id`；升级前清理跨项目脏 pin。
+- Reset：先锁 `project_workflows` 再数 custom nodes；并发竞态集成测试。
+- 事项 history：`auditJson()` 写 jsonb 对象；create/update/close/cancel 审计；history route 通过 Zod。
+- 深链：`scrollTargetIntoView` + E2E boundingBox 视口断言。
+- E2E harness：API 5xx / ZodError 失败；禁止 history 模糊 or 断言。
+
+## 待产品签收
+
+- Draft PR #5 合并策略与生产部署不在本工作包范围。

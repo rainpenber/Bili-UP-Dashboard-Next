@@ -55,6 +55,7 @@ export const wfNodeSchema = z.object({
   templateNodeId: z.string().uuid().nullable().optional(),
   source: z.enum(['template', 'web', 'hermes', 'manual']).optional(),
   statusBeforeBlock: z.string().nullable().optional(),
+  primaryBlockPinnedItemId: z.string().uuid().nullable().optional(),
 });
 
 export const batchGraphLayoutBodySchema = z.object({
@@ -226,6 +227,8 @@ export const publishResultSchema = z.object({
     linkedBvid: z.string().nullable(),
     metricsFetchDueAt: z.string().datetime().nullable(),
   }),
+  monitorJobTypes: z.array(z.string()).optional(),
+  videoCreated: z.boolean().optional(),
 });
 
 export const createGraphNodeBodySchema = z.object({

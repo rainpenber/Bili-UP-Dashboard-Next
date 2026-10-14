@@ -29,6 +29,7 @@ import { OpenItemCard } from '@/features/commercial/open-item-card';
 import { WorkflowFlowEditor } from '@/features/commercial/workflow-flow-editor';
 import { overallStageLabel, nodeStatusLabel } from '@/lib/commercial-labels';
 import { formatFullLocalTime } from '@/lib/format-time';
+import { scrollTargetIntoView } from '@/lib/scroll-target-into-view';
 
 export function ProjectDetailPage() {
   const { id } = useParams();
@@ -82,13 +83,13 @@ export function ProjectDetailPage() {
       (i) => i.id === focusItemId && i.lifecycle !== 'open',
     );
     if (closed) setHistoryOpen(true);
-    const t = window.setTimeout(() => {
-      const el = document.getElementById(`item-${focusItemId}`);
-      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      el?.focus();
-    }, 200);
-    return () => window.clearTimeout(t);
+    scrollTargetIntoView(`item-${focusItemId}`);
   }, [focusItemId, project.data]);
+
+  useEffect(() => {
+    if (!focusNodeId || !project.data) return;
+    scrollTargetIntoView(`node-${focusNodeId}`);
+  }, [focusNodeId, project.data]);
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['commercial'] });
 

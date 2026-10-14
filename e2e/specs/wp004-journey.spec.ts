@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../harness';
 
 async function createBlankProject(page: import('@playwright/test').Page, name: string) {
   await page.goto('/projects');

@@ -102,6 +102,8 @@ export function WorkflowFlowEditor(props: Props) {
     const t = window.setTimeout(() => {
       reactFlowRef.current?.fitView({ nodes: [{ id: props.focusNodeId! }] });
       setNodes((nds) => nds.map((n) => ({ ...n, selected: n.id === props.focusNodeId })));
+      const panel = document.getElementById(`node-${props.focusNodeId}`);
+      panel?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
     }, 120);
     return () => window.clearTimeout(t);
   }, [props.focusNodeId]);
@@ -198,7 +200,11 @@ export function WorkflowFlowEditor(props: Props) {
             <MiniMap />
           </ReactFlow>
         </div>
-        <div className="space-y-2 rounded border p-3 text-sm">
+        <div
+          id={selectedGraphNode ? `node-${selectedGraphNode.id}` : undefined}
+          className="space-y-2 rounded border p-3 text-sm"
+          tabIndex={selectedGraphNode ? -1 : undefined}
+        >
           <p className="font-medium">节点属性</p>
           {draft && props.onPatchNode ? (
             <>
@@ -278,9 +284,7 @@ export function WorkflowFlowEditor(props: Props) {
               </Button>
             </>
           ) : (
-            <p className="text-muted-foreground">
-              选中节点后可编辑名称、阶段、package 与计划时间。
-            </p>
+            <p className="text-muted-foreground">选中节点后可编辑名称、阶段、制作包与计划时间。</p>
           )}
           {selectedNode ? (
             <div className="flex flex-wrap gap-2 border-t pt-2">

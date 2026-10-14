@@ -583,6 +583,7 @@ export class CommercialEngine {
       if (patch.sortRank !== undefined)
         await tx`UPDATE open_items SET sort_rank = ${Number(patch.sortRank)}, updated_at = now() WHERE id = ${itemId}`;
       void fields;
+      await auditItem(tx, projectId, 'update', itemId, patch, 'web');
       await syncBlockedAndStage(tx, projectId);
     });
     return (await this.listOpenItems(projectId)).find((i) => i.id === itemId)!;
@@ -606,6 +607,7 @@ export class CommercialEngine {
           ${(body.confidence as number) ?? null}, ${Number(body.sortRank ?? 0)}
         )
       `;
+      await auditItem(tx, projectId, 'create', id, { title: String(body.title) }, 'web');
       await syncBlockedAndStage(tx, projectId);
     });
     return (await this.listOpenItems(projectId)).find((i) => i.id === id)!;
@@ -654,8 +656,9 @@ export class CommercialEngine {
   }
 
   async listOpenItemHistory(projectId: string, itemId: string) {
+    const { normalizeAuditDetail } = await import('./audit-json');
     const rows = await this.db<
-      { action: string; detail: Record<string, unknown> | null; source: string; created_at: Date }[]
+      { action: string; detail: unknown; source: string; created_at: Date }[]
     >`
       SELECT action, detail, source, created_at FROM workflow_audit_log
       WHERE project_id = ${projectId} AND entity_type = 'open_item' AND entity_id = ${itemId}
@@ -663,7 +666,7 @@ export class CommercialEngine {
     `;
     return rows.map((r) => ({
       action: r.action,
-      detail: r.detail,
+      detail: normalizeAuditDetail(r.detail),
       source: r.source,
       createdAt: r.created_at.toISOString(),
     }));

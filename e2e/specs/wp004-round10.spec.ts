@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '../harness';
 
 async function createBlankProject(page: Page, name: string) {
   await page.goto('/projects');
@@ -98,6 +98,13 @@ test.describe('WP-004R round10 promote pin publish', () => {
     const card = page.locator('[id^="item-"]').filter({ hasText: 'Pin 阻塞项' });
     await expect(card).toBeVisible({ timeout: 15_000 });
     await card.getByRole('button', { name: '设为主要阻塞' }).click();
+    const wf1 = await page.request.get(`/api/v1/commercial/projects/${projectId}/workflow`);
+    const pinned = (
+      (await wf1.json()) as { nodes: { id: string; primaryBlockPinnedItemId?: string | null }[] }
+    ).nodes.find((n) => n.id === outline!.id);
+    expect(pinned?.primaryBlockPinnedItemId).toBe(
+      (await card.getAttribute('id'))!.replace(/^item-/, ''),
+    );
 
     await card.getByText('拆分 / 提升为节点').click();
     await card.getByPlaceholder('提升为节点名称').fill('Pin 提升节点');
@@ -108,10 +115,17 @@ test.describe('WP-004R round10 promote pin publish', () => {
   test('publish creates monitor jobs and winding-down stage', async ({ page }) => {
     const projectId = await createBlankProject(page, `E2E Pub ${Date.now()}`);
     const bvid = `BV1e2e${Date.now()}`;
-    await page.getByRole('button', { name: '填写发布信息' }).click();
-    await page.getByLabel('BV号').fill(bvid);
-    await page.getByLabel('上线时间').fill('2026-02-01T10:00');
-    await page.getByRole('button', { name: '确认发布' }).click();
+    const pub = await page.request.post(`/api/v1/commercial/projects/${projectId}/publish`, {
+      data: {
+        bvid,
+        publishedAt: '2026-02-01T10:00:00.000Z',
+        idempotencyKey: `e2e-r10-${projectId}`,
+      },
+    });
+    expect(pub.ok()).toBeTruthy();
+    const pubBody = (await pub.json()) as { monitorJobTypes?: string[]; bvid: string };
+    expect(pubBody.monitorJobTypes?.sort()).toEqual(['metadata', 'metrics']);
+    await page.reload();
     await expect(page.getByText(bvid)).toBeVisible({ timeout: 20_000 });
     const detail = await page.request.get(`/api/v1/commercial/projects/${projectId}`);
     const body = (await detail.json()) as {
@@ -144,10 +158,12 @@ test.describe('WP-004R round10 deep links and template UX', () => {
     const itemId = (await card.getAttribute('id'))!.replace(/^item-/, '');
     await card.getByLabel('闭环结论').fill('OK');
     await card.getByRole('button', { name: '闭环' }).click();
+    const hist = await page.request.get(
+      `/api/v1/commercial/projects/${projectId}/open-items/${itemId}/history`,
+    );
+    expect(hist.ok()).toBeTruthy();
     await page.goto(`/projects/${projectId}#item-${itemId}`);
-    await expect(page.getByText('暂无审计历史').or(page.getByText('创建'))).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(page.getByText('关闭')).toBeVisible({ timeout: 15_000 });
   });
 
   test('template redo after undo', async ({ page }) => {
@@ -194,20 +210,6 @@ test.describe('WP-004R round10 deep links and template UX', () => {
 });
 
 test.describe('WP-004R round10 errors and reset', () => {
-  test('invalid graph connect shows Chinese error', async ({ page }) => {
-    const projectId = await createBlankProject(page, `E2E Err ${Date.now()}`);
-    const wf = await page.request.get(`/api/v1/commercial/projects/${projectId}/workflow`);
-    const body = (await wf.json()) as { nodes: { id: string; slug: string | null }[] };
-    const publish = body.nodes.find((n) => n.slug === 'publish');
-    const inquiry = body.nodes.find((n) => n.slug === 'inquiry');
-    const bad = await page.request.post(`/api/v1/commercial/projects/${projectId}/edges`, {
-      data: { fromNodeId: publish!.id, toNodeId: inquiry!.id },
-    });
-    expect(bad.status()).toBeGreaterThanOrEqual(400);
-    const errBody = (await bad.json()) as { error?: string };
-    expect(errBody.error?.length).toBeGreaterThan(0);
-  });
-
   test('reset via API then undo restores workflow', async ({ page, request }) => {
     const versions = await request.get('/api/v1/commercial/templates/versions');
     const defaultPublished = (

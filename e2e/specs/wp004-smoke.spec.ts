@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../harness';
 
 test.describe('WP-004R commercial E2E', () => {
   test('today dashboard loads', async ({ page }) => {

@@ -515,6 +515,10 @@ export async function applyHermesEnvelopeTx(
       );
     }
     case 'reset_project_workflow': {
+      const wf = await tx<{ id: string }[]>`
+        SELECT id FROM project_workflows WHERE project_id = ${payload.projectId} FOR UPDATE
+      `;
+      if (!wf[0]) throw Object.assign(new Error('workflow not found'), { status: 404 });
       const custom = await tx<{ c: string }[]>`
         SELECT count(*)::text AS c FROM wf_nodes WHERE project_id = ${payload.projectId} AND source <> 'template'
       `;
@@ -523,10 +527,6 @@ export async function applyHermesEnvelopeTx(
           status: 409,
         });
       }
-      const wf = await tx<{ id: string }[]>`
-        SELECT id FROM project_workflows WHERE project_id = ${payload.projectId} FOR UPDATE
-      `;
-      if (!wf[0]) throw Object.assign(new Error('workflow not found'), { status: 404 });
       const { assertResetTemplateVersionAllowed } = await import('./template-reset');
       await assertResetTemplateVersionAllowed(tx, payload.projectId, payload.templateVersionId);
       await pushUndoSnapshot(tx, payload.projectId);

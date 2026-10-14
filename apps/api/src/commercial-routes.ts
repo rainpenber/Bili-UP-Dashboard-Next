@@ -24,6 +24,7 @@ import type { Sql } from '@studio/db';
 import { Hono } from 'hono';
 import { jsonError } from './api-error';
 import { CommercialEngine } from './commercial/engine';
+import { auditItem } from './commercial/engine-shared';
 import { TemplateEngine } from './commercial/template-engine';
 import { acceptHermesProposal, rejectHermesProposal } from './commercial/hermes';
 
@@ -490,6 +491,14 @@ export function createCommercialRoutes(db: Sql) {
         if (!updated.length) {
           throw Object.assign(new Error('blocks node not in project'), { status: 409 });
         }
+        await auditItem(
+          tx,
+          projectId,
+          'pin_primary_block',
+          itemId,
+          { nodeId: updated[0]!.id },
+          'web',
+        );
       });
       return c.json({ ok: true });
     } catch (err) {
