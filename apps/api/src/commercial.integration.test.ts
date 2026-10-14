@@ -670,4 +670,58 @@ describe('commercial API integration', () => {
     expect(res.status).toBe(409);
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
+
+  test('patch open item from blocking to normal clears blocks_node_id', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'test-item-blocking-clear');
+    const wf = await (
+      await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)
+    ).json();
+    const outline = wf.nodes.find((n: { slug: string | null }) => n.slug === 'outline');
+    expect(outline).toBeTruthy();
+    const createRes = await app.request(`/api/v1/commercial/projects/${project.id}/open-items`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: '阻塞项',
+        nextActor: 'us',
+        impact: 'blocking',
+        blocksNodeId: outline.id,
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const item = (await createRes.json()) as { id: string };
+    const patchRes = await app.request(
+      `/api/v1/commercial/projects/${project.id}/open-items/${item.id}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ impact: 'normal', blocksNodeId: null }),
+      },
+    );
+    expect(patchRes.status).toBe(200);
+    const row = await sql<{ blocks_node_id: string | null }[]>`
+      SELECT blocks_node_id FROM open_items WHERE id = ${item.id}
+    `;
+    expect(row[0]?.blocks_node_id).toBeNull();
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
+
+  test('merge open items returns Chinese error when item missing', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'test-merge-err');
+    const fake = '99999999-9999-4999-8999-999999999999';
+    const res = await app.request(`/api/v1/commercial/projects/${project.id}/open-items/merge`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        itemIds: [fake, fake],
+        mergedTitle: '合并标题',
+      }),
+    });
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe('找不到可合并的开放事项');
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
 });

@@ -56,6 +56,7 @@ export function ProjectDetailPage() {
   const [mergeIds, setMergeIds] = useState<string[]>([]);
   const [mergeTitle, setMergeTitle] = useState('');
   const [graphActionError, setGraphActionError] = useState<string | null>(null);
+  const [mergeError, setMergeError] = useState<string | null>(null);
 
   const focusNodeId = useMemo(() => {
     const hash = location.hash.replace('#', '');
@@ -177,10 +178,13 @@ export function ProjectDetailPage() {
   const mergeMut = useMutation({
     mutationFn: () => mergeOpenItems(id!, mergeIds, mergeTitle.trim()),
     onSuccess: () => {
+      setMergeError(null);
       setMergeIds([]);
       setMergeTitle('');
       invalidate();
     },
+    onError: (e) =>
+      setMergeError(e instanceof Error ? e.message : '合并事项失败，请检查后重试'),
   });
 
   const wfForShortcuts = project.data?.workflow;
@@ -679,10 +683,14 @@ export function ProjectDetailPage() {
                 type="button"
                 size="sm"
                 disabled={pending || !mergeTitle.trim()}
-                onClick={() => mergeMut.mutate()}
+                onClick={() => {
+                  setMergeError(null);
+                  mergeMut.mutate();
+                }}
               >
                 合并 {mergeIds.length} 条事项
               </Button>
+              {mergeError ? <p className="text-destructive w-full text-sm">{mergeError}</p> : null}
             </div>
           ) : null}
           {p.openItems.filter((i) => i.lifecycle === 'open').length === 0 ? (

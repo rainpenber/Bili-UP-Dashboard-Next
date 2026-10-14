@@ -686,7 +686,7 @@ export class CommercialEngine {
       for (const id of itemIds) {
         const row =
           await tx`SELECT id FROM open_items WHERE id = ${id} AND project_id = ${projectId} AND lifecycle = 'open' FOR UPDATE`;
-        if (!row[0]) throw Object.assign(new Error('open item not found'), { status: 404 });
+        if (!row[0]) throw Object.assign(new Error('找不到可合并的开放事项'), { status: 404 });
       }
       for (const id of itemIds) {
         await tx`UPDATE open_items SET lifecycle = 'closed', close_conclusion = '合并', closed_at = now(), updated_at = now() WHERE id = ${id}`;

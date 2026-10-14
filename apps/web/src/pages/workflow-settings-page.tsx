@@ -25,6 +25,7 @@ import { formatFullLocalTime } from '@/lib/format-time';
 export function WorkflowSettingsPage() {
   const qc = useQueryClient();
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+  const [undoRedoMsg, setUndoRedoMsg] = useState<string | null>(null);
 
   const versions = useQuery({
     queryKey: ['commercial', 'template-versions'],
@@ -67,7 +68,11 @@ export function WorkflowSettingsPage() {
 
   const graphMut = useMutation({
     mutationFn: async (fn: () => Promise<TemplateGraph>) => fn(),
-    onSuccess: () => void graphQuery.refetch(),
+    onSuccess: () => {
+      setUndoRedoMsg('操作已应用');
+      void graphQuery.refetch();
+    },
+    onError: (e) => setUndoRedoMsg(e instanceof Error ? e.message : '模板图操作失败'),
   });
 
   const pending = graphMut.isPending || draftMut.isPending || publishMut.isPending;
@@ -79,14 +84,26 @@ export function WorkflowSettingsPage() {
       if (!mod || e.key.toLowerCase() !== 'z') return;
       e.preventDefault();
       if (e.shiftKey) {
+        if (!graphQuery.data?.canRedo) return;
+        setUndoRedoMsg(null);
         void graphMut.mutate(() => redoTemplateWorkflow(draftId));
       } else {
+        if (!graphQuery.data?.canUndo) return;
+        setUndoRedoMsg(null);
         void graphMut.mutate(() => undoTemplateWorkflow(draftId));
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [draftId, pending, graphMut, versions.isLoading, versions.isError]);
+  }, [
+    draftId,
+    pending,
+    graphMut,
+    graphQuery.data?.canUndo,
+    graphQuery.data?.canRedo,
+    versions.isLoading,
+    versions.isError,
+  ]);
 
   if (versions.isLoading) return <LoadingListSkeleton rows={4} />;
   if (versions.isError) {
@@ -199,8 +216,11 @@ export function WorkflowSettingsPage() {
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={pending}
-                    onClick={() => graphMut.mutate(() => undoTemplateWorkflow(draftId!))}
+                    disabled={pending || !graph.canUndo}
+                    onClick={() => {
+                      setUndoRedoMsg(null);
+                      graphMut.mutate(() => undoTemplateWorkflow(draftId!));
+                    }}
                   >
                     撤销
                   </Button>
@@ -208,12 +228,26 @@ export function WorkflowSettingsPage() {
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={pending}
-                    onClick={() => graphMut.mutate(() => redoTemplateWorkflow(draftId!))}
+                    disabled={pending || !graph.canRedo}
+                    onClick={() => {
+                      setUndoRedoMsg(null);
+                      graphMut.mutate(() => redoTemplateWorkflow(draftId!));
+                    }}
                   >
                     重做
                   </Button>
                 </div>
+                {undoRedoMsg ? (
+                  <p
+                    className={
+                      graphMut.isError
+                        ? 'text-destructive mb-2 text-sm'
+                        : 'text-muted-foreground mb-2 text-sm'
+                    }
+                  >
+                    {undoRedoMsg}
+                  </p>
+                ) : null}
                 <TemplateFlowEditor
                   graph={graph}
                   pending={pending}

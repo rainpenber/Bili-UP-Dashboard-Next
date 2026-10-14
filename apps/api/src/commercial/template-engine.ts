@@ -1,6 +1,7 @@
 import type { Sql } from '@studio/db';
 import type { Db } from './graph-io';
 import {
+  getTemplateUndoRedoState,
   pushTemplateUndoSnapshot,
   redoTemplateGraph,
   undoTemplateGraph,
@@ -57,7 +58,15 @@ export class TemplateEngine {
       WHERE template_version_id = ${versionId}
       ORDER BY sort_order, name
     `;
-    return { versionId, nodes, edges, packages };
+    const undoState = await getTemplateUndoRedoState(this.db, versionId);
+    return {
+      versionId,
+      nodes,
+      edges,
+      packages,
+      canUndo: undoState.canUndo,
+      canRedo: undoState.canRedo,
+    };
   }
 
   async createTemplatePackage(versionId: string, name: string) {
@@ -152,13 +161,17 @@ export class TemplateEngine {
 
   async publishDraft(draftVersionId: string) {
     return this.db.begin(async (tx) => {
-      const draft = await tx<{ id: string; is_draft: boolean }[]>`
-        SELECT id, is_draft FROM wf_template_versions WHERE id = ${draftVersionId} FOR UPDATE
+      const draft = await tx<{ id: string; is_draft: boolean; slug: string }[]>`
+        SELECT id, is_draft, slug FROM wf_template_versions WHERE id = ${draftVersionId} FOR UPDATE
       `;
       if (!draft[0]?.is_draft)
         throw Object.assign(new Error('not a draft version'), { status: 409 });
       await validateTemplateGraphTx(tx, draftVersionId);
-      await tx`UPDATE wf_template_versions SET is_default = FALSE WHERE is_default = TRUE`;
+      const slug = draft[0].slug;
+      await tx`
+        UPDATE wf_template_versions SET is_default = FALSE
+        WHERE is_default = TRUE AND slug = ${slug}
+      `;
       await tx`
         UPDATE wf_template_versions SET is_default = TRUE, is_draft = FALSE, published_at = now()
         WHERE id = ${draftVersionId}

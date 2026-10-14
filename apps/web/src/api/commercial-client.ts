@@ -392,6 +392,8 @@ export async function fetchTemplateGraph(versionId: string) {
     }>;
     edges: Array<{ id: string; fromNodeId: string; toNodeId: string }>;
     packages?: Array<{ id: string; name: string; sortOrder: number }>;
+    canUndo?: boolean;
+    canRedo?: boolean;
   }>;
 }
 

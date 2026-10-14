@@ -90,12 +90,22 @@ async function restoreTemplateSnapshot(tx: Db, versionId: string, snap: Template
   }
 }
 
+export async function getTemplateUndoRedoState(tx: Db, versionId: string) {
+  const rows = await tx<{ undo_json: unknown; redo_json: unknown }[]>`
+    SELECT undo_json, redo_json FROM template_undo_stacks WHERE template_version_id = ${versionId}
+  `;
+  return {
+    canUndo: asSnapshotArray(rows[0]?.undo_json).length > 0,
+    canRedo: asSnapshotArray(rows[0]?.redo_json).length > 0,
+  };
+}
+
 export async function undoTemplateGraph(tx: Db, versionId: string) {
   const rows = await tx<{ undo_json: unknown; redo_json: unknown }[]>`
     SELECT undo_json, redo_json FROM template_undo_stacks WHERE template_version_id = ${versionId} FOR UPDATE
   `;
   const undo = asSnapshotArray(rows[0]?.undo_json);
-  if (!undo.length) throw Object.assign(new Error('nothing to undo'), { status: 409 });
+  if (!undo.length) throw Object.assign(new Error('没有可撤销的更改'), { status: 409 });
   const snap = undo[undo.length - 1]!;
   const current = await captureTemplateSnapshot(tx, versionId);
   await restoreTemplateSnapshot(tx, versionId, snap);
@@ -116,7 +126,7 @@ export async function redoTemplateGraph(tx: Db, versionId: string) {
     SELECT undo_json, redo_json FROM template_undo_stacks WHERE template_version_id = ${versionId} FOR UPDATE
   `;
   const redo = asSnapshotArray(rows[0]?.redo_json);
-  if (!redo.length) throw Object.assign(new Error('nothing to redo'), { status: 409 });
+  if (!redo.length) throw Object.assign(new Error('没有可重做的更改'), { status: 409 });
   const snap = redo[redo.length - 1]!;
   const current = await captureTemplateSnapshot(tx, versionId);
   await restoreTemplateSnapshot(tx, versionId, snap);

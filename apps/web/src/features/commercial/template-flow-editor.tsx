@@ -31,6 +31,8 @@ export type TemplateGraph = {
   nodes: TemplateGraphNode[];
   edges: Array<{ id: string; fromNodeId: string; toNodeId: string }>;
   packages?: Array<{ id: string; name: string; sortOrder: number }>;
+  canUndo?: boolean;
+  canRedo?: boolean;
 };
 
 type Props = {

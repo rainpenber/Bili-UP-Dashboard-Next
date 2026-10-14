@@ -12,6 +12,7 @@ import {
 } from '@/api/commercial-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { buildOpenItemPatchBody } from '@/features/commercial/open-item-patch-body';
 import { auditActionLabel, auditSourceLabel } from '@/lib/commercial-labels';
 import { formatFullLocalTime } from '@/lib/format-time';
 
@@ -71,18 +72,20 @@ export function OpenItemCard({
 
   const patchMut = useMutation({
     mutationFn: () =>
-      patchOpenItem(projectId, item.id, {
-        title: title.trim(),
-        description: description.trim() ? description.trim() : null,
-        closeCriteria: closeCriteria.trim() ? closeCriteria.trim() : null,
-        nextAction: nextAction.trim() ? nextAction.trim() : null,
-        nextActor,
-        impact,
-        ...(impact === 'blocking'
-          ? { blocksNodeId: blocksNodeId || undefined }
-          : { blocksNodeId: undefined }),
-        workflowNodeId: workflowNodeId ? workflowNodeId : null,
-      }),
+      patchOpenItem(
+        projectId,
+        item.id,
+        buildOpenItemPatchBody({
+          title,
+          description,
+          closeCriteria,
+          nextAction,
+          nextActor,
+          impact,
+          blocksNodeId,
+          workflowNodeId,
+        }),
+      ),
     onSuccess: () => {
       setEditing(false);
       invalidate();
