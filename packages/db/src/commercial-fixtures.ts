@@ -19,7 +19,7 @@ export const FIXTURE_PROJECT_IDS = {
 
 const FIXTURE_PROJECT_ID_LIST = Object.values(FIXTURE_PROJECT_IDS);
 
-const DEFAULT_TEMPLATE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const DEFAULT_TEMPLATE = 'ffff1111-1111-4111-8111-111111111111';
 
 const FIXTURE_UUID_NS = 'studio-commercial-fixture-v1';
 

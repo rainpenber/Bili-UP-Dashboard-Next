@@ -138,6 +138,18 @@ function stripProjectIdFromPayload(payload: unknown): unknown {
   return rest;
 }
 
+function idempotencyProjectMatches(
+  storedProjectId: string | null,
+  envelopeProjectId: string | null,
+  operation: string,
+): boolean {
+  if ((storedProjectId ?? null) === (envelopeProjectId ?? null)) return true;
+  if (operation === 'upsert_project' && envelopeProjectId === null && storedProjectId !== null) {
+    return true;
+  }
+  return false;
+}
+
 function assertProposalMatches(
   envelope: HermesWriteEnvelope,
   existing: { operation: string; project_id: string | null; payload: unknown },
@@ -146,7 +158,7 @@ function assertProposalMatches(
   if (existing.operation !== envelope.operation) {
     throw Object.assign(new Error('idempotency key conflict'), { status: 409 });
   }
-  if ((existing.project_id ?? null) !== (projectId ?? null)) {
+  if (!idempotencyProjectMatches(existing.project_id, projectId ?? null, envelope.operation)) {
     throw Object.assign(new Error('idempotency key conflict'), { status: 409 });
   }
   if (
@@ -175,7 +187,7 @@ async function runDirectWriteTx(
   if (prior[0]) {
     if (
       prior[0].operation !== envelope.operation ||
-      (prior[0].project_id ?? null) !== projectIdBefore ||
+      !idempotencyProjectMatches(prior[0].project_id, projectIdBefore, envelope.operation) ||
       prior[0].payload_hash !== payloadHash
     ) {
       throw Object.assign(new Error('idempotency key conflict'), { status: 409 });
@@ -186,14 +198,9 @@ async function runDirectWriteTx(
     engine.resolveDefaultTemplateVersionId(innerTx),
   );
   const projectIdAfter = effectiveProjectId(envelope, result);
-  const storedHash = hermesPayloadHash(
-    envelope.operation,
-    projectIdAfter ?? projectIdBefore,
-    envelope.payload,
-  );
   await tx`
     INSERT INTO hermes_idempotency (idempotency_key, operation, project_id, payload_hash, result_json)
-    VALUES (${envelope.idempotencyKey}, ${envelope.operation}, ${projectIdAfter ?? projectIdBefore}, ${storedHash}, ${JSON.stringify(result)}::jsonb)
+    VALUES (${envelope.idempotencyKey}, ${envelope.operation}, ${projectIdAfter ?? projectIdBefore}, ${payloadHash}, ${JSON.stringify(result)}::jsonb)
   `;
   if (opts?.proposalId) {
     await tx`

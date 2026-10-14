@@ -19,6 +19,12 @@ BEGIN
     ALTER TABLE IF EXISTS workflow_template_nodes RENAME TO _legacy_wp004_workflow_template_nodes;
     ALTER TABLE IF EXISTS workflow_templates RENAME TO _legacy_wp004_workflow_templates;
     ALTER TABLE IF EXISTS projects RENAME TO _legacy_wp004_projects;
+    IF to_regclass('public.idx_open_items_project') IS NOT NULL THEN
+      ALTER INDEX idx_open_items_project RENAME TO idx_legacy_wp004_open_items_project;
+    END IF;
+    IF to_regclass('public.idx_open_items_status') IS NOT NULL THEN
+      ALTER INDEX idx_open_items_status RENAME TO idx_legacy_wp004_open_items_status;
+    END IF;
   ELSE
     DROP TABLE IF EXISTS hermes_change_proposals CASCADE;
     DROP TABLE IF EXISTS open_items CASCADE;
@@ -209,46 +215,46 @@ CREATE TABLE workflow_audit_log (
 CREATE INDEX idx_workflow_audit_project ON workflow_audit_log (project_id, created_at DESC);
 
 INSERT INTO wf_template_versions (id, slug, name, version, is_default)
-VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'default_sponsorship', '默认商单流程', 1, TRUE)
+VALUES ('ffff1111-1111-4111-8111-111111111111', 'default_sponsorship', '默认商单流程', 1, TRUE)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO wf_template_packages (id, template_version_id, name, sort_order)
 VALUES
-  ('cccccccc-cccc-4ccc-8ccc-cccccccccc01', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '制作并行包', 40)
+  ('cccccccc-cccc-4ccc-8ccc-cccccccccc01', 'ffff1111-1111-4111-8111-111111111111', '制作并行包', 40)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO wf_template_nodes (id, template_version_id, package_id, slug, name, is_optional, pos_x, pos_y)
 VALUES
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd001', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', NULL, 'inquiry', '询单', FALSE, 0, 0),
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd002', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', NULL, 'outline', '大纲', FALSE, 0, 120),
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd003', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', NULL, 'copy', '文案', FALSE, -120, 240),
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd004', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', NULL, 'pre_shoot', '预拍摄', FALSE, 120, 240),
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd005', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'cccccccc-cccc-4ccc-8ccc-cccccccccc01', 'a_roll', 'A-roll', FALSE, -160, 360),
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd006', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'cccccccc-cccc-4ccc-8ccc-cccccccccc01', 'b_roll', 'B-roll', FALSE, 0, 360),
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd007', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'cccccccc-cccc-4ccc-8ccc-cccccccccc01', 'ai_post', 'AI后期', FALSE, 160, 360),
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd008', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', NULL, 'review', '审核', FALSE, 0, 480),
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd009', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', NULL, 'publish', '发布', FALSE, 0, 600),
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd010', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', NULL, 'settlement', '结算', FALSE, -200, 720),
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd011', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', NULL, 'distribution', '全平台分发', FALSE, 0, 720),
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd012', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', NULL, 'data_maint', '数据维护', FALSE, 200, 720),
-  ('dddddddd-dddd-4ddd-8ddd-ddddddddd013', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', NULL, 'other', '其他', TRUE, 400, 720)
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd001', 'ffff1111-1111-4111-8111-111111111111', NULL, 'inquiry', '询单', FALSE, 0, 0),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd002', 'ffff1111-1111-4111-8111-111111111111', NULL, 'outline', '大纲', FALSE, 0, 120),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd003', 'ffff1111-1111-4111-8111-111111111111', NULL, 'copy', '文案', FALSE, -120, 240),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd004', 'ffff1111-1111-4111-8111-111111111111', NULL, 'pre_shoot', '预拍摄', FALSE, 120, 240),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd005', 'ffff1111-1111-4111-8111-111111111111', 'cccccccc-cccc-4ccc-8ccc-cccccccccc01', 'a_roll', 'A-roll', FALSE, -160, 360),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd006', 'ffff1111-1111-4111-8111-111111111111', 'cccccccc-cccc-4ccc-8ccc-cccccccccc01', 'b_roll', 'B-roll', FALSE, 0, 360),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd007', 'ffff1111-1111-4111-8111-111111111111', 'cccccccc-cccc-4ccc-8ccc-cccccccccc01', 'ai_post', 'AI后期', FALSE, 160, 360),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd008', 'ffff1111-1111-4111-8111-111111111111', NULL, 'review', '审核', FALSE, 0, 480),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd009', 'ffff1111-1111-4111-8111-111111111111', NULL, 'publish', '发布', FALSE, 0, 600),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd010', 'ffff1111-1111-4111-8111-111111111111', NULL, 'settlement', '结算', FALSE, -200, 720),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd011', 'ffff1111-1111-4111-8111-111111111111', NULL, 'distribution', '全平台分发', FALSE, 0, 720),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd012', 'ffff1111-1111-4111-8111-111111111111', NULL, 'data_maint', '数据维护', FALSE, 200, 720),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddd013', 'ffff1111-1111-4111-8111-111111111111', NULL, 'other', '其他', TRUE, 400, 720)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO wf_template_edges (id, template_version_id, from_node_id, to_node_id)
 VALUES
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd001', 'dddddddd-dddd-4ddd-8ddd-ddddddddd002'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee02', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd002', 'dddddddd-dddd-4ddd-8ddd-ddddddddd003'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee03', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd002', 'dddddddd-dddd-4ddd-8ddd-ddddddddd004'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee04', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd003', 'dddddddd-dddd-4ddd-8ddd-ddddddddd005'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee05', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd004', 'dddddddd-dddd-4ddd-8ddd-ddddddddd006'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee06', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd005', 'dddddddd-dddd-4ddd-8ddd-ddddddddd008'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee07', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd006', 'dddddddd-dddd-4ddd-8ddd-ddddddddd008'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee08', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd007', 'dddddddd-dddd-4ddd-8ddd-ddddddddd008'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee09', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd008', 'dddddddd-dddd-4ddd-8ddd-ddddddddd009'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee10', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd009', 'dddddddd-dddd-4ddd-8ddd-ddddddddd010'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee11', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd009', 'dddddddd-dddd-4ddd-8ddd-ddddddddd011'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee12', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd009', 'dddddddd-dddd-4ddd-8ddd-ddddddddd012'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee13', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd009', 'dddddddd-dddd-4ddd-8ddd-ddddddddd013')
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd001', 'dddddddd-dddd-4ddd-8ddd-ddddddddd002'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee02', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd002', 'dddddddd-dddd-4ddd-8ddd-ddddddddd003'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee03', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd002', 'dddddddd-dddd-4ddd-8ddd-ddddddddd004'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee04', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd003', 'dddddddd-dddd-4ddd-8ddd-ddddddddd005'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee05', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd004', 'dddddddd-dddd-4ddd-8ddd-ddddddddd006'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee06', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd005', 'dddddddd-dddd-4ddd-8ddd-ddddddddd008'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee07', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd006', 'dddddddd-dddd-4ddd-8ddd-ddddddddd008'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee08', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd007', 'dddddddd-dddd-4ddd-8ddd-ddddddddd008'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee09', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd008', 'dddddddd-dddd-4ddd-8ddd-ddddddddd009'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee10', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd009', 'dddddddd-dddd-4ddd-8ddd-ddddddddd010'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee11', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd009', 'dddddddd-dddd-4ddd-8ddd-ddddddddd011'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee12', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd009', 'dddddddd-dddd-4ddd-8ddd-ddddddddd012'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee13', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd009', 'dddddddd-dddd-4ddd-8ddd-ddddddddd013')
 ON CONFLICT DO NOTHING;
 
 -- Migrate legacy WP-004 rows into commercial core (no-op when legacy tables absent)
@@ -298,15 +304,21 @@ BEGIN
   WHERE EXISTS (SELECT 1 FROM wf_template_versions v WHERE v.id = ltn.template_id)
   ON CONFLICT (template_version_id, slug) DO NOTHING;
 
+  INSERT INTO wf_template_edges (id, template_version_id, from_node_id, to_node_id)
+  SELECT
+    ('e2000000-0000-4000-8000-' || lpad(to_hex(ltd.id), 12, '0'))::uuid,
+    from_n.template_version_id,
+    ltd.depends_on_node_id,
+    ltd.node_id
+  FROM _legacy_wp004_workflow_template_node_dependencies ltd
+  INNER JOIN wf_template_nodes from_n ON from_n.id = ltd.depends_on_node_id
+  INNER JOIN wf_template_nodes to_n ON to_n.id = ltd.node_id AND to_n.template_version_id = from_n.template_version_id
+  ON CONFLICT (template_version_id, from_node_id, to_node_id) DO NOTHING;
+
   INSERT INTO project_workflows (id, project_id, template_version_id, created_at)
   SELECT pw.id, pw.project_id, pw.template_id, pw.created_at
   FROM _legacy_wp004_project_workflows pw
   ON CONFLICT (id) DO NOTHING;
-
-  UPDATE project_workflows pw
-  SET template_version_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-  WHERE pw.template_version_id IS NULL
-     OR NOT EXISTS (SELECT 1 FROM wf_template_versions v WHERE v.id = pw.template_version_id);
 
   INSERT INTO wf_nodes (
     id, workflow_id, template_node_id, name, status, is_optional, planned_at, completed_at, pos_x, pos_y, source, created_at, updated_at
@@ -424,14 +436,5 @@ BEGIN
   FROM _legacy_wp004_hermes_change_proposals h
   ON CONFLICT (id) DO NOTHING;
 
-  DROP TABLE IF EXISTS _legacy_wp004_hermes_change_proposals CASCADE;
-  DROP TABLE IF EXISTS _legacy_wp004_open_items CASCADE;
-  DROP TABLE IF EXISTS _legacy_wp004_workflow_node_status_history CASCADE;
-  DROP TABLE IF EXISTS _legacy_wp004_workflow_node_dependencies CASCADE;
-  DROP TABLE IF EXISTS _legacy_wp004_workflow_nodes CASCADE;
-  DROP TABLE IF EXISTS _legacy_wp004_project_workflows CASCADE;
-  DROP TABLE IF EXISTS _legacy_wp004_workflow_template_node_dependencies CASCADE;
-  DROP TABLE IF EXISTS _legacy_wp004_workflow_template_nodes CASCADE;
-  DROP TABLE IF EXISTS _legacy_wp004_workflow_templates CASCADE;
-  DROP TABLE IF EXISTS _legacy_wp004_projects CASCADE;
+  -- Legacy tables remain as _legacy_wp004_* for audit; do not DROP (partial failure must not destroy data).
 END $$;

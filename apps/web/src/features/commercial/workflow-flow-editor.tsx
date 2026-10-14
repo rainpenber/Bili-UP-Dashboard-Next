@@ -231,7 +231,7 @@ export function WorkflowFlowEditor(props: Props) {
               </label>
               {props.packages?.length ? (
                 <label className="flex flex-col gap-1">
-                  Package
+                  制作包
                   <select
                     className="rounded border px-2 py-1"
                     value={draft.packageId ?? ''}

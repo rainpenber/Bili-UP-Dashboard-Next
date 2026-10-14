@@ -80,6 +80,12 @@ export const workflowGraphSchema = z.object({
   workflowId: z.string().uuid(),
   nodes: z.array(wfNodeSchema),
   edges: z.array(wfEdgeSchema),
+  packages: z
+    .array(z.object({ id: z.string().uuid(), name: z.string() }))
+    .optional()
+    .default([]),
+  canUndo: z.boolean().optional(),
+  canRedo: z.boolean().optional(),
 });
 
 export const openItemSchema = z.object({
@@ -132,6 +138,12 @@ export const createOpenItemBodySchema = openItemBodyBaseSchema.superRefine((data
 });
 
 export const patchOpenItemBodySchema = openItemBodyBaseSchema.partial().extend({
+  description: z.string().max(5000).nullable().optional(),
+  closeCriteria: z.string().max(2000).nullable().optional(),
+  nextAction: z.string().max(500).nullable().optional(),
+  workflowNodeId: z.string().uuid().nullable().optional(),
+  blocksNodeId: z.string().uuid().nullable().optional(),
+  plannedAt: z.string().datetime().nullable().optional(),
   blocksRequiredForClose: z.boolean().optional(),
 });
 

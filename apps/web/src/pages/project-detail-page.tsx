@@ -141,14 +141,24 @@ export function ProjectDetailPage() {
     onSuccess: invalidate,
   });
 
+  const [undoRedoMsg, setUndoRedoMsg] = useState<string | null>(null);
+
   const undoMut = useMutation({
     mutationFn: () => undoWorkflow(id!),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setUndoRedoMsg('已撤销上一步图编辑');
+      invalidate();
+    },
+    onError: (e) => setUndoRedoMsg(e instanceof Error ? e.message : '无法撤销'),
   });
 
   const redoMut = useMutation({
     mutationFn: () => redoWorkflow(id!),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setUndoRedoMsg('已重做');
+      invalidate();
+    },
+    onError: (e) => setUndoRedoMsg(e instanceof Error ? e.message : '无法重做'),
   });
 
   const publishMut = useMutation({
@@ -172,6 +182,36 @@ export function ProjectDetailPage() {
       invalidate();
     },
   });
+
+  const wfForShortcuts = project.data?.workflow;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!id || undoMut.isPending || redoMut.isPending || graphMut.isPending) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.key.toLowerCase() !== 'z') return;
+      e.preventDefault();
+      if (e.shiftKey) {
+        if (!wfForShortcuts?.canRedo) return;
+        setUndoRedoMsg(null);
+        redoMut.mutate();
+      } else {
+        if (!wfForShortcuts?.canUndo) return;
+        setUndoRedoMsg(null);
+        undoMut.mutate();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [
+    id,
+    graphMut.isPending,
+    undoMut,
+    redoMut,
+    graphMut,
+    wfForShortcuts?.canUndo,
+    wfForShortcuts?.canRedo,
+  ]);
 
   const itemMut = useMutation({
     mutationFn: () =>
@@ -367,8 +407,11 @@ export function ProjectDetailPage() {
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={pending || undoMut.isPending}
-                onClick={() => undoMut.mutate()}
+                disabled={pending || undoMut.isPending || !wf.canUndo}
+                onClick={() => {
+                  setUndoRedoMsg(null);
+                  undoMut.mutate();
+                }}
               >
                 撤销
               </Button>
@@ -376,8 +419,11 @@ export function ProjectDetailPage() {
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={pending || redoMut.isPending}
-                onClick={() => redoMut.mutate()}
+                disabled={pending || redoMut.isPending || !wf.canRedo}
+                onClick={() => {
+                  setUndoRedoMsg(null);
+                  redoMut.mutate();
+                }}
               >
                 重做
               </Button>
@@ -487,8 +533,20 @@ export function ProjectDetailPage() {
                 </Button>
               </div>
             ) : null}
+            {undoRedoMsg ? (
+              <p
+                className={
+                  undoMut.isError || redoMut.isError
+                    ? 'text-destructive text-sm'
+                    : 'text-muted-foreground text-sm'
+                }
+              >
+                {undoRedoMsg}
+              </p>
+            ) : null}
             <WorkflowFlowEditor
               graph={wf}
+              packages={wf.packages ?? []}
               {...(focusNodeId ? { focusNodeId } : {})}
               pending={pending || patchNodeMut.isPending}
               connectError={connectError}

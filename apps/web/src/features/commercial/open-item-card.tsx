@@ -12,6 +12,7 @@ import {
 } from '@/api/commercial-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { auditActionLabel, auditSourceLabel } from '@/lib/commercial-labels';
 import { formatFullLocalTime } from '@/lib/format-time';
 
 type Props = {
@@ -34,7 +35,8 @@ function HistoryBlock({ projectId, itemId }: { projectId: string; itemId: string
     <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
       {history.data.map((h, i) => (
         <li key={`${h.createdAt}-${i}`}>
-          {formatFullLocalTime(h.createdAt)} · {h.action} · {h.source}
+          {formatFullLocalTime(h.createdAt)} · {auditActionLabel(h.action)} ·{' '}
+          {auditSourceLabel(h.source)}
         </li>
       ))}
     </ul>
@@ -71,15 +73,15 @@ export function OpenItemCard({
     mutationFn: () =>
       patchOpenItem(projectId, item.id, {
         title: title.trim(),
-        description: description.trim() || undefined,
-        closeCriteria: closeCriteria.trim() || undefined,
-        nextAction: nextAction.trim() || undefined,
+        description: description.trim() ? description.trim() : null,
+        closeCriteria: closeCriteria.trim() ? closeCriteria.trim() : null,
+        nextAction: nextAction.trim() ? nextAction.trim() : null,
         nextActor,
         impact,
         ...(impact === 'blocking'
           ? { blocksNodeId: blocksNodeId || undefined }
           : { blocksNodeId: undefined }),
-        ...(workflowNodeId ? { workflowNodeId } : {}),
+        workflowNodeId: workflowNodeId ? workflowNodeId : null,
       }),
     onSuccess: () => {
       setEditing(false);

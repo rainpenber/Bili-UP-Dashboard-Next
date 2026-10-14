@@ -69,6 +69,6 @@ CREATE TRIGGER wf_nodes_clear_open_item_refs
 -- AI后期需文案与预拍摄汇合
 INSERT INTO wf_template_edges (id, template_version_id, from_node_id, to_node_id)
 VALUES
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee14', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd003', 'dddddddd-dddd-4ddd-8ddd-ddddddddd007'),
-  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee15', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'dddddddd-dddd-4ddd-8ddd-ddddddddd004', 'dddddddd-dddd-4ddd-8ddd-ddddddddd007')
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee14', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd003', 'dddddddd-dddd-4ddd-8ddd-ddddddddd007'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee15', 'ffff1111-1111-4111-8111-111111111111', 'dddddddd-dddd-4ddd-8ddd-ddddddddd004', 'dddddddd-dddd-4ddd-8ddd-ddddddddd007')
 ON CONFLICT DO NOTHING;

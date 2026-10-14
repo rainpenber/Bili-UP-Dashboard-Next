@@ -45,6 +45,29 @@ describe('node lifecycle parallel', () => {
     expect(updates2.get('c')?.status).toBe('in_progress');
   });
 
+  test('complete rejects when required predecessors unfinished', () => {
+    const nodes = [
+      { id: 'a', status: 'completed', name: 'A' },
+      { id: 'b1', status: 'not_reached', name: 'B1', isOptional: false },
+      { id: 'b2', status: 'not_reached', name: 'B2', isOptional: false },
+      { id: 'c', status: 'not_reached', name: 'Review', isOptional: false },
+    ];
+    const edges = [
+      { fromId: 'a', toId: 'b1' },
+      { fromId: 'a', toId: 'b2' },
+      { fromId: 'b1', toId: 'c' },
+      { fromId: 'b2', toId: 'c' },
+    ];
+    expect(() => completeNode('c', nodes, edges)).toThrow(/predecessor/);
+    const mid = [
+      { id: 'a', status: 'completed', name: 'A' },
+      { id: 'b1', status: 'completed', name: 'B1', isOptional: false },
+      { id: 'b2', status: 'not_reached', name: 'B2', isOptional: false },
+      { id: 'c', status: 'not_reached', name: 'Review', isOptional: false },
+    ];
+    expect(() => completeNode('c', mid, edges)).toThrow(/predecessor/);
+  });
+
   test('rollback clears downstream only', () => {
     const edges = [
       { fromId: 'a', toId: 'b' },

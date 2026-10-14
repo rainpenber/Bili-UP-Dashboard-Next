@@ -1,5 +1,10 @@
 import type { HermesWriteEnvelope } from '@studio/contracts';
-import { advanceToNode, completeNode, rollbackToNode } from '@studio/workflow';
+import {
+  advanceToNode,
+  completeNode,
+  NodeCompletionBlockedError,
+  rollbackToNode,
+} from '@studio/workflow';
 import { assertEdgeAllowed, loadWorkflowGraph, type Db } from './graph-io';
 import {
   applyUpdates,
@@ -150,11 +155,24 @@ export async function applyHermesEnvelopeTx(
     case 'complete_node':
       await mutateProjectGraph(tx, payload.projectId, async (tx, graph) => {
         assertNodeInGraph(graph, payload.nodeId);
-        const updates = completeNode(
-          payload.nodeId,
-          graph.nodes.map((n) => ({ id: n.id, status: n.status })),
-          graph.graphEdges,
-        );
+        let updates: ReturnType<typeof completeNode>;
+        try {
+          updates = completeNode(
+            payload.nodeId,
+            graph.nodes.map((n) => ({
+              id: n.id,
+              status: n.status,
+              name: n.name,
+              isOptional: n.is_optional,
+            })),
+            graph.graphEdges,
+          );
+        } catch (e) {
+          if (e instanceof NodeCompletionBlockedError) {
+            throw Object.assign(e, { status: 409 });
+          }
+          throw e;
+        }
         await applyUpdates(tx, graph.workflowId, updates);
         await audit(
           tx,

@@ -616,4 +616,58 @@ describe('commercial API integration', () => {
     expect(Number(audit[0]?.c)).toBe(1);
     await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
   });
+
+  test('hermes upsert_project without projectId retries same result', async () => {
+    if (!sql) return;
+    const key = `hermes-upsert-${crypto.randomUUID()}`;
+    const body = {
+      idempotencyKey: key,
+      operation: 'upsert_project',
+      confidence: 1,
+      autoApply: true,
+      payload: { name: 'Hermes 新建项目' },
+    };
+    const r1 = await app.request('/api/v1/commercial/hermes/write', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect(r1.status).toBe(200);
+    const j1 = await r1.json();
+    const projectId = j1.projectId as string;
+    expect(projectId).toMatch(/^[0-9a-f-]{36}$/i);
+    const r2 = await app.request('/api/v1/commercial/hermes/write', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect(r2.status).toBe(200);
+    const j2 = await r2.json();
+    expect(j2.projectId).toBe(projectId);
+    const projCount = await sql<{ c: string }[]>`
+      SELECT count(*)::text AS c FROM commercial_projects WHERE name = 'Hermes 新建项目'
+    `;
+    expect(projCount[0]?.c).toBe('1');
+    const idem = await sql<{ c: string }[]>`
+      SELECT count(*)::text AS c FROM hermes_idempotency WHERE idempotency_key = ${key}
+    `;
+    expect(idem[0]?.c).toBe('1');
+    await sql`DELETE FROM commercial_projects WHERE id = ${projectId}`;
+  });
+
+  test('complete node rejects when required predecessors unfinished', async () => {
+    if (!sql) return;
+    const project = await createProject(app, 'test-complete-guard');
+    const wf = await (
+      await app.request(`/api/v1/commercial/projects/${project.id}/workflow`)
+    ).json();
+    const review = wf.nodes.find((n: { slug: string | null }) => n.slug === 'review');
+    expect(review).toBeTruthy();
+    const res = await app.request(
+      `/api/v1/commercial/projects/${project.id}/nodes/${review!.id}/complete`,
+      { method: 'POST' },
+    );
+    expect(res.status).toBe(409);
+    await sql`DELETE FROM commercial_projects WHERE id = ${project.id}`;
+  });
 });

@@ -83,6 +83,11 @@ export async function assertNodesInProject(
 export async function getWorkflowTx(tx: Db, projectId: string): Promise<WorkflowGraph | null> {
   const graph = await loadWorkflowGraph(tx, projectId, false);
   if (!graph) return null;
+  const packages = await tx<{ id: string; name: string }[]>`
+    SELECT id, name FROM wf_packages WHERE workflow_id = ${graph.workflowId} ORDER BY sort_order
+  `;
+  const { getWorkflowUndoRedoState } = await import('./undo-stack');
+  const undoState = await getWorkflowUndoRedoState(tx, projectId);
   return {
     projectId,
     workflowId: graph.workflowId,
@@ -92,6 +97,9 @@ export async function getWorkflowTx(tx: Db, projectId: string): Promise<Workflow
       fromNodeId: e.from_node_id,
       toNodeId: e.to_node_id,
     })),
+    packages,
+    canUndo: undoState.canUndo,
+    canRedo: undoState.canRedo,
   };
 }
 

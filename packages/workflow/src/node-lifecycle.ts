@@ -2,6 +2,7 @@ import type { GraphEdge, GraphNode } from './graph-dag';
 import { predecessorIds, successorIds } from './graph-dag';
 
 export type WfNode = GraphNode & {
+  name?: string;
   phase?: 'pre_publish' | 'post_publish_required' | 'post_publish_optional';
   isOptional?: boolean;
 };
@@ -42,11 +43,35 @@ function effectiveStatus(
   return updates.get(id)?.status ?? nodes.find((n) => n.id === id)?.status ?? 'not_reached';
 }
 
+export class NodeCompletionBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NodeCompletionBlockedError';
+  }
+}
+
+/** Required (non-optional) predecessors must be completed or NA before finishing this node. */
+export function assertCanCompleteNode(nodeId: string, nodes: WfNode[], edges: GraphEdge[]): void {
+  const node = nodes.find((n) => n.id === nodeId);
+  if (!node) throw new NodeCompletionBlockedError('node not found');
+  for (const pid of predecessorIds(nodeId, edges)) {
+    const pred = nodes.find((n) => n.id === pid);
+    if (!pred || pred.isOptional) continue;
+    const st = pred.status;
+    if (st !== 'completed' && st !== 'not_applicable') {
+      throw new NodeCompletionBlockedError(
+        `required predecessor "${pred.name ?? pred.id}" is not completed`,
+      );
+    }
+  }
+}
+
 export function completeNode(
   nodeId: string,
   nodes: WfNode[],
   edges: GraphEdge[],
 ): Map<string, { status: string; completedAt?: string | null }> {
+  assertCanCompleteNode(nodeId, nodes, edges);
   const updates = new Map<string, { status: string; completedAt?: string | null }>();
   updates.set(nodeId, { status: 'completed', completedAt: new Date().toISOString() });
   const queue = successorIds(nodeId, edges);

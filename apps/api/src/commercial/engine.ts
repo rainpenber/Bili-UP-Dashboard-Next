@@ -6,7 +6,12 @@ import type {
   PublishResultDto,
   WorkflowGraph,
 } from '@studio/contracts';
-import { advanceToNode, completeNode, rollbackToNode } from '@studio/workflow';
+import {
+  advanceToNode,
+  completeNode,
+  NodeCompletionBlockedError,
+  rollbackToNode,
+} from '@studio/workflow';
 import type { Sql } from '@studio/db';
 import { assertEdgeAllowed, loadWorkflowGraph, type Db } from './graph-io';
 import { pickPrimaryBlockReason, syncBlockedAndStage } from './sync-state';
@@ -205,6 +210,11 @@ export class CommercialEngine {
   async getWorkflow(projectId: string): Promise<WorkflowGraph | null> {
     const graph = await loadWorkflowGraph(this.db, projectId, false);
     if (!graph) return null;
+    const packages = await this.db<{ id: string; name: string }[]>`
+      SELECT id, name FROM wf_packages WHERE workflow_id = ${graph.workflowId} ORDER BY sort_order
+    `;
+    const { getWorkflowUndoRedoState } = await import('./undo-stack');
+    const undoState = await getWorkflowUndoRedoState(this.db, projectId);
     return {
       projectId,
       workflowId: graph.workflowId,
@@ -214,6 +224,9 @@ export class CommercialEngine {
         fromNodeId: e.from_node_id,
         toNodeId: e.to_node_id,
       })),
+      packages,
+      canUndo: undoState.canUndo,
+      canRedo: undoState.canRedo,
     };
   }
 
@@ -234,11 +247,24 @@ export class CommercialEngine {
   async completeNode(projectId: string, nodeId: string) {
     await this.mutateGraph(projectId, async (tx, graph) => {
       assertNodeInGraph(graph, nodeId);
-      const updates = completeNode(
-        nodeId,
-        graph.nodes.map((n) => ({ id: n.id, status: n.status })),
-        graph.graphEdges,
-      );
+      let updates: ReturnType<typeof completeNode>;
+      try {
+        updates = completeNode(
+          nodeId,
+          graph.nodes.map((n) => ({
+            id: n.id,
+            status: n.status,
+            name: n.name,
+            isOptional: n.is_optional,
+          })),
+          graph.graphEdges,
+        );
+      } catch (e) {
+        if (e instanceof NodeCompletionBlockedError) {
+          throw Object.assign(e, { status: 409 });
+        }
+        throw e;
+      }
       await applyUpdates(tx, graph.workflowId, updates);
       await audit(tx, projectId, 'complete', nodeId, Object.fromEntries(updates));
     });
@@ -303,8 +329,17 @@ export class CommercialEngine {
           VALUES (${id}, ${graph.workflowId}, ${projectId}, ${body.name}, 'not_reached', ${body.isOptional ?? false}, ${body.posX}, ${body.posY}, ${body.phase ?? 'pre_publish'}, ${body.packageId ?? null}, 'web')
         `;
         if (body.anchorNodeId && body.connectMode === 'serial') {
+          const outgoing = await tx<{ id: string; to_node_id: string }[]>`
+            SELECT id, to_node_id FROM wf_edges
+            WHERE workflow_id = ${graph.workflowId} AND from_node_id = ${body.anchorNodeId}
+          `;
           await assertEdgeAllowed(tx, graph.workflowId, body.anchorNodeId, id);
           await tx`INSERT INTO wf_edges (id, workflow_id, from_node_id, to_node_id) VALUES (${crypto.randomUUID()}, ${graph.workflowId}, ${body.anchorNodeId}, ${id})`;
+          for (const edge of outgoing) {
+            await tx`DELETE FROM wf_edges WHERE id = ${edge.id} AND workflow_id = ${graph.workflowId}`;
+            await assertEdgeAllowed(tx, graph.workflowId, id, edge.to_node_id);
+            await tx`INSERT INTO wf_edges (id, workflow_id, from_node_id, to_node_id) VALUES (${crypto.randomUUID()}, ${graph.workflowId}, ${id}, ${edge.to_node_id})`;
+          }
         }
         if (body.anchorNodeId && body.connectMode === 'parallel') {
           const incoming = await tx<{ from_node_id: string }[]>`
@@ -313,6 +348,13 @@ export class CommercialEngine {
           for (const row of incoming) {
             await assertEdgeAllowed(tx, graph.workflowId, row.from_node_id, id);
             await tx`INSERT INTO wf_edges (id, workflow_id, from_node_id, to_node_id) VALUES (${crypto.randomUUID()}, ${graph.workflowId}, ${row.from_node_id}, ${id})`;
+          }
+          const outgoing = await tx<{ to_node_id: string }[]>`
+            SELECT to_node_id FROM wf_edges WHERE workflow_id = ${graph.workflowId} AND from_node_id = ${body.anchorNodeId}
+          `;
+          for (const row of outgoing) {
+            await assertEdgeAllowed(tx, graph.workflowId, id, row.to_node_id);
+            await tx`INSERT INTO wf_edges (id, workflow_id, from_node_id, to_node_id) VALUES (${crypto.randomUUID()}, ${graph.workflowId}, ${id}, ${row.to_node_id})`;
           }
         }
       },

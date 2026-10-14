@@ -5,6 +5,7 @@ import { getWorkflowTx } from './engine-shared';
 const MAX_UNDO = 40;
 
 export type WorkflowUndoSnapshot = {
+  templateVersionId: string;
   graph: WorkflowGraph;
   packages: Array<{ id: string; name: string; sortOrder: number }>;
   openItemRefs: Array<{
@@ -17,9 +18,11 @@ export type WorkflowUndoSnapshot = {
 
 function normalizeSnapshot(raw: unknown): WorkflowUndoSnapshot {
   if (raw && typeof raw === 'object' && raw !== null && 'graph' in raw) {
-    return raw as WorkflowUndoSnapshot;
+    const o = raw as WorkflowUndoSnapshot;
+    return { ...o, templateVersionId: o.templateVersionId ?? '' };
   }
   return {
+    templateVersionId: '',
     graph: raw as WorkflowGraph,
     packages: [],
     openItemRefs: [],
@@ -48,11 +51,12 @@ function asSnapshotArray(raw: unknown): WorkflowUndoSnapshot[] {
 async function captureSnapshot(tx: Db, projectId: string): Promise<WorkflowUndoSnapshot | null> {
   const graph = await getWorkflowTx(tx, projectId);
   if (!graph) return null;
-  const wf = await tx<{ id: string }[]>`
-    SELECT id FROM project_workflows WHERE project_id = ${projectId}
+  const wf = await tx<{ id: string; template_version_id: string }[]>`
+    SELECT id, template_version_id FROM project_workflows WHERE project_id = ${projectId}
   `;
   const workflowId = wf[0]?.id;
   if (!workflowId) return null;
+  const templateVersionId = wf[0]!.template_version_id;
   const packages = await tx<{ id: string; name: string; sort_order: number }[]>`
     SELECT id, name, sort_order FROM wf_packages WHERE workflow_id = ${workflowId}
   `;
@@ -65,6 +69,7 @@ async function captureSnapshot(tx: Db, projectId: string): Promise<WorkflowUndoS
     SELECT id, primary_block_pinned_item_id FROM wf_nodes WHERE workflow_id = ${workflowId}
   `;
   return {
+    templateVersionId,
     graph,
     packages: packages.map((p) => ({ id: p.id, name: p.name, sortOrder: p.sort_order })),
     openItemRefs: openItemRefs.map((o) => ({
@@ -99,11 +104,17 @@ export async function restoreWorkflowSnapshot(
   projectId: string,
   snap: WorkflowUndoSnapshot,
 ) {
-  const wf = await tx<{ id: string }[]>`
-    SELECT id FROM project_workflows WHERE project_id = ${projectId} FOR UPDATE
+  const wf = await tx<{ id: string; template_version_id: string }[]>`
+    SELECT id, template_version_id FROM project_workflows WHERE project_id = ${projectId} FOR UPDATE
   `;
   const workflowId = wf[0]?.id;
   if (!workflowId) throw Object.assign(new Error('workflow not found'), { status: 404 });
+  if (snap.templateVersionId) {
+    await tx`
+      UPDATE project_workflows SET template_version_id = ${snap.templateVersionId}
+      WHERE id = ${workflowId}
+    `;
+  }
   const { clearAllOpenItemRefsForWorkflow } = await import('./engine-shared');
   await clearAllOpenItemRefsForWorkflow(tx, projectId, workflowId);
   await tx`DELETE FROM wf_edges WHERE workflow_id = ${workflowId}`;
@@ -149,6 +160,16 @@ export async function restoreWorkflowSnapshot(
       WHERE id = ${pin.nodeId} AND project_id = ${projectId}
     `;
   }
+}
+
+export async function getWorkflowUndoRedoState(tx: Db, projectId: string) {
+  const rows = await tx<{ undo_json: unknown; redo_json: unknown }[]>`
+    SELECT undo_json, redo_json FROM workflow_undo_stacks WHERE project_id = ${projectId}
+  `;
+  return {
+    canUndo: asSnapshotArray(rows[0]?.undo_json).length > 0,
+    canRedo: asSnapshotArray(rows[0]?.redo_json).length > 0,
+  };
 }
 
 export async function undoProjectGraph(tx: Db, projectId: string) {
