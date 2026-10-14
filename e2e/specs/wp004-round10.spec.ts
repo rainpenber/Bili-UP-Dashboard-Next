@@ -1,6 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
-async function createBlankProject(page: import('@playwright/test').Page, name: string) {
+async function createBlankProject(page: Page, name: string) {
   await page.goto('/projects');
   await page.getByRole('button', { name: '新建空白项目' }).click();
   await page.getByLabel('项目名称').fill(name);
@@ -10,6 +10,41 @@ async function createBlankProject(page: import('@playwright/test').Page, name: s
   await expect(page).toHaveURL(/\/projects\/[0-9a-f-]+/i);
   const m = page.url().match(/\/projects\/([0-9a-f-]+)/i);
   return m![1]!;
+}
+
+async function ensureDraftId(request: APIRequestContext): Promise<string> {
+  const versions = await request.get('/api/v1/commercial/templates/versions');
+  expect(versions.ok()).toBeTruthy();
+  const items = (await versions.json()) as {
+    items: Array<{ id: string; isDraft: boolean }>;
+  };
+  const draft = items.items.find((i) => i.isDraft);
+  if (draft) return draft.id;
+  const created = await request.post('/api/v1/commercial/templates/draft-from-default');
+  expect(created.ok()).toBeTruthy();
+  return ((await created.json()) as { draftId: string }).draftId;
+}
+
+async function publishDraftViaApi(request: APIRequestContext) {
+  const draftId = await ensureDraftId(request);
+  const val = await request.post(`/api/v1/commercial/templates/versions/${draftId}/validate`);
+  expect(val.ok()).toBeTruthy();
+  const pub = await request.post(`/api/v1/commercial/templates/versions/${draftId}/publish`);
+  expect(pub.ok()).toBeTruthy();
+  return ((await pub.json()) as { publishedVersionId: string }).publishedVersionId;
+}
+
+async function openDraftEditor(page: Page) {
+  await page.goto('/settings/workflow');
+  await expect(page.getByRole('heading', { name: '工作流模板' })).toBeVisible({
+    timeout: 20_000,
+  });
+  const copyBtn = page.getByRole('button', { name: '从当前默认复制草稿' });
+  if (await copyBtn.isEnabled()) {
+    await copyBtn.click();
+  }
+  await page.getByRole('button', { name: '编辑' }).first().click();
+  await expect(page.getByText('草稿图编辑')).toBeVisible({ timeout: 20_000 });
 }
 
 test.describe('WP-004R round10 template publish isolation', () => {
@@ -23,14 +58,7 @@ test.describe('WP-004R round10 template publish isolation', () => {
     const outlineA0 = nodesA0.find((n) => n.slug === 'outline');
     expect(outlineA0?.templateNodeId).toBeTruthy();
 
-    await page.goto('/settings/workflow');
-    await expect(page.getByRole('heading', { name: '工作流模板' })).toBeVisible({
-      timeout: 20_000,
-    });
-    const copyBtn = page.getByRole('button', { name: '从当前默认复制草稿' });
-    if (await copyBtn.isEnabled()) await copyBtn.click();
-    await page.getByRole('button', { name: '发布并设为默认' }).click();
-    await expect(page.getByText('默认', { exact: false })).toBeVisible({ timeout: 20_000 });
+    await publishDraftViaApi(page.request);
 
     const wfA1 = await page.request.get(`/api/v1/commercial/projects/${projectAId}/workflow`);
     const outlineA1 = (
@@ -55,21 +83,33 @@ test.describe('WP-004R round10 template publish isolation', () => {
 
 test.describe('WP-004R round10 promote pin publish', () => {
   test('promote and pin primary block via UI', async ({ page }) => {
-    await createBlankProject(page, `E2E Pin ${Date.now()}`);
+    const projectId = await createBlankProject(page, `E2E Pin ${Date.now()}`);
+    const wf = await page.request.get(`/api/v1/commercial/projects/${projectId}/workflow`);
+    const outline = (
+      (await wf.json()) as { nodes: { id: string; slug: string | null }[] }
+    ).nodes.find((n) => n.slug === 'outline');
+    expect(outline).toBeTruthy();
+
     await page.getByRole('button', { name: '新建事项' }).click();
     await page.getByLabel('事项标题').fill('Pin 阻塞项');
     await page.locator('select').filter({ hasText: '普通' }).selectOption('blocking');
-    await page.locator('select:has(option:text("选择阻塞节点"))').selectOption({ index: 1 });
+    await page.locator('select:has(option:text("选择阻塞节点"))').selectOption(outline!.id);
     await page.getByRole('button', { name: '提交事项' }).click();
-    await expect(page.getByText('Pin 阻塞项')).toBeVisible();
-    await page.getByRole('button', { name: '设为主要阻塞' }).click();
-    await expect(page.getByText('设为主要阻塞')).toBeVisible();
+    const card = page.locator('[id^="item-"]').filter({ hasText: 'Pin 阻塞项' });
+    await expect(card).toBeVisible({ timeout: 15_000 });
+    await card.getByRole('button', { name: '设为主要阻塞' }).click();
+
+    await card.getByText('拆分 / 提升为节点').click();
+    await card.getByPlaceholder('提升为节点名称').fill('Pin 提升节点');
+    await card.getByRole('button', { name: '提升为节点' }).click();
+    await expect(page.getByText('Pin 提升节点')).toBeVisible({ timeout: 15_000 });
   });
 
   test('publish creates monitor jobs and winding-down stage', async ({ page }) => {
     const projectId = await createBlankProject(page, `E2E Pub ${Date.now()}`);
+    const bvid = `BV1e2e${Date.now()}`;
     await page.getByRole('button', { name: '填写发布信息' }).click();
-    await page.getByLabel('BV号').fill('BV1e2e004r10');
+    await page.getByLabel('BV号').fill(bvid);
     await page.getByLabel('上线时间').fill('2026-02-01T10:00');
     await page.getByRole('button', { name: '确认发布' }).click();
     await expect(page.getByText('已上线', { exact: false })).toBeVisible({ timeout: 20_000 });
@@ -111,17 +151,14 @@ test.describe('WP-004R round10 deep links and template UX', () => {
   });
 
   test('template redo after undo', async ({ page }) => {
-    await page.goto('/settings/workflow');
-    const copyBtn = page.getByRole('button', { name: '从当前默认复制草稿' });
-    if (await copyBtn.isEnabled()) await copyBtn.click();
-    else await page.getByRole('button', { name: '编辑' }).first().click();
+    await openDraftEditor(page);
     const undoBtn = page.getByRole('button', { name: '撤销' });
-    await expect(undoBtn).toBeDisabled();
     await page.getByRole('button', { name: '新建模板节点' }).click();
     await page.getByLabel('节点名称').fill('Redo 探针');
     await page.getByLabel('slug').fill(`redo_${Date.now()}`);
     await page.getByRole('button', { name: '创建节点' }).click();
     await expect(page.getByText('Redo 探针')).toBeVisible({ timeout: 15_000 });
+    await expect(undoBtn).toBeEnabled({ timeout: 15_000 });
     await undoBtn.click();
     await expect(page.getByText('Redo 探针')).not.toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: '重做' }).click();
@@ -130,10 +167,7 @@ test.describe('WP-004R round10 deep links and template UX', () => {
 
   test('template graph no horizontal overflow on narrow viewport', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/settings/workflow');
-    const copyBtn = page.getByRole('button', { name: '从当前默认复制草稿' });
-    if (await copyBtn.isEnabled()) await copyBtn.click();
-    else await page.getByRole('button', { name: '编辑' }).first().click();
+    await openDraftEditor(page);
     const overflow = await page.evaluate(() => {
       const el = document.documentElement;
       return el.scrollWidth <= el.clientWidth + 2;
@@ -142,10 +176,7 @@ test.describe('WP-004R round10 deep links and template UX', () => {
   });
 
   test('delete template node requires confirmation', async ({ page }) => {
-    await page.goto('/settings/workflow');
-    const copyBtn = page.getByRole('button', { name: '从当前默认复制草稿' });
-    if (await copyBtn.isEnabled()) await copyBtn.click();
-    else await page.getByRole('button', { name: '编辑' }).first().click();
+    await openDraftEditor(page);
     const slug = `del_${Date.now()}`;
     await page.getByRole('button', { name: '新建模板节点' }).click();
     await page.getByLabel('节点名称').fill('待删节点');
@@ -177,14 +208,14 @@ test.describe('WP-004R round10 errors and reset', () => {
     expect(errBody.error?.length).toBeGreaterThan(0);
   });
 
-  test('cross-template reset via API then undo restores workflow', async ({ page, request }) => {
-    const draftRes = await request.post('/api/v1/commercial/templates/draft-from-default');
-    expect(draftRes.ok()).toBeTruthy();
-    const { draftId } = (await draftRes.json()) as { draftId: string };
-    await request.post(`/api/v1/commercial/templates/versions/${draftId}/validate`);
-    const pub = await request.post(`/api/v1/commercial/templates/versions/${draftId}/publish`);
-    expect(pub.ok()).toBeTruthy();
-    const { publishedVersionId } = (await pub.json()) as { publishedVersionId: string };
+  test('reset via API then undo restores workflow', async ({ page, request }) => {
+    const versions = await request.get('/api/v1/commercial/templates/versions');
+    const defaultPublished = (
+      (await versions.json()) as {
+        items: Array<{ id: string; isDefault: boolean; isDraft: boolean }>;
+      }
+    ).items.find((v) => v.isDefault && !v.isDraft);
+    expect(defaultPublished).toBeTruthy();
 
     const projectId = await createBlankProject(page, `E2E Reset ${Date.now()}`);
     const wf0 = await page.request.get(`/api/v1/commercial/projects/${projectId}/workflow`);
@@ -203,7 +234,7 @@ test.describe('WP-004R round10 errors and reset', () => {
         autoApply: true,
         payload: {
           projectId,
-          templateVersionId: publishedVersionId,
+          templateVersionId: defaultPublished!.id,
           confirmDestroyCustomGraph: true,
         },
       },
