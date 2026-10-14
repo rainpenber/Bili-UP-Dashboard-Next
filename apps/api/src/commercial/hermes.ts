@@ -258,9 +258,7 @@ function normalizeHermesIdempotentResult(
 }
 
 async function loadIdempotentResult(tx: Db, idempotencyKey: string) {
-  const rows = await tx<
-    { operation: string; project_id: string | null; result_json: unknown }[]
-  >`
+  const rows = await tx<{ operation: string; project_id: string | null; result_json: unknown }[]>`
     SELECT operation, project_id, result_json FROM hermes_idempotency WHERE idempotency_key = ${idempotencyKey}
   `;
   const row = rows[0];
