@@ -3,7 +3,11 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { commercialProjectsMock } from '../mock-data';
 import { JUNCTION_PREP_PROD_ID, JUNCTION_PUB_WIND_ID } from '../workflow-graph-junctions';
 import { layoutWorkflowGraph } from '../workflow-graph-flow-layout';
-import { pointViolatesEdgeCard, samplePathPoints, type Rect } from '../workflow-graph-edge-geometry';
+import {
+  pointViolatesEdgeCard,
+  samplePathPoints,
+  type Rect,
+} from '../workflow-graph-edge-geometry';
 import { WorkflowGraphReadonly } from './workflow-graph-readonly';
 import { useProjectWorkflowEditor, WorkflowGraphEditor } from './workflow-graph-editor';
 
