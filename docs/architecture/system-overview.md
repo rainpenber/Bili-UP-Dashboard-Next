@@ -33,7 +33,7 @@ flowchart TB
 
 - **Web**：静态构建 + 开发时代理 `/api/*` 到 `localhost:3000`。
 - **API**：`GET /health` 返回 `@studio/contracts` 定义的 JSON。
-- **PostgreSQL**：Compose 服务已定义，应用尚未连接（无 migration）。
+- **PostgreSQL**：Compose 服务已定义。监控迁移为 `packages/db/migrations/001`–`003`；商单域与只读 API 见 [commercial-db.md](./commercial-db.md)。
 
 ## 仓库约定
 
