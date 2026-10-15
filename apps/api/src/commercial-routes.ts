@@ -4,12 +4,20 @@ import {
   isUuidString,
   isWfNodeKind,
   isWfNodeStatus,
+  MONITOR_JOB_STATUSES,
   parseCommercialDefaultTemplate,
   parseCommercialProjectDetail,
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
+  type CommercialDetailOpenItem,
+  type CommercialMonitorJob,
+  type CommercialMonitorPublish,
   type CommercialProjectDetail,
   type CommercialProjectListItem,
+  type DetailOpenItemImpact,
+  type DetailOpenItemLifecycle,
+  type MonitorJobStatus,
+  type MonitorJobType,
   type OverallStage,
   type PublishSource,
   type WfNodeKind,
@@ -55,6 +63,39 @@ function nodeKind(value: string): WfNodeKind {
 function publishSource(value: string): PublishSource {
   if (!isPublishSource(value)) throw new Error(`unexpected publish_source ${value}`);
   return value;
+}
+
+function itemLifecycle(value: string): DetailOpenItemLifecycle {
+  if (value !== 'open' && value !== 'closed' && value !== 'cancelled') {
+    throw new Error(`unexpected open item lifecycle ${value}`);
+  }
+  return value;
+}
+
+function itemImpact(value: string): DetailOpenItemImpact {
+  if (value !== 'normal' && value !== 'blocking') {
+    throw new Error(`unexpected open item impact ${value}`);
+  }
+  return value;
+}
+
+function jobType(value: string): MonitorJobType {
+  if (value !== 'metadata' && value !== 'metrics') throw new Error(`unexpected job type ${value}`);
+  return value;
+}
+
+function jobStatus(value: string): MonitorJobStatus {
+  if (!(MONITOR_JOB_STATUSES as readonly string[]).includes(value)) {
+    throw new Error(`unexpected job status ${value}`);
+  }
+  return value as MonitorJobStatus;
+}
+
+function recordedPlatform(detail: unknown): string | null {
+  if (typeof detail !== 'object' || detail === null || Array.isArray(detail)) return null;
+  const platform = (detail as { platform?: unknown }).platform;
+  if (typeof platform !== 'string' || platform.trim().length === 0) return null;
+  return platform;
 }
 
 function toIso(value: Date | string): string {
@@ -155,13 +196,21 @@ export function createCommercialRoutes(db: Sql) {
       const workflow = workflows[0];
       if (!workflow) return c.json({ error: 'workflow not found' }, 404);
       const nodes = await db<
-        { id: string; name: string; status: string; kind: string; updated_at: string }[]
+        {
+          id: string;
+          name: string;
+          status: string;
+          kind: string;
+          is_optional: boolean;
+          updated_at: string;
+        }[]
       >`
         SELECT
           id,
           name,
           status,
           kind,
+          is_optional,
           to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
         FROM wf_nodes
         WHERE workflow_id = ${workflow.id}
@@ -185,6 +234,7 @@ export function createCommercialRoutes(db: Sql) {
             name: node.name,
             status: nodeStatus(node.status),
             kind: nodeKind(node.kind),
+            isOptional: node.is_optional,
             updatedAt: node.updated_at,
           })),
           edges: edges.map((edge) => ({
@@ -272,6 +322,96 @@ export function createCommercialRoutes(db: Sql) {
       `;
       const row = rows[0];
       if (!row) return c.json({ error: 'project not found' }, 404);
+      const openItemRows = await db<
+        {
+          id: string;
+          title: string;
+          lifecycle: string;
+          impact: string;
+          blocks_node_id: string | null;
+          is_pinned_primary: boolean;
+          updated_at: string;
+        }[]
+      >`
+        SELECT
+          oi.id,
+          oi.title,
+          oi.lifecycle,
+          oi.impact,
+          oi.blocks_node_id,
+          EXISTS (
+            SELECT 1 FROM wf_nodes n
+            WHERE n.project_id = oi.project_id
+              AND n.primary_block_pinned_item_id = oi.id
+          ) AS is_pinned_primary,
+          to_char(oi.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
+        FROM open_items oi
+        WHERE oi.project_id = ${projectId}
+        ORDER BY oi.sort_rank ASC, oi.created_at ASC, oi.id ASC
+      `;
+      const publishRows = await db<
+        { bvid: string; published_at: string; publish_source: string }[]
+      >`
+        SELECT
+          bvid,
+          to_char(published_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS published_at,
+          publish_source
+        FROM project_publish_records
+        WHERE project_id = ${projectId}
+      `;
+      const audits = await db<{ detail: unknown }[]>`
+        SELECT detail
+        FROM domain_audit_events
+        WHERE project_id = ${projectId}
+          AND entity_type = 'project_publish_record'
+          AND action = 'record'
+        ORDER BY id DESC
+        LIMIT 1
+      `;
+      const jobRows = await db<
+        {
+          id: string;
+          job_type: string;
+          status: string;
+          due_at: string | null;
+          created_at: string;
+        }[]
+      >`
+        SELECT
+          id,
+          job_type,
+          status,
+          to_char(due_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS due_at,
+          to_char(created_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS created_at
+        FROM monitor_jobs
+        WHERE project_id = ${projectId}
+        ORDER BY job_type ASC, id ASC
+      `;
+      const recorded = publishRows[0];
+      const monitorPublish: CommercialMonitorPublish | null = recorded
+        ? {
+            bvid: recorded.bvid,
+            platform: recordedPlatform(audits[0]?.detail),
+            publishedAt: recorded.published_at,
+            publishSource: publishSource(recorded.publish_source),
+          }
+        : null;
+      const openItems: CommercialDetailOpenItem[] = openItemRows.map((item) => ({
+        id: item.id,
+        title: item.title,
+        lifecycle: itemLifecycle(item.lifecycle),
+        impact: itemImpact(item.impact),
+        blocksNodeId: item.blocks_node_id,
+        isPinnedPrimary: item.is_pinned_primary,
+        updatedAt: item.updated_at,
+      }));
+      const jobs: CommercialMonitorJob[] = jobRows.map((job) => ({
+        id: job.id,
+        jobType: jobType(job.job_type),
+        status: jobStatus(job.status),
+        dueAt: job.due_at,
+        createdAt: job.created_at,
+      }));
       const detail: CommercialProjectDetail = {
         ...toListItem(row),
         blockingReason: row.blocking_reason,
@@ -284,6 +424,8 @@ export function createCommercialRoutes(db: Sql) {
                 publishedAt: toIso(row.published_at ?? ''),
                 publishSource: publishSource(row.publish_source ?? ''),
               },
+        openItems,
+        monitor: { publish: monitorPublish, jobs },
       };
       return c.json(parseCommercialProjectDetail(detail));
     } catch (err) {

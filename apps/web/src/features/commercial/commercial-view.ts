@@ -43,33 +43,13 @@ export function toVisualStatus(status: WfNodeStatus): WorkflowNodeStatus {
   return status;
 }
 
-/**
- * Instance reads do not include isOptional. The published template of the same
- * version does. Names are matched only when that name appears once.
- */
-export function optionalNamesForWorkflow(
-  templateVersionId: string,
-  template: CommercialDefaultTemplate | undefined,
-): Set<string> {
-  if (!template || template.id !== templateVersionId) return new Set();
-  const counts = new Map<string, number>();
-  for (const node of template.nodes) {
-    counts.set(node.name, (counts.get(node.name) ?? 0) + 1);
-  }
-  const names = new Set<string>();
-  for (const node of template.nodes) {
-    if (node.isOptional && counts.get(node.name) === 1) names.add(node.name);
-  }
-  return names;
-}
-
 export function isPublishNodeName(name: string): boolean {
   return name === '发布';
 }
 
 export function graphFromWorkflow(
   workflow: CommercialProjectWorkflow,
-  options: { optionalNames: ReadonlySet<string>; blockingReason: string | null },
+  options: { blockingReason: string | null },
 ): WorkflowGraph {
   const blocked = workflow.nodes.filter((node) => node.status === 'blocked');
   const soleBlockedId = blocked.length === 1 ? blocked[0]?.id : undefined;
@@ -80,7 +60,7 @@ export function graphFromWorkflow(
       status: toVisualStatus(node.status),
       apiStatus: node.status,
       updatedAt: node.updatedAt,
-      isOptional: options.optionalNames.has(node.name),
+      isOptional: node.isOptional,
       isPublish: isPublishNodeName(node.name),
       kind: node.kind,
     };

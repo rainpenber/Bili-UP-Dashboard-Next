@@ -87,6 +87,8 @@ describe('commercial read contracts', () => {
         publishedAt: '2026-05-20T12:00:00.000Z',
         publishSource: 'web',
       },
+      openItems: [],
+      monitor: { publish: null, jobs: [] },
     });
     expect(detail.publish.published).toBe(true);
     expect(detail.blockingReason).toBeNull();
@@ -101,6 +103,7 @@ describe('commercial read contracts', () => {
           name: '文案',
           status: 'blocked',
           kind: 'stage',
+          isOptional: false,
           updatedAt: '2026-05-20T12:00:00.000000Z',
         },
         {
@@ -108,6 +111,7 @@ describe('commercial read contracts', () => {
           name: '汇合节点',
           status: 'not_reached',
           kind: 'merge',
+          isOptional: true,
           updatedAt: '2026-05-20T12:00:00.100000Z',
         },
       ],
@@ -154,7 +158,79 @@ describe('commercial read contracts', () => {
           publishedAt: null,
           publishSource: null,
         },
+        openItems: [],
+        monitor: { publish: null, jobs: [] },
       }),
     ).toThrow(/unpublished/);
+  });
+
+  test('rejects a workflow node without isOptional', () => {
+    expect(() =>
+      parseCommercialProjectWorkflow({
+        projectId: PROJECT_ID,
+        workflowId: 'a2000001-0001-4001-8001-000000000001',
+        templateVersionId: 'ffff1111-1111-4111-8111-111111111111',
+        nodes: [
+          {
+            id: NODE_A,
+            name: '文案',
+            status: 'not_reached',
+            kind: 'stage',
+            updatedAt: '2026-05-20T12:00:00.000000Z',
+          },
+        ],
+        edges: [],
+      }),
+    ).toThrow(/isOptional/);
+  });
+
+  test('rejects an unknown open-item lifecycle and an unknown monitor job status', () => {
+    const detail = {
+      id: PROJECT_ID,
+      name: '样例',
+      netAmount: null,
+      rebateAmount: null,
+      overallStage: 'pre_publish',
+      currentStageNames: [],
+      anyNodeBlocked: false,
+      blockingReason: null,
+      publish: { published: false, bvid: null, publishedAt: null, publishSource: null },
+      monitor: { publish: null, jobs: [] },
+    };
+    expect(() =>
+      parseCommercialProjectDetail({
+        ...detail,
+        openItems: [
+          {
+            id: 'f0a10001-0001-4001-8001-0000000000a1',
+            title: '事项',
+            lifecycle: 'archived',
+            impact: 'normal',
+            blocksNodeId: null,
+            isPinnedPrimary: false,
+            updatedAt: '2026-05-20T12:00:00.000000Z',
+          },
+        ],
+      }),
+    ).toThrow(/lifecycle/);
+
+    expect(() =>
+      parseCommercialProjectDetail({
+        ...detail,
+        openItems: [],
+        monitor: {
+          publish: null,
+          jobs: [
+            {
+              id: 'f0c00001-0001-4001-8001-000000000001',
+              jobType: 'metadata',
+              status: 'running',
+              dueAt: null,
+              createdAt: '2026-05-20T12:00:00.000000Z',
+            },
+          ],
+        },
+      }),
+    ).toThrow(/job status/);
   });
 });

@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import type { CommercialPublishResponse } from '@studio/contracts';
 import { cn } from '@/lib/utils';
 import type { WriteFeedback } from '../commercial-api';
 import type { NodeCommand } from '../node-actions';
@@ -22,7 +21,6 @@ export function WorkflowGraphLive({
   graph,
   pending,
   feedback,
-  publishResult,
   onCommand,
   onBlock,
   onPublish,
@@ -30,7 +28,6 @@ export function WorkflowGraphLive({
   graph: WorkflowGraph;
   pending: boolean;
   feedback: WriteFeedback | null;
-  publishResult: CommercialPublishResponse | null;
   onCommand: (nodeId: string, command: Exclude<NodeCommand, 'block' | 'publish'>) => void;
   onBlock: (nodeId: string, reason: string | null) => void;
   onPublish: (nodeId: string, draft: PublishDraft) => void;
@@ -53,7 +50,6 @@ export function WorkflowGraphLive({
         ))}
       </ul>
       <WriteFeedbackBanner feedback={feedback} />
-      {publishResult ? <PublishResult result={publishResult} /> : null}
       <div className="grid gap-4 lg:grid-cols-[1fr_min(16rem,100%)]">
         <WorkflowGraphCanvasProvider
           graph={graph}
@@ -102,32 +98,6 @@ export function WorkflowGraphLive({
           )}
         </aside>
       </div>
-    </div>
-  );
-}
-
-function PublishResult({ result }: { result: CommercialPublishResponse }) {
-  return (
-    <div className="rounded-lg border bg-muted/20 p-3 text-sm" data-testid="publish-result">
-      <p>
-        已记录发布：{result.publish.bvid} · {result.publish.platform}
-        {result.publish.videoUrl ? ` · ${result.publish.videoUrl}` : ''}
-      </p>
-      <p className="text-muted-foreground">
-        {result.publish.publishedAt} · {result.publish.publishSource} · 幂等键{' '}
-        {result.publish.idempotencyKey}
-      </p>
-      <ul className="mt-2 space-y-1">
-        {result.monitor.jobs.map((job) => (
-          <li key={job.id} data-testid={`monitor-job-${job.jobType}`}>
-            {job.jobType === 'metadata' ? '元数据任务' : '指标任务'} · {job.status}
-          </li>
-        ))}
-      </ul>
-      <p className="mt-2 text-xs text-muted-foreground">
-        采集器还没实现，这两条任务保持待处理。刷新后项目读取结果只保留 BV
-        号、发布时间和来源，不再列出任务行。
-      </p>
     </div>
   );
 }

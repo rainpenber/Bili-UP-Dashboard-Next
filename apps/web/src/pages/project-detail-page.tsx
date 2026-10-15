@@ -1,11 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type {
-  CommercialOpenItemSnapshot,
-  CommercialPinnedBlockItem,
+  CommercialDetailOpenItem,
   CommercialProjectDetail,
   CommercialPublishRequest,
-  CommercialPublishResponse,
 } from '@studio/contracts';
 import { PageHeader } from '@/components/layout/page-header';
 import { ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
@@ -28,7 +26,6 @@ import {
 import {
   formatMoney,
   graphFromWorkflow,
-  optionalNamesForWorkflow,
   overallStageLabel,
 } from '@/features/commercial/commercial-view';
 import type { PublishDraft } from '@/features/commercial/components/node-action-panel';
@@ -38,39 +35,7 @@ import {
   useCommercialProjectDetailQuery,
   useCommercialWorkflowQuery,
   useCommercialWrites,
-  useDefaultCommercialTemplateQuery,
 } from '@/features/commercial/use-commercial-queries';
-
-type SessionItem = {
-  id: string;
-  title: string;
-  updatedAt: string;
-  lifecycle: CommercialOpenItemSnapshot['lifecycle'];
-  pinned: boolean;
-  cancelReason: string | null;
-};
-
-function sessionFromPinned(item: CommercialPinnedBlockItem): SessionItem {
-  return {
-    id: item.id,
-    title: item.title,
-    updatedAt: item.updatedAt,
-    lifecycle: item.lifecycle,
-    pinned: true,
-    cancelReason: null,
-  };
-}
-
-function sessionFromSnapshot(item: CommercialOpenItemSnapshot, pinned: boolean): SessionItem {
-  return {
-    id: item.id,
-    title: item.title,
-    updatedAt: item.updatedAt,
-    lifecycle: item.lifecycle,
-    pinned,
-    cancelReason: item.cancelReason,
-  };
-}
 
 function publishRequest(expectedUpdatedAt: string, draft: PublishDraft): CommercialPublishRequest {
   const video = draft.video.trim();
@@ -88,30 +53,16 @@ export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const detailQuery = useCommercialProjectDetailQuery(projectId);
   const workflowQuery = useCommercialWorkflowQuery(projectId);
-  const templateQuery = useDefaultCommercialTemplateQuery();
   const writes = useCommercialWrites(projectId ?? '');
-  const [sessionItem, setSessionItem] = useState<SessionItem | null>(null);
-  const [publishResult, setPublishResult] = useState<CommercialPublishResponse | null>(null);
-  const [closeConclusion, setCloseConclusion] = useState('');
-  const [cancelReason, setCancelReason] = useState('');
-
-  const optionalNames = useMemo(
-    () => optionalNamesForWorkflow(workflowQuery.data?.templateVersionId ?? '', templateQuery.data),
-    [templateQuery.data, workflowQuery.data?.templateVersionId],
-  );
 
   const graph = useMemo(() => {
     if (!workflowQuery.data) return null;
     return graphFromWorkflow(workflowQuery.data, {
-      optionalNames,
       blockingReason: detailQuery.data?.blockingReason ?? null,
     });
-  }, [detailQuery.data?.blockingReason, optionalNames, workflowQuery.data]);
+  }, [detailQuery.data?.blockingReason, workflowQuery.data]);
 
-  const waiting =
-    detailQuery.isLoading ||
-    workflowQuery.isLoading ||
-    (templateQuery.isLoading && templateQuery.data == null);
+  const waiting = detailQuery.isLoading || workflowQuery.isLoading;
 
   if (!projectId) {
     return <ErrorState title="找不到这个项目" message="链接里没有项目编号。" />;
@@ -156,75 +107,42 @@ export function ProjectDetailPage() {
         return rollbackCommercialNode(projectId!, nodeId, expectedUpdatedAt);
       return unblockCommercialNode(projectId!, nodeId, expectedUpdatedAt);
     };
-    const outcome = await writes.run(send);
-    if (outcome.feedback.kind === 'stale') {
-      setSessionItem(null);
-      return;
-    }
-    if (outcome.result?.pinnedItem) setSessionItem(sessionFromPinned(outcome.result.pinnedItem));
+    await writes.run(send);
   }
 
   async function runBlock(nodeId: string, reason: string | null) {
     const expectedUpdatedAt = tokenFor(nodeId);
     if (!expectedUpdatedAt) return;
-    const outcome = await writes.run(() =>
-      blockCommercialNode(projectId!, nodeId, expectedUpdatedAt, reason),
-    );
-    if (outcome.feedback.kind === 'stale') {
-      setSessionItem(null);
-      return;
-    }
-    if (outcome.result?.pinnedItem) setSessionItem(sessionFromPinned(outcome.result.pinnedItem));
-    else if (outcome.feedback.kind === 'ok') setSessionItem(null);
+    await writes.run(() => blockCommercialNode(projectId!, nodeId, expectedUpdatedAt, reason));
   }
 
   async function runPublish(nodeId: string, draft: PublishDraft) {
     const expectedUpdatedAt = tokenFor(nodeId);
     if (!expectedUpdatedAt) return;
-    const outcome = await writes.run(() =>
+    await writes.run(() =>
       publishCommercialNode(projectId!, nodeId, publishRequest(expectedUpdatedAt, draft)),
     );
-    if (outcome.feedback.kind === 'stale') return;
-    if (outcome.result) setPublishResult(outcome.result);
   }
 
-  async function runClose() {
-    if (!sessionItem || sessionItem.lifecycle !== 'open') return;
-    const conclusion = closeConclusion.trim();
-    const outcome = await writes.run(() =>
-      closeCommercialOpenItem(projectId!, sessionItem.id, {
-        expectedUpdatedAt: sessionItem.updatedAt,
-        ...(conclusion.length > 0 ? { closeConclusion: conclusion } : {}),
+  async function runClose(item: CommercialDetailOpenItem, conclusion: string) {
+    const trimmed = conclusion.trim();
+    await writes.run(() =>
+      closeCommercialOpenItem(projectId!, item.id, {
+        expectedUpdatedAt: item.updatedAt,
+        ...(trimmed.length > 0 ? { closeConclusion: trimmed } : {}),
       }),
     );
-    if (outcome.feedback.kind === 'stale') {
-      setSessionItem(null);
-      return;
-    }
-    if (outcome.result) {
-      setSessionItem(sessionFromSnapshot(outcome.result.item, sessionItem.pinned));
-      setCloseConclusion('');
-    }
   }
 
-  async function runCancel() {
-    if (!sessionItem || sessionItem.lifecycle !== 'open') return;
-    const reason = cancelReason.trim();
-    if (!reason) return;
-    const outcome = await writes.run(() =>
-      cancelCommercialOpenItem(projectId!, sessionItem.id, {
-        expectedUpdatedAt: sessionItem.updatedAt,
-        cancelReason: reason,
+  async function runCancel(item: CommercialDetailOpenItem, reason: string) {
+    const trimmed = reason.trim();
+    if (!trimmed) return;
+    await writes.run(() =>
+      cancelCommercialOpenItem(projectId!, item.id, {
+        expectedUpdatedAt: item.updatedAt,
+        cancelReason: trimmed,
       }),
     );
-    if (outcome.feedback.kind === 'stale') {
-      setSessionItem(null);
-      return;
-    }
-    if (outcome.result) {
-      setSessionItem(sessionFromSnapshot(outcome.result.item, sessionItem.pinned));
-      setCancelReason('');
-    }
   }
 
   return (
@@ -279,7 +197,7 @@ export function ProjectDetailPage() {
               <CardTitle className="text-base">发布记录</CardTitle>
             </CardHeader>
             <CardContent>
-              <PublishStatus publish={detail.publish} />
+              <PublishStatus monitor={detail.monitor} />
             </CardContent>
           </Card>
 
@@ -289,15 +207,10 @@ export function ProjectDetailPage() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <OpenItems
-                detail={detail}
-                sessionItem={sessionItem}
+                items={detail.openItems}
                 pending={writes.pending}
-                closeConclusion={closeConclusion}
-                cancelReason={cancelReason}
-                onCloseConclusion={setCloseConclusion}
-                onCancelReason={setCancelReason}
-                onClose={() => void runClose()}
-                onCancel={() => void runCancel()}
+                onClose={(item, conclusion) => void runClose(item, conclusion)}
+                onCancel={(item, reason) => void runCancel(item, reason)}
               />
             </CardContent>
           </Card>
@@ -308,23 +221,10 @@ export function ProjectDetailPage() {
             <CardTitle className="text-base">完整工作流图</CardTitle>
           </CardHeader>
           <CardContent>
-            {templateQuery.isError ? (
-              <p className="mb-3 text-xs text-muted-foreground">
-                默认模板没有加载成功，暂时不提供「不适用」。节点状态仍然来自这个项目的流程接口。
-              </p>
-            ) : null}
-            {!templateQuery.isError &&
-            templateQuery.data &&
-            templateQuery.data.id !== workflow.templateVersionId ? (
-              <p className="mb-3 text-xs text-muted-foreground">
-                这个项目用的模板版本不是当前已发布的默认流程，页面不知道哪些节点可选，所以不提供「不适用」。
-              </p>
-            ) : null}
             <WorkflowGraphLive
               graph={graph}
               pending={writes.pending}
               feedback={writes.feedback}
-              publishResult={publishResult}
               onCommand={(nodeId, command) => void runNode(nodeId, command)}
               onBlock={(nodeId, reason) => void runBlock(nodeId, reason)}
               onPublish={(nodeId, draft) => void runPublish(nodeId, draft)}
@@ -340,8 +240,8 @@ export function ProjectDetailPage() {
   );
 }
 
-function PublishStatus({ publish }: { publish: CommercialProjectDetail['publish'] }) {
-  if (!publish.published) {
+function PublishStatus({ monitor }: { monitor: CommercialProjectDetail['monitor'] }) {
+  if (!monitor.publish && monitor.jobs.length === 0) {
     return (
       <p className="text-sm text-muted-foreground" data-testid="publish-status">
         尚未发布。在「发布」节点进行中时，完成操作会要求填写平台和视频。
@@ -349,102 +249,131 @@ function PublishStatus({ publish }: { publish: CommercialProjectDetail['publish'
     );
   }
   return (
-    <div className="space-y-1 text-sm" data-testid="publish-status">
-      <p>已发布 · {publish.bvid}</p>
-      <p className="text-muted-foreground">
-        {publish.publishedAt} · {publish.publishSource}
-      </p>
+    <div className="space-y-2 text-sm" data-testid="publish-status">
+      {monitor.publish ? (
+        <div data-testid="publish-record">
+          <p>
+            已发布 · {monitor.publish.bvid}
+            {monitor.publish.platform ? ` · ${monitor.publish.platform}` : ''}
+          </p>
+          <p className="text-muted-foreground">
+            {monitor.publish.publishedAt} · {monitor.publish.publishSource}
+          </p>
+        </div>
+      ) : (
+        <p className="text-muted-foreground">没有发布记录。</p>
+      )}
+      {monitor.jobs.length > 0 ? (
+        <ul className="space-y-1">
+          {monitor.jobs.map((job) => (
+            <li key={job.id} data-testid={`monitor-job-${job.jobType}`}>
+              {job.jobType === 'metadata' ? '元数据任务' : '指标任务'} · {job.status}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted-foreground">没有监控任务。</p>
+      )}
     </div>
   );
 }
 
 function OpenItems({
-  detail,
-  sessionItem,
+  items,
   pending,
-  closeConclusion,
-  cancelReason,
-  onCloseConclusion,
-  onCancelReason,
   onClose,
   onCancel,
 }: {
-  detail: CommercialProjectDetail;
-  sessionItem: SessionItem | null;
+  items: CommercialDetailOpenItem[];
   pending: boolean;
-  closeConclusion: string;
-  cancelReason: string;
-  onCloseConclusion: (value: string) => void;
-  onCancelReason: (value: string) => void;
-  onClose: () => void;
-  onCancel: () => void;
+  onClose: (item: CommercialDetailOpenItem, conclusion: string) => void;
+  onCancel: (item: CommercialDetailOpenItem, reason: string) => void;
 }) {
+  if (items.length === 0) {
+    return <p className="text-muted-foreground">当前没有开放事项。</p>;
+  }
   return (
-    <>
-      {detail.blockingReason ? (
-        <p data-testid="project-blocking-reason">读取到的阻塞原因：{detail.blockingReason}</p>
-      ) : (
-        <p className="text-muted-foreground">当前读取结果里没有阻塞原因。</p>
-      )}
-      <p className="text-xs text-muted-foreground">
-        项目读取接口只返回阻塞原因的标题，不返回事项编号和更新时间。关闭和取消只能针对刚才写入接口返回的事项；刷新之后，已有事项不能从这里提交。
-      </p>
-      {sessionItem ? (
-        <div className="space-y-3 rounded-md border px-3 py-2" data-testid="session-open-item">
-          <p className="font-medium">{sessionItem.title}</p>
-          <p className="text-muted-foreground">
-            {sessionItem.pinned ? '主阻塞事项' : '开放事项'} ·{' '}
-            {lifecycleLabel(sessionItem.lifecycle)}
-          </p>
-          {sessionItem.cancelReason ? <p>取消原因：{sessionItem.cancelReason}</p> : null}
-          {sessionItem.lifecycle === 'open' ? (
-            <>
-              <Label className="space-y-1 text-xs text-muted-foreground">
-                <span>关闭结论（可选）</span>
-                <Input
-                  value={closeConclusion}
-                  onChange={(event) => onCloseConclusion(event.target.value)}
-                  data-testid="open-item-conclusion"
-                  disabled={pending}
-                />
-              </Label>
-              <Button
-                type="button"
-                size="sm"
-                disabled={pending}
-                data-testid="open-item-close"
-                onClick={onClose}
-              >
-                关闭
-              </Button>
-              <Label className="space-y-1 text-xs text-muted-foreground">
-                <span>取消原因</span>
-                <Input
-                  value={cancelReason}
-                  onChange={(event) => onCancelReason(event.target.value)}
-                  data-testid="open-item-cancel-reason"
-                  disabled={pending}
-                />
-              </Label>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={pending || cancelReason.trim().length === 0}
-                data-testid="open-item-cancel"
-                onClick={onCancel}
-              >
-                取消事项
-              </Button>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-    </>
+    <ul className="space-y-3">
+      {items.map((item) => (
+        <OpenItemRow
+          key={item.id}
+          item={item}
+          pending={pending}
+          onClose={onClose}
+          onCancel={onCancel}
+        />
+      ))}
+    </ul>
   );
 }
 
-function lifecycleLabel(lifecycle: SessionItem['lifecycle']): string {
+function OpenItemRow({
+  item,
+  pending,
+  onClose,
+  onCancel,
+}: {
+  item: CommercialDetailOpenItem;
+  pending: boolean;
+  onClose: (item: CommercialDetailOpenItem, conclusion: string) => void;
+  onCancel: (item: CommercialDetailOpenItem, reason: string) => void;
+}) {
+  const [conclusion, setConclusion] = useState('');
+  const [reason, setReason] = useState('');
+  return (
+    <li className="space-y-2 rounded-md border px-3 py-2" data-testid={`open-item-${item.id}`}>
+      <p className="font-medium">{item.title}</p>
+      <p className="text-muted-foreground">
+        {item.isPinnedPrimary ? <span data-testid="open-item-pinned">主阻塞事项 · </span> : null}
+        {lifecycleLabel(item.lifecycle)}
+        {item.impact === 'blocking' ? ' · 阻塞' : ''}
+      </p>
+      {item.lifecycle === 'open' ? (
+        <>
+          <Label className="space-y-1 text-xs text-muted-foreground">
+            <span>关闭结论（可选）</span>
+            <Input
+              value={conclusion}
+              onChange={(event) => setConclusion(event.target.value)}
+              data-testid={`open-item-conclusion-${item.id}`}
+              disabled={pending}
+            />
+          </Label>
+          <Button
+            type="button"
+            size="sm"
+            disabled={pending}
+            data-testid={`open-item-close-${item.id}`}
+            onClick={() => onClose(item, conclusion)}
+          >
+            关闭
+          </Button>
+          <Label className="space-y-1 text-xs text-muted-foreground">
+            <span>取消原因</span>
+            <Input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              data-testid={`open-item-cancel-reason-${item.id}`}
+              disabled={pending}
+            />
+          </Label>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={pending || reason.trim().length === 0}
+            data-testid={`open-item-cancel-${item.id}`}
+            onClick={() => onCancel(item, reason)}
+          >
+            取消事项
+          </Button>
+        </>
+      ) : null}
+    </li>
+  );
+}
+
+function lifecycleLabel(lifecycle: CommercialDetailOpenItem['lifecycle']): string {
   if (lifecycle === 'closed') return '已关闭';
   if (lifecycle === 'cancelled') return '已取消';
   return '开放';

@@ -51,7 +51,7 @@ export function legalNodeCommands(ctx: NodeActionContext): NodeCommand[] {
 export const NODE_COMMAND_LABEL: Record<NodeCommand, string> = {
   advance: '推进',
   complete: '完成',
-  skip: '不适用',
+  skip: '跳过',
   rollback: '回退',
   block: '阻塞',
   unblock: '解除阻塞',

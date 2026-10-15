@@ -29,7 +29,7 @@ describe('node action panel', () => {
     expect(screen.queryByTestId('workflow-action-skip')).toBeNull();
     cleanup();
     renderPanel('not_reached', { isOptional: true });
-    expect(screen.getByTestId('workflow-action-skip').textContent).toContain('不适用');
+    expect(screen.getByTestId('workflow-action-skip').textContent).toContain('跳过');
   });
 
   test('in_progress shows complete, rollback, and block, including an empty reason field', () => {
