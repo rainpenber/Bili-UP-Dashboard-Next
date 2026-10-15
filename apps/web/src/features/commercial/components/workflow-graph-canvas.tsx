@@ -6,6 +6,8 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useStore,
+  type EdgeTypes,
   type NodeMouseHandler,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -18,27 +20,56 @@ import {
 } from '../workflow-graph-flow-layout';
 import { WorkflowFlowNode } from './workflow-flow-node';
 import { WorkflowJunctionNode } from './workflow-junction-node';
+import { WorkflowRoutedEdge } from './workflow-routed-edge';
 
 const nodeTypes = { workflowNode: WorkflowFlowNode, workflowJunction: WorkflowJunctionNode };
+const edgeTypes = { workflowRouted: WorkflowRoutedEdge };
 
 const defaultEdgeOptions = {
-  type: 'default' as const,
+  type: 'workflowRouted' as const,
   style: { strokeWidth: 1, stroke: 'var(--border)' },
 };
 
 const FIT_VIEW_MIN_ZOOM = 0.85;
 
-function FitViewOnce({ fitKey }: { fitKey: string }) {
-  const { fitView } = useReactFlow();
-  const fittedKeyRef = useRef<string | null>(null);
+function serializeViewport(vp: { x: number; y: number; zoom: number }): string {
+  return JSON.stringify([vp.x, vp.y, vp.zoom]);
+}
+
+function WorkflowViewportLock({
+  fitKey,
+  selectionEpoch,
+}: {
+  fitKey: string;
+  selectionEpoch: string;
+}) {
+  const { fitView, getViewport, setViewport } = useReactFlow();
+  const lockedRef = useRef<string | null>(null);
+  const fitKeyRef = useRef<string | null>(null);
+  const nodeMeasureEpoch = useStore((s) =>
+    s.nodes.map((n) => `${n.id}:${n.measured?.height ?? n.height ?? 0}`).join('|'),
+  );
+
   useEffect(() => {
-    if (fittedKeyRef.current === fitKey) return;
-    fittedKeyRef.current = fitKey;
-    const t = window.setTimeout(() => {
-      void fitView({ padding: 0.1, maxZoom: 1.25, minZoom: FIT_VIEW_MIN_ZOOM });
-    }, 80);
-    return () => window.clearTimeout(t);
-  }, [fitKey, fitView]);
+    if (fitKeyRef.current !== fitKey) {
+      fitKeyRef.current = fitKey;
+      lockedRef.current = null;
+      const t = window.setTimeout(() => {
+        void fitView({ padding: 0.1, maxZoom: 1.25, minZoom: FIT_VIEW_MIN_ZOOM }).then(() => {
+          lockedRef.current = serializeViewport(getViewport());
+        });
+      }, 80);
+      return () => window.clearTimeout(t);
+    }
+    return undefined;
+  }, [fitKey, fitView, getViewport]);
+
+  useEffect(() => {
+    if (!lockedRef.current) return;
+    const [x, y, zoom] = JSON.parse(lockedRef.current) as [number, number, number];
+    setViewport({ x, y, zoom }, { duration: 0 });
+  }, [selectionEpoch, nodeMeasureEpoch, setViewport]);
+
   return null;
 }
 
@@ -119,6 +150,7 @@ export function WorkflowGraphCanvas({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes as EdgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
@@ -132,10 +164,12 @@ export function WorkflowGraphCanvas({
         zoomOnScroll
         minZoom={0.45}
         maxZoom={1.5}
+        fitView={false}
+        autoPanOnNodeFocus={false}
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={16} size={1} />
-        <FitViewOnce fitKey={fitKey} />
+        <WorkflowViewportLock fitKey={fitKey} selectionEpoch={selectedNodeId ?? ''} />
       </ReactFlow>
     </div>
   );

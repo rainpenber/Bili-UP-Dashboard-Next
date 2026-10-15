@@ -9,10 +9,10 @@ import type { WorkflowNodeEditorActions } from '../workflow-graph-flow-layout';
 import { WorkflowGraphCanvasProvider } from './workflow-graph-canvas';
 
 const LEGEND = [
-  { label: '已完成', className: 'border-success bg-success/30' },
-  { label: '进行中', className: 'border-warning bg-warning/35' },
-  { label: '被卡住', className: 'border-destructive bg-destructive/25' },
-  { label: '未到', className: 'border-border bg-muted' },
+  { label: '已完成', className: 'border-emerald-600 bg-emerald-100' },
+  { label: '进行中', className: 'border-amber-600 bg-amber-100' },
+  { label: '被卡住', className: 'border-red-600 bg-red-100' },
+  { label: '未到', className: 'border-zinc-400 bg-zinc-100' },
 ] as const;
 
 export type WorkflowGraphEditorHandle = ReturnType<typeof useWorkflowEditor>;

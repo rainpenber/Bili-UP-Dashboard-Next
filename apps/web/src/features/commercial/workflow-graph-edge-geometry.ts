@@ -94,3 +94,75 @@ export function pointViolatesEdgeCard(
     rectContainsPoint(targetRect, point.x, point.y, 4);
   return !touchesSource;
 }
+
+function orient(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  c: { x: number; y: number },
+) {
+  return (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+}
+
+function onSegment(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  c: { x: number; y: number },
+) {
+  return (
+    Math.min(a.x, c.x) - 1e-6 <= b.x &&
+    b.x <= Math.max(a.x, c.x) + 1e-6 &&
+    Math.min(a.y, c.y) - 1e-6 <= b.y &&
+    b.y <= Math.max(a.y, c.y) + 1e-6
+  );
+}
+
+export function segmentsIntersect(
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  p3: { x: number; y: number },
+  p4: { x: number; y: number },
+): boolean {
+  const o1 = orient(p1, p2, p3);
+  const o2 = orient(p1, p2, p4);
+  const o3 = orient(p3, p4, p1);
+  const o4 = orient(p3, p4, p2);
+  if (o1 === 0 && o2 === 0 && o3 === 0 && o4 === 0) return false;
+  if (o1 === 0 && onSegment(p1, p3, p2)) return false;
+  if (o2 === 0 && onSegment(p1, p4, p2)) return false;
+  if (o3 === 0 && onSegment(p3, p1, p4)) return false;
+  if (o4 === 0 && onSegment(p3, p2, p4)) return false;
+  return o1 > 0 !== o2 > 0 && o3 > 0 !== o4 > 0;
+}
+
+export function polylineSegments(
+  points: { x: number; y: number }[],
+): [(typeof points)[0], (typeof points)[0]][] {
+  const segs: [(typeof points)[0], (typeof points)[0]][] = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    segs.push([points[i]!, points[i + 1]!]);
+  }
+  return segs;
+}
+
+export function countEdgeEdgeCrossings(paths: string[]): number {
+  const allSegs = paths.map((d) => polylineSegments(samplePathPoints(d, 10)));
+  let crossings = 0;
+  for (let i = 0; i < allSegs.length; i += 1) {
+    for (let j = i + 1; j < allSegs.length; j += 1) {
+      const a = allSegs[i]!;
+      const b = allSegs[j]!;
+      let crossed = false;
+      for (const [a1, a2] of a) {
+        for (const [b1, b2] of b) {
+          if (segmentsIntersect(a1, a2, b1, b2)) {
+            crossed = true;
+            break;
+          }
+        }
+        if (crossed) break;
+      }
+      if (crossed) crossings += 1;
+    }
+  }
+  return crossings;
+}

@@ -6,6 +6,7 @@ import {
   type DisplayJunction,
   type WorkflowJunctionNodeData,
 } from './workflow-graph-junctions';
+import { buildRoutedEdgeData, junctionNodeFrame } from './workflow-graph-edge-routing';
 
 export const LAYOUT_NODE_WIDTH = 176;
 export const LAYOUT_NODE_HEIGHT = 44;
@@ -187,6 +188,37 @@ export function layerRowCenter(nodes: PlacedWorkflowNode[]): number {
 
 const MAIN_AXIS_IDS = new Set(['inq', 'outline', 'rev', 'pub']);
 
+const PARALLEL_RANK_ORDER: Record<string, number> = {
+  script: 0,
+  'pre-shoot': 1,
+  prop: 0,
+  ar: 1,
+  br: 2,
+  ai: 3,
+  settle: 0,
+  distribute: 1,
+  'data-care': 2,
+  other: 3,
+};
+
+function reorderParallelGroups(nodes: PlacedWorkflowNode[], axisX: number): void {
+  for (const group of groupByY(nodes)) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => {
+      const oa = PARALLEL_RANK_ORDER[a.id] ?? a.x;
+      const ob = PARALLEL_RANK_ORDER[b.id] ?? b.x;
+      if (oa !== ob) return oa - ob;
+      return a.x - b.x;
+    });
+    const totalWidth = group.length * LAYOUT_NODE_WIDTH + (group.length - 1) * LAYOUT_NODE_GAP_X;
+    let x = axisX - totalWidth / 2;
+    for (const n of group) {
+      n.x = x;
+      x += LAYOUT_NODE_WIDTH + LAYOUT_NODE_GAP_X;
+    }
+  }
+}
+
 function groupByY(nodes: PlacedWorkflowNode[]): PlacedWorkflowNode[][] {
   const groups: PlacedWorkflowNode[][] = [];
   for (const n of nodes) {
@@ -222,6 +254,8 @@ export function alignWorkflowLayout(layout: WorkflowGraphLayout): WorkflowGraphL
       for (const n of group) shiftNode(n, dx);
     }
   }
+
+  reorderParallelGroups(nodes, axisX);
 
   const prop = byId.get('prop');
   const ar = byId.get('ar');
@@ -381,54 +415,64 @@ export function toReactFlowElements(layout: WorkflowGraphLayout): {
     ],
   }));
 
-  const junctionNodes: Node<WorkflowJunctionNodeData>[] = layout.junctions.map((j) => ({
-    id: j.id,
-    type: 'workflowJunction',
-    position: { x: j.x - 6, y: j.y - 6 },
-    data: {},
-    draggable: false,
-    selectable: false,
-    connectable: true,
-    width: 12,
-    height: 12,
-    measured: { width: 12, height: 12 },
-    handles: [
-      {
-        id: 'target',
-        type: 'target',
-        position: Position.Top,
-        x: 6,
-        y: 0,
-        width: 1,
-        height: 1,
-      },
-      {
-        id: 'source',
-        type: 'source',
-        position: Position.Bottom,
-        x: 6,
-        y: 12,
-        width: 1,
-        height: 1,
-      },
-    ],
-  }));
+  const routed = buildRoutedEdgeData(layout);
+
+  const junctionNodes: Node<WorkflowJunctionNodeData>[] = layout.junctions.map((j) => {
+    const frame = junctionNodeFrame(layout, j.id);
+    return {
+      id: j.id,
+      type: 'workflowJunction',
+      position: { x: frame.x, y: frame.y },
+      data: {},
+      draggable: false,
+      selectable: false,
+      connectable: true,
+      width: frame.width,
+      height: frame.height,
+      measured: { width: frame.width, height: frame.height },
+      handles: [
+        {
+          id: 'target',
+          type: 'target',
+          position: Position.Top,
+          x: frame.width / 2,
+          y: 0,
+          width: 1,
+          height: 1,
+        },
+        {
+          id: 'source',
+          type: 'source',
+          position: Position.Bottom,
+          x: frame.width / 2,
+          y: frame.height,
+          width: 1,
+          height: 1,
+        },
+      ],
+    };
+  });
 
   const nodeIds = new Set([...nodes.map((n) => n.id), ...junctionNodes.map((n) => n.id)]);
   const edges: Edge[] = layout.edges
     .filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to))
-    .map((e) => ({
-      id: `e-${e.from}-${e.to}`,
-      source: e.from,
-      target: e.to,
-      sourceHandle: 'source',
-      targetHandle: 'target',
-      type: 'default',
-      animated: false,
-      selectable: false,
-      focusable: false,
-      style: { strokeWidth: 1, stroke: 'var(--border)' },
-    }));
+    .map((e) => {
+      const id = `e-${e.from}-${e.to}`;
+      const meta = routed.get(id);
+      return {
+        id,
+        source: e.from,
+        target: e.to,
+        sourceHandle: 'source',
+        targetHandle: 'target',
+        type: 'workflowRouted',
+        data: { path: meta?.path ?? 'M 0 0 L 0 0' },
+        animated: false,
+        selectable: false,
+        focusable: false,
+        style: { strokeWidth: 1, stroke: 'var(--border)' },
+      };
+    });
 
   return { nodes: [...nodes, ...junctionNodes], edges };
 }

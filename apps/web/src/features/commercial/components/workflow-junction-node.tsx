@@ -5,15 +5,16 @@ const handleClass =
 
 export type { WorkflowJunctionNodeData } from '../workflow-graph-junctions';
 
+/** Display-only vertical bus (trunk) between parallel ranks. */
 export function WorkflowJunctionNode() {
   return (
     <div
-      className="flex size-3 items-center justify-center"
+      className="pointer-events-none flex h-full w-full items-stretch justify-center"
       data-workflow-junction="true"
       aria-hidden
     >
       <Handle type="target" position={Position.Top} id="target" className={handleClass} />
-      <span className="size-2 rounded-full border border-border bg-foreground/70 shadow-sm" />
+      <span className="min-h-full w-1.5 rounded-full border border-border bg-foreground/75 shadow-sm" />
       <Handle type="source" position={Position.Bottom} id="source" className={handleClass} />
     </div>
   );

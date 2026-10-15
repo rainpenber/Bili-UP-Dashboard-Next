@@ -4,6 +4,7 @@ import { commercialProjectsMock } from '../mock-data';
 import { JUNCTION_PREP_PROD_ID, JUNCTION_PUB_WIND_ID } from '../workflow-graph-junctions';
 import { layoutWorkflowGraph } from '../workflow-graph-flow-layout';
 import {
+  countEdgeEdgeCrossings,
   pointViolatesEdgeCard,
   samplePathPoints,
   type Rect,
@@ -15,20 +16,22 @@ setDefaultTimeout(30_000);
 
 afterEach(() => cleanup());
 
+function viewportTransformRaw(container: HTMLElement): string {
+  const vp = container.querySelector('.react-flow__viewport');
+  const raw = vp?.getAttribute('style') ?? '';
+  return raw.match(/transform:\s*([^;]+)/)?.[1]?.trim() ?? '';
+}
+
 function parseViewportTransform(container: HTMLElement): {
   tx: number;
   ty: number;
   scale: number;
 } {
-  const vp = container.querySelector('.react-flow__viewport');
-  const raw = vp?.getAttribute('style') ?? '';
-  const transform = raw.match(/transform:\s*([^;]+)/)?.[1] ?? '';
+  const transform = viewportTransformRaw(container);
   const scale = parseFloat(transform.match(/scale\(([^)]+)\)/)?.[1] ?? '1');
   const translate = transform.match(/translate\(([^)]+)\)/)?.[1] ?? '0px, 0px';
   const [txRaw, tyRaw] = translate.split(',');
-  const tx = parseFloat(txRaw ?? '0');
-  const ty = parseFloat(tyRaw ?? '0');
-  return { tx, ty, scale };
+  return { tx: parseFloat(txRaw ?? '0'), ty: parseFloat(tyRaw ?? '0'), scale };
 }
 
 function toScreen(point: { x: number; y: number }, vp: { tx: number; ty: number; scale: number }) {
@@ -50,6 +53,12 @@ function cardRects(container: HTMLElement): Map<string, Rect> {
     });
   }
   return out;
+}
+
+function collectRenderedPaths(container: HTMLElement): string[] {
+  return [...container.querySelectorAll('.react-flow__edge-path')]
+    .map((p) => p.getAttribute('d') ?? '')
+    .filter((d) => d.length > 4);
 }
 
 function countEdgeCardViolations(container: HTMLElement): number {
@@ -89,6 +98,12 @@ async function waitForGraphReady(container: HTMLElement) {
     },
     { timeout: 15000 },
   );
+  await waitFor(
+    () => {
+      expect(viewportTransformRaw(container).length).toBeGreaterThan(5);
+    },
+    { timeout: 15000 },
+  );
 }
 
 describe('Workflow graph render quality', () => {
@@ -102,8 +117,8 @@ describe('Workflow graph render quality', () => {
     }
   });
 
-  test('no edge path crosses unrelated cards (nev-spring, board-prop)', async () => {
-    for (const id of ['proj-nev-spring', 'proj-board-prop'] as const) {
+  test('no edge crosses another edge or unrelated cards', async () => {
+    for (const id of ['proj-nev-spring', 'proj-drink-live', 'proj-board-prop'] as const) {
       const project = commercialProjectsMock.find((p) => p.id === id)!;
       const { container } = render(
         <div style={{ width: 1440, height: 1250 }}>
@@ -111,12 +126,13 @@ describe('Workflow graph render quality', () => {
         </div>,
       );
       await waitForGraphReady(container);
-      const violations = countEdgeCardViolations(container);
-      expect(violations).toBe(0);
+      const paths = collectRenderedPaths(container);
+      expect(countEdgeCardViolations(container)).toBe(0);
+      expect(countEdgeEdgeCrossings(paths)).toBe(0);
     }
   });
 
-  test('viewport transform unchanged after selecting a node', async () => {
+  test('viewport transform byte-identical after selecting a node', async () => {
     function Harness() {
       const project = commercialProjectsMock.find((p) => p.id === 'proj-nev-spring')!;
       const editor = useProjectWorkflowEditor(project.workflow);
@@ -127,12 +143,12 @@ describe('Workflow graph render quality', () => {
       );
     }
     const { container } = render(
-      <div style={{ width: 1440, height: 1250 }}>
+      <div style={{ width: 861, height: 718 }}>
         <Harness />
       </div>,
     );
     await waitForGraphReady(container);
-    const before = parseViewportTransform(container);
+    const before = viewportTransformRaw(container);
     const outline = container.querySelector('[data-workflow-node="outline"]')!;
     await act(async () => {
       fireEvent.click(outline);
@@ -140,9 +156,7 @@ describe('Workflow graph render quality', () => {
     await waitFor(() => {
       expect(container.querySelector('[data-testid="workflow-node-actions"]')).toBeTruthy();
     });
-    const after = parseViewportTransform(container);
-    expect(after.scale).toBeCloseTo(before.scale, 5);
-    expect(after.tx).toBeCloseTo(before.tx, 1);
-    expect(after.ty).toBeCloseTo(before.ty, 1);
+    const after = viewportTransformRaw(container);
+    expect(after).toBe(before);
   });
 });

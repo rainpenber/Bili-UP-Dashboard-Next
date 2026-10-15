@@ -5,7 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { WorkflowFlowNodeData } from '../workflow-graph-flow-layout';
-import { workflowNodeStatusClass, workflowNodeStatusLabel } from '../workflow-node-visual';
+import {
+  workflowNodeStatusClass,
+  workflowNodeStatusLabel,
+  workflowNodeStatusTextClass,
+} from '../workflow-node-visual';
 
 const handleClass =
   '!size-1 !min-h-0 !min-w-0 !border-0 !bg-transparent !opacity-0 pointer-events-none';
@@ -48,7 +52,7 @@ export function WorkflowFlowNode({ data, id }: NodeProps<Node<WorkflowFlowNodeDa
         <CardContent className="p-2">
           <p className="text-sm font-semibold leading-snug text-foreground">{wfNode.name}</p>
           <p
-            className="text-xs text-foreground/80"
+            className={cn('text-xs font-medium', workflowNodeStatusTextClass(wfNode.status))}
             data-testid={`workflow-node-status-${wfNode.id}`}
           >
             {workflowNodeStatusLabel(wfNode.status)}

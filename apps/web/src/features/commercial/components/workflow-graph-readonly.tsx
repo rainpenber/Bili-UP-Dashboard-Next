@@ -3,10 +3,10 @@ import { cn } from '@/lib/utils';
 import { WorkflowGraphCanvasProvider } from './workflow-graph-canvas';
 
 const LEGEND = [
-  { label: '已完成', className: 'border-success/50 bg-success/15' },
-  { label: '进行中', className: 'border-warning/50 bg-warning/15' },
-  { label: '被卡住', className: 'border-destructive/50 bg-destructive/15' },
-  { label: '未到', className: 'border-border bg-muted/40' },
+  { label: '已完成', className: 'border-emerald-600 bg-emerald-100' },
+  { label: '进行中', className: 'border-amber-600 bg-amber-100' },
+  { label: '被卡住', className: 'border-red-600 bg-red-100' },
+  { label: '未到', className: 'border-zinc-400 bg-zinc-100' },
 ] as const;
 
 export function WorkflowGraphReadonly({ graph }: { graph: WorkflowGraph }) {
