@@ -321,6 +321,7 @@ export function layoutWorkflowGraph(graph: WorkflowGraph): WorkflowGraphLayout {
 export type WorkflowFlowNodeData = {
   wfNode: WorkflowGraphNode;
   expanded: boolean;
+  selected?: boolean;
 };
 
 export function toReactFlowElements(layout: WorkflowGraphLayout): {

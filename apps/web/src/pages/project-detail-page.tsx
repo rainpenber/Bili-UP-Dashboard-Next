@@ -11,7 +11,12 @@ import {
   readPublishOverride,
   type PublishOverride,
 } from '@/features/commercial/components/publish-panel';
+import {
+  useProjectWorkflowEditor,
+  WorkflowGraphEditor,
+} from '@/features/commercial/components/workflow-graph-editor';
 import { WorkflowGraphReadonly } from '@/features/commercial/components/workflow-graph-readonly';
+import { deriveWorkflowSummary } from '@/features/commercial/workflow-edit-logic';
 import { formatYuan } from '@/features/commercial/commercial-selectors';
 import { useCommercialProjectQuery } from '@/features/commercial/use-commercial-queries';
 import { cn } from '@/lib/utils';
@@ -32,14 +37,20 @@ export function ProjectDetailPage() {
   );
   const [finishedOpen, setFinishedOpen] = useState(false);
 
+  const projectForEditor = query.data;
+  const workflowEditor = useProjectWorkflowEditor(projectForEditor?.workflow ?? { steps: [] });
+  const workflowSummary = useMemo(
+    () => deriveWorkflowSummary(workflowEditor.graph),
+    [workflowEditor.graph],
+  );
+
   const statusText = useMemo(() => {
-    const p = query.data;
-    if (!p) return '';
-    if (p.blockingReason) {
-      return `当前状态：${p.statusHeadline}，阻塞原因：${p.blockingReason}`;
+    if (!projectForEditor) return '';
+    if (workflowSummary.blockingReason) {
+      return `当前状态：${workflowSummary.statusHeadline}，阻塞原因：${workflowSummary.blockingReason}`;
     }
-    return `当前状态：${p.statusHeadline}`;
-  }, [query.data]);
+    return `当前状态：${workflowSummary.statusHeadline}`;
+  }, [projectForEditor, workflowSummary]);
 
   if (query.isLoading) {
     return <LoadingListSkeleton rows={4} />;
@@ -123,16 +134,16 @@ export function ProjectDetailPage() {
                 <span className="text-muted-foreground">整体阶段：</span>
                 {project.overallStage}
               </p>
-              {project.inProgressNodeNames.length > 0 ? (
-                <p>
+              {workflowSummary.inProgressNodeNames.length > 0 ? (
+                <p data-testid="summary-in-progress">
                   <span className="text-muted-foreground">进行中的节点：</span>
-                  {project.inProgressNodeNames.join('、')}
+                  {workflowSummary.inProgressNodeNames.join('、')}
                 </p>
               ) : null}
-              {project.mainBlockingItem ? (
-                <p>
+              {workflowSummary.mainBlockingItem ? (
+                <p data-testid="summary-blocking-item">
                   <span className="text-muted-foreground">主要阻塞项：</span>
-                  {project.mainBlockingItem}
+                  {workflowSummary.mainBlockingItem}
                 </p>
               ) : null}
               <div className="flex flex-wrap gap-6">
@@ -153,7 +164,9 @@ export function ProjectDetailPage() {
               <CardTitle className="text-base">当前状态</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm">{statusText}</p>
+              <p className="text-sm" data-testid="summary-status-text">
+                {statusText}
+              </p>
               <PublishPanel
                 project={project}
                 override={publishOverride}
@@ -190,11 +203,15 @@ export function ProjectDetailPage() {
           <CardHeader>
             <CardTitle className="text-base">完整工作流图</CardTitle>
             <p className="text-sm font-normal text-muted-foreground">
-              只读预览：点击节点可展开计划时间与卡住原因。颜色表示进度，不能在此修改流程。
+              在此推进或回退节点、标记阻塞原因；结构不可改（演示数据，刷新后恢复）。
             </p>
           </CardHeader>
           <CardContent>
-            <WorkflowGraphReadonly graph={project.workflow} />
+            {project.archived ? (
+              <WorkflowGraphReadonly graph={project.workflow} />
+            ) : (
+              <WorkflowGraphEditor editor={workflowEditor} />
+            )}
           </CardContent>
         </Card>
 

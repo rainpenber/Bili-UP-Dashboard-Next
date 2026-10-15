@@ -8,7 +8,7 @@ const handleClass =
   '!size-1 !min-h-0 !min-w-0 !border-0 !bg-transparent !opacity-0 pointer-events-none';
 
 export function WorkflowFlowNode({ data }: NodeProps<Node<WorkflowFlowNodeData>>) {
-  const { wfNode, expanded } = data;
+  const { wfNode, expanded, selected } = data;
   return (
     <div className="relative">
       <Handle type="target" position={Position.Top} id="target" className={handleClass} />
@@ -16,9 +16,11 @@ export function WorkflowFlowNode({ data }: NodeProps<Node<WorkflowFlowNodeData>>
         className={cn(
           'w-[11rem] shadow-sm transition-shadow',
           workflowNodeStatusClass(wfNode.status),
-          expanded && 'ring-2 ring-ring/40',
+          (expanded || selected) && 'ring-2 ring-ring/40',
         )}
         data-workflow-node={wfNode.id}
+        data-workflow-status={wfNode.status}
+        data-blocking-reason={wfNode.blockingReason ?? undefined}
       >
         <CardContent className="p-2">
           <p className="text-sm font-medium leading-snug">{wfNode.name}</p>
