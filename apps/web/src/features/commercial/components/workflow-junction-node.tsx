@@ -1,0 +1,21 @@
+import { Handle, Position } from '@xyflow/react';
+
+const handleClass =
+  '!size-1 !min-h-0 !min-w-0 !border-0 !bg-transparent !opacity-0 pointer-events-none';
+
+export type { WorkflowJunctionNodeData } from '../workflow-graph-junctions';
+
+/** Display-only horizontal bus between parallel ranks. */
+export function WorkflowJunctionNode() {
+  return (
+    <div
+      className="pointer-events-none flex h-full w-full items-center justify-center"
+      data-workflow-junction="true"
+      aria-hidden
+    >
+      <Handle type="target" position={Position.Top} id="target" className={handleClass} />
+      <span className="h-1 w-full rounded-full border border-border bg-foreground/75 shadow-sm" />
+      <Handle type="source" position={Position.Bottom} id="source" className={handleClass} />
+    </div>
+  );
+}

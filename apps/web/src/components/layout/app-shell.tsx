@@ -47,7 +47,7 @@ export function AppShell() {
           <ThemeControls className="hidden sm:flex" />
         </header>
 
-        <main className={cn('mx-auto w-full max-w-7xl flex-1 px-4 py-6 md:px-6')}>
+        <main className={cn('mx-auto w-full max-w-[100rem] flex-1 px-4 py-6 md:px-6')}>
           <Outlet context={{ nav }} />
         </main>
       </div>
