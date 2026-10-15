@@ -1,7 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 
 setDefaultTimeout(30_000);
+
+afterEach(() => {
+  cleanup();
+});
 import { commercialProjectsMock } from '../mock-data';
 import { deriveWorkflowSummary } from '../workflow-edit-logic';
 import { useProjectWorkflowEditor, WorkflowGraphEditor } from './workflow-graph-editor';
