@@ -63,8 +63,29 @@ export function routeBusToTarget(to: Box, busY: number): string {
   ]);
 }
 
+/**
+ * Draw the shared horizontal run on the leftmost incident connector.
+ * Vertical stubs stay as they are; the run uses that same stroke, not a separate bar.
+ */
+function extendPathWithBus(
+  path: string,
+  kind: 'source' | 'target',
+  x: number,
+  busY: number,
+  maxX: number,
+): string {
+  if (Math.abs(maxX - x) <= 0.01) return path;
+  if (kind === 'source') return `${path} L ${maxX} ${busY}`;
+  const rest = path.replace(/^M\s+-?\d*\.?\d+(?:e[-+]?\d+)?\s+-?\d*\.?\d+(?:e[-+]?\d+)?/i, '');
+  return `M ${maxX} ${busY} L ${x} ${busY}${rest}`;
+}
+
 function busYBetween(aboveBottom: number, belowTop: number): number {
   return aboveBottom + (belowTop - aboveBottom) / 2;
+}
+
+function edgeKey(from: string, to: string): string {
+  return `e-${from}-${to}`;
 }
 
 export interface JunctionBusSpan {
@@ -109,12 +130,66 @@ export function junctionBusSpan(
   return null;
 }
 
+/** One point per place a connector centerline meets the horizontal bus. */
+export function junctionMeetingPoints(
+  layout: WorkflowGraphLayout,
+  junctionId: string,
+): { x: number; y: number }[] {
+  const span = junctionBusSpan(layout, junctionId);
+  if (!span) return [];
+  const centers = new Map(layout.nodes.map((n) => [n.id, n.x + n.width / 2]));
+  const xs = new Set<number>();
+  for (const e of layout.edges) {
+    if (e.to === junctionId) {
+      const x = centers.get(e.from);
+      if (x != null) xs.add(x);
+    } else if (e.from === junctionId) {
+      const x = centers.get(e.to);
+      if (x != null) xs.add(x);
+    }
+  }
+  return [...xs].sort((a, b) => a - b).map((x) => ({ x, y: span.busY }));
+}
+
+function applyConnectorBusRun(
+  out: Map<string, WorkflowRoutedEdgeData>,
+  layout: WorkflowGraphLayout,
+  junctionId: string,
+): void {
+  const points = junctionMeetingPoints(layout, junctionId);
+  if (points.length < 2) return;
+  const maxX = points[points.length - 1]!.x;
+  const busY = points[0]!.y;
+  const centers = new Map(layout.nodes.map((n) => [n.id, n.x + n.width / 2]));
+
+  let chosen: { key: string; x: number; kind: 'source' | 'target' } | null = null;
+  for (const e of layout.edges) {
+    const incident =
+      e.to === junctionId
+        ? { id: e.from, kind: 'source' as const }
+        : e.from === junctionId
+          ? { id: e.to, kind: 'target' as const }
+          : null;
+    if (!incident) continue;
+    const x = centers.get(incident.id);
+    if (x == null) continue;
+    if (!chosen || x < chosen.x - 0.01) {
+      chosen = { key: edgeKey(e.from, e.to), x, kind: incident.kind };
+    }
+  }
+  if (!chosen) return;
+  const current = out.get(chosen.key)?.path;
+  if (!current) return;
+  out.set(chosen.key, {
+    path: extendPathWithBus(current, chosen.kind, chosen.x, busY, maxX),
+  });
+}
+
 export function buildRoutedEdgeData(
   layout: WorkflowGraphLayout,
 ): Map<string, WorkflowRoutedEdgeData> {
   const boxes = new Map(layout.nodes.map((n) => [n.id, nodeBox(n)]));
   const out = new Map<string, WorkflowRoutedEdgeData>();
-  const edgeKey = (from: string, to: string) => `e-${from}-${to}`;
 
   const prepBus = junctionBusSpan(layout, JUNCTION_PREP_PROD_ID);
   const pubBus = junctionBusSpan(layout, JUNCTION_PUB_WIND_ID);
@@ -148,22 +223,8 @@ export function buildRoutedEdgeData(
     }
   }
 
-  return out;
-}
+  applyConnectorBusRun(out, layout, JUNCTION_PREP_PROD_ID);
+  applyConnectorBusRun(out, layout, JUNCTION_PUB_WIND_ID);
 
-export function junctionNodeFrame(
-  layout: WorkflowGraphLayout,
-  junctionId: string,
-): { x: number; y: number; width: number; height: number } {
-  const span = junctionBusSpan(layout, junctionId);
-  if (!span) {
-    const j = layout.junctions.find((x) => x.id === junctionId);
-    return { x: (j?.x ?? 0) - 6, y: (j?.y ?? 0) - 2, width: 12, height: 4 };
-  }
-  return {
-    x: span.busLeft,
-    y: span.busY - 2,
-    width: Math.max(span.busRight - span.busLeft, 8),
-    height: 4,
-  };
+  return out;
 }

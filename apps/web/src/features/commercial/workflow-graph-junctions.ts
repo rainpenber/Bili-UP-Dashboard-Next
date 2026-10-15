@@ -1,13 +1,20 @@
 export const JUNCTION_PREP_PROD_ID = '__display_junction_prep_prod__';
 export const JUNCTION_PUB_WIND_ID = '__display_junction_pub_wind__';
 
+/** Display-only meeting marker. Reference connection-point accent. */
+export const JUNCTION_DOT_SIZE = 10;
+export const JUNCTION_ACCENT = '#FF6603';
+
 const PREP_IDS = new Set(['script', 'pre-shoot']);
 const PROD_IDS = new Set(['ar', 'br', 'ai', 'prop']);
 const WIND_IDS = new Set(['settle', 'distribute', 'data-care', 'other']);
 
 export const DISPLAY_JUNCTION_IDS = [JUNCTION_PREP_PROD_ID, JUNCTION_PUB_WIND_ID] as const;
 
-export type WorkflowJunctionNodeData = Record<string, never>;
+export type WorkflowJunctionNodeData = {
+  /** Anchor keeps edge endpoints; dot is the visible meeting marker. */
+  marker: 'anchor' | 'dot';
+};
 
 export function isDisplayJunctionId(id: string): boolean {
   return id.startsWith('__display_junction_');

@@ -3,10 +3,11 @@ import { Position, type Edge, type Node } from '@xyflow/react';
 import type { WorkflowGraph, WorkflowGraphNode, WorkflowGraphStep } from './types';
 import {
   applyDisplayJunctions,
+  JUNCTION_DOT_SIZE,
   type DisplayJunction,
   type WorkflowJunctionNodeData,
 } from './workflow-graph-junctions';
-import { buildRoutedEdgeData, junctionNodeFrame } from './workflow-graph-edge-routing';
+import { buildRoutedEdgeData, junctionMeetingPoints } from './workflow-graph-edge-routing';
 
 export const LAYOUT_NODE_WIDTH = 176;
 export const LAYOUT_NODE_HEIGHT = 44;
@@ -417,25 +418,27 @@ export function toReactFlowElements(layout: WorkflowGraphLayout): {
 
   const routed = buildRoutedEdgeData(layout);
 
-  const junctionNodes: Node<WorkflowJunctionNodeData>[] = layout.junctions.map((j) => {
-    const frame = junctionNodeFrame(layout, j.id);
-    return {
+  const junctionNodes: Node<WorkflowJunctionNodeData>[] = [];
+  for (const j of layout.junctions) {
+    junctionNodes.push({
       id: j.id,
       type: 'workflowJunction',
-      position: { x: frame.x, y: frame.y },
-      data: {},
+      position: { x: j.x, y: j.y },
+      data: { marker: 'anchor' },
       draggable: false,
       selectable: false,
       connectable: true,
-      width: frame.width,
-      height: frame.height,
-      measured: { width: frame.width, height: frame.height },
+      focusable: false,
+      width: 1,
+      height: 1,
+      measured: { width: 1, height: 1 },
+      style: { opacity: 0, pointerEvents: 'none', width: 1, height: 1 },
       handles: [
         {
           id: 'target',
           type: 'target',
           position: Position.Top,
-          x: frame.width / 2,
+          x: 0.5,
           y: 0,
           width: 1,
           height: 1,
@@ -444,14 +447,37 @@ export function toReactFlowElements(layout: WorkflowGraphLayout): {
           id: 'source',
           type: 'source',
           position: Position.Bottom,
-          x: frame.width / 2,
-          y: frame.height,
+          x: 0.5,
+          y: 1,
           width: 1,
           height: 1,
         },
       ],
-    };
-  });
+    });
+    for (const pt of junctionMeetingPoints(layout, j.id)) {
+      const x = pt.x - JUNCTION_DOT_SIZE / 2;
+      const y = pt.y - JUNCTION_DOT_SIZE / 2;
+      junctionNodes.push({
+        id: `display-dot-${j.id}-${pt.x}`,
+        type: 'workflowJunction',
+        position: { x, y },
+        data: { marker: 'dot' },
+        draggable: false,
+        selectable: false,
+        connectable: false,
+        focusable: false,
+        width: JUNCTION_DOT_SIZE,
+        height: JUNCTION_DOT_SIZE,
+        measured: { width: JUNCTION_DOT_SIZE, height: JUNCTION_DOT_SIZE },
+        zIndex: 5,
+        style: {
+          pointerEvents: 'none',
+          width: JUNCTION_DOT_SIZE,
+          height: JUNCTION_DOT_SIZE,
+        },
+      });
+    }
+  }
 
   const nodeIds = new Set([...nodes.map((n) => n.id), ...junctionNodes.map((n) => n.id)]);
   const edges: Edge[] = layout.edges
