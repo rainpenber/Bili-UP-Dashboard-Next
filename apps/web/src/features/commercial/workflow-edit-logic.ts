@@ -1,5 +1,5 @@
 import { buildWorkflowDag, collapseRoutingEdges } from './workflow-graph-flow-layout';
-import type { WorkflowGraph, WorkflowGraphNode } from './types';
+import type { WorkflowConnection, WorkflowGraph, WorkflowGraphNode } from './types';
 
 export const FLOW_START_NODE_ID = 'inq';
 
@@ -10,6 +10,9 @@ export function cloneWorkflowGraph(graph: WorkflowGraph): WorkflowGraph {
         ? { kind: 'serial', node: { ...step.node } }
         : { kind: 'parallel', nodes: step.nodes.map((n) => ({ ...n })) },
     ),
+    ...(graph.connections
+      ? { connections: graph.connections.map((c) => ({ from: c.from, to: c.to })) }
+      : {}),
   };
 }
 
@@ -22,9 +25,16 @@ export function indexWorkflowNodes(graph: WorkflowGraph): Map<string, WorkflowGr
   return map;
 }
 
-export function workflowPredecessorIds(graph: WorkflowGraph): Map<string, string[]> {
+function collapsedConnections(graph: WorkflowGraph): WorkflowConnection[] {
+  if (graph.connections) {
+    return graph.connections.map((c) => ({ from: c.from, to: c.to }));
+  }
   const { edges } = buildWorkflowDag(graph.steps);
-  const collapsed = collapseRoutingEdges(edges);
+  return collapseRoutingEdges(edges);
+}
+
+export function workflowPredecessorIds(graph: WorkflowGraph): Map<string, string[]> {
+  const collapsed = collapsedConnections(graph);
   const preds = new Map<string, string[]>();
   for (const e of collapsed) {
     if (!preds.has(e.to)) preds.set(e.to, []);
@@ -178,9 +188,6 @@ export function blockWorkflowNode(
   reason: string,
 ): WorkflowEditResult {
   const trimmed = reason.trim();
-  if (!trimmed) {
-    return { ok: false, message: '阻塞原因不能为空。' };
-  }
   const next = cloneWorkflowGraph(graph);
   const nodes = indexWorkflowNodes(next);
   const node = nodes.get(nodeId);
@@ -188,7 +195,11 @@ export function blockWorkflowNode(
   if (node.status !== 'in_progress') {
     return { ok: false, message: '只能标记进行中的节点为阻塞。' };
   }
-  patchNode(next, nodeId, { status: 'blocked', blockingReason: trimmed });
+  if (trimmed) {
+    patchNode(next, nodeId, { status: 'blocked', blockingReason: trimmed });
+  } else {
+    patchNode(next, nodeId, { status: 'blocked' }, ['blockingReason']);
+  }
   return { ok: true, graph: next };
 }
 

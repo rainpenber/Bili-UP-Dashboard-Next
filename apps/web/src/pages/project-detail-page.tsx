@@ -203,7 +203,7 @@ export function ProjectDetailPage() {
           <CardHeader>
             <CardTitle className="text-base">完整工作流图</CardTitle>
             <p className="text-sm font-normal text-muted-foreground">
-              在此推进或回退节点、标记阻塞原因；结构不可改（演示数据，刷新后恢复）。
+              在此推进或回退节点、标记阻塞、增删节点与连接（演示数据，刷新后恢复）。
             </p>
           </CardHeader>
           <CardContent>

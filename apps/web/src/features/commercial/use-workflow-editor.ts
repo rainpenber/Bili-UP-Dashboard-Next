@@ -10,6 +10,14 @@ import {
   type WorkflowEditResult,
   type WorkflowTransitionKind,
 } from './workflow-edit-logic';
+import {
+  addWorkflowNode,
+  attemptDeleteWorkflowNode,
+  confirmDeleteWorkflowNode,
+  connectWorkflowNodes,
+  disconnectWorkflowNodes,
+  type StructureDeletePreview,
+} from './workflow-structure-logic';
 
 const MAX_HISTORY = 64;
 
@@ -43,6 +51,7 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [predecessorPrompt, setPredecessorPrompt] = useState<PredecessorConfirmPrompt | null>(null);
+  const [deletePrompt, setDeletePrompt] = useState<StructureDeletePreview | null>(null);
 
   useEffect(() => {
     setGraph(cloneWorkflowGraph(initialGraph));
@@ -51,6 +60,7 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
     setSelectedNodeId(null);
     setActionError(null);
     setPredecessorPrompt(null);
+    setDeletePrompt(null);
   }, [initialGraph]);
 
   const pushHistory = useCallback((snapshot: WorkflowGraph) => {
@@ -66,6 +76,7 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
         setFuture((f) => [cloneWorkflowGraph(current), ...f]);
         setActionError(null);
         setPredecessorPrompt(null);
+        setDeletePrompt(null);
         return cloneWorkflowGraph(previous);
       });
       return p.slice(0, -1);
@@ -80,6 +91,7 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
         setPast((p) => [...p, cloneWorkflowGraph(current)]);
         setActionError(null);
         setPredecessorPrompt(null);
+        setDeletePrompt(null);
         return cloneWorkflowGraph(next);
       });
       return f.slice(1);
@@ -171,6 +183,86 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
     [graph, pushHistory],
   );
 
+  const addNode = useCallback(
+    (name: string) => {
+      const ok = applyResult(
+        addWorkflowNode(graph, name),
+        setGraph,
+        setActionError,
+        pushHistory,
+        graph,
+      );
+      setDeletePrompt(null);
+      return ok;
+    },
+    [graph, pushHistory],
+  );
+
+  const requestDeleteNode = useCallback(
+    (nodeId: string) => {
+      const attempt = attemptDeleteWorkflowNode(graph, nodeId);
+      if (attempt.status === 'applied') {
+        pushHistory(graph);
+        setGraph(attempt.graph);
+        setActionError(null);
+        setDeletePrompt(null);
+        if (selectedNodeId === nodeId) setSelectedNodeId(null);
+        return;
+      }
+      if (attempt.status === 'needs_confirmation') {
+        setDeletePrompt(attempt.preview);
+        setActionError(null);
+        return;
+      }
+      setActionError(attempt.message);
+      setDeletePrompt(null);
+    },
+    [graph, pushHistory, selectedNodeId],
+  );
+
+  const confirmDeleteNode = useCallback(() => {
+    if (!deletePrompt) return;
+    const ok = applyResult(
+      confirmDeleteWorkflowNode(graph, deletePrompt.nodeId),
+      setGraph,
+      setActionError,
+      pushHistory,
+      graph,
+    );
+    if (ok && selectedNodeId === deletePrompt.nodeId) setSelectedNodeId(null);
+    setDeletePrompt(null);
+  }, [deletePrompt, graph, pushHistory, selectedNodeId]);
+
+  const cancelDeletePrompt = useCallback(() => {
+    setDeletePrompt(null);
+  }, []);
+
+  const connectNodes = useCallback(
+    (fromId: string, toId: string) => {
+      applyResult(
+        connectWorkflowNodes(graph, fromId, toId),
+        setGraph,
+        setActionError,
+        pushHistory,
+        graph,
+      );
+    },
+    [graph, pushHistory],
+  );
+
+  const disconnectNodes = useCallback(
+    (fromId: string, toId: string) => {
+      applyResult(
+        disconnectWorkflowNodes(graph, fromId, toId),
+        setGraph,
+        setActionError,
+        pushHistory,
+        graph,
+      );
+    },
+    [graph, pushHistory],
+  );
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const mod = event.metaKey || event.ctrlKey;
@@ -200,6 +292,13 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
       rollback,
       block,
       clearBlock,
+      addNode,
+      requestDeleteNode,
+      confirmDeleteNode,
+      cancelDeletePrompt,
+      deletePrompt,
+      connectNodes,
+      disconnectNodes,
       undo,
       redo,
       canUndo,
@@ -218,6 +317,13 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
       rollback,
       block,
       clearBlock,
+      addNode,
+      requestDeleteNode,
+      confirmDeleteNode,
+      cancelDeletePrompt,
+      deletePrompt,
+      connectNodes,
+      disconnectNodes,
       undo,
       redo,
       canUndo,

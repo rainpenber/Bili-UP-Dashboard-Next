@@ -15,15 +15,23 @@ describe('workflow edit logic', () => {
     }
   });
 
-  test('block requires non-empty reason', () => {
+  test('block allows empty reason and omits blockingReason', () => {
     const graph = createProjectWorkflow({ outline: { status: 'in_progress' } });
-    expect(blockWorkflowNode(graph, 'outline', '   ').ok).toBe(false);
+    const empty = blockWorkflowNode(graph, 'outline', '   ');
+    expect(empty.ok).toBe(true);
+    if (empty.ok) {
+      const node = empty.graph.steps.find(
+        (s) => s.kind === 'serial' && s.node.id === 'outline',
+      )?.node;
+      expect(node?.status).toBe('blocked');
+      expect(node?.blockingReason).toBeUndefined();
+    }
     const ok = blockWorkflowNode(graph, 'outline', '等甲方定稿');
     expect(ok.ok).toBe(true);
     if (ok.ok) {
-      expect(
-        ok.graph.steps.find((s) => s.kind === 'serial' && s.node.id === 'outline')?.node.status,
-      ).toBe('blocked');
+      const node = ok.graph.steps.find((s) => s.kind === 'serial' && s.node.id === 'outline')?.node;
+      expect(node?.status).toBe('blocked');
+      expect(node?.blockingReason).toBe('等甲方定稿');
     }
   });
 });
