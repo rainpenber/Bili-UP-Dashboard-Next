@@ -95,6 +95,8 @@ export type CommercialWorkflowNode = {
   name: string;
   status: WfNodeStatus;
   kind: WfNodeKind;
+  /** Concurrency token. Clients send this value back unchanged as expectedUpdatedAt. */
+  updatedAt: string;
 };
 
 export type CommercialWorkflowEdge = {
@@ -245,6 +247,7 @@ function parseWorkflowNode(value: unknown): CommercialWorkflowNode {
     name: parseName(record.name, 'node name'),
     status: record.status,
     kind: record.kind,
+    updatedAt: parseIso(record.updatedAt, 'updatedAt'),
   };
 }
 

@@ -262,9 +262,22 @@ describe('commercial read API', () => {
       expect(res.status).toBe(200);
       const graph = parseCommercialProjectWorkflow(await res.json());
       const rows = await sql<
-        { id: string; name: string; status: string; kind: string; workflow_id: string }[]
+        {
+          id: string;
+          name: string;
+          status: string;
+          kind: string;
+          workflow_id: string;
+          updated_at: string;
+        }[]
       >`
-        SELECT n.id, n.name, n.status, n.kind, n.workflow_id
+        SELECT
+          n.id,
+          n.name,
+          n.status,
+          n.kind,
+          n.workflow_id,
+          to_char(n.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at
         FROM wf_nodes n
         WHERE n.project_id = ${projectId}
         ORDER BY n.pos_y, n.pos_x, n.id
@@ -280,6 +293,7 @@ describe('commercial read API', () => {
           name: row.name,
           status: asNodeStatus(row.status),
           kind: asNodeKind(row.kind),
+          updatedAt: row.updated_at,
         })),
       );
       const merge = graph.nodes.filter((node) => node.kind === 'merge');
@@ -410,8 +424,19 @@ describe('commercial read API', () => {
 
     const graphRes = await app.request(`/api/v1/commercial/projects/${projectId}/workflow`);
     const graph = parseCommercialProjectWorkflow(await graphRes.json());
+    const [stamp] = await sql<{ updated_at: string }[]>`
+      SELECT to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at
+      FROM wf_nodes WHERE id = ${nodeId}
+    `;
+    if (!stamp) throw new Error('blocked node timestamp missing');
     expect(graph.nodes).toEqual([
-      { id: nodeId, name: '汇合节点', status: 'blocked', kind: 'merge' },
+      {
+        id: nodeId,
+        name: '汇合节点',
+        status: 'blocked',
+        kind: 'merge',
+        updatedAt: stamp.updated_at,
+      },
     ]);
 
     const bareId = 'bb100004-0001-4001-8001-000000000004';

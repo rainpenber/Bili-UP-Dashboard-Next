@@ -57,7 +57,15 @@ describe('commercial read contracts', () => {
         projectId: PROJECT_ID,
         workflowId: 'a2000001-0001-4001-8001-000000000001',
         templateVersionId: 'ffff1111-1111-4111-8111-111111111111',
-        nodes: [{ id: NODE_B, name: '汇合节点', status: 'not_reached', kind: 'fan' }],
+        nodes: [
+          {
+            id: NODE_B,
+            name: '汇合节点',
+            status: 'not_reached',
+            kind: 'fan',
+            updatedAt: '2026-05-20T12:00:00.000000Z',
+          },
+        ],
         edges: [],
       }),
     ).toThrow(/kind/);
@@ -88,8 +96,20 @@ describe('commercial read contracts', () => {
       workflowId: 'a2000001-0001-4001-8001-000000000001',
       templateVersionId: 'ffff1111-1111-4111-8111-111111111111',
       nodes: [
-        { id: NODE_A, name: '文案', status: 'blocked', kind: 'stage' },
-        { id: NODE_B, name: '汇合节点', status: 'not_reached', kind: 'merge' },
+        {
+          id: NODE_A,
+          name: '文案',
+          status: 'blocked',
+          kind: 'stage',
+          updatedAt: '2026-05-20T12:00:00.000000Z',
+        },
+        {
+          id: NODE_B,
+          name: '汇合节点',
+          status: 'not_reached',
+          kind: 'merge',
+          updatedAt: '2026-05-20T12:00:00.100000Z',
+        },
       ],
       edges: [{ id: EDGE_ID, fromNodeId: NODE_A, toNodeId: NODE_B }],
     });
