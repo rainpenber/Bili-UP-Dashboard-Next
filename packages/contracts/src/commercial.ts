@@ -77,6 +77,57 @@ export type CommercialPublishStatus = {
   publishSource: PublishSource | null;
 };
 
+export const DETAIL_OPEN_ITEM_LIFECYCLES = ['open', 'closed', 'cancelled'] as const;
+export type DetailOpenItemLifecycle = (typeof DETAIL_OPEN_ITEM_LIFECYCLES)[number];
+
+export const DETAIL_OPEN_ITEM_IMPACTS = ['normal', 'blocking'] as const;
+export type DetailOpenItemImpact = (typeof DETAIL_OPEN_ITEM_IMPACTS)[number];
+
+/** Statuses the commercial writer stores on monitor_jobs. The column has no other known value. */
+export const MONITOR_JOB_STATUSES = ['pending'] as const;
+export type MonitorJobStatus = (typeof MONITOR_JOB_STATUSES)[number];
+
+const READ_MONITOR_JOB_TYPES = ['metadata', 'metrics'] as const;
+type ReadMonitorJobType = (typeof READ_MONITOR_JOB_TYPES)[number];
+
+/** Concurrency token text compared by the write path. Six fractional digits, UTC. */
+export const CANONICAL_UPDATED_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+
+export type CommercialDetailOpenItem = {
+  id: string;
+  title: string;
+  lifecycle: DetailOpenItemLifecycle;
+  impact: DetailOpenItemImpact;
+  blocksNodeId: string | null;
+  isPinnedPrimary: boolean;
+  /** Echo unchanged as expectedUpdatedAt when closing or cancelling this item. */
+  updatedAt: string;
+};
+
+export type CommercialMonitorJob = {
+  id: string;
+  jobType: ReadMonitorJobType;
+  status: MonitorJobStatus;
+  dueAt: string | null;
+  createdAt: string;
+};
+
+export type CommercialMonitorPublish = {
+  bvid: string;
+  /**
+   * Taken from the publish audit detail when that write recorded one.
+   * project_publish_records has no platform column, so this is null when none was stored.
+   */
+  platform: string | null;
+  publishedAt: string;
+  publishSource: PublishSource;
+};
+
+export type CommercialProjectMonitor = {
+  publish: CommercialMonitorPublish | null;
+  jobs: CommercialMonitorJob[];
+};
+
 export type CommercialProjectDetail = {
   id: string;
   name: string;
@@ -88,6 +139,8 @@ export type CommercialProjectDetail = {
   /** Title of the chosen open blocking item, or null when the block has no reason. */
   blockingReason: string | null;
   publish: CommercialPublishStatus;
+  openItems: CommercialDetailOpenItem[];
+  monitor: CommercialProjectMonitor;
 };
 
 export type CommercialWorkflowNode = {
@@ -95,6 +148,8 @@ export type CommercialWorkflowNode = {
   name: string;
   status: WfNodeStatus;
   kind: WfNodeKind;
+  /** From the instance row wf_nodes.is_optional. */
+  isOptional: boolean;
   /** Concurrency token. Clients send this value back unchanged as expectedUpdatedAt. */
   updatedAt: string;
 };
@@ -176,6 +231,19 @@ function parseIso(value: unknown, label: string): string {
   return value;
 }
 
+function parseCanonicalTimestamp(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !CANONICAL_UPDATED_AT.test(value)) {
+    throw new Error(`${label} must be a UTC timestamp with microseconds`);
+  }
+  if (Number.isNaN(Date.parse(value))) throw new Error(`${label} must be a UTC timestamp`);
+  return value;
+}
+
+function parseCanonicalTimestampOrNull(value: unknown, label: string): string | null {
+  if (value === null) return null;
+  return parseCanonicalTimestamp(value, label);
+}
+
 function parsePublish(value: unknown): CommercialPublishStatus {
   const record = asRecord(value, 'publish');
   if (typeof record.published !== 'boolean') throw new Error('publish.published must be a boolean');
@@ -235,6 +303,89 @@ export function parseCommercialProjectDetail(value: unknown): CommercialProjectD
     ...item,
     blockingReason: record.blockingReason,
     publish: parsePublish(record.publish),
+    openItems: parseOpenItems(record.openItems),
+    monitor: parseMonitor(record.monitor),
+  };
+}
+
+function isDetailLifecycle(value: unknown): value is DetailOpenItemLifecycle {
+  return (
+    typeof value === 'string' && (DETAIL_OPEN_ITEM_LIFECYCLES as readonly string[]).includes(value)
+  );
+}
+
+function isDetailImpact(value: unknown): value is DetailOpenItemImpact {
+  return (
+    typeof value === 'string' && (DETAIL_OPEN_ITEM_IMPACTS as readonly string[]).includes(value)
+  );
+}
+
+function isMonitorJobStatus(value: unknown): value is MonitorJobStatus {
+  return typeof value === 'string' && (MONITOR_JOB_STATUSES as readonly string[]).includes(value);
+}
+
+function isMonitorJobType(value: unknown): value is ReadMonitorJobType {
+  return typeof value === 'string' && (READ_MONITOR_JOB_TYPES as readonly string[]).includes(value);
+}
+
+function parseOpenItem(value: unknown): CommercialDetailOpenItem {
+  const record = asRecord(value, 'open item');
+  if (!isDetailLifecycle(record.lifecycle)) throw new Error('open item lifecycle is invalid');
+  if (!isDetailImpact(record.impact)) throw new Error('open item impact is invalid');
+  if (typeof record.isPinnedPrimary !== 'boolean') {
+    throw new Error('isPinnedPrimary must be a boolean');
+  }
+  return {
+    id: parseUuid(record.id, 'open item id'),
+    title: parseName(record.title, 'open item title'),
+    lifecycle: record.lifecycle,
+    impact: record.impact,
+    blocksNodeId:
+      record.blocksNodeId === null ? null : parseUuid(record.blocksNodeId, 'blocksNodeId'),
+    isPinnedPrimary: record.isPinnedPrimary,
+    updatedAt: parseCanonicalTimestamp(record.updatedAt, 'open item updatedAt'),
+  };
+}
+
+function parseOpenItems(value: unknown): CommercialDetailOpenItem[] {
+  if (!Array.isArray(value)) throw new Error('openItems must be an array');
+  return value.map((item) => parseOpenItem(item));
+}
+
+function parseMonitorPublish(value: unknown): CommercialMonitorPublish | null {
+  if (value === null) return null;
+  const record = asRecord(value, 'monitor.publish');
+  if (!isPublishSource(record.publishSource))
+    throw new Error('monitor.publish.publishSource is invalid');
+  const platform =
+    record.platform === null ? null : parseName(record.platform, 'monitor.publish.platform');
+  return {
+    bvid: parseName(record.bvid, 'monitor.publish.bvid'),
+    platform,
+    publishedAt: parseCanonicalTimestamp(record.publishedAt, 'monitor.publish.publishedAt'),
+    publishSource: record.publishSource,
+  };
+}
+
+function parseMonitorJob(value: unknown): CommercialMonitorJob {
+  const record = asRecord(value, 'monitor job');
+  if (!isMonitorJobType(record.jobType)) throw new Error('jobType is invalid');
+  if (!isMonitorJobStatus(record.status)) throw new Error('job status is invalid');
+  return {
+    id: parseUuid(record.id, 'job id'),
+    jobType: record.jobType,
+    status: record.status,
+    dueAt: parseCanonicalTimestampOrNull(record.dueAt, 'dueAt'),
+    createdAt: parseCanonicalTimestamp(record.createdAt, 'createdAt'),
+  };
+}
+
+function parseMonitor(value: unknown): CommercialProjectMonitor {
+  const record = asRecord(value, 'monitor');
+  if (!Array.isArray(record.jobs)) throw new Error('monitor.jobs must be an array');
+  return {
+    publish: parseMonitorPublish(record.publish),
+    jobs: record.jobs.map((job) => parseMonitorJob(job)),
   };
 }
 
@@ -242,11 +393,13 @@ function parseWorkflowNode(value: unknown): CommercialWorkflowNode {
   const record = asRecord(value, 'workflow node');
   if (!isWfNodeStatus(record.status)) throw new Error('node status is invalid');
   if (!isWfNodeKind(record.kind)) throw new Error('node kind is invalid');
+  if (typeof record.isOptional !== 'boolean') throw new Error('isOptional must be a boolean');
   return {
     id: parseUuid(record.id, 'node id'),
     name: parseName(record.name, 'node name'),
     status: record.status,
     kind: record.kind,
+    isOptional: record.isOptional,
     updatedAt: parseIso(record.updatedAt, 'updatedAt'),
   };
 }

@@ -22,30 +22,28 @@ export const WORKFLOW_STATUS_SURFACE = {
     title: 'text-zinc-900',
     status: 'text-zinc-800',
   },
+  not_applicable: {
+    card: 'border-zinc-500 bg-zinc-200',
+    title: 'text-zinc-950',
+    status: 'text-zinc-900',
+  },
 } as const;
 
+function surfaceFor(status: WorkflowNodeStatus) {
+  if (status === 'done') return WORKFLOW_STATUS_SURFACE.done;
+  if (status === 'in_progress') return WORKFLOW_STATUS_SURFACE.in_progress;
+  if (status === 'blocked') return WORKFLOW_STATUS_SURFACE.blocked;
+  if (status === 'not_applicable') return WORKFLOW_STATUS_SURFACE.not_applicable;
+  return WORKFLOW_STATUS_SURFACE.not_reached;
+}
+
 export function workflowNodeStatusClass(status: WorkflowNodeStatus): string {
-  const surface =
-    status === 'done'
-      ? WORKFLOW_STATUS_SURFACE.done
-      : status === 'in_progress'
-        ? WORKFLOW_STATUS_SURFACE.in_progress
-        : status === 'blocked'
-          ? WORKFLOW_STATUS_SURFACE.blocked
-          : WORKFLOW_STATUS_SURFACE.not_reached;
+  const surface = surfaceFor(status);
   return `${surface.card} ${surface.title}`;
 }
 
 export function workflowNodeStatusTextClass(status: WorkflowNodeStatus): string {
-  const surface =
-    status === 'done'
-      ? WORKFLOW_STATUS_SURFACE.done
-      : status === 'in_progress'
-        ? WORKFLOW_STATUS_SURFACE.in_progress
-        : status === 'blocked'
-          ? WORKFLOW_STATUS_SURFACE.blocked
-          : WORKFLOW_STATUS_SURFACE.not_reached;
-  return surface.status;
+  return surfaceFor(status).status;
 }
 
 export function workflowNodeStatusLabel(status: WorkflowNodeStatus): string {
@@ -56,6 +54,8 @@ export function workflowNodeStatusLabel(status: WorkflowNodeStatus): string {
       return '进行中';
     case 'blocked':
       return '被卡住';
+    case 'not_applicable':
+      return '不适用';
     default:
       return '未到';
   }

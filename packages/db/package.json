@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "build": "tsc --noEmit",
-    "migrate": "bun run src/migrate.ts"
+    "migrate": "bun run src/migrate.ts",
+    "seed:commercial": "bun run src/seed-commercial.ts"
   },
   "dependencies": {
     "postgres": "^3.4.5"

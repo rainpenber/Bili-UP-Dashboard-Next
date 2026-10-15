@@ -7,7 +7,7 @@ export function IntegrationsSettingsPage() {
     <>
       <PageHeader
         title="集成与设置"
-        description="通知渠道与对接能力后续再接；这里可编辑新商单的默认流程模板。"
+        description="通知渠道以后再接。这里只读查看已发布的新商单默认流程。"
         crumbs={[{ label: '工作室', to: '/' }, { label: '集成与设置' }]}
       />
 
@@ -25,7 +25,7 @@ export function IntegrationsSettingsPage() {
           <CardHeader>
             <CardTitle className="text-base">新项目默认流程</CardTitle>
             <p className="text-sm font-normal text-muted-foreground">
-              编辑草稿、发布版本；已发布版本可回看。发布只作用于之后新建的项目。
+              读取已发布的默认模板。编辑和发布新版本还没有接到后端。
             </p>
           </CardHeader>
           <CardContent>

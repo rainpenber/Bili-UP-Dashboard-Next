@@ -7,6 +7,7 @@ const LEGEND = [
   { label: '进行中', className: 'border-amber-600 bg-amber-100' },
   { label: '被卡住', className: 'border-red-600 bg-red-100' },
   { label: '未到', className: 'border-zinc-400 bg-zinc-100' },
+  { label: '不适用', className: 'border-zinc-500 bg-zinc-200' },
 ] as const;
 
 export function WorkflowGraphReadonly({ graph }: { graph: WorkflowGraph }) {

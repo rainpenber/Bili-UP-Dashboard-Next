@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun run --filter '*' test",
-    "build": "bun run --filter '*' build"
+    "build": "bun run --filter '*' build",
+    "seed:commercial": "bun run --filter @studio/db seed:commercial"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

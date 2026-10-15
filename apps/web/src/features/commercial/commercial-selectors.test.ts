@@ -1,40 +1,51 @@
 import { describe, expect, test } from 'bun:test';
-import { commercialProjectsMock } from './mock-data';
-import {
-  filterProjects,
-  getBlockedProjectSummaries,
-  getOurActionItems,
-  sortProjectsForList,
-} from './commercial-selectors';
+import type { CommercialProjectListItem } from '@studio/contracts';
+import { blockedProjects, listProjects, movingProjects } from './commercial-selectors';
 
-describe('commercial selectors', () => {
-  test('sorts blocked-with-reason before in-progress', () => {
-    const sorted = sortProjectsForList(commercialProjectsMock);
-    const firstBlockedIdx = sorted.findIndex((p) => p.listBucket === 'blocked_with_reason');
-    const firstProgressIdx = sorted.findIndex((p) => p.listBucket === 'in_progress');
-    expect(firstBlockedIdx).toBeGreaterThanOrEqual(0);
-    expect(firstProgressIdx).toBeGreaterThan(firstBlockedIdx);
+function item(
+  patch: Partial<CommercialProjectListItem> & Pick<CommercialProjectListItem, 'id' | 'name'>,
+): CommercialProjectListItem {
+  return {
+    netAmount: null,
+    rebateAmount: null,
+    overallStage: 'pre_publish',
+    currentStageNames: [],
+    anyNodeBlocked: false,
+    ...patch,
+  };
+}
+
+describe('commercial list selectors', () => {
+  const projects = [
+    item({ id: 'a', name: '大纲方向', currentStageNames: ['大纲'], anyNodeBlocked: false }),
+    item({
+      id: 'b',
+      name: '甲方卡文案',
+      currentStageNames: ['文案', '预拍摄'],
+      anyNodeBlocked: true,
+    }),
+    item({
+      id: 'c',
+      name: '已归档',
+      overallStage: 'archived',
+      currentStageNames: ['结算'],
+      anyNodeBlocked: false,
+    }),
+  ];
+
+  test('sorts blocked projects ahead of the others', () => {
+    const sorted = listProjects(projects, '');
+    expect(sorted[0]?.id).toBe('b');
+    expect(sorted.findIndex((project) => project.id === 'c')).toBeGreaterThan(0);
   });
 
-  test('home our-items include outline ping-pong as single row', () => {
-    const ours = getOurActionItems(commercialProjectsMock);
-    const nevItems = ours.filter((i) => i.projectId === 'proj-nev-spring');
-    expect(nevItems).toHaveLength(1);
-    expect(nevItems[0]?.title).toContain('大纲');
+  test('keyword matches the project name and the current node names', () => {
+    expect(listProjects(projects, '预拍摄').map((project) => project.id)).toEqual(['b']);
+    expect(listProjects(projects, '归档')).toHaveLength(1);
   });
 
-  test('blocked summaries need concrete block fields', () => {
-    const rows = getBlockedProjectSummaries(commercialProjectsMock);
-    expect(rows.some((r) => r.projectId === 'proj-nev-spring')).toBe(true);
-    expect(rows.every((r) => r.blockedDays > 0)).toBe(true);
-  });
-
-  test('keyword filter matches brand haystack', () => {
-    const filtered = filterProjects(commercialProjectsMock, {
-      keyword: '露营',
-      fromDate: '',
-    });
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0]?.id).toBe('proj-camp-gear');
+  test('home groups use the blocked flag from the list endpoint', () => {
+    expect(blockedProjects(projects).map((project) => project.id)).toEqual(['b']);
+    expect(movingProjects(projects).map((project) => project.id)).toEqual(['a']);
   });
 });

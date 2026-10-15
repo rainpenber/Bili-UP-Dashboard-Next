@@ -233,8 +233,19 @@ describe('commercial read API', () => {
     const client = await app.request(
       `/api/v1/commercial/projects/${FIXTURE_PROJECT_IDS.clientBlocking}`,
     );
-    expect(parseCommercialProjectDetail(await client.json()).blockingReason).toBe(
-      '甲方文案批注未清',
+    const clientDetail = parseCommercialProjectDetail(await client.json());
+    expect(clientDetail.blockingReason).toBe('甲方文案批注未清');
+    expect(clientDetail.openItems).toEqual([
+      expect.objectContaining({
+        id: 'f0a10001-0001-4001-8001-0000000000a4',
+        title: '甲方文案批注未清',
+        lifecycle: 'open',
+        impact: 'blocking',
+        isPinnedPrimary: false,
+      }),
+    ]);
+    expect(clientDetail.openItems[0]?.updatedAt).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/,
     );
 
     const multi = await app.request(
@@ -247,12 +258,20 @@ describe('commercial read API', () => {
     const published = await app.request(
       `/api/v1/commercial/projects/${FIXTURE_PROJECT_IDS.publishedOpen}`,
     );
-    expect(parseCommercialProjectDetail(await published.json()).publish).toEqual({
+    const publishedDetail = parseCommercialProjectDetail(await published.json());
+    expect(publishedDetail.publish).toEqual({
       published: true,
       bvid: 'BVWP004R01',
       publishedAt: '2026-05-20T12:00:00.000Z',
       publishSource: 'web',
     });
+    expect(publishedDetail.monitor.publish).toEqual({
+      bvid: 'BVWP004R01',
+      platform: null,
+      publishedAt: '2026-05-20T12:00:00.000000Z',
+      publishSource: 'web',
+    });
+    expect(publishedDetail.monitor.jobs).toEqual([]);
   }, 30_000);
 
   test('workflow graph matches rows and includes the merge node kind', async () => {
@@ -267,6 +286,7 @@ describe('commercial read API', () => {
           name: string;
           status: string;
           kind: string;
+          is_optional: boolean;
           workflow_id: string;
           updated_at: string;
         }[]
@@ -276,6 +296,7 @@ describe('commercial read API', () => {
           n.name,
           n.status,
           n.kind,
+          n.is_optional,
           n.workflow_id,
           to_char(n.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at
         FROM wf_nodes n
@@ -293,6 +314,7 @@ describe('commercial read API', () => {
           name: row.name,
           status: asNodeStatus(row.status),
           kind: asNodeKind(row.kind),
+          isOptional: row.is_optional,
           updatedAt: row.updated_at,
         })),
       );
@@ -435,6 +457,7 @@ describe('commercial read API', () => {
         name: '汇合节点',
         status: 'blocked',
         kind: 'merge',
+        isOptional: true,
         updatedAt: stamp.updated_at,
       },
     ]);
