@@ -81,18 +81,31 @@ export function rectContainsPoint(r: Rect, x: number, y: number, pad = 2): boole
   return x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad;
 }
 
-/** True if point is inside rect but not allowed as endpoint touch for this edge. */
+function onCardBoundary(r: Rect, x: number, y: number, tol = 1.5): boolean {
+  const onTop = Math.abs(y - r.top) <= tol && x >= r.left - tol && x <= r.right + tol;
+  const onBottom = Math.abs(y - r.bottom) <= tol && x >= r.left - tol && x <= r.right + tol;
+  return onTop || onBottom;
+}
+
+function inCardInterior(r: Rect, x: number, y: number, margin = 1): boolean {
+  return x > r.left + margin && x < r.right - margin && y > r.top + margin && y < r.bottom - margin;
+}
+
+/** True if a sampled point lies strictly inside a card that this edge does not connect. */
 export function pointViolatesEdgeCard(
   point: { x: number; y: number },
   card: Rect,
   sourceRect: Rect,
   targetRect: Rect,
 ): boolean {
-  if (!rectContainsPoint(card, point.x, point.y, 1)) return false;
-  const touchesSource =
-    rectContainsPoint(sourceRect, point.x, point.y, 4) ||
-    rectContainsPoint(targetRect, point.x, point.y, 4);
-  return !touchesSource;
+  if (!inCardInterior(card, point.x, point.y)) return false;
+  if (
+    onCardBoundary(sourceRect, point.x, point.y) ||
+    onCardBoundary(targetRect, point.x, point.y)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function orient(
@@ -144,8 +157,17 @@ export function polylineSegments(
   return segs;
 }
 
+function segmentsProperlyCross(
+  a1: { x: number; y: number },
+  a2: { x: number; y: number },
+  b1: { x: number; y: number },
+  b2: { x: number; y: number },
+): boolean {
+  return segmentsIntersect(a1, a2, b1, b2);
+}
+
 export function countEdgeEdgeCrossings(paths: string[]): number {
-  const allSegs = paths.map((d) => polylineSegments(samplePathPoints(d, 10)));
+  const allSegs = paths.map((d) => polylineSegments(samplePathPoints(d, 12)));
   let crossings = 0;
   for (let i = 0; i < allSegs.length; i += 1) {
     for (let j = i + 1; j < allSegs.length; j += 1) {
@@ -154,7 +176,7 @@ export function countEdgeEdgeCrossings(paths: string[]): number {
       let crossed = false;
       for (const [a1, a2] of a) {
         for (const [b1, b2] of b) {
-          if (segmentsIntersect(a1, a2, b1, b2)) {
+          if (segmentsProperlyCross(a1, a2, b1, b2)) {
             crossed = true;
             break;
           }
@@ -165,4 +187,18 @@ export function countEdgeEdgeCrossings(paths: string[]): number {
     }
   }
   return crossings;
+}
+
+/** Assert every path uses only axis-aligned segments (orthogonal routing). */
+export function countNonOrthogonalSegments(paths: string[]): number {
+  let bad = 0;
+  for (const d of paths) {
+    const pts = samplePathPoints(d, 4);
+    for (let i = 0; i < pts.length - 1; i += 1) {
+      const a = pts[i]!;
+      const b = pts[i + 1]!;
+      if (Math.abs(a.x - b.x) > 0.01 && Math.abs(a.y - b.y) > 0.01) bad += 1;
+    }
+  }
+  return bad;
 }

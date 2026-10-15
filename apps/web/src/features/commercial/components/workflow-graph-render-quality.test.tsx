@@ -5,10 +5,12 @@ import { JUNCTION_PREP_PROD_ID, JUNCTION_PUB_WIND_ID } from '../workflow-graph-j
 import { layoutWorkflowGraph } from '../workflow-graph-flow-layout';
 import {
   countEdgeEdgeCrossings,
+  countNonOrthogonalSegments,
   pointViolatesEdgeCard,
   samplePathPoints,
   type Rect,
 } from '../workflow-graph-edge-geometry';
+import { buildRoutedEdgeData } from '../workflow-graph-edge-routing';
 import { WorkflowGraphReadonly } from './workflow-graph-readonly';
 import { useProjectWorkflowEditor, WorkflowGraphEditor } from './workflow-graph-editor';
 
@@ -120,6 +122,13 @@ describe('Workflow graph render quality', () => {
   test('no edge crosses another edge or unrelated cards', async () => {
     for (const id of ['proj-nev-spring', 'proj-drink-live', 'proj-board-prop'] as const) {
       const project = commercialProjectsMock.find((p) => p.id === id)!;
+      const layout = layoutWorkflowGraph(project.workflow);
+      const layoutPaths = [...buildRoutedEdgeData(layout).values()]
+        .map((m) => m.path!)
+        .filter(Boolean);
+      expect(countNonOrthogonalSegments(layoutPaths)).toBe(0);
+      expect(countEdgeEdgeCrossings(layoutPaths)).toBe(0);
+
       const { container } = render(
         <div style={{ width: 1440, height: 1250 }}>
           <WorkflowGraphReadonly graph={project.workflow} />
@@ -129,6 +138,7 @@ describe('Workflow graph render quality', () => {
       const paths = collectRenderedPaths(container);
       expect(countEdgeCardViolations(container)).toBe(0);
       expect(countEdgeEdgeCrossings(paths)).toBe(0);
+      expect(countNonOrthogonalSegments(paths)).toBe(0);
     }
   });
 

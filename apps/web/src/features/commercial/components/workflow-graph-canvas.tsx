@@ -6,12 +6,20 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
-  useStore,
   type EdgeTypes,
   type NodeMouseHandler,
+  type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 import type { WorkflowGraph } from '../types';
 import {
   layoutWorkflowGraph,
@@ -32,43 +40,70 @@ const defaultEdgeOptions = {
 
 const FIT_VIEW_MIN_ZOOM = 0.85;
 
-function serializeViewport(vp: { x: number; y: number; zoom: number }): string {
-  return JSON.stringify([vp.x, vp.y, vp.zoom]);
+function cloneViewport(vp: Viewport): Viewport {
+  return { x: vp.x, y: vp.y, zoom: vp.zoom };
 }
 
-function WorkflowViewportLock({
+function WorkflowInitialViewport({
   fitKey,
-  selectionEpoch,
+  containerRef,
+  onLocked,
 }: {
   fitKey: string;
-  selectionEpoch: string;
+  containerRef: RefObject<HTMLElement | null>;
+  onLocked: (vp: Viewport) => void;
 }) {
-  const { fitView, getViewport, setViewport } = useReactFlow();
-  const lockedRef = useRef<string | null>(null);
-  const fitKeyRef = useRef<string | null>(null);
-  const nodeMeasureEpoch = useStore((s) =>
-    s.nodes.map((n) => `${n.id}:${n.measured?.height ?? n.height ?? 0}`).join('|'),
-  );
+  const { fitView, getViewport } = useReactFlow();
+  const fittedForKey = useRef<string | null>(null);
 
   useEffect(() => {
-    if (fitKeyRef.current !== fitKey) {
-      fitKeyRef.current = fitKey;
-      lockedRef.current = null;
-      const t = window.setTimeout(() => {
-        void fitView({ padding: 0.1, maxZoom: 1.25, minZoom: FIT_VIEW_MIN_ZOOM }).then(() => {
-          lockedRef.current = serializeViewport(getViewport());
-        });
-      }, 80);
-      return () => window.clearTimeout(t);
+    if (fittedForKey.current === fitKey) return;
+    let cancelled = false;
+
+    const runFit = () => {
+      const shell = containerRef.current;
+      if (!shell || shell.clientWidth < 1 || shell.clientHeight < 1) {
+        requestAnimationFrame(runFit);
+        return;
+      }
+      void fitView({ padding: 0.1, maxZoom: 1.25, minZoom: FIT_VIEW_MIN_ZOOM }).then(() => {
+        if (cancelled) return;
+        const vp = cloneViewport(getViewport());
+        fittedForKey.current = fitKey;
+        onLocked(vp);
+      });
+    };
+
+    requestAnimationFrame(runFit);
+    return () => {
+      cancelled = true;
+    };
+  }, [fitKey, fitView, getViewport, containerRef, onLocked]);
+
+  return null;
+}
+
+function WorkflowViewportGuard({
+  lockedRef,
+  revision,
+}: {
+  lockedRef: RefObject<Viewport | null>;
+  revision: string;
+}) {
+  const { getViewport, setViewport } = useReactFlow();
+
+  useLayoutEffect(() => {
+    const locked = lockedRef.current;
+    if (!locked) return;
+    const current = getViewport();
+    if (
+      Math.abs(current.x - locked.x) > 0.001 ||
+      Math.abs(current.y - locked.y) > 0.001 ||
+      Math.abs(current.zoom - locked.zoom) > 0.000_001
+    ) {
+      setViewport(cloneViewport(locked), { duration: 0 });
     }
-    return undefined;
-  }, [fitKey, fitView, getViewport]);
-
-  useEffect(() => {
-    if (!lockedRef.current) return;
-    const [x, y, zoom] = JSON.parse(lockedRef.current) as [number, number, number];
-    setViewport({ x, y, zoom }, { duration: 0 });
-  }, [selectionEpoch, nodeMeasureEpoch, setViewport]);
+  }, [revision, getViewport, setViewport, lockedRef]);
 
   return null;
 }
@@ -84,6 +119,10 @@ export function WorkflowGraphCanvas({
   onSelectNode: (id: string | null) => void;
   buildNodeEditor?: (nodeId: string) => WorkflowNodeEditorActions | undefined;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const lockedViewport = useRef<Viewport | null>(null);
+  const userPanning = useRef(false);
+
   const layout = useMemo(() => layoutWorkflowGraph(graph), [graph]);
   const elements = useMemo(() => toReactFlowElements(layout), [layout]);
   const fitKey = `${layout.width}x${layout.height}x${layout.edges.length}x${layout.junctions.length}`;
@@ -119,6 +158,16 @@ export function WorkflowGraphCanvas({
   );
   const [nodes, setNodes, onNodesChange] = useNodesState(decoratedNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(elements.edges);
+  const [viewport, setViewportState] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
+
+  const onLocked = useCallback((vp: Viewport) => {
+    lockedViewport.current = cloneViewport(vp);
+    setViewportState(cloneViewport(vp));
+  }, []);
+
+  useEffect(() => {
+    lockedViewport.current = null;
+  }, [fitKey]);
 
   useEffect(() => {
     setNodes(decoratedNodes);
@@ -128,6 +177,13 @@ export function WorkflowGraphCanvas({
     setEdges(elements.edges);
   }, [elements.edges, setEdges]);
 
+  const revision = `${selectedNodeId ?? ''}|${nodes.map((n) => n.id + (n.measured?.height ?? 0)).join(',')}`;
+
+  useLayoutEffect(() => {
+    if (!lockedViewport.current) return;
+    setViewportState(cloneViewport(lockedViewport.current));
+  }, [revision]);
+
   const onNodeClick: NodeMouseHandler = useCallback(
     (_evt, node) => {
       if (node.type === 'workflowJunction') return;
@@ -136,12 +192,23 @@ export function WorkflowGraphCanvas({
     [activateNode],
   );
 
+  const onMoveStart = useCallback(() => {
+    userPanning.current = true;
+  }, []);
+
+  const onMoveEnd = useCallback((_: unknown, vp: Viewport) => {
+    userPanning.current = false;
+    lockedViewport.current = cloneViewport(vp);
+    setViewportState(cloneViewport(vp));
+  }, []);
+
   if (nodes.length === 0) {
     return <p className="text-sm text-muted-foreground">暂无流程节点。</p>;
   }
 
   return (
     <div
+      ref={containerRef}
       className="h-[720px] min-h-[680px] w-full overflow-hidden rounded-lg border bg-muted/10"
       style={{ maxWidth: '100%' }}
       data-testid="workflow-graph-canvas"
@@ -151,6 +218,13 @@ export function WorkflowGraphCanvas({
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes as EdgeTypes}
+        viewport={viewport}
+        onViewportChange={(vp) => {
+          if (userPanning.current) setViewportState(cloneViewport(vp));
+          else if (lockedViewport.current) setViewportState(cloneViewport(lockedViewport.current));
+        }}
+        onMoveStart={onMoveStart}
+        onMoveEnd={onMoveEnd}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
@@ -169,7 +243,8 @@ export function WorkflowGraphCanvas({
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={16} size={1} />
-        <WorkflowViewportLock fitKey={fitKey} selectionEpoch={selectedNodeId ?? ''} />
+        <WorkflowInitialViewport fitKey={fitKey} containerRef={containerRef} onLocked={onLocked} />
+        <WorkflowViewportGuard lockedRef={lockedViewport} revision={revision} />
       </ReactFlow>
     </div>
   );
