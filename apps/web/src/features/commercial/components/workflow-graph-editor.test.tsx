@@ -26,10 +26,16 @@ function EditorHarness({ projectId }: { projectId: string }) {
   );
 }
 
-function clickNode(container: HTMLElement, nodeId: string) {
-  const el = container.querySelector(`[data-workflow-node="${nodeId}"]`);
-  if (!el) throw new Error(`missing node ${nodeId}`);
-  fireEvent.click(el);
+async function selectNode(container: HTMLElement, nodeId: string) {
+  const card = container.querySelector(`[data-workflow-node="${nodeId}"]`);
+  if (!card) throw new Error(`missing node ${nodeId}`);
+  const rfNode = card.closest('.react-flow__node') ?? card;
+  fireEvent.click(rfNode);
+  await waitFor(() => {
+    expect(screen.getByTestId('workflow-detail-name').textContent).toBe(
+      card.querySelector('p')?.textContent ?? nodeId,
+    );
+  });
 }
 
 describe('WorkflowGraphEditor', () => {
@@ -42,7 +48,7 @@ describe('WorkflowGraphEditor', () => {
     await waitFor(() => {
       expect(container.querySelector('[data-workflow-node="outline"]')).toBeTruthy();
     });
-    clickNode(container, 'outline');
+    await selectNode(container, 'outline');
     fireEvent.click(screen.getByTestId('workflow-advance'));
     await waitFor(() => {
       const card = container.querySelector('[data-workflow-node="outline"]');
@@ -61,7 +67,7 @@ describe('WorkflowGraphEditor', () => {
     await waitFor(() => {
       expect(container.querySelector('[data-workflow-node="script"]')).toBeTruthy();
     });
-    clickNode(container, 'script');
+    await selectNode(container, 'script');
     fireEvent.click(screen.getByTestId('workflow-advance'));
     await waitFor(() => {
       expect(screen.getByTestId('workflow-action-error').textContent).toContain('大纲');
@@ -77,7 +83,7 @@ describe('WorkflowGraphEditor', () => {
     await waitFor(() => {
       expect(container.querySelector('[data-workflow-node="outline"]')).toBeTruthy();
     });
-    clickNode(container, 'outline');
+    await selectNode(container, 'outline');
     fireEvent.click(screen.getByTestId('workflow-block-submit'));
     expect(screen.getByTestId('workflow-action-error').textContent).toContain('不能为空');
 
@@ -115,7 +121,7 @@ describe('WorkflowGraphEditor', () => {
     const before = container
       .querySelector('[data-workflow-node="outline"]')
       ?.getAttribute('data-workflow-status');
-    clickNode(container, 'outline');
+    await selectNode(container, 'outline');
     fireEvent.click(screen.getByTestId('workflow-advance'));
     await waitFor(() => {
       expect(
@@ -124,7 +130,9 @@ describe('WorkflowGraphEditor', () => {
           ?.getAttribute('data-workflow-status'),
       ).toBe('done');
     });
-    expect((screen.getByTestId('workflow-undo') as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => {
+      expect((screen.getByTestId('workflow-undo') as HTMLButtonElement).disabled).toBe(false);
+    });
     fireEvent.click(screen.getByTestId('workflow-undo'));
     await waitFor(() => {
       expect(
