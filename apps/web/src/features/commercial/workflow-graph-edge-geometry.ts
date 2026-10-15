@@ -189,6 +189,17 @@ export function countEdgeEdgeCrossings(paths: string[]): number {
   return crossings;
 }
 
+/** Commands other than straight M/L/H/V/Z (curves, arcs). */
+export function countCurveCommands(paths: string[]): number {
+  let n = 0;
+  for (const d of paths) {
+    for (const token of d.match(/[A-Za-z]/g) ?? []) {
+      if (!'MLHVZ'.includes(token.toUpperCase())) n += 1;
+    }
+  }
+  return n;
+}
+
 /** Assert every path uses only axis-aligned segments (orthogonal routing). */
 export function countNonOrthogonalSegments(paths: string[]): number {
   let bad = 0;
