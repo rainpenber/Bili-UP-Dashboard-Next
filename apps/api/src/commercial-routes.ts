@@ -18,9 +18,10 @@ import {
 import type { Sql } from '@studio/db';
 import { Hono } from 'hono';
 import { COMMERCIAL_UPDATED_AT_FORMAT } from './commercial-timestamp';
+import { DEFAULT_TEMPLATE_SLUG, registerCommercialTemplateRoutes } from './commercial-template';
 import { registerCommercialWriteRoutes } from './commercial-write';
 
-const DEFAULT_FLOW_SLUG = 'default_sponsorship';
+const DEFAULT_FLOW_SLUG = DEFAULT_TEMPLATE_SLUG;
 
 type ProjectCoreRow = {
   id: string;
@@ -348,6 +349,7 @@ export function createCommercialRoutes(db: Sql) {
     }
   });
 
+  registerCommercialTemplateRoutes(app, db);
   registerCommercialWriteRoutes(app, db);
   return app;
 }

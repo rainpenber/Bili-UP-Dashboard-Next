@@ -687,4 +687,53 @@ describe('commercial domain DB invariants', () => {
       /foreign key|violates foreign key constraint/i,
     );
   });
+
+  test('published template content stays frozen while the default pointer can move', async () => {
+    assertIntegrationSql(sql);
+    const versionId = 'aa700001-0001-4001-8001-000000000001';
+    await sql`
+      INSERT INTO wf_template_versions (id, slug, name, version, is_draft, is_default, published_at)
+      VALUES (${versionId}, 'default_pointer', 'Pointer', 1, TRUE, TRUE, NULL)
+    `;
+    await sql`
+      UPDATE wf_template_versions
+      SET is_draft = FALSE, published_at = now()
+      WHERE id = ${versionId}
+    `;
+    await expectDbError(
+      () => sql!`UPDATE wf_template_versions SET name = 'renamed' WHERE id = ${versionId}`,
+      /immutable/i,
+    );
+    await sql`UPDATE wf_template_versions SET is_default = FALSE WHERE id = ${versionId}`;
+    const [cleared] = await sql<{ is_default: boolean }[]>`
+      SELECT is_default FROM wf_template_versions WHERE id = ${versionId}
+    `;
+    expect(cleared?.is_default).toBe(false);
+    await sql`UPDATE wf_template_versions SET is_default = TRUE WHERE id = ${versionId}`;
+    const [restored] = await sql<{ is_default: boolean; name: string }[]>`
+      SELECT is_default, name FROM wf_template_versions WHERE id = ${versionId}
+    `;
+    expect(restored?.is_default).toBe(true);
+    expect(restored?.name).toBe('Pointer');
+  });
+
+  test('template node names are unique within a version after trim', async () => {
+    assertIntegrationSql(sql);
+    const versionId = 'aa700010-0001-4001-8001-000000000010';
+    await sql`
+      INSERT INTO wf_template_versions (id, slug, name, version, is_draft, is_default, published_at)
+      VALUES (${versionId}, 'unique_names', 'Names', 1, TRUE, FALSE, NULL)
+    `;
+    await sql`
+      INSERT INTO wf_template_nodes (id, template_version_id, slug, name)
+      VALUES (${'aa700011-0001-4001-8001-000000000011'}, ${versionId}, 'a', '大纲')
+    `;
+    await expectDbError(
+      () => sql!`
+        INSERT INTO wf_template_nodes (id, template_version_id, slug, name)
+        VALUES (${'aa700012-0001-4001-8001-000000000012'}, ${versionId}, 'b', ' 大纲 ')
+      `,
+      /uq_wf_template_nodes_name_per_version|unique/i,
+    );
+  });
 });

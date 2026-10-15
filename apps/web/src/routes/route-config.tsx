@@ -9,6 +9,7 @@ import { NotFoundPage } from '@/pages/not-found-page';
 import { PlaceholderPage } from '@/pages/placeholder-page';
 import { ProjectDetailPage } from '@/pages/project-detail-page';
 import { ProjectListPage } from '@/pages/project-list-page';
+import { ProjectTemplateGraphPage } from '@/pages/project-template-graph-page';
 import { MonitoringPage } from '@/features/monitoring/monitoring-page';
 import { MonitoringCreatorDetailPage } from '@/pages/monitoring-creator-detail-page';
 import { MonitoringDynamicDetailPage } from '@/pages/monitoring-dynamic-detail-page';
@@ -27,6 +28,7 @@ export const appRouteConfig: RouteObject[] = [
     children: [
       { index: true, element: <CommercialHomePage /> },
       { path: 'projects', element: <ProjectListPage /> },
+      { path: 'projects/:projectId/graph', element: <ProjectTemplateGraphPage /> },
       { path: 'projects/:projectId', element: <ProjectDetailPage /> },
       { path: 'monitoring', element: <MonitoringPage /> },
       { path: 'monitoring/videos/:bvid', element: <MonitoringVideoDetailPage /> },

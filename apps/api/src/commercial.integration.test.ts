@@ -373,7 +373,7 @@ describe('commercial read API', () => {
     );
   }, 30_000);
 
-  test('missing projects and write methods are not served', async () => {
+  test('missing projects 404 and only JSON project creation is accepted on the collection', async () => {
     if (!app) return;
     const missing = '00000000-0000-4000-8000-000000000099';
     const detail = await app.request(`/api/v1/commercial/projects/${missing}`);
@@ -384,7 +384,13 @@ describe('commercial read API', () => {
     const invalid = await app.request('/api/v1/commercial/projects/not-a-uuid');
     expect(invalid.status).toBe(400);
 
-    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE'] as const) {
+    const createWithoutBody = await app.request('/api/v1/commercial/projects', { method: 'POST' });
+    expect(createWithoutBody.status).toBe(400);
+    expect(await createWithoutBody.json()).toEqual({
+      error: '请求体不是 JSON',
+      code: 'invalid_body',
+    });
+    for (const method of ['PUT', 'PATCH', 'DELETE'] as const) {
       const res = await app.request('/api/v1/commercial/projects', { method });
       expect(res.status).toBe(404);
     }

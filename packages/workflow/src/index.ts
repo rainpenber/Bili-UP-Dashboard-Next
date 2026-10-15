@@ -19,3 +19,11 @@ export {
   notApplicableBlockRefusal,
   resolvePublishBvid,
 } from './engine';
+export {
+  duplicateTemplateNodeNameMessage,
+  templateCycleMessage,
+  templateSelfLoopMessage,
+  templateDuplicateEdgeMessage,
+  templateMissingEdgeMessage,
+  templateEmptyNodeNameMessage,
+} from './template-messages';
