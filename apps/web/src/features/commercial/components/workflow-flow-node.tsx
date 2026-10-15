@@ -7,20 +7,24 @@ import { workflowNodeStatusClass, workflowNodeStatusLabel } from '../workflow-no
 const handleClass =
   '!size-1 !min-h-0 !min-w-0 !border-0 !bg-transparent !opacity-0 pointer-events-none';
 
-export function WorkflowFlowNode({ data }: NodeProps<Node<WorkflowFlowNodeData>>) {
-  const { wfNode, expanded, selected } = data;
+export function WorkflowFlowNode({ data, id }: NodeProps<Node<WorkflowFlowNodeData>>) {
+  const { wfNode, expanded, selected, onNodeActivate } = data;
   return (
     <div className="relative">
       <Handle type="target" position={Position.Top} id="target" className={handleClass} />
       <Card
         className={cn(
-          'w-[11rem] shadow-sm transition-shadow',
+          'w-[11rem] cursor-pointer shadow-sm transition-shadow',
           workflowNodeStatusClass(wfNode.status),
           (expanded || selected) && 'ring-2 ring-ring/40',
         )}
         data-workflow-node={wfNode.id}
         data-workflow-status={wfNode.status}
         data-blocking-reason={wfNode.blockingReason ?? undefined}
+        onClick={(event) => {
+          event.stopPropagation();
+          onNodeActivate?.(id);
+        }}
       >
         <CardContent className="p-2">
           <p className="text-sm font-medium leading-snug">{wfNode.name}</p>

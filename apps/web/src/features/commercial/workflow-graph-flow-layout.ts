@@ -322,6 +322,7 @@ export type WorkflowFlowNodeData = {
   wfNode: WorkflowGraphNode;
   expanded: boolean;
   selected?: boolean;
+  onNodeActivate?: (nodeId: string) => void;
 };
 
 export function toReactFlowElements(layout: WorkflowGraphLayout): {

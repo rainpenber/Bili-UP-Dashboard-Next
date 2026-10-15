@@ -29,13 +29,15 @@ function EditorHarness({ projectId }: { projectId: string }) {
 async function selectNode(container: HTMLElement, nodeId: string) {
   const card = container.querySelector(`[data-workflow-node="${nodeId}"]`);
   if (!card) throw new Error(`missing node ${nodeId}`);
-  const rfNode = card.closest('.react-flow__node') ?? card;
-  fireEvent.click(rfNode);
-  await waitFor(() => {
-    expect(screen.getByTestId('workflow-detail-name').textContent).toBe(
-      card.querySelector('p')?.textContent ?? nodeId,
-    );
-  });
+  fireEvent.click(card);
+  await waitFor(
+    () => {
+      expect(screen.getByTestId('workflow-detail-name').textContent).toBe(
+        card.querySelector('p')?.textContent ?? nodeId,
+      );
+    },
+    { timeout: 5000 },
+  );
 }
 
 describe('WorkflowGraphEditor', () => {

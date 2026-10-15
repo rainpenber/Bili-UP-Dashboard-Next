@@ -45,35 +45,47 @@ export function WorkflowGraphCanvas({
 }) {
   const layout = useMemo(() => layoutWorkflowGraph(graph), [graph]);
   const elements = useMemo(() => toReactFlowElements(layout), [layout]);
-  const [nodes, setNodes, onNodesChange] = useNodesState(elements.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(elements.edges);
+  const activateNode = useCallback(
+    (nodeId: string) => {
+      onSelectNode(selectedNodeId === nodeId ? null : nodeId);
+    },
+    [onSelectNode, selectedNodeId],
+  );
 
-  useEffect(() => {
-    setNodes(elements.nodes);
-  }, [elements.nodes, setNodes]);
-
-  useEffect(() => {
-    setEdges(elements.edges);
-  }, [elements.edges, setEdges]);
-
-  useEffect(() => {
-    setNodes((nds) =>
-      nds.map((n) => ({
+  const decorateNodes = useCallback(
+    (base: typeof elements.nodes) =>
+      base.map((n) => ({
         ...n,
         data: {
           ...n.data,
           expanded: n.id === selectedNodeId,
           selected: n.id === selectedNodeId,
+          onNodeActivate: activateNode,
         },
       })),
-    );
-  }, [selectedNodeId, setNodes]);
+    [activateNode, selectedNodeId],
+  );
+
+  const decoratedNodes = useMemo(
+    () => decorateNodes(elements.nodes),
+    [elements.nodes, decorateNodes],
+  );
+  const [nodes, setNodes, onNodesChange] = useNodesState(decoratedNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(elements.edges);
+
+  useEffect(() => {
+    setNodes(decoratedNodes);
+  }, [decoratedNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(elements.edges);
+  }, [elements.edges, setEdges]);
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_evt, node) => {
-      onSelectNode(selectedNodeId === node.id ? null : node.id);
+      activateNode(node.id);
     },
-    [onSelectNode, selectedNodeId],
+    [activateNode],
   );
 
   if (nodes.length === 0) {
