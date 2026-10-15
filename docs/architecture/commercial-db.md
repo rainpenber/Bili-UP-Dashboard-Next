@@ -22,6 +22,7 @@
 - 只有草稿版本可以改结构。
 - 发布把 `is_draft` 改成 `FALSE` 并写入 `published_at`，之后模板及其子表不可改。
 - 实例图钉在创建时的 `template_version_id` 上。之后再发布新版本，不会改写已有实例。
+- 同一 slug 同时只有一个 `is_default`。已发布版本的内容列不能改；发布新版本时只允许把旧版本的 `is_default` 改成 `FALSE`，再把新版本标成默认。节点名称在同一版本内按去首尾空格后唯一。
 
 ## 默认流程种子
 
@@ -41,12 +42,23 @@
 
 响应形状在 `@studio/contracts`。流程图节点带 `updatedAt`，这是写入时要原样交回的并发令牌。
 
-| 方法 | 路径                                              | 内容                                               |
-| ---- | ------------------------------------------------- | -------------------------------------------------- |
-| GET  | `/api/v1/commercial/projects`                     | 名称、到手金额、返点金额、当前阶段、是否有节点阻塞 |
-| GET  | `/api/v1/commercial/projects/:projectId`          | 金额、当前阶段、阻塞原因、发布状态                 |
-| GET  | `/api/v1/commercial/projects/:projectId/workflow` | 节点（状态、种类、updatedAt）与边                  |
-| GET  | `/api/v1/commercial/templates/default`            | 已发布的默认流程模板及其图                         |
+| 方法   | 路径                                                                 | 内容                                               |
+| ------ | -------------------------------------------------------------------- | -------------------------------------------------- |
+| GET    | `/api/v1/commercial/projects`                                        | 名称、到手金额、返点金额、当前阶段、是否有节点阻塞 |
+| GET    | `/api/v1/commercial/projects/:projectId`                             | 金额、当前阶段、阻塞原因、发布状态                 |
+| GET    | `/api/v1/commercial/projects/:projectId/workflow`                    | 节点（状态、种类、updatedAt）与边                  |
+| GET    | `/api/v1/commercial/templates/default`                               | 已发布的默认流程模板及其图                         |
+| GET    | `/api/v1/commercial/templates/default/workspace`                     | 当前草稿（可空）和全部已发布版本                   |
+| GET    | `/api/v1/commercial/templates/default/versions/:id`                  | 某一个默认流程版本，含已发布旧版                   |
+| POST   | `/api/v1/commercial/templates/default/draft`                         | 从当前默认发布版复制出草稿；已有草稿则原样返回     |
+| DELETE | `/api/v1/commercial/templates/default/draft`                         | 丢弃草稿                                           |
+| POST   | `/api/v1/commercial/templates/default/draft/publish`                 | 发布草稿为新版本并设为默认，不改已有项目           |
+| POST   | `/api/v1/commercial/templates/default/versions/:id/nodes`            | 在草稿上添加节点                                   |
+| PATCH  | `/api/v1/commercial/templates/default/versions/:id/nodes/:nodeId`    | 重命名草稿节点                                     |
+| DELETE | `/api/v1/commercial/templates/default/versions/:id/nodes/:nodeId`    | 删除草稿节点及其边                                 |
+| POST   | `/api/v1/commercial/templates/default/versions/:id/edges`            | 连接两个草稿节点                                   |
+| POST   | `/api/v1/commercial/templates/default/versions/:id/edges/disconnect` | 断开一条草稿边                                     |
+| POST   | `/api/v1/commercial/projects`                                        | 用名称和已发布模板版本创建项目并物化实例图         |
 
 金额是 `numeric(14,2)` 的十进制字符串。`overallStage` 是项目上存储的阶段。`currentStageNames` 是状态为 `in_progress` 或 `blocked` 的节点名，按 `pos_y`、`pos_x`、`id` 排序；没有进行中或阻塞节点时为空数组。`blockingReason` 取仍开放且 `impact = blocking`、并且钉在阻塞节点上或 `blocks_node_id` 指向阻塞节点的事项标题；优先被钉住的事项，其次 `sort_rank`、创建时间、`id`。没有这样的事项时为 `null`。
 
@@ -61,6 +73,18 @@
 完成「发布」节点必须在同一事务写入 `project_publish_records`、`project_monitor_contracts`，以及该项目各一条 `metadata` / `metrics` 的 `monitor_jobs`（`pending`，不执行）。幂等靠 `idempotency_key` 和 `UNIQUE (project_id, job_type)`。监控标识是已有的 `bvid`。请求可以带视频链接，链接里的 BV 号写入 `bvid`；平台只接受 `bilibili`，因为表上没有平台列。
 
 每次写入一个事务，和 `domain_audit_events` 一起提交。并发令牌是 `updated_at`。违反数据库约束时返回 409，消息来自约束本身。路径见 [WP-004R2-3A](../../work-packages/WP-004R2-3A-commercial-workflow-engine.md)。
+
+## 模板草稿与从版本创建项目（WP-004R2-3B2）
+
+默认流程页读写 `default_sponsorship`。开始草稿会把当前 `is_default` 的已发布版本复制成新行（新的包、节点、边 id），版本号是该 slug 现有最大版本加 1。草稿丢弃会删掉这行，下一个草稿重新取最大版本加 1，所以未发布过的版本号可以再用。已发布版本不能删除，编号不会改、也不会被后来的发布占用。
+
+发布在同一事务里先清掉旧的 `is_default`，再把草稿改成已发布并标为默认。不更新 `commercial_projects`、`project_workflows` 或实例图。
+
+编辑只接受草稿。已发布版本返回 409「已发布的模板版本不可修改」。成环由模板边触发器拒绝，接口改写成「无法连接「发布 → 询单」：会在流程中形成环路。」。重名返回「节点名称「大纲」已存在，同一流程内名称必须唯一。」。自环返回「不能将节点连接到自身。」。
+
+`POST /api/v1/commercial/projects` 只接受已发布版本。它新建项目、流程、制作包、节点和边；节点状态是 `not_reached`，项目阶段是 `pre_publish`。`commercial_projects.name` 没有唯一约束，也没有只覆盖名称的唯一索引，因此同名项目允许并存。这次创建不修改其他项目。
+
+页面不再用内存里的 `default-flow-store` 当默认流程的数据源。删除节点前的确认仍写明将消失的连接，例如「删除节点「大纲」将同时移除以下连接：询单 → 大纲；大纲 → 发布。确认继续？」。
 
 ## 本地核对
 

@@ -1,8 +1,10 @@
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DefaultFlowEditor } from '@/features/commercial/components/default-flow-editor';
 
 export function IntegrationsSettingsPage() {
+  const navigate = useNavigate();
   return (
     <>
       <PageHeader
@@ -29,7 +31,11 @@ export function IntegrationsSettingsPage() {
             </p>
           </CardHeader>
           <CardContent>
-            <DefaultFlowEditor />
+            <DefaultFlowEditor
+              onProjectCreated={(project) => {
+                navigate(`/projects/${project.id}/graph`);
+              }}
+            />
           </CardContent>
         </Card>
       </div>

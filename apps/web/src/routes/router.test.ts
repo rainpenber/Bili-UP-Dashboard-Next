@@ -9,6 +9,7 @@ describe('app routes', () => {
     expect(paths).toContain('design-system');
     expect(paths).toContain('projects');
     expect(paths).toContain('projects/:projectId');
+    expect(paths).toContain('projects/:projectId/graph');
     expect(paths).toContain('integrations');
   });
 
