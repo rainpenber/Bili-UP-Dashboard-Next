@@ -249,5 +249,3 @@ export function renameWorkflowNode(
   node.name = trimmed;
   return { ok: true, graph: next };
 }
-
-export { connectionKey };
