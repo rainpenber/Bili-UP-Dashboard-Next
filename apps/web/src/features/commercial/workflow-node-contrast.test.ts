@@ -30,8 +30,10 @@ const TAILWIND_HEX: Record<string, string> = {
   'red-900': '#7f1d1d',
   'red-950': '#450a0a',
   'zinc-100': '#f4f4f5',
+  'zinc-200': '#e4e4e7',
   'zinc-800': '#27272a',
   'zinc-900': '#18181b',
+  'zinc-950': '#09090b',
 };
 
 function bgFromCardClass(card: string): string {

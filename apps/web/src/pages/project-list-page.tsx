@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ProjectListCard } from '@/features/commercial/components/project-list-card';
-import { filterProjects, sortProjectsForList } from '@/features/commercial/commercial-selectors';
+import { listProjects } from '@/features/commercial/commercial-selectors';
 import { useCommercialProjectsQuery } from '@/features/commercial/use-commercial-queries';
 import { cn } from '@/lib/utils';
 
@@ -14,18 +14,17 @@ export function ProjectListPage() {
   const query = useCommercialProjectsQuery();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
-  const [fromDate, setFromDate] = useState('');
 
   const list = useMemo(() => {
     if (!query.data) return [];
-    return sortProjectsForList(filterProjects(query.data, { keyword, fromDate }));
-  }, [query.data, keyword, fromDate]);
+    return listProjects(query.data.items, keyword);
+  }, [query.data, keyword]);
 
   return (
     <>
       <PageHeader
         title="项目"
-        description="商单列表：先看名字和当前阶段；需要时再展开看卡点和待办。"
+        description="商单列表来自服务器。先看名字和当前节点；阻塞标记也来自同一份列表。"
         crumbs={[
           { label: '工作室', to: '/' },
           { label: '项目', to: '/projects' },
@@ -38,29 +37,20 @@ export function ProjectListPage() {
           variant="outline"
           size="sm"
           aria-expanded={filtersOpen}
-          onClick={() => setFiltersOpen((v) => !v)}
+          onClick={() => setFiltersOpen((value) => !value)}
         >
-          搜索与筛选
+          搜索
           <ChevronDown className={cn('size-4', filtersOpen && 'rotate-180')} aria-hidden />
         </Button>
         {filtersOpen ? (
-          <div className="mt-3 grid gap-4 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">
+          <div className="mt-3 rounded-lg border bg-muted/20 p-4">
             <div className="space-y-2">
               <Label htmlFor="project-keyword">关键词</Label>
               <Input
                 id="project-keyword"
                 value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                placeholder="项目名、品牌、阶段…"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="project-from-date">时间不早于</Label>
-              <Input
-                id="project-from-date"
-                type="date"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
+                onChange={(event) => setKeyword(event.target.value)}
+                placeholder="项目名或当前节点"
               />
             </div>
           </div>
@@ -80,17 +70,10 @@ export function ProjectListPage() {
         list.length === 0 ? (
           <EmptyState
             title="没有符合条件的项目"
-            description="试试放宽关键词或日期筛选。"
+            description="列表只显示数据库里的商单。可以放宽关键词，或先运行种子命令。"
             action={
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setKeyword('');
-                  setFromDate('');
-                }}
-              >
-                清空筛选
+              <Button type="button" variant="outline" onClick={() => setKeyword('')}>
+                清空搜索
               </Button>
             }
           />

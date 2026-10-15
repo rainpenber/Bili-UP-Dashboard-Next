@@ -1,5 +1,10 @@
-/** 工作流节点在只读图上的展示状态 */
-export type WorkflowNodeStatus = 'done' | 'in_progress' | 'blocked' | 'not_reached';
+/** 工作流节点在只读图上的展示状态。`done` 对应接口的 `completed`。 */
+export type WorkflowNodeStatus =
+  'done' | 'in_progress' | 'blocked' | 'not_reached' | 'not_applicable';
+
+/** 与写入接口一致的节点状态。 */
+export type WorkflowApiStatus =
+  'not_reached' | 'in_progress' | 'completed' | 'blocked' | 'not_applicable';
 
 export type OpenItemSide = 'ours' | 'client';
 
@@ -20,6 +25,14 @@ export interface WorkflowGraphNode {
   id: string;
   name: string;
   status: WorkflowNodeStatus;
+  /** 写入接口使用的状态。演示图可以不填。 */
+  apiStatus?: WorkflowApiStatus;
+  /** 最近一次读取返回的并发令牌，按原文字符串保存。 */
+  updatedAt?: string;
+  isOptional?: boolean;
+  /** 名称为「发布」的节点，完成时走发布接口。 */
+  isPublish?: boolean;
+  kind?: 'stage' | 'merge';
   /** 未完成节点的计划时间，如「3月2日」 */
   plannedDateLabel?: string;
   /** 已完成节点的实际时间 */
