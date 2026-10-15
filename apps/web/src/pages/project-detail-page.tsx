@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type {
   CommercialDetailOpenItem,
   CommercialProjectDetail,
   CommercialPublishRequest,
 } from '@studio/contracts';
+import { predecessorCompletionPlan, type PredecessorCompletionStep } from '@studio/workflow';
 import { PageHeader } from '@/components/layout/page-header';
 import { ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
 import { Badge } from '@/components/ui/badge';
@@ -13,11 +15,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  CommercialApiError,
+  STALE_WRITE_MESSAGE,
   advanceCommercialNode,
   blockCommercialNode,
   cancelCommercialOpenItem,
   closeCommercialOpenItem,
   completeCommercialNode,
+  fetchCommercialWorkflow,
   publishCommercialNode,
   rollbackCommercialNode,
   skipCommercialNode,
@@ -54,6 +59,15 @@ export function ProjectDetailPage() {
   const detailQuery = useCommercialProjectDetailQuery(projectId);
   const workflowQuery = useCommercialWorkflowQuery(projectId);
   const writes = useCommercialWrites(projectId ?? '');
+  const queryClient = useQueryClient();
+  const [advancePrompt, setAdvancePrompt] = useState<{
+    nodeId: string;
+    nodeName: string;
+    steps: PredecessorCompletionStep[];
+  } | null>(null);
+  const [batchNotice, setBatchNotice] = useState<string | null>(null);
+  const [batching, setBatching] = useState(false);
+  const batchLock = useRef(false);
 
   const graph = useMemo(() => {
     if (!workflowQuery.data) return null;
@@ -145,6 +159,98 @@ export function ProjectDetailPage() {
     );
   }
 
+  function considerAdvance(nodeId: string) {
+    const current = workflow.nodes.find((node) => node.id === nodeId);
+    if (!current) return;
+    const steps = predecessorCompletionPlan(
+      nodeId,
+      workflow.nodes.map((node) => ({
+        id: node.id,
+        name: node.name,
+        status: node.status,
+        kind: node.kind,
+      })),
+      workflow.edges.map((edge) => ({ fromNodeId: edge.fromNodeId, toNodeId: edge.toNodeId })),
+    );
+    setBatchNotice(null);
+    if (steps.length === 0) {
+      setAdvancePrompt(null);
+      void runNode(nodeId, 'advance');
+      return;
+    }
+    setAdvancePrompt({ nodeId, nodeName: current.name, steps });
+  }
+
+  async function readToken(nodeId: string): Promise<string> {
+    const fresh = await fetchCommercialWorkflow(projectId!);
+    queryClient.setQueryData(['commercial', 'workflow', projectId], fresh);
+    const node = fresh.nodes.find((item) => item.id === nodeId);
+    if (!node) throw new Error('找不到节点');
+    return node.updatedAt;
+  }
+
+  async function confirmPredecessors() {
+    if (!advancePrompt || batchLock.current) return;
+    batchLock.current = true;
+    setBatching(true);
+    const { nodeId, nodeName, steps } = advancePrompt;
+    const completed: string[] = [];
+    try {
+      for (const step of steps) {
+        try {
+          const token = await readToken(step.id);
+          const advanced =
+            step.status === 'in_progress'
+              ? null
+              : await advanceCommercialNode(projectId!, step.id, token);
+          const completeToken = advanced?.node.updatedAt ?? token;
+          await completeCommercialNode(projectId!, step.id, completeToken);
+          completed.push(step.name);
+        } catch (error) {
+          await queryClient.invalidateQueries({ queryKey: ['commercial'] });
+          const detailMessage =
+            error instanceof CommercialApiError
+              ? error.message
+              : error instanceof Error
+                ? error.message
+                : '操作失败';
+          setBatchNotice(
+            error instanceof CommercialApiError && error.code === 'stale_write'
+              ? STALE_WRITE_MESSAGE
+              : `停在「${step.name}」：${detailMessage}`,
+          );
+          setAdvancePrompt(null);
+          return;
+        }
+      }
+      try {
+        const token = await readToken(nodeId);
+        await advanceCommercialNode(projectId!, nodeId, token);
+      } catch (error) {
+        await queryClient.invalidateQueries({ queryKey: ['commercial'] });
+        const detailMessage =
+          error instanceof CommercialApiError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : '操作失败';
+        setBatchNotice(
+          error instanceof CommercialApiError && error.code === 'stale_write'
+            ? STALE_WRITE_MESSAGE
+            : `停在「${nodeName}」：${detailMessage}`,
+        );
+        setAdvancePrompt(null);
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ['commercial'] });
+      setBatchNotice(`已完成：${completed.join('、')}。已推进：${nodeName}。`);
+      setAdvancePrompt(null);
+    } finally {
+      batchLock.current = false;
+      setBatching(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -220,12 +326,56 @@ export function ProjectDetailPage() {
           <CardHeader>
             <CardTitle className="text-base">完整工作流图</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            {advancePrompt ? (
+              <div
+                className="rounded-md border border-amber-600/40 bg-amber-50 px-3 py-3 text-sm"
+                data-testid="predecessor-prompt"
+              >
+                <p>
+                  这些前置节点还没完成：{advancePrompt.steps.map((step) => step.name).join('、')}
+                  。要先把它们标成完成，再推进「{advancePrompt.nodeName}」吗？
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={writes.pending || batching}
+                    data-testid="predecessor-confirm"
+                    onClick={() => void confirmPredecessors()}
+                  >
+                    确认一并完成
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={writes.pending || batching}
+                    data-testid="predecessor-cancel"
+                    onClick={() => setAdvancePrompt(null)}
+                  >
+                    取消
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {batchNotice ? (
+              <p className="text-sm" data-testid="predecessor-moved">
+                {batchNotice}
+              </p>
+            ) : null}
             <WorkflowGraphLive
               graph={graph}
               pending={writes.pending}
               feedback={writes.feedback}
-              onCommand={(nodeId, command) => void runNode(nodeId, command)}
+              onCommand={(nodeId, command) => {
+                if (command === 'advance') {
+                  considerAdvance(nodeId);
+                  return;
+                }
+                setAdvancePrompt(null);
+                void runNode(nodeId, command);
+              }}
               onBlock={(nodeId, reason) => void runBlock(nodeId, reason)}
               onPublish={(nodeId, draft) => void runPublish(nodeId, draft)}
             />

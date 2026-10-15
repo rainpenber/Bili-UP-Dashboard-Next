@@ -22,7 +22,7 @@ const DEFAULT_TEMPLATE = 'ffff1111-1111-4111-8111-111111111111';
 
 type App = ReturnType<typeof createApp>;
 
-type Tokens = Map<string, { id: string; updatedAt: string; status: string }>;
+type Tokens = Map<string, { id: string; updatedAt: string; status: string; kind: string }>;
 
 describe('commercial workflow write API', () => {
   let sql: Sql | null = null;
@@ -48,44 +48,39 @@ describe('commercial workflow write API', () => {
     if (databaseName) await dropIsolatedTestDatabase(databaseName);
   });
 
-  test('advance names unmet predecessors, then the join waits on 文案 and 预拍摄', async () => {
+  test('a merge node is not operated, and it waits until 文案 and 预拍摄 are both completed', async () => {
     const ctx = await ready();
     if (!ctx) return;
     const { projectId, tokens } = ctx;
 
     const blocked = await postNode(ctx.app, projectId, tokens, '汇合节点', 'advance');
-    const body = await expectRefusal(blocked, 409, 'predecessors_incomplete', ['文案', '预拍摄']);
-    expect(body.error).toBe(predecessorRefusalMessage(['文案', '预拍摄']));
+    const body = await expectRefusal(blocked, 409, 'invalid_transition');
+    expect(body.error).toBe('汇合节点由前置节点推导，不能直接操作');
     expect(await statusOf(ctx.sql, projectId, '汇合节点')).toBe('not_reached');
     expect(await auditCount(ctx.sql, projectId, 'advance')).toBe(0);
 
-    await completeThrough(ctx, ['询单', '大纲']);
-    const stillBlocked = await postNode(ctx.app, projectId, tokens, '汇合节点', 'advance');
-    await expectRefusal(stillBlocked, 409, 'predecessors_incomplete', ['文案', '预拍摄']);
+    await completeThrough(ctx, ['询单', '大纲', '文案']);
+    expect(await statusOf(ctx.sql, projectId, '汇合节点')).toBe('not_reached');
 
-    await completeThrough(ctx, ['文案', '预拍摄']);
-    const advanced = await mustNode(
-      await postNode(ctx.app, projectId, tokens, '汇合节点', 'advance'),
-    );
-    expect(advanced.node.status).toBe('in_progress');
-    expect(advanced.node.name).toBe('汇合节点');
-    expect(advanced.node.kind).toBe('merge');
-    remember(tokens, advanced);
+    await completeThrough(ctx, ['预拍摄']);
+    expect(await statusOf(ctx.sql, projectId, '汇合节点')).toBe('completed');
+    expect(await auditCount(ctx.sql, projectId, 'derive_merge')).toBeGreaterThan(0);
   }, 30_000);
 
   test('the join node gates A-roll, B-roll, and AI 后期', async () => {
     const ctx = await ready();
     if (!ctx) return;
     const { projectId, tokens } = ctx;
-    await completeThrough(ctx, ['询单', '大纲', '文案', '预拍摄']);
+    await completeThrough(ctx, ['询单', '大纲']);
 
     for (const name of ['A-roll 拍摄', 'B-roll 素材', 'AI 后期']) {
       const refused = await postNode(ctx.app, projectId, tokens, name, 'advance');
-      const body = await expectRefusal(refused, 409, 'predecessors_incomplete', ['汇合节点']);
-      expect(body.error).toBe('须先完成前置节点：汇合节点');
+      const body = await expectRefusal(refused, 409, 'predecessors_incomplete', ['文案', '预拍摄']);
+      expect(body.error).toBe('须先完成前置节点：文案、预拍摄');
     }
 
-    await completeThrough(ctx, ['汇合节点']);
+    await completeThrough(ctx, ['文案', '预拍摄']);
+    expect(await statusOf(ctx.sql, projectId, '汇合节点')).toBe('completed');
     for (const name of ['A-roll 拍摄', 'B-roll 素材', 'AI 后期']) {
       const advanced = await mustNode(await postNode(ctx.app, projectId, tokens, name, 'advance'));
       expect(advanced.node.status).toBe('in_progress');
@@ -93,17 +88,11 @@ describe('commercial workflow write API', () => {
     }
   }, 30_000);
 
-  test('skipping the optional join lets its successors advance, and passthrough still names upstream', async () => {
+  test('an unsatisfied merge is transparent and names the unfinished upstream stages', async () => {
     const ctx = await ready();
     if (!ctx) return;
     const { projectId, tokens } = ctx;
     await completeThrough(ctx, ['询单', '大纲']);
-
-    const skippedEarly = await mustNode(
-      await postNode(ctx.app, projectId, tokens, '汇合节点', 'skip'),
-    );
-    expect(skippedEarly.node.status).toBe('not_applicable');
-    remember(tokens, skippedEarly);
 
     const passed = await postNode(ctx.app, projectId, tokens, 'A-roll 拍摄', 'advance');
     const passedBody = await expectRefusal(passed, 409, 'predecessors_incomplete', [
@@ -114,6 +103,7 @@ describe('commercial workflow write API', () => {
     expect(passedBody.names).not.toContain('汇合节点');
 
     await completeThrough(ctx, ['文案', '预拍摄']);
+    expect(await statusOf(ctx.sql, projectId, '汇合节点')).toBe('completed');
     for (const name of ['A-roll 拍摄', 'B-roll 素材', 'AI 后期']) {
       const advanced = await mustNode(await postNode(ctx.app, projectId, tokens, name, 'advance'));
       expect(advanced.node.status).toBe('in_progress');
@@ -227,51 +217,49 @@ describe('commercial workflow write API', () => {
     const ctx = await ready();
     if (!ctx) return;
     const { projectId, tokens } = ctx;
-    await completeThrough(ctx, ['询单', '大纲', '文案', '预拍摄']);
-    const started = await mustNode(
-      await postNode(ctx.app, projectId, tokens, '汇合节点', 'advance'),
-    );
-    remember(tokens, started);
+    await ctx.sql`
+      UPDATE wf_nodes
+      SET status = 'in_progress', updated_at = now()
+      WHERE project_id = ${projectId} AND name = '其他'
+    `;
+    const reloaded = await loadTokens(ctx.app, projectId);
+    for (const [name, token] of reloaded) tokens.set(name, token);
+
     const blocked = await mustNode(
-      await postNode(ctx.app, projectId, tokens, '汇合节点', 'block', { reason: '等齐' }),
+      await postNode(ctx.app, projectId, tokens, '其他', 'block', { reason: '等齐' }),
     );
     remember(tokens, blocked);
-    const skipRefused = await postNode(ctx.app, projectId, tokens, '汇合节点', 'skip');
+    const skipRefused = await postNode(ctx.app, projectId, tokens, '其他', 'skip');
     const skipBody = await expectRefusal(skipRefused, 409, 'not_applicable_block');
     expect(skipBody.error).toBe('不适用节点不能挂主阻塞事项');
-    expect(await statusOf(ctx.sql, projectId, '汇合节点')).toBe('blocked');
+    expect(await statusOf(ctx.sql, projectId, '其他')).toBe('blocked');
 
-    const lifted = await mustNode(
-      await postNode(ctx.app, projectId, tokens, '汇合节点', 'unblock'),
-    );
+    const lifted = await mustNode(await postNode(ctx.app, projectId, tokens, '其他', 'unblock'));
     remember(tokens, lifted);
-    const rolled = await mustNode(
-      await postNode(ctx.app, projectId, tokens, '汇合节点', 'rollback'),
-    );
+    const rolled = await mustNode(await postNode(ctx.app, projectId, tokens, '其他', 'rollback'));
     expect(rolled.node.status).toBe('not_reached');
     remember(tokens, rolled);
-    const skipped = await mustNode(await postNode(ctx.app, projectId, tokens, '汇合节点', 'skip'));
+    const skipped = await mustNode(await postNode(ctx.app, projectId, tokens, '其他', 'skip'));
     expect(skipped.node.status).toBe('not_applicable');
     remember(tokens, skipped);
 
-    const cleared = await mustNode(
-      await postNode(ctx.app, projectId, tokens, '汇合节点', 'rollback'),
-    );
+    const cleared = await mustNode(await postNode(ctx.app, projectId, tokens, '其他', 'rollback'));
     expect(cleared.node.status).toBe('not_reached');
-    remember(tokens, cleared);
+  }, 30_000);
 
-    const skippedAgain = await mustNode(
-      await postNode(ctx.app, projectId, tokens, '汇合节点', 'skip'),
-    );
-    remember(tokens, skippedAgain);
-    const moved = await mustNode(
-      await postNode(ctx.app, projectId, tokens, 'A-roll 拍摄', 'advance'),
-    );
-    remember(tokens, moved);
-    const rollback = await postNode(ctx.app, projectId, tokens, '汇合节点', 'rollback');
-    const rollbackBody = await expectRefusal(rollback, 409, 'successors_advanced', ['A-roll 拍摄']);
-    expect(rollbackBody.error).toBe(successorRefusalMessage(['A-roll 拍摄']));
-    expect(await statusOf(ctx.sql, projectId, '汇合节点')).toBe('not_applicable');
+  test('rolling a predecessor back returns the merge node to waiting', async () => {
+    const ctx = await ready();
+    if (!ctx) return;
+    const { projectId, tokens } = ctx;
+    await completeThrough(ctx, ['询单', '大纲', '文案', '预拍摄']);
+    expect(await statusOf(ctx.sql, projectId, '汇合节点')).toBe('completed');
+
+    const rolled = await mustNode(await postNode(ctx.app, projectId, tokens, '文案', 'rollback'));
+    expect(rolled.node.status).toBe('in_progress');
+    expect(await statusOf(ctx.sql, projectId, '汇合节点')).toBe('not_reached');
+
+    const refused = await postNode(ctx.app, projectId, tokens, 'A-roll 拍摄', 'advance');
+    await expectRefusal(refused, 409, 'predecessors_incomplete', ['文案']);
   }, 30_000);
 
   test('rollback is refused when a successor has moved, and succeeds while successors are untouched', async () => {
@@ -575,7 +563,12 @@ async function loadTokens(app: App, projectId: string): Promise<Tokens> {
   const res = await app.request(`/api/v1/commercial/projects/${projectId}/workflow`);
   expect(res.status).toBe(200);
   const graph = parseCommercialProjectWorkflow(await res.json());
-  return new Map(graph.nodes.map((node) => [node.name, node]));
+  return new Map(
+    graph.nodes.map((node) => [
+      node.name,
+      { id: node.id, updatedAt: node.updatedAt, status: node.status, kind: node.kind },
+    ]),
+  );
 }
 
 function remember(tokens: Tokens, body: CommercialNodeWriteResponse): void {
@@ -583,6 +576,7 @@ function remember(tokens: Tokens, body: CommercialNodeWriteResponse): void {
     id: body.node.id,
     updatedAt: body.node.updatedAt,
     status: body.node.status,
+    kind: body.node.kind,
   });
 }
 
@@ -640,6 +634,7 @@ async function completeThrough(
   for (const name of names) {
     const current = ctx.tokens.get(name);
     if (!current) throw new Error(`missing node ${name}`);
+    if (current.kind === 'merge') continue;
     if (current.status === 'not_reached') {
       const advanced = await mustNode(
         await postNode(ctx.app, ctx.projectId, ctx.tokens, name, 'advance'),

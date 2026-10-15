@@ -29,6 +29,7 @@ import type { Sql } from '@studio/db';
 import {
   blockingPredecessorNames,
   blockingSuccessorNames,
+  derivedMergeStatus,
   normalizeBlockReason,
   notApplicableBlockRefusal,
   predecessorRefusalMessage,
@@ -227,12 +228,39 @@ function toEngine(graph: Graph): { nodes: EngineNode[]; edges: EngineEdge[] } {
       id: node.id,
       name: node.name,
       status: asStatus(node.status),
+      kind: node.kind === 'merge' ? 'merge' : 'stage',
     })),
     edges: graph.edges.map((edge) => ({
       fromNodeId: edge.from_node_id,
       toNodeId: edge.to_node_id,
     })),
   };
+}
+
+function assertOperable(node: DbNode): void {
+  if (node.kind === 'merge') {
+    refuse(409, 'invalid_transition', '汇合节点由前置节点推导，不能直接操作');
+  }
+}
+
+async function syncDerivedMerges(tx: Tx, projectId: string): Promise<void> {
+  const graph = await loadGraph(tx, projectId);
+  const engine = toEngine(graph);
+  for (const node of graph.nodes) {
+    if (node.kind !== 'merge') continue;
+    const desired = derivedMergeStatus(node.id, engine.nodes, engine.edges);
+    if (asStatus(node.status) === desired) continue;
+    const updated = await updateNode(tx, projectId, node, {
+      status: desired,
+      statusBeforeBlock: null,
+      primaryBlockItemId: null,
+      clearCompletedAt: desired !== 'completed',
+    });
+    await audit(tx, projectId, 'wf_node', node.id, 'derive_merge', {
+      from: node.status,
+      to: updated.status,
+    });
+  }
 }
 
 function toSnapshot(node: DbNode): CommercialNodeSnapshot {
@@ -368,6 +396,7 @@ async function advanceNode(
   await requireProject(tx, projectId);
   const graph = await loadGraph(tx, projectId);
   const node = requireNode(graph, nodeId);
+  assertOperable(node);
   assertToken(node.updated_at, expectedUpdatedAt);
   const status = asStatus(node.status);
   if (status === 'blocked') refuse(409, 'invalid_transition', '阻塞中的节点要先解除阻塞');
@@ -384,6 +413,7 @@ async function advanceNode(
     clearCompletedAt: false,
   });
   await audit(tx, projectId, 'wf_node', nodeId, 'advance', { from: status, to: 'in_progress' });
+  await syncDerivedMerges(tx, projectId);
   return nodeResponse(tx, projectId, updated);
 }
 
@@ -396,6 +426,7 @@ async function completeNode(
   await requireProject(tx, projectId);
   const graph = await loadGraph(tx, projectId);
   const node = requireNode(graph, nodeId);
+  assertOperable(node);
   assertToken(node.updated_at, expectedUpdatedAt);
   if (isPublishNode(node)) {
     refuse(400, 'publish_required', '完成发布节点必须在同一事务中记录发布信息');
@@ -410,6 +441,7 @@ async function completeNode(
     clearCompletedAt: false,
   });
   await audit(tx, projectId, 'wf_node', nodeId, 'complete', { from: status, to: 'completed' });
+  await syncDerivedMerges(tx, projectId);
   return nodeResponse(tx, projectId, updated);
 }
 
@@ -422,6 +454,7 @@ async function skipNode(
   await requireProject(tx, projectId);
   const graph = await loadGraph(tx, projectId);
   const node = requireNode(graph, nodeId);
+  assertOperable(node);
   assertToken(node.updated_at, expectedUpdatedAt);
   const pinRefusal = notApplicableBlockRefusal(node.primary_block_pinned_item_id !== null);
   if (pinRefusal) refuse(409, 'not_applicable_block', pinRefusal);
@@ -436,6 +469,7 @@ async function skipNode(
     clearCompletedAt: true,
   });
   await audit(tx, projectId, 'wf_node', nodeId, 'skip', { from: status, to: 'not_applicable' });
+  await syncDerivedMerges(tx, projectId);
   return nodeResponse(tx, projectId, updated);
 }
 
@@ -448,6 +482,7 @@ async function rollbackNode(
   await requireProject(tx, projectId);
   const graph = await loadGraph(tx, projectId);
   const node = requireNode(graph, nodeId);
+  assertOperable(node);
   assertToken(node.updated_at, expectedUpdatedAt);
   const engine = toEngine(graph);
   const names = blockingSuccessorNames(nodeId, engine.nodes, engine.edges);
@@ -464,6 +499,7 @@ async function rollbackNode(
     clearCompletedAt: true,
   });
   await audit(tx, projectId, 'wf_node', nodeId, 'rollback', { from: status, to: target });
+  await syncDerivedMerges(tx, projectId);
   return nodeResponse(tx, projectId, updated);
 }
 
@@ -476,6 +512,7 @@ async function blockNode(
   await requireProject(tx, projectId);
   const graph = await loadGraph(tx, projectId);
   const node = requireNode(graph, nodeId);
+  assertOperable(node);
   assertToken(node.updated_at, input.expectedUpdatedAt);
   const status = asStatus(node.status);
   if (status !== 'in_progress') refuse(409, 'invalid_transition', '只能阻塞进行中的节点');
@@ -520,6 +557,7 @@ async function blockNode(
     reason,
     openItemId: pinId,
   });
+  await syncDerivedMerges(tx, projectId);
   return nodeResponse(tx, projectId, updated);
 }
 
@@ -532,6 +570,7 @@ async function unblockNode(
   await requireProject(tx, projectId);
   const graph = await loadGraph(tx, projectId);
   const node = requireNode(graph, nodeId);
+  assertOperable(node);
   assertToken(node.updated_at, expectedUpdatedAt);
   const status = asStatus(node.status);
   if (status !== 'blocked') refuse(409, 'invalid_transition', '该节点当前不是阻塞状态');
@@ -543,6 +582,7 @@ async function unblockNode(
     clearCompletedAt: restored !== 'completed',
   });
   await audit(tx, projectId, 'wf_node', nodeId, 'unblock', { from: status, to: restored });
+  await syncDerivedMerges(tx, projectId);
   return nodeResponse(tx, projectId, updated);
 }
 
@@ -625,6 +665,7 @@ async function closeItem(
     WHERE id = ${itemId} AND project_id = ${projectId}
   `;
   const liftedNodes = await liftPinnedBlocks(tx, projectId, itemId);
+  await syncDerivedMerges(tx, projectId);
   await audit(tx, projectId, 'open_item', itemId, 'close', { closeConclusion: conclusion });
   const saved = await lockItem(tx, projectId, itemId);
   if (!saved) refuse(404, 'not_found', '开放事项不存在');
@@ -650,6 +691,7 @@ async function cancelItem(
     WHERE id = ${itemId} AND project_id = ${projectId}
   `;
   const liftedNodes = await liftPinnedBlocks(tx, projectId, itemId);
+  await syncDerivedMerges(tx, projectId);
   await audit(tx, projectId, 'open_item', itemId, 'cancel', {});
   const saved = await lockItem(tx, projectId, itemId);
   if (!saved) refuse(404, 'not_found', '开放事项不存在');
@@ -775,6 +817,7 @@ async function publishNode(
   }
   const graph = await loadGraph(tx, projectId);
   const node = requireNode(graph, nodeId);
+  assertOperable(node);
   if (!isPublishNode(node)) refuse(409, 'invalid_transition', '只有发布节点可以记录发布');
   if (byProject) {
     const bundle = await loadPublishBundle(tx, projectId, node);
@@ -840,6 +883,7 @@ async function publishNode(
       status: 'pending',
     });
   }
+  await syncDerivedMerges(tx, projectId);
   const bundle = await loadPublishBundle(tx, projectId, updated);
   return { ...bundle, idempotentReplay: false };
 }

@@ -16,6 +16,7 @@ const handleClass =
 
 export function WorkflowFlowNode({ data, id }: NodeProps<Node<WorkflowFlowNodeData>>) {
   const { wfNode, expanded, selected, onNodeActivate, editor } = data;
+  const isMerge = wfNode.kind === 'merge';
   const cardRef = useRef<HTMLDivElement>(null);
   const updateNodeInternals = useUpdateNodeInternals();
 
@@ -37,26 +38,32 @@ export function WorkflowFlowNode({ data, id }: NodeProps<Node<WorkflowFlowNodeDa
       <Handle type="target" position={Position.Top} id="target" className={handleClass} />
       <Card
         className={cn(
-          'w-[11rem] cursor-pointer border-2 shadow-sm transition-shadow',
-          workflowNodeStatusClass(wfNode.status),
-          (expanded || selected) && 'ring-2 ring-ring/40',
+          'w-[11rem] border-2 shadow-sm transition-shadow',
+          isMerge
+            ? 'cursor-default border-zinc-300 bg-background text-foreground'
+            : cn('cursor-pointer', workflowNodeStatusClass(wfNode.status)),
+          !isMerge && (expanded || selected) && 'ring-2 ring-ring/40',
         )}
         data-workflow-node={wfNode.id}
-        data-workflow-status={wfNode.status}
+        data-workflow-kind={wfNode.kind ?? 'stage'}
+        {...(isMerge ? {} : { 'data-workflow-status': wfNode.status })}
         data-blocking-reason={wfNode.blockingReason ?? undefined}
         onClick={(event) => {
           event.stopPropagation();
+          if (isMerge) return;
           onNodeActivate?.(id);
         }}
       >
         <CardContent className="p-2">
           <p className="text-sm font-semibold leading-snug text-foreground">{wfNode.name}</p>
-          <p
-            className={cn('text-xs font-medium', workflowNodeStatusTextClass(wfNode.status))}
-            data-testid={`workflow-node-status-${wfNode.id}`}
-          >
-            {workflowNodeStatusLabel(wfNode.status)}
-          </p>
+          {isMerge ? null : (
+            <p
+              className={cn('text-xs font-medium', workflowNodeStatusTextClass(wfNode.status))}
+              data-testid={`workflow-node-status-${wfNode.id}`}
+            >
+              {workflowNodeStatusLabel(wfNode.status)}
+            </p>
+          )}
           {expanded ? (
             <div className="mt-2 space-y-2 text-xs text-foreground/85">
               {wfNode.plannedDateLabel ? <p>计划：{wfNode.plannedDateLabel}</p> : null}

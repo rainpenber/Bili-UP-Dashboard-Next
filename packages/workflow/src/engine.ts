@@ -1,7 +1,8 @@
 /**
  * Commercial workflow rules (WP-004R2-3A). Pure functions: no I/O.
- * Every node uses the same predecessor and rollback rules. Node kind is not
- * an input, so no node type can take a different path.
+ * Stage nodes share one predecessor and rollback path. A merge node is not
+ * operated: it is satisfied exactly when its predecessors are, and that derived
+ * status is what successors see.
  */
 
 export const ENGINE_NODE_STATUSES = [
@@ -14,9 +15,20 @@ export const ENGINE_NODE_STATUSES = [
 
 export type EngineNodeStatus = (typeof ENGINE_NODE_STATUSES)[number];
 
+export type EngineNodeKind = 'stage' | 'merge';
+
 export type EngineNode = {
   id: string;
   name: string;
+  status: EngineNodeStatus;
+  /** Absent means stage. Only `merge` changes predecessor and successor rules. */
+  kind?: EngineNodeKind;
+};
+
+export type PredecessorCompletionStep = {
+  id: string;
+  name: string;
+  /** Status to act on: not_reached is advanced then completed; in_progress is completed. */
   status: EngineNodeStatus;
 };
 
@@ -36,6 +48,68 @@ function indexPredecessors(edges: readonly EngineEdge[]): Map<string, string[]> 
     else map.set(edge.toNodeId, [edge.fromNodeId]);
   }
   return map;
+}
+
+function indexSuccessors(edges: readonly EngineEdge[]): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const edge of edges) {
+    const list = map.get(edge.fromNodeId);
+    if (list) list.push(edge.toNodeId);
+    else map.set(edge.fromNodeId, [edge.toNodeId]);
+  }
+  return map;
+}
+
+function isMerge(node: EngineNode): boolean {
+  return node.kind === 'merge';
+}
+
+/**
+ * A merge node is satisfied when every direct predecessor is satisfied.
+ * not_applicable is transparent, and a merge predecessor is satisfied by the
+ * same rule rather than by its stored status.
+ */
+function mergeSatisfied(
+  nodeId: string,
+  byId: ReadonlyMap<string, EngineNode>,
+  predecessors: ReadonlyMap<string, readonly string[]>,
+  stack: Set<string>,
+): boolean {
+  if (stack.has(nodeId)) return false;
+  stack.add(nodeId);
+  const incoming = predecessors.get(nodeId) ?? [];
+  const ok = incoming.every((predId) => predecessorSatisfied(predId, byId, predecessors, stack));
+  stack.delete(nodeId);
+  return ok;
+}
+
+function predecessorSatisfied(
+  nodeId: string,
+  byId: ReadonlyMap<string, EngineNode>,
+  predecessors: ReadonlyMap<string, readonly string[]>,
+  stack: Set<string>,
+): boolean {
+  const node = byId.get(nodeId);
+  if (!node) return false;
+  if (isMerge(node)) return mergeSatisfied(nodeId, byId, predecessors, stack);
+  if (node.status === 'completed') return true;
+  if (node.status === 'not_applicable') {
+    const incoming = predecessors.get(nodeId) ?? [];
+    if (incoming.length === 0) return true;
+    return incoming.every((predId) => predecessorSatisfied(predId, byId, predecessors, stack));
+  }
+  return false;
+}
+
+/** Stored status a merge node should have. Waiting stays not_reached; satisfied is completed. */
+export function derivedMergeStatus(
+  nodeId: string,
+  nodes: readonly EngineNode[],
+  edges: readonly EngineEdge[],
+): 'completed' | 'not_reached' {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const predecessors = indexPredecessors(edges);
+  return mergeSatisfied(nodeId, byId, predecessors, new Set()) ? 'completed' : 'not_reached';
 }
 
 /**
@@ -60,8 +134,9 @@ export function blockingPredecessorNames(
     for (const predId of predecessors.get(id) ?? []) {
       const pred = byId.get(predId);
       if (!pred || emitted.has(pred.id)) continue;
-      if (pred.status === 'completed') continue;
-      if (pred.status === 'not_applicable') {
+      if (!isMerge(pred) && pred.status === 'completed') continue;
+      if (pred.status === 'not_applicable' || isMerge(pred)) {
+        if (isMerge(pred) && mergeSatisfied(pred.id, byId, predecessors, new Set())) continue;
         visit(pred.id, stack);
         continue;
       }
@@ -75,24 +150,71 @@ export function blockingPredecessorNames(
   return names;
 }
 
-/** Direct successors that are no longer not_reached. No skip passthrough. */
+/**
+ * Successors that are no longer not_reached.
+ * A merge successor is not itself "advanced": the nodes after it are checked instead,
+ * so rolling a predecessor back can return the merge to waiting while a moved
+ * downstream stage still blocks the rollback.
+ */
 export function blockingSuccessorNames(
   nodeId: string,
   nodes: readonly EngineNode[],
   edges: readonly EngineEdge[],
 ): string[] {
   const byId = new Map(nodes.map((node) => [node.id, node]));
+  const successors = indexSuccessors(edges);
   const seen = new Set<string>();
   const names: string[] = [];
-  for (const edge of edges) {
-    if (edge.fromNodeId !== nodeId) continue;
-    const successor = byId.get(edge.toNodeId);
-    if (!successor || seen.has(successor.id)) continue;
-    seen.add(successor.id);
-    if (successor.status === 'not_reached') continue;
-    names.push(successor.name);
-  }
+
+  const visit = (id: string) => {
+    for (const succId of successors.get(id) ?? []) {
+      const successor = byId.get(succId);
+      if (!successor || seen.has(successor.id)) continue;
+      seen.add(successor.id);
+      if (isMerge(successor)) {
+        visit(successor.id);
+        continue;
+      }
+      if (successor.status === 'not_reached') continue;
+      names.push(successor.name);
+    }
+  };
+
+  visit(nodeId);
   return names;
+}
+
+/**
+ * Unfinished stage nodes that must be advanced and completed before `targetId`
+ * can advance. Upstream nodes come first so each advance sees its own
+ * predecessors already satisfied. Merge nodes are omitted; their status is derived.
+ */
+export function predecessorCompletionPlan(
+  targetId: string,
+  nodes: readonly EngineNode[],
+  edges: readonly EngineEdge[],
+): PredecessorCompletionStep[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const predecessors = indexPredecessors(edges);
+  const seen = new Set<string>();
+  const steps: PredecessorCompletionStep[] = [];
+
+  const walk = (id: string) => {
+    if (seen.has(id)) return;
+    const node = byId.get(id);
+    if (!node) return;
+    seen.add(id);
+    if (isMerge(node) || node.status === 'not_applicable') {
+      for (const predId of predecessors.get(id) ?? []) walk(predId);
+      return;
+    }
+    if (node.status === 'completed') return;
+    for (const predId of predecessors.get(id) ?? []) walk(predId);
+    steps.push({ id: node.id, name: node.name, status: node.status });
+  };
+
+  for (const predId of predecessors.get(targetId) ?? []) walk(predId);
+  return steps;
 }
 
 export function predecessorRefusalMessage(names: readonly string[]): string {

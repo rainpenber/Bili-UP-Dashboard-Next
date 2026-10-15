@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import {
   blockingPredecessorNames,
   blockingSuccessorNames,
+  derivedMergeStatus,
   normalizeBlockReason,
+  predecessorCompletionPlan,
   notApplicableBlockRefusal,
   predecessorRefusalMessage,
   resolvePublishBvid,
@@ -13,8 +14,13 @@ import {
   type EngineNode,
 } from './engine';
 
-function node(id: string, name: string, status: EngineNode['status']): EngineNode {
-  return { id, name, status };
+function node(
+  id: string,
+  name: string,
+  status: EngineNode['status'],
+  kind?: EngineNode['kind'],
+): EngineNode {
+  return kind ? { id, name, status, kind } : { id, name, status };
 }
 
 const copy = '文案';
@@ -237,7 +243,76 @@ describe('publish bvid', () => {
   });
 });
 
-test('engine source does not branch on node kind', () => {
-  const source = readFileSync(new URL('./engine.ts', import.meta.url), 'utf8');
-  expect(source.includes('merge')).toBe(false);
+describe('derived merge status', () => {
+  const edges = fanInEdges();
+
+  test('a merge waits until every predecessor is completed', () => {
+    const waiting = [
+      node('copy', copy, 'completed'),
+      node('pre', preShoot, 'in_progress'),
+      node('join', '汇合节点', 'not_reached', 'merge'),
+    ];
+    expect(derivedMergeStatus('join', waiting, edges)).toBe('not_reached');
+    expect(blockingPredecessorNames('a', waiting, edges)).toEqual([preShoot]);
+  });
+
+  test('a satisfied merge counts as completed for its successors even if the stored status is still waiting', () => {
+    const ready = [
+      node('copy', copy, 'completed'),
+      node('pre', preShoot, 'not_applicable'),
+      node('join', '汇合节点', 'not_reached', 'merge'),
+      node('a', aRoll, 'not_reached'),
+    ];
+    expect(derivedMergeStatus('join', ready, edges)).toBe('completed');
+    expect(blockingPredecessorNames('a', ready, edges)).toEqual([]);
+  });
+
+  test('rolling a predecessor back returns the merge to waiting and names the moved downstream stage', () => {
+    const rolled = [
+      node('copy', copy, 'not_reached'),
+      node('pre', preShoot, 'completed'),
+      node('join', '汇合节点', 'completed', 'merge'),
+      node('a', aRoll, 'not_reached'),
+      node('b', bRoll, 'not_reached'),
+      node('ai', aiPost, 'not_reached'),
+    ];
+    expect(derivedMergeStatus('join', rolled, edges)).toBe('not_reached');
+    expect(blockingSuccessorNames('copy', rolled, edges)).toEqual([]);
+
+    const moved = rolled.map((item) =>
+      item.id === 'a' ? { ...item, status: 'in_progress' as const } : item,
+    );
+    expect(blockingSuccessorNames('copy', moved, edges)).toEqual([aRoll]);
+  });
+});
+
+describe('predecessor completion plan', () => {
+  test('orders a chain upstream first and then the nearer predecessor', () => {
+    const nodes = [
+      node('inq', '询单', 'not_reached'),
+      node('outline', '大纲', 'not_reached'),
+      node('copy', copy, 'not_reached'),
+    ];
+    const edges: EngineEdge[] = [
+      { fromNodeId: 'inq', toNodeId: 'outline' },
+      { fromNodeId: 'outline', toNodeId: 'copy' },
+    ];
+    expect(predecessorCompletionPlan('copy', nodes, edges).map((step) => step.name)).toEqual([
+      '询单',
+      '大纲',
+    ]);
+  });
+
+  test('names both unfinished branches and skips a merge', () => {
+    const nodes = [
+      node('copy', copy, 'not_reached'),
+      node('pre', preShoot, 'in_progress'),
+      node('join', '汇合节点', 'not_reached', 'merge'),
+      node('a', aRoll, 'not_reached'),
+    ];
+    expect(predecessorCompletionPlan('a', nodes, fanInEdges())).toEqual([
+      { id: 'copy', name: copy, status: 'not_reached' },
+      { id: 'pre', name: preShoot, status: 'in_progress' },
+    ]);
+  });
 });

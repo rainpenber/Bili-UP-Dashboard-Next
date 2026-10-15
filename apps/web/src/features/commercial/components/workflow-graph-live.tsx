@@ -54,7 +54,10 @@ export function WorkflowGraphLive({
         <WorkflowGraphCanvasProvider
           graph={graph}
           selectedNodeId={selectedNodeId}
-          onSelectNode={setSelectedNodeId}
+          onSelectNode={(id) => {
+            if (id && nodes.get(id)?.kind === 'merge') return;
+            setSelectedNodeId(id);
+          }}
         />
         <aside
           className="rounded-lg border bg-card p-4 text-sm"
