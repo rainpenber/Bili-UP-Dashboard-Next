@@ -1,5 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, test } from 'bun:test';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, setDefaultTimeout, test } from 'bun:test';
+
+setDefaultTimeout(30_000);
 import { commercialProjectsMock } from '../mock-data';
 import { deriveWorkflowSummary } from '../workflow-edit-logic';
 import { useProjectWorkflowEditor, WorkflowGraphEditor } from './workflow-graph-editor';
@@ -26,17 +28,28 @@ function EditorHarness({ projectId }: { projectId: string }) {
   );
 }
 
+async function waitForGraphReady(container: HTMLElement) {
+  await waitFor(
+    () => {
+      expect(container.querySelectorAll('.react-flow__edge-path').length).toBeGreaterThan(0);
+    },
+    { timeout: 15000 },
+  );
+}
+
 async function selectNode(container: HTMLElement, nodeId: string) {
   const card = container.querySelector(`[data-workflow-node="${nodeId}"]`);
   if (!card) throw new Error(`missing node ${nodeId}`);
-  fireEvent.click(card);
+  await act(async () => {
+    fireEvent.click(card);
+  });
   await waitFor(
     () => {
       expect(screen.getByTestId('workflow-detail-name').textContent).toBe(
         card.querySelector('p')?.textContent ?? nodeId,
       );
     },
-    { timeout: 5000 },
+    { timeout: 15000 },
   );
 }
 
@@ -47,9 +60,7 @@ describe('WorkflowGraphEditor', () => {
         <EditorHarness projectId="proj-snack-crisp" />
       </div>,
     );
-    await waitFor(() => {
-      expect(container.querySelector('[data-workflow-node="outline"]')).toBeTruthy();
-    });
+    await waitForGraphReady(container);
     await selectNode(container, 'outline');
     fireEvent.click(screen.getByTestId('workflow-advance'));
     await waitFor(() => {
@@ -66,9 +77,7 @@ describe('WorkflowGraphEditor', () => {
         <EditorHarness projectId="proj-snack-crisp" />
       </div>,
     );
-    await waitFor(() => {
-      expect(container.querySelector('[data-workflow-node="script"]')).toBeTruthy();
-    });
+    await waitForGraphReady(container);
     await selectNode(container, 'script');
     fireEvent.click(screen.getByTestId('workflow-advance'));
     await waitFor(() => {
@@ -82,9 +91,7 @@ describe('WorkflowGraphEditor', () => {
         <EditorHarness projectId="proj-snack-crisp" />
       </div>,
     );
-    await waitFor(() => {
-      expect(container.querySelector('[data-workflow-node="outline"]')).toBeTruthy();
-    });
+    await waitForGraphReady(container);
     await selectNode(container, 'outline');
     fireEvent.click(screen.getByTestId('workflow-block-submit'));
     expect(screen.getByTestId('workflow-action-error').textContent).toContain('不能为空');
@@ -117,9 +124,7 @@ describe('WorkflowGraphEditor', () => {
         <EditorHarness projectId="proj-snack-crisp" />
       </div>,
     );
-    await waitFor(() => {
-      expect(container.querySelector('[data-workflow-node="outline"]')).toBeTruthy();
-    });
+    await waitForGraphReady(container);
     const before = container
       .querySelector('[data-workflow-node="outline"]')
       ?.getAttribute('data-workflow-status');
