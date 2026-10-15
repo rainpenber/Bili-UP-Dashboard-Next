@@ -13,6 +13,14 @@ const TERMINAL_ROW_IDS = new Set(['settle', 'distribute', 'data-care', 'other'])
 
 type EdgePair = { from: string; to: string };
 
+function edgeSet(edges: EdgePair[]): Set<string> {
+  return new Set(edges.map((e) => `${e.from}->${e.to}`));
+}
+
+function expectSameEdgeSet(actual: EdgePair[], expected: EdgePair[]) {
+  expect(edgeSet(actual)).toEqual(edgeSet(expected));
+}
+
 function parseRenderedEdges(container: HTMLElement): EdgePair[] {
   return [...container.querySelectorAll('.react-flow__edge[aria-label]')].map((el) => {
     const label = el.getAttribute('aria-label') ?? '';
@@ -62,7 +70,7 @@ describe('WorkflowGraphReadonly render', () => {
     const layout = layoutWorkflowGraph(project.workflow);
     const declared = declaredRealEdges(project.workflow.steps);
     expect(declared.some((e) => e.from === 'script' && e.to === 'prop')).toBe(true);
-    expect(layout.edges).toEqual(declared);
+    expectSameEdgeSet(collapseRoutingEdges(layout.edges), declared);
 
     const { container } = render(
       <div style={{ width: 1280, height: 900 }}>
@@ -72,7 +80,9 @@ describe('WorkflowGraphReadonly render', () => {
 
     await waitFor(
       () => {
-        expect(container.querySelectorAll('.react-flow__edge-path').length).toBe(declared.length);
+        expect(container.querySelectorAll('.react-flow__edge-path').length).toBe(
+          layout.edges.length,
+        );
       },
       { timeout: 8000 },
     );
@@ -81,7 +91,8 @@ describe('WorkflowGraphReadonly render', () => {
       container,
       layout.nodes.map((n) => n.id),
     );
-    const renderedKeys = new Set(rendered.map((e) => `${e.from}->${e.to}`));
+    const renderedLogical = collapseRoutingEdges(rendered);
+    const renderedKeys = new Set(renderedLogical.map((e) => `${e.from}->${e.to}`));
     for (const e of declared) {
       expect(renderedKeys.has(`${e.from}->${e.to}`)).toBe(true);
     }
@@ -105,7 +116,9 @@ describe('WorkflowGraphReadonly render', () => {
       );
       await waitFor(
         () => {
-          expect(container.querySelectorAll('.react-flow__edge-path').length).toBe(declared.length);
+          expect(container.querySelectorAll('.react-flow__edge-path').length).toBe(
+            layout.edges.length,
+          );
         },
         { timeout: 5000 },
       );
@@ -114,7 +127,8 @@ describe('WorkflowGraphReadonly render', () => {
         container,
         layout.nodes.map((n) => n.id),
       );
-      const renderedKeys = new Set(rendered.map((e) => `${e.from}->${e.to}`));
+      const renderedLogical = collapseRoutingEdges(rendered);
+      const renderedKeys = new Set(renderedLogical.map((e) => `${e.from}->${e.to}`));
       for (const e of declared) {
         expect(renderedKeys.has(`${e.from}->${e.to}`)).toBe(true);
       }

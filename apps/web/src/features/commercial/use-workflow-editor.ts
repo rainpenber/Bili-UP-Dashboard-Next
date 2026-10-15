@@ -1,15 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { WorkflowGraph } from './types';
+import type { WorkflowGraph, WorkflowGraphNode } from './types';
 import {
-  advanceWorkflowNode,
+  applyTransitionCompletingPredecessors,
+  attemptWorkflowTransition,
   blockWorkflowNode,
   clearWorkflowBlock,
   cloneWorkflowGraph,
   rollbackWorkflowNode,
   type WorkflowEditResult,
+  type WorkflowTransitionKind,
 } from './workflow-edit-logic';
 
 const MAX_HISTORY = 64;
+
+export type PredecessorConfirmPrompt = {
+  nodeId: string;
+  transition: WorkflowTransitionKind;
+  blockers: WorkflowGraphNode[];
+};
 
 function applyResult(
   result: WorkflowEditResult,
@@ -34,6 +42,7 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
   const [future, setFuture] = useState<WorkflowGraph[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [predecessorPrompt, setPredecessorPrompt] = useState<PredecessorConfirmPrompt | null>(null);
 
   useEffect(() => {
     setGraph(cloneWorkflowGraph(initialGraph));
@@ -41,6 +50,7 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
     setFuture([]);
     setSelectedNodeId(null);
     setActionError(null);
+    setPredecessorPrompt(null);
   }, [initialGraph]);
 
   const pushHistory = useCallback((snapshot: WorkflowGraph) => {
@@ -55,6 +65,7 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
       setGraph((current) => {
         setFuture((f) => [cloneWorkflowGraph(current), ...f]);
         setActionError(null);
+        setPredecessorPrompt(null);
         return cloneWorkflowGraph(previous);
       });
       return p.slice(0, -1);
@@ -68,6 +79,7 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
       setGraph((current) => {
         setPast((p) => [...p, cloneWorkflowGraph(current)]);
         setActionError(null);
+        setPredecessorPrompt(null);
         return cloneWorkflowGraph(next);
       });
       return f.slice(1);
@@ -77,11 +89,52 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
   const canUndo = past.length > 0;
   const canRedo = future.length > 0;
 
-  const advance = useCallback(
-    (nodeId: string) => {
-      applyResult(advanceWorkflowNode(graph, nodeId), setGraph, setActionError, pushHistory, graph);
+  const runTransition = useCallback(
+    (nodeId: string, transition: WorkflowTransitionKind) => {
+      const attempt = attemptWorkflowTransition(graph, nodeId, transition);
+      if (attempt.status === 'applied') {
+        pushHistory(graph);
+        setGraph(attempt.graph);
+        setActionError(null);
+        setPredecessorPrompt(null);
+        return;
+      }
+      if (attempt.status === 'needs_predecessors') {
+        setPredecessorPrompt({ nodeId, transition, blockers: attempt.blockers });
+        setActionError(null);
+        return;
+      }
+      setActionError(attempt.message);
+      setPredecessorPrompt(null);
     },
     [graph, pushHistory],
+  );
+
+  const confirmPredecessorsAndContinue = useCallback(() => {
+    if (!predecessorPrompt) return;
+    const { nodeId, transition } = predecessorPrompt;
+    applyResult(
+      applyTransitionCompletingPredecessors(graph, nodeId, transition),
+      setGraph,
+      setActionError,
+      pushHistory,
+      graph,
+    );
+    setPredecessorPrompt(null);
+  }, [graph, predecessorPrompt, pushHistory]);
+
+  const cancelPredecessorPrompt = useCallback(() => {
+    setPredecessorPrompt(null);
+  }, []);
+
+  const startProgress = useCallback(
+    (nodeId: string) => runTransition(nodeId, 'start'),
+    [runTransition],
+  );
+
+  const completeNode = useCallback(
+    (nodeId: string) => runTransition(nodeId, 'complete'),
+    [runTransition],
   );
 
   const rollback = useCallback(
@@ -93,6 +146,7 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
         pushHistory,
         graph,
       );
+      setPredecessorPrompt(null);
     },
     [graph, pushHistory],
   );
@@ -141,7 +195,8 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
       graph,
       selectedNodeId,
       setSelectedNodeId,
-      advance,
+      startProgress,
+      completeNode,
       rollback,
       block,
       clearBlock,
@@ -151,11 +206,15 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
       canRedo,
       actionError,
       clearActionError: () => setActionError(null),
+      predecessorPrompt,
+      confirmPredecessorsAndContinue,
+      cancelPredecessorPrompt,
     }),
     [
       graph,
       selectedNodeId,
-      advance,
+      startProgress,
+      completeNode,
       rollback,
       block,
       clearBlock,
@@ -164,6 +223,9 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
       canUndo,
       canRedo,
       actionError,
+      predecessorPrompt,
+      confirmPredecessorsAndContinue,
+      cancelPredecessorPrompt,
     ],
   );
 }

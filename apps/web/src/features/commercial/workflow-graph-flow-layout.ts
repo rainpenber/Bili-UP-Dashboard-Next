@@ -1,6 +1,11 @@
 import dagre from '@dagrejs/dagre';
 import { Position, type Edge, type Node } from '@xyflow/react';
 import type { WorkflowGraph, WorkflowGraphNode, WorkflowGraphStep } from './types';
+import {
+  applyDisplayJunctions,
+  type DisplayJunction,
+  type WorkflowJunctionNodeData,
+} from './workflow-graph-junctions';
 
 export const LAYOUT_NODE_WIDTH = 176;
 export const LAYOUT_NODE_HEIGHT = 44;
@@ -26,6 +31,7 @@ export interface PlacedWorkflowNode {
 export interface WorkflowGraphLayout {
   nodes: PlacedWorkflowNode[];
   edges: LayoutEdge[];
+  junctions: DisplayJunction[];
   width: number;
   height: number;
   axisCenterX: number;
@@ -241,6 +247,7 @@ export function alignWorkflowLayout(layout: WorkflowGraphLayout): WorkflowGraphL
   return {
     nodes,
     edges: layout.edges,
+    junctions: layout.junctions,
     width: Math.max(maxX + pad, LAYOUT_NODE_WIDTH + pad * 2),
     height: maxY + pad,
     axisCenterX: axisX + dx,
@@ -311,22 +318,34 @@ export function layoutWorkflowGraph(graph: WorkflowGraph): WorkflowGraphLayout {
   const raw: WorkflowGraphLayout = {
     nodes: placed,
     edges: collapseRoutingEdges(edges),
+    junctions: [],
     width: Math.max(maxX - minX, LAYOUT_NODE_WIDTH) + 48,
     height: maxY + 48,
     axisCenterX,
   };
-  return alignWorkflowLayout(raw);
+  return applyDisplayJunctions(alignWorkflowLayout(raw));
 }
+
+export type WorkflowNodeEditorActions = {
+  onStart?: () => void;
+  onComplete?: () => void;
+  onRollback?: () => void;
+  onBlock?: (reason: string) => void;
+  onClearBlock?: () => void;
+  blockReasonDraft?: string;
+  setBlockReasonDraft?: (value: string) => void;
+};
 
 export type WorkflowFlowNodeData = {
   wfNode: WorkflowGraphNode;
   expanded: boolean;
   selected?: boolean;
   onNodeActivate?: (nodeId: string) => void;
+  editor?: WorkflowNodeEditorActions;
 };
 
 export function toReactFlowElements(layout: WorkflowGraphLayout): {
-  nodes: Node<WorkflowFlowNodeData>[];
+  nodes: Array<Node<WorkflowFlowNodeData> | Node<WorkflowJunctionNodeData>>;
   edges: Edge[];
 } {
   const nodes: Node<WorkflowFlowNodeData>[] = layout.nodes.map((p) => ({
@@ -362,7 +381,40 @@ export function toReactFlowElements(layout: WorkflowGraphLayout): {
     ],
   }));
 
-  const nodeIds = new Set(nodes.map((n) => n.id));
+  const junctionNodes: Node<WorkflowJunctionNodeData>[] = layout.junctions.map((j) => ({
+    id: j.id,
+    type: 'workflowJunction',
+    position: { x: j.x - 6, y: j.y - 6 },
+    data: {},
+    draggable: false,
+    selectable: false,
+    connectable: true,
+    width: 12,
+    height: 12,
+    measured: { width: 12, height: 12 },
+    handles: [
+      {
+        id: 'target',
+        type: 'target',
+        position: Position.Top,
+        x: 6,
+        y: 0,
+        width: 1,
+        height: 1,
+      },
+      {
+        id: 'source',
+        type: 'source',
+        position: Position.Bottom,
+        x: 6,
+        y: 12,
+        width: 1,
+        height: 1,
+      },
+    ],
+  }));
+
+  const nodeIds = new Set([...nodes.map((n) => n.id), ...junctionNodes.map((n) => n.id)]);
   const edges: Edge[] = layout.edges
     .filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to))
     .map((e) => ({
@@ -371,12 +423,12 @@ export function toReactFlowElements(layout: WorkflowGraphLayout): {
       target: e.to,
       sourceHandle: 'source',
       targetHandle: 'target',
-      type: 'smoothstep',
+      type: 'default',
       animated: false,
       selectable: false,
       focusable: false,
       style: { strokeWidth: 1, stroke: 'var(--border)' },
     }));
 
-  return { nodes, edges };
+  return { nodes: [...nodes, ...junctionNodes], edges };
 }

@@ -1,19 +1,18 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import type { WorkflowGraph } from '../types';
 import { useWorkflowEditor } from '../use-workflow-editor';
-import { deriveWorkflowSummary, indexWorkflowNodes } from '../workflow-edit-logic';
+import { indexWorkflowNodes } from '../workflow-edit-logic';
 import { workflowNodeStatusLabel } from '../workflow-node-visual';
+import type { WorkflowNodeEditorActions } from '../workflow-graph-flow-layout';
 import { WorkflowGraphCanvasProvider } from './workflow-graph-canvas';
 
 const LEGEND = [
-  { label: '已完成', className: 'border-success/50 bg-success/15' },
-  { label: '进行中', className: 'border-warning/50 bg-warning/15' },
-  { label: '被卡住', className: 'border-destructive/50 bg-destructive/15' },
-  { label: '未到', className: 'border-border bg-muted/40' },
+  { label: '已完成', className: 'border-success bg-success/30' },
+  { label: '进行中', className: 'border-warning bg-warning/35' },
+  { label: '被卡住', className: 'border-destructive bg-destructive/25' },
+  { label: '未到', className: 'border-border bg-muted' },
 ] as const;
 
 export type WorkflowGraphEditorHandle = ReturnType<typeof useWorkflowEditor>;
@@ -22,22 +21,13 @@ export function useProjectWorkflowEditor(initialGraph: WorkflowGraph) {
   return useWorkflowEditor(initialGraph);
 }
 
-export function ProjectWorkflowSummaryFromGraph({ graph }: { graph: WorkflowGraph }) {
-  const summary = deriveWorkflowSummary(graph);
-  return (
-    <div data-testid="workflow-derived-summary" className="hidden" aria-hidden>
-      {summary.statusHeadline}|{summary.inProgressNodeNames.join(',')}|
-      {summary.blockingReason ?? ''}
-    </div>
-  );
-}
-
 export function WorkflowGraphEditor({ editor }: { editor: WorkflowGraphEditorHandle }) {
   const {
     graph,
     selectedNodeId,
     setSelectedNodeId,
-    advance,
+    startProgress,
+    completeNode,
     rollback,
     block,
     clearBlock,
@@ -47,10 +37,29 @@ export function WorkflowGraphEditor({ editor }: { editor: WorkflowGraphEditorHan
     canRedo,
     actionError,
     clearActionError,
+    predecessorPrompt,
+    confirmPredecessorsAndContinue,
+    cancelPredecessorPrompt,
   } = editor;
 
   const selectedNode = selectedNodeId ? indexWorkflowNodes(graph).get(selectedNodeId) : undefined;
   const [blockReasonDraft, setBlockReasonDraft] = useState('');
+
+  const buildNodeEditor = useCallback(
+    (nodeId: string): WorkflowNodeEditorActions | undefined => {
+      if (nodeId !== selectedNodeId) return undefined;
+      return {
+        onStart: () => startProgress(nodeId),
+        onComplete: () => completeNode(nodeId),
+        onRollback: () => rollback(nodeId),
+        onBlock: (reason) => block(nodeId, reason),
+        onClearBlock: () => clearBlock(nodeId),
+        blockReasonDraft,
+        setBlockReasonDraft,
+      };
+    },
+    [selectedNodeId, startProgress, completeNode, rollback, block, clearBlock, blockReasonDraft],
+  );
 
   return (
     <div className="space-y-4">
@@ -90,6 +99,37 @@ export function WorkflowGraphEditor({ editor }: { editor: WorkflowGraphEditorHan
           </li>
         ))}
       </ul>
+      {predecessorPrompt ? (
+        <div
+          className="rounded-md border border-warning/50 bg-warning/15 p-3 text-sm"
+          role="alertdialog"
+          data-testid="workflow-predecessor-confirm"
+        >
+          <p>
+            须先完成前置节点：
+            {predecessorPrompt.blockers.map((b) => b.name).join('、')}。是否一并标记完成并继续？
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={confirmPredecessorsAndContinue}
+              data-testid="workflow-predecessor-confirm-yes"
+            >
+              一并完成前置并继续
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={cancelPredecessorPrompt}
+              data-testid="workflow-predecessor-confirm-cancel"
+            >
+              取消
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {actionError ? (
         <p
           className="text-sm text-destructive"
@@ -100,91 +140,33 @@ export function WorkflowGraphEditor({ editor }: { editor: WorkflowGraphEditorHan
           {actionError}
         </p>
       ) : null}
-      <div className="grid gap-4 lg:grid-cols-[1fr_min(18rem,100%)]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_min(14rem,100%)]">
         <WorkflowGraphCanvasProvider
           graph={graph}
           selectedNodeId={selectedNodeId}
           onSelectNode={setSelectedNodeId}
+          buildNodeEditor={buildNodeEditor}
         />
         <aside
-          className="rounded-lg border bg-card p-4 text-sm"
+          className="rounded-lg border bg-card p-4 text-sm text-muted-foreground"
           data-testid="workflow-node-detail"
           aria-live="polite"
         >
           {selectedNode ? (
-            <div className="space-y-4">
-              <div>
-                <p className="text-base font-medium" data-testid="workflow-detail-name">
-                  {selectedNode.name}
-                </p>
-                <p className="text-muted-foreground" data-testid="workflow-detail-status">
-                  {workflowNodeStatusLabel(selectedNode.status)}
-                </p>
-                {selectedNode.blockingReason ? (
-                  <p
-                    className="mt-2 text-destructive"
-                    data-testid="workflow-detail-blocking-reason"
-                  >
-                    {selectedNode.blockingReason}
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => selectedNodeId && advance(selectedNodeId)}
-                  data-testid="workflow-advance"
-                >
-                  推进
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => selectedNodeId && rollback(selectedNodeId)}
-                  data-testid="workflow-rollback"
-                >
-                  回退
-                </Button>
-              </div>
-              {selectedNode.status === 'in_progress' ? (
-                <div className="space-y-2">
-                  <Label htmlFor="workflow-block-reason">标记阻塞</Label>
-                  <Input
-                    id="workflow-block-reason"
-                    value={blockReasonDraft}
-                    onChange={(e) => setBlockReasonDraft(e.target.value)}
-                    placeholder="必填：阻塞原因"
-                    data-testid="workflow-block-reason-input"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => {
-                      if (selectedNodeId) block(selectedNodeId, blockReasonDraft);
-                    }}
-                    data-testid="workflow-block-submit"
-                  >
-                    确认阻塞
-                  </Button>
-                </div>
-              ) : null}
-              {selectedNode.status === 'blocked' ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => selectedNodeId && clearBlock(selectedNodeId)}
-                  data-testid="workflow-clear-block"
-                >
-                  解除阻塞
-                </Button>
-              ) : null}
+            <div className="space-y-1">
+              <p
+                className="text-base font-medium text-foreground"
+                data-testid="workflow-detail-name"
+              >
+                {selectedNode.name}
+              </p>
+              <p data-testid="workflow-detail-status">
+                {workflowNodeStatusLabel(selectedNode.status)}
+              </p>
+              <p className="text-xs">在节点卡片内操作状态；此处仅作上下文说明。</p>
             </div>
           ) : (
-            <p className="text-muted-foreground">点击流程图中的节点，在此推进、回退或标记阻塞。</p>
+            <p>点击节点展开卡片，在卡片内切换进行中 / 完成或标记阻塞。</p>
           )}
         </aside>
       </div>

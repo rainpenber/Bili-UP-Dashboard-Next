@@ -68,31 +68,88 @@ function patchNode(
 export type WorkflowEditResult =
   { ok: true; graph: WorkflowGraph } | { ok: false; message: string };
 
-export function advanceWorkflowNode(graph: WorkflowGraph, nodeId: string): WorkflowEditResult {
+export type WorkflowTransitionKind = 'start' | 'complete';
+
+export type WorkflowTransitionAttempt =
+  | { status: 'applied'; graph: WorkflowGraph }
+  | {
+      status: 'needs_predecessors';
+      transition: WorkflowTransitionKind;
+      blockers: WorkflowGraphNode[];
+    }
+  | { status: 'rejected'; message: string };
+
+function markPredecessorsDone(graph: WorkflowGraph, nodeId: string) {
+  for (const blocker of predecessorsNotDone(nodeId, graph)) {
+    patchNode(graph, blocker.id, { status: 'done' });
+  }
+}
+
+export function attemptWorkflowTransition(
+  graph: WorkflowGraph,
+  nodeId: string,
+  transition: WorkflowTransitionKind,
+): WorkflowTransitionAttempt {
   const next = cloneWorkflowGraph(graph);
+  const nodes = indexWorkflowNodes(next);
+  const node = nodes.get(nodeId);
+  if (!node) return { status: 'rejected', message: '找不到该节点。' };
+  if (node.status === 'blocked') {
+    return { status: 'rejected', message: '该节点处于阻塞状态，请先解除阻塞。' };
+  }
+  if (transition === 'start') {
+    if (node.status !== 'not_reached') {
+      return { status: 'rejected', message: '该节点已在进行或已完成。' };
+    }
+  } else if (node.status !== 'in_progress') {
+    return { status: 'rejected', message: '只有进行中的节点可以标记完成。' };
+  }
+
+  const blockers = predecessorsNotDone(nodeId, next);
+  if (blockers.length > 0) {
+    return { status: 'needs_predecessors', transition, blockers };
+  }
+
+  if (transition === 'start') {
+    patchNode(next, nodeId, { status: 'in_progress' });
+  } else {
+    patchNode(next, nodeId, { status: 'done' });
+  }
+  return { status: 'applied', graph: next };
+}
+
+export function applyTransitionCompletingPredecessors(
+  graph: WorkflowGraph,
+  nodeId: string,
+  transition: WorkflowTransitionKind,
+): WorkflowEditResult {
+  const next = cloneWorkflowGraph(graph);
+  markPredecessorsDone(next, nodeId);
   const nodes = indexWorkflowNodes(next);
   const node = nodes.get(nodeId);
   if (!node) return { ok: false, message: '找不到该节点。' };
   if (node.status === 'blocked') {
-    return { ok: false, message: '该节点处于阻塞状态，请先解除阻塞再推进。' };
+    return { ok: false, message: '该节点处于阻塞状态，请先解除阻塞。' };
   }
-  if (node.status === 'done') {
-    return { ok: false, message: '该节点已完成，无法继续推进。' };
-  }
-  const blockers = predecessorsNotDone(nodeId, next);
-  if (blockers.length > 0) {
-    const names = blockers.map((b) => b.name).join('、');
-    return {
-      ok: false,
-      message: `须先完成前置节点：${names}（当前未完成）。`,
-    };
-  }
-  if (node.status === 'not_reached') {
+  if (transition === 'start') {
+    if (node.status !== 'not_reached') return { ok: false, message: '该节点已在进行或已完成。' };
     patchNode(next, nodeId, { status: 'in_progress' });
-    return { ok: true, graph: next };
+  } else {
+    if (node.status !== 'in_progress')
+      return { ok: false, message: '只有进行中的节点可以标记完成。' };
+    patchNode(next, nodeId, { status: 'done' });
   }
-  patchNode(next, nodeId, { status: 'done' });
   return { ok: true, graph: next };
+}
+
+/** @deprecated use attemptWorkflowTransition */
+export function advanceWorkflowNode(graph: WorkflowGraph, nodeId: string): WorkflowEditResult {
+  const attempt = attemptWorkflowTransition(graph, nodeId, 'start');
+  if (attempt.status === 'applied') return { ok: true, graph: attempt.graph };
+  if (attempt.status === 'needs_predecessors') {
+    return applyTransitionCompletingPredecessors(graph, nodeId, 'start');
+  }
+  return { ok: false, message: attempt.message };
 }
 
 export function rollbackWorkflowNode(graph: WorkflowGraph, nodeId: string): WorkflowEditResult {

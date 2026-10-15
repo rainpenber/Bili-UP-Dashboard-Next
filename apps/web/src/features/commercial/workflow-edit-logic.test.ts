@@ -1,16 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 import { createProjectWorkflow } from './workflow-graph-canonical';
-import { advanceWorkflowNode, blockWorkflowNode } from './workflow-edit-logic';
+import { attemptWorkflowTransition, blockWorkflowNode } from './workflow-edit-logic';
 
 describe('workflow edit logic', () => {
-  test('advance respects predecessor completion', () => {
+  test('start transition prompts when predecessors are not done', () => {
     const graph = createProjectWorkflow({
       inq: { status: 'done' },
       outline: { status: 'in_progress' },
     });
-    const result = advanceWorkflowNode(graph, 'script');
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toContain('大纲');
+    const result = attemptWorkflowTransition(graph, 'script', 'start');
+    expect(result.status).toBe('needs_predecessors');
+    if (result.status === 'needs_predecessors') {
+      expect(result.blockers.some((n) => n.name.includes('大纲'))).toBe(true);
+    }
   });
 
   test('block requires non-empty reason', () => {

@@ -105,7 +105,12 @@ describe('workflow flow layout geometry', () => {
     expect(keys.has('script->br')).toBe(true);
     expect(keys.has('pre-shoot->ai')).toBe(true);
     expect(collapsed.some((e) => e.from.includes('__') || e.to.includes('__'))).toBe(false);
-    expect(layoutWorkflowGraph(project.workflow).edges).toEqual(collapsed);
+    const layout = layoutWorkflowGraph(project.workflow);
+    expect(layout.edges.some((e) => e.from === '__display_junction_prep_prod__')).toBe(true);
+    const logical = collapseRoutingEdges(layout.edges);
+    expect(new Set(logical.map((e) => `${e.from}->${e.to}`))).toEqual(
+      new Set(collapsed.map((e) => `${e.from}->${e.to}`)),
+    );
   });
 
   test('early-stage project still contains grey wind-down nodes', () => {

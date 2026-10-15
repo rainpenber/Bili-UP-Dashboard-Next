@@ -3,13 +3,13 @@ import type { WorkflowNodeStatus } from './types';
 export function workflowNodeStatusClass(status: WorkflowNodeStatus): string {
   switch (status) {
     case 'done':
-      return 'border-success/50 bg-success/15 text-success-foreground';
+      return 'border-success bg-success/30 text-foreground';
     case 'in_progress':
-      return 'border-warning/50 bg-warning/15 text-warning-foreground';
+      return 'border-warning bg-warning/35 text-foreground';
     case 'blocked':
-      return 'border-destructive/50 bg-destructive/15 text-destructive-foreground';
+      return 'border-destructive bg-destructive/25 text-foreground';
     default:
-      return 'border-border bg-muted/40 text-muted-foreground';
+      return 'border-border bg-muted text-foreground';
   }
 }
 

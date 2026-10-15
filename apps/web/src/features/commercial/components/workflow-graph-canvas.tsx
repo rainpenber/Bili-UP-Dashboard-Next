@@ -9,28 +9,36 @@ import {
   type NodeMouseHandler,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { WorkflowGraph } from '../types';
-import { layoutWorkflowGraph, toReactFlowElements } from '../workflow-graph-flow-layout';
+import {
+  layoutWorkflowGraph,
+  toReactFlowElements,
+  type WorkflowNodeEditorActions,
+} from '../workflow-graph-flow-layout';
 import { WorkflowFlowNode } from './workflow-flow-node';
+import { WorkflowJunctionNode } from './workflow-junction-node';
 
-const nodeTypes = { workflowNode: WorkflowFlowNode };
+const nodeTypes = { workflowNode: WorkflowFlowNode, workflowJunction: WorkflowJunctionNode };
 
 const defaultEdgeOptions = {
-  type: 'smoothstep' as const,
+  type: 'default' as const,
   style: { strokeWidth: 1, stroke: 'var(--border)' },
 };
 
 const FIT_VIEW_MIN_ZOOM = 0.85;
 
-function FitViewOnLoad({ layoutHeight, edgeCount }: { layoutHeight: number; edgeCount: number }) {
+function FitViewOnce({ fitKey }: { fitKey: string }) {
   const { fitView } = useReactFlow();
+  const fittedKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    if (fittedKeyRef.current === fitKey) return;
+    fittedKeyRef.current = fitKey;
     const t = window.setTimeout(() => {
       void fitView({ padding: 0.1, maxZoom: 1.25, minZoom: FIT_VIEW_MIN_ZOOM });
     }, 80);
     return () => window.clearTimeout(t);
-  }, [fitView, layoutHeight, edgeCount]);
+  }, [fitKey, fitView]);
   return null;
 }
 
@@ -38,13 +46,17 @@ export function WorkflowGraphCanvas({
   graph,
   selectedNodeId,
   onSelectNode,
+  buildNodeEditor,
 }: {
   graph: WorkflowGraph;
   selectedNodeId: string | null;
   onSelectNode: (id: string | null) => void;
+  buildNodeEditor?: (nodeId: string) => WorkflowNodeEditorActions | undefined;
 }) {
   const layout = useMemo(() => layoutWorkflowGraph(graph), [graph]);
   const elements = useMemo(() => toReactFlowElements(layout), [layout]);
+  const fitKey = `${layout.width}x${layout.height}x${layout.edges.length}x${layout.junctions.length}`;
+
   const activateNode = useCallback(
     (nodeId: string) => {
       onSelectNode(selectedNodeId === nodeId ? null : nodeId);
@@ -54,16 +66,20 @@ export function WorkflowGraphCanvas({
 
   const decorateNodes = useCallback(
     (base: typeof elements.nodes) =>
-      base.map((n) => ({
-        ...n,
-        data: {
-          ...n.data,
-          expanded: n.id === selectedNodeId,
-          selected: n.id === selectedNodeId,
-          onNodeActivate: activateNode,
-        },
-      })),
-    [activateNode, selectedNodeId],
+      base.map((n) => {
+        if (n.type === 'workflowJunction') return n;
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            expanded: n.id === selectedNodeId,
+            selected: n.id === selectedNodeId,
+            onNodeActivate: activateNode,
+            editor: buildNodeEditor?.(n.id),
+          },
+        };
+      }),
+    [activateNode, buildNodeEditor, selectedNodeId],
   );
 
   const decoratedNodes = useMemo(
@@ -83,6 +99,7 @@ export function WorkflowGraphCanvas({
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_evt, node) => {
+      if (node.type === 'workflowJunction') return;
       activateNode(node.id);
     },
     [activateNode],
@@ -96,6 +113,7 @@ export function WorkflowGraphCanvas({
     <div
       className="h-[720px] min-h-[680px] w-full overflow-hidden rounded-lg border bg-muted/10"
       style={{ maxWidth: '100%' }}
+      data-testid="workflow-graph-canvas"
     >
       <ReactFlow
         nodes={nodes}
@@ -117,7 +135,7 @@ export function WorkflowGraphCanvas({
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={16} size={1} />
-        <FitViewOnLoad layoutHeight={layout.height} edgeCount={edges.length} />
+        <FitViewOnce fitKey={fitKey} />
       </ReactFlow>
     </div>
   );
@@ -127,6 +145,7 @@ export function WorkflowGraphCanvasProvider(props: {
   graph: WorkflowGraph;
   selectedNodeId: string | null;
   onSelectNode: (id: string | null) => void;
+  buildNodeEditor?: (nodeId: string) => WorkflowNodeEditorActions | undefined;
 }) {
   return (
     <ReactFlowProvider>
