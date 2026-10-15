@@ -17,6 +17,8 @@ import {
 } from '@studio/contracts';
 import type { Sql } from '@studio/db';
 import { Hono } from 'hono';
+import { COMMERCIAL_UPDATED_AT_FORMAT } from './commercial-timestamp';
+import { registerCommercialWriteRoutes } from './commercial-write';
 
 const DEFAULT_FLOW_SLUG = 'default_sponsorship';
 
@@ -152,8 +154,15 @@ export function createCommercialRoutes(db: Sql) {
       `;
       const workflow = workflows[0];
       if (!workflow) return c.json({ error: 'workflow not found' }, 404);
-      const nodes = await db<{ id: string; name: string; status: string; kind: string }[]>`
-        SELECT id, name, status, kind
+      const nodes = await db<
+        { id: string; name: string; status: string; kind: string; updated_at: string }[]
+      >`
+        SELECT
+          id,
+          name,
+          status,
+          kind,
+          to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
         FROM wf_nodes
         WHERE workflow_id = ${workflow.id}
         ORDER BY pos_y, pos_x, id
@@ -176,6 +185,7 @@ export function createCommercialRoutes(db: Sql) {
             name: node.name,
             status: nodeStatus(node.status),
             kind: nodeKind(node.kind),
+            updatedAt: node.updated_at,
           })),
           edges: edges.map((edge) => ({
             id: edge.id,
@@ -338,5 +348,6 @@ export function createCommercialRoutes(db: Sql) {
     }
   });
 
+  registerCommercialWriteRoutes(app, db);
   return app;
 }

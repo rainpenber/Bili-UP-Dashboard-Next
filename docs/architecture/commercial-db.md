@@ -1,4 +1,4 @@
-# 商单域数据库与只读 API（WP-004R2-2）
+# 商单域数据库与流程 API（WP-004R2-2 / WP-004R2-3A）
 
 聚合根是 **`commercial_projects`**。流程实例上的节点、边、制作包、开放事项都带项目归属，并用复合外键拦住跨项目引用。
 
@@ -39,18 +39,28 @@
 
 ## 只读 API
 
-响应形状在 `@studio/contracts`。没有写接口。
+响应形状在 `@studio/contracts`。流程图节点带 `updatedAt`，这是写入时要原样交回的并发令牌。
 
 | 方法 | 路径                                              | 内容                                               |
 | ---- | ------------------------------------------------- | -------------------------------------------------- |
 | GET  | `/api/v1/commercial/projects`                     | 名称、到手金额、返点金额、当前阶段、是否有节点阻塞 |
 | GET  | `/api/v1/commercial/projects/:projectId`          | 金额、当前阶段、阻塞原因、发布状态                 |
-| GET  | `/api/v1/commercial/projects/:projectId/workflow` | 节点（状态 + 种类）与边                            |
+| GET  | `/api/v1/commercial/projects/:projectId/workflow` | 节点（状态、种类、updatedAt）与边                  |
 | GET  | `/api/v1/commercial/templates/default`            | 已发布的默认流程模板及其图                         |
 
 金额是 `numeric(14,2)` 的十进制字符串。`overallStage` 是项目上存储的阶段。`currentStageNames` 是状态为 `in_progress` 或 `blocked` 的节点名，按 `pos_y`、`pos_x`、`id` 排序；没有进行中或阻塞节点时为空数组。`blockingReason` 取仍开放且 `impact = blocking`、并且钉在阻塞节点上或 `blocks_node_id` 指向阻塞节点的事项标题；优先被钉住的事项，其次 `sort_rank`、创建时间、`id`。没有这样的事项时为 `null`。
 
 图和模板节点按 `pos_y`、`pos_x`、`id` 排列。项目列表按 `created_at`、`id` 排列。
+
+## 写入 API（WP-004R2-3A）
+
+规则在 `packages/workflow`，不按节点种类分叉。汇合节点就是普通节点。推进到 `in_progress` 时，直接前驱必须是 `completed` 或 `not_applicable`；`not_applicable` 会递归换成它自己的前驱。回退要求每个直接后继仍是 `not_reached`。拒绝是 409，并点名挡住的节点。
+
+阻塞原因可空。空白不会插入开放事项。`status_before_block` 保存阻塞前状态。钉住的 `impact = blocking` 事项被关闭或取消时，同一事务解除阻塞。
+
+完成「发布」节点必须在同一事务写入 `project_publish_records`、`project_monitor_contracts`，以及该项目各一条 `metadata` / `metrics` 的 `monitor_jobs`（`pending`，不执行）。幂等靠 `idempotency_key` 和 `UNIQUE (project_id, job_type)`。监控标识是已有的 `bvid`。请求可以带视频链接，链接里的 BV 号写入 `bvid`；平台只接受 `bilibili`，因为表上没有平台列。
+
+每次写入一个事务，和 `domain_audit_events` 一起提交。并发令牌是 `updated_at`。违反数据库约束时返回 409，消息来自约束本身。路径见 [WP-004R2-3A](../../work-packages/WP-004R2-3A-commercial-workflow-engine.md)。
 
 ## 本地核对
 

@@ -4,3 +4,18 @@ export {
   type SponsorshipStageInput,
   resolveSponsorshipStage,
 } from './sponsorship-stage';
+export {
+  ENGINE_NODE_STATUSES,
+  type EngineNodeStatus,
+  type EngineNode,
+  type EngineEdge,
+  type PublishBvidResolution,
+  blockingPredecessorNames,
+  blockingSuccessorNames,
+  predecessorRefusalMessage,
+  successorRefusalMessage,
+  rollbackTargetStatus,
+  normalizeBlockReason,
+  notApplicableBlockRefusal,
+  resolvePublishBvid,
+} from './engine';
