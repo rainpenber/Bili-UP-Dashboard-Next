@@ -30,8 +30,38 @@ export interface WorkflowGraphNode {
 export type WorkflowGraphStep =
   { kind: 'serial'; node: WorkflowGraphNode } | { kind: 'parallel'; nodes: WorkflowGraphNode[] };
 
+/** Explicit directed edge between two real workflow nodes (no routing/junction ids). */
+export interface WorkflowConnection {
+  from: string;
+  to: string;
+}
+
 export interface WorkflowGraph {
   steps: WorkflowGraphStep[];
+  /**
+   * When set, layout and structural editing use these edges instead of step-derived
+   * connectivity. Status-only edits leave this unset so the original step DAG layout
+   * is unchanged.
+   */
+  connections?: WorkflowConnection[];
+}
+
+export interface DefaultFlowPublishedVersion {
+  id: string;
+  version: number;
+  publishedAtLabel: string;
+  graph: WorkflowGraph;
+}
+
+export interface DefaultFlowWorkspace {
+  title: string;
+  description: string;
+  draft: WorkflowGraph;
+  /** Last saved draft snapshot (may equal draft). */
+  savedDraft: WorkflowGraph;
+  publishedVersions: DefaultFlowPublishedVersion[];
+  /** Currently viewed published version id, or null when editing the draft. */
+  viewingVersionId: string | null;
 }
 
 export type ProjectListBucket =

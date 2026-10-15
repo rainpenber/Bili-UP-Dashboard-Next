@@ -289,8 +289,20 @@ export function alignWorkflowLayout(layout: WorkflowGraphLayout): WorkflowGraphL
   };
 }
 
-export function layoutWorkflowGraph(graph: WorkflowGraph): WorkflowGraphLayout {
-  const { nodes: nodeMap, edges } = buildWorkflowDag(graph.steps);
+function collectRealNodes(graph: WorkflowGraph): Map<string, WorkflowGraphNode> {
+  const nodes = new Map<string, WorkflowGraphNode>();
+  for (const step of graph.steps) {
+    if (step.kind === 'serial') nodes.set(step.node.id, step.node);
+    else for (const n of step.nodes) nodes.set(n.id, n);
+  }
+  return nodes;
+}
+
+function layoutFromNodeMapAndEdges(
+  nodeMap: Map<string, WorkflowGraphNode>,
+  edges: LayoutEdge[],
+  displayEdges: LayoutEdge[],
+): WorkflowGraphLayout {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({
@@ -352,13 +364,36 @@ export function layoutWorkflowGraph(graph: WorkflowGraph): WorkflowGraphLayout {
 
   const raw: WorkflowGraphLayout = {
     nodes: placed,
-    edges: collapseRoutingEdges(edges),
+    edges: displayEdges,
     junctions: [],
     width: Math.max(maxX - minX, LAYOUT_NODE_WIDTH) + 48,
     height: maxY + 48,
     axisCenterX,
   };
   return applyDisplayJunctions(alignWorkflowLayout(raw));
+}
+
+export function layoutWorkflowGraph(graph: WorkflowGraph): WorkflowGraphLayout {
+  if (graph.connections) {
+    const nodeMap = collectRealNodes(graph);
+    const displayEdges = dedupeLayoutEdges(
+      graph.connections
+        .filter((c) => nodeMap.has(c.from) && nodeMap.has(c.to))
+        .map((c) => ({ from: c.from, to: c.to })),
+    );
+    const layoutEdges: LayoutEdge[] = [];
+    const hasIncoming = new Set(displayEdges.map((e) => e.to));
+    const hasOutgoing = new Set(displayEdges.map((e) => e.from));
+    for (const id of nodeMap.keys()) {
+      if (!hasIncoming.has(id)) layoutEdges.push({ from: SOURCE, to: id });
+      if (!hasOutgoing.has(id)) layoutEdges.push({ from: id, to: SINK });
+    }
+    layoutEdges.push(...displayEdges);
+    return layoutFromNodeMapAndEdges(nodeMap, layoutEdges, displayEdges);
+  }
+
+  const { nodes: nodeMap, edges } = buildWorkflowDag(graph.steps);
+  return layoutFromNodeMapAndEdges(nodeMap, edges, collapseRoutingEdges(edges));
 }
 
 export type WorkflowNodeEditorActions = {

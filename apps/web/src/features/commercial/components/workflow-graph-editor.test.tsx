@@ -89,7 +89,7 @@ describe('WorkflowGraphEditor', () => {
     });
   });
 
-  test('blocking requires reason and clearing removes it from DOM', async () => {
+  test('blocking with empty reason succeeds and renders no empty reason line', async () => {
     const { container } = render(
       <div style={{ width: 1280, height: 900 }}>
         <EditorHarness projectId="proj-snack-crisp" />
@@ -98,8 +98,35 @@ describe('WorkflowGraphEditor', () => {
     await waitForGraphReady(container);
     await selectNode(container, 'outline');
     fireEvent.click(screen.getByTestId('workflow-block-submit'));
-    expect(screen.getByTestId('workflow-action-error').textContent).toContain('不能为空');
+    await waitFor(() => {
+      expect(
+        container
+          .querySelector('[data-workflow-node="outline"]')
+          ?.getAttribute('data-workflow-status'),
+      ).toBe('blocked');
+    });
+    expect(screen.queryByTestId('workflow-action-error')).toBeNull();
+    expect(screen.queryByTestId('workflow-detail-blocking-reason')).toBeNull();
+    expect(screen.queryByTestId('summary-blocking-item')).toBeNull();
+    expect(screen.getByTestId('summary-status-text').textContent).not.toContain('阻塞原因：');
+    fireEvent.click(screen.getByTestId('workflow-clear-block'));
+    await waitFor(() => {
+      expect(
+        container
+          .querySelector('[data-workflow-node="outline"]')
+          ?.getAttribute('data-workflow-status'),
+      ).toBe('in_progress');
+    });
+  });
 
+  test('blocking with a filled reason shows on the node and in the summary card', async () => {
+    const { container } = render(
+      <div style={{ width: 1280, height: 900 }}>
+        <EditorHarness projectId="proj-snack-crisp" />
+      </div>,
+    );
+    await waitForGraphReady(container);
+    await selectNode(container, 'outline');
     fireEvent.change(screen.getByTestId('workflow-block-reason-input'), {
       target: { value: '等甲方确认口播' },
     });
@@ -110,15 +137,10 @@ describe('WorkflowGraphEditor', () => {
           .querySelector('[data-workflow-node="outline"]')
           ?.getAttribute('data-workflow-status'),
       ).toBe('blocked');
+      expect(screen.getByTestId('workflow-detail-blocking-reason').textContent).toContain(
+        '等甲方确认口播',
+      );
       expect(screen.getByTestId('summary-blocking-item').textContent).toContain('等甲方确认口播');
-    });
-    fireEvent.click(screen.getByTestId('workflow-clear-block'));
-    await waitFor(() => {
-      expect(
-        container
-          .querySelector('[data-workflow-node="outline"]')
-          ?.getAttribute('data-workflow-status'),
-      ).toBe('in_progress');
     });
   });
 

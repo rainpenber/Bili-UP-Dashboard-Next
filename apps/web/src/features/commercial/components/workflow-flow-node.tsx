@@ -97,7 +97,7 @@ export function WorkflowFlowNode({ data, id }: NodeProps<Node<WorkflowFlowNodeDa
                       <Input
                         value={editor.blockReasonDraft ?? ''}
                         onChange={(e) => editor.setBlockReasonDraft?.(e.target.value)}
-                        placeholder="阻塞原因（必填）"
+                        placeholder="阻塞原因（可选）"
                         className="h-7 text-xs"
                         data-testid="workflow-block-reason-input"
                       />

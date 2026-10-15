@@ -1,0 +1,76 @@
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { resetDefaultFlowWorkspaceForTests } from '../default-flow-store';
+import { DefaultFlowEditor } from './default-flow-editor';
+
+setDefaultTimeout(30_000);
+
+beforeEach(() => {
+  resetDefaultFlowWorkspaceForTests();
+});
+
+afterEach(() => cleanup());
+
+async function waitForGraphReady(container: HTMLElement) {
+  await waitFor(
+    () => {
+      expect(container.querySelectorAll('.react-flow__edge-path').length).toBeGreaterThan(0);
+    },
+    { timeout: 15000 },
+  );
+}
+
+describe('DefaultFlowEditor', () => {
+  test('publishing a version keeps the previous version viewable', async () => {
+    const { container } = render(
+      <div style={{ width: 1280, height: 900 }}>
+        <DefaultFlowEditor />
+      </div>,
+    );
+    await waitForGraphReady(container);
+
+    expect(screen.getByTestId('default-flow-demo-notice').textContent).toContain('演示数据');
+    expect(screen.getByTestId('default-flow-demo-notice').textContent).toContain('不会静默改写');
+    expect(screen.getByTestId('default-flow-version-1')).toBeTruthy();
+
+    fireEvent.change(screen.getByTestId('workflow-add-node-name'), {
+      target: { value: '发布后回访' },
+    });
+    fireEvent.click(screen.getByTestId('workflow-add-node'));
+    await waitFor(() => {
+      expect(
+        [...container.querySelectorAll('[data-workflow-node]')].some((el) =>
+          el.textContent?.includes('发布后回访'),
+        ),
+      ).toBe(true);
+    });
+
+    fireEvent.click(screen.getByTestId('default-flow-publish'));
+    await waitFor(() => {
+      expect(screen.getByTestId('default-flow-version-2')).toBeTruthy();
+      expect(screen.getByTestId('default-flow-publish-notice').textContent).toContain('已有项目');
+    });
+
+    fireEvent.click(screen.getByTestId('default-flow-view-version-1'));
+    await waitFor(() => {
+      expect(screen.getByTestId('default-flow-version-view')).toBeTruthy();
+    });
+    await waitForGraphReady(container);
+    expect(
+      [...container.querySelectorAll('[data-workflow-node]')].some((el) =>
+        el.textContent?.includes('发布后回访'),
+      ),
+    ).toBe(false);
+
+    fireEvent.click(screen.getByTestId('default-flow-view-version-2'));
+    await waitFor(() => {
+      expect(screen.getByTestId('default-flow-version-view').textContent).toContain('v2');
+    });
+    await waitForGraphReady(container);
+    expect(
+      [...container.querySelectorAll('[data-workflow-node]')].some((el) =>
+        el.textContent?.includes('发布后回访'),
+      ),
+    ).toBe(true);
+  });
+});
