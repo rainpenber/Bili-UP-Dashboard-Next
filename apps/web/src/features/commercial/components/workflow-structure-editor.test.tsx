@@ -61,7 +61,7 @@ async function selectNode(container: HTMLElement, nodeId: string) {
 }
 
 describe('WorkflowGraphEditor structural editing', () => {
-  test('add node appears in DOM and connection list; undo restores structure', async () => {
+  test('add node appears in DOM without changing the connection list; undo restores structure', async () => {
     const { container } = render(
       <div style={{ width: 1280, height: 900 }}>
         <EditorHarness projectId="proj-snack-crisp" />
@@ -70,6 +70,7 @@ describe('WorkflowGraphEditor structural editing', () => {
     await waitForGraphReady(container);
     const beforeNodes = renderedNodeIds(container);
     const beforeEdges = parseRenderedEdges(container);
+    const beforeList = connectionListPairs().map((c) => `${c.from}->${c.to}`);
 
     fireEvent.change(screen.getByTestId('workflow-add-node-name'), {
       target: { value: '样片预审' },
@@ -86,8 +87,12 @@ describe('WorkflowGraphEditor structural editing', () => {
       ).toBe(true);
     });
 
+    const afterList = connectionListPairs().map((c) => `${c.from}->${c.to}`);
+    expect(afterList).toEqual(beforeList);
     const afterAddEdges = parseRenderedEdges(container);
-    expect(afterAddEdges.length).toBeGreaterThan(beforeEdges.length);
+    expect(new Set(afterAddEdges.map((e) => `${e.from}->${e.to}`))).toEqual(
+      new Set(beforeEdges.map((e) => `${e.from}->${e.to}`)),
+    );
 
     fireEvent.click(screen.getByTestId('workflow-undo'));
     await waitFor(() => {
@@ -105,6 +110,7 @@ describe('WorkflowGraphEditor structural editing', () => {
           el.textContent?.includes('样片预审'),
         ),
       ).toBe(true);
+      expect(connectionListPairs().map((c) => `${c.from}->${c.to}`)).toEqual(beforeList);
     });
   });
 
@@ -194,21 +200,7 @@ describe('WorkflowGraphEditor structural editing', () => {
       el.textContent?.includes('独立节点'),
     )!;
     const customId = customCard.getAttribute('data-workflow-node')!;
-
-    // Disconnect sink→new edges so we can assert a fresh connect.
-    for (const pair of connectionListPairs().filter((c) => c.to === customId)) {
-      fireEvent.change(screen.getByTestId('workflow-connect-from'), {
-        target: { value: pair.from },
-      });
-      fireEvent.change(screen.getByTestId('workflow-connect-to'), {
-        target: { value: customId },
-      });
-      fireEvent.click(screen.getByTestId('workflow-disconnect'));
-    }
-
-    await waitFor(() => {
-      expect(parseRenderedEdges(container).some((e) => e.to === customId)).toBe(false);
-    });
+    expect(connectionListPairs().some((c) => c.from === customId || c.to === customId)).toBe(false);
 
     fireEvent.change(screen.getByTestId('workflow-connect-from'), {
       target: { value: 'inq' },

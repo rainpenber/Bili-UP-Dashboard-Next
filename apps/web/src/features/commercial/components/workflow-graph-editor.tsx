@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -68,6 +68,15 @@ export function WorkflowGraphEditor({
 
   const nodeOptions = useMemo(() => [...indexWorkflowNodes(graph).values()], [graph]);
   const connections = useMemo(() => listWorkflowConnections(graph), [graph]);
+
+  // Keep a previously recorded reason visible when reopening that node's controls.
+  useEffect(() => {
+    if (!selectedNode) {
+      setBlockReasonDraft('');
+      return;
+    }
+    setBlockReasonDraft(selectedNode.blockingReason ?? '');
+  }, [selectedNodeId, selectedNode?.blockingReason, selectedNode?.status]);
 
   const buildNodeEditor = useCallback(
     (nodeId: string): WorkflowNodeEditorActions | undefined => {
@@ -335,20 +344,57 @@ export function WorkflowGraphEditor({
           aria-live="polite"
         >
           {selectedNode ? (
-            <div className="space-y-1">
-              <p
-                className="text-base font-medium text-foreground"
-                data-testid="workflow-detail-name"
-              >
-                {selectedNode.name}
-              </p>
-              <p data-testid="workflow-detail-status">
-                {workflowNodeStatusLabel(selectedNode.status)}
-              </p>
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <p
+                  className="text-base font-medium text-foreground"
+                  data-testid="workflow-detail-name"
+                >
+                  {selectedNode.name}
+                </p>
+                <p data-testid="workflow-detail-status">
+                  {workflowNodeStatusLabel(selectedNode.status)}
+                </p>
+              </div>
+              {!structureOnly && selectedNode.status === 'in_progress' ? (
+                <div className="space-y-2 border-t border-border/60 pt-2">
+                  <label className="block space-y-1 text-xs">
+                    <span className="text-muted-foreground">阻塞原因（可选，可留空）</span>
+                    <Input
+                      value={blockReasonDraft}
+                      onChange={(e) => setBlockReasonDraft(e.target.value)}
+                      placeholder="阻塞原因（可选）"
+                      className="h-8 text-sm"
+                      data-testid="workflow-block-reason-input"
+                      aria-label="阻塞原因（可选）"
+                    />
+                  </label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    className="h-8 w-full text-xs"
+                    onClick={() => block(selectedNode.id, blockReasonDraft)}
+                    data-testid="workflow-block-submit"
+                  >
+                    标记阻塞
+                  </Button>
+                </div>
+              ) : null}
+              {!structureOnly &&
+              selectedNode.status === 'blocked' &&
+              selectedNode.blockingReason ? (
+                <p
+                  className="text-xs text-destructive"
+                  data-testid="workflow-aside-blocking-reason"
+                >
+                  {selectedNode.blockingReason}
+                </p>
+              ) : null}
               <p className="text-xs">
                 {structureOnly
                   ? '在左侧面板增删节点或调整连接；此处仅作上下文说明。'
-                  : '在节点卡片内操作状态；左侧可改结构。'}
+                  : '在节点卡片或本侧栏可标记阻塞；左侧可改结构。'}
               </p>
             </div>
           ) : (

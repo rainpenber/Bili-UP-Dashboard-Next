@@ -55,6 +55,22 @@ describe('workflow structure logic', () => {
     }
   });
 
+  test('adding a node does not create any connections', () => {
+    const base = createProjectWorkflow();
+    const before = listWorkflowConnections(base);
+    const added = addWorkflowNode(base, '样片预审');
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    expect(listWorkflowConnections(added.graph)).toEqual(before);
+    expect(
+      listWorkflowConnections(added.graph).some((c) => {
+        const nodes = added.graph.steps.flatMap((s) => (s.kind === 'serial' ? [s.node] : s.nodes));
+        const neu = nodes.find((n) => n.name === '样片预审');
+        return neu != null && (c.from === neu.id || c.to === neu.id);
+      }),
+    ).toBe(false);
+  });
+
   test('connect and disconnect mutate the connection set', () => {
     const base = createProjectWorkflow();
     const added = addWorkflowNode(base, '样片预审');
@@ -64,22 +80,20 @@ describe('workflow structure logic', () => {
       .flatMap((s) => (s.kind === 'serial' ? [s.node] : s.nodes))
       .find((n) => n.name === '样片预审')!.id;
 
-    // New node hangs off terminal sinks; detach one sink edge then attach from 审核.
-    const fromSink = listWorkflowConnections(added.graph).find((c) => c.to === newId)!;
-    const afterDisconnect = disconnectWorkflowNodes(added.graph, fromSink.from, newId);
+    const connected = connectWorkflowNodes(added.graph, 'rev', newId);
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    expect(
+      listWorkflowConnections(connected.graph).some((c) => c.from === 'rev' && c.to === newId),
+    ).toBe(true);
+
+    const afterDisconnect = disconnectWorkflowNodes(connected.graph, 'rev', newId);
     expect(afterDisconnect.ok).toBe(true);
     if (!afterDisconnect.ok) return;
     expect(
       listWorkflowConnections(afterDisconnect.graph).some(
-        (c) => c.from === fromSink.from && c.to === newId,
+        (c) => c.from === 'rev' && c.to === newId,
       ),
     ).toBe(false);
-
-    const reconnected = connectWorkflowNodes(afterDisconnect.graph, 'rev', newId);
-    expect(reconnected.ok).toBe(true);
-    if (!reconnected.ok) return;
-    expect(
-      listWorkflowConnections(reconnected.graph).some((c) => c.from === 'rev' && c.to === newId),
-    ).toBe(true);
   });
 });

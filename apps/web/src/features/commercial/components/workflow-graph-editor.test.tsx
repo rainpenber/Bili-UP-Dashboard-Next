@@ -97,6 +97,10 @@ describe('WorkflowGraphEditor', () => {
     );
     await waitForGraphReady(container);
     await selectNode(container, 'outline');
+    expect(screen.getByTestId('workflow-block-reason-input')).toBeTruthy();
+    expect(
+      (screen.getByTestId('workflow-block-reason-input') as HTMLInputElement).placeholder,
+    ).toContain('可选');
     fireEvent.click(screen.getByTestId('workflow-block-submit'));
     await waitFor(() => {
       expect(
@@ -107,6 +111,7 @@ describe('WorkflowGraphEditor', () => {
     });
     expect(screen.queryByTestId('workflow-action-error')).toBeNull();
     expect(screen.queryByTestId('workflow-detail-blocking-reason')).toBeNull();
+    expect(screen.queryByTestId('workflow-aside-blocking-reason')).toBeNull();
     expect(screen.queryByTestId('summary-blocking-item')).toBeNull();
     expect(screen.getByTestId('summary-status-text').textContent).not.toContain('阻塞原因：');
     fireEvent.click(screen.getByTestId('workflow-clear-block'));
@@ -127,6 +132,7 @@ describe('WorkflowGraphEditor', () => {
     );
     await waitForGraphReady(container);
     await selectNode(container, 'outline');
+    expect(screen.getByTestId('workflow-block-reason-input')).toBeTruthy();
     fireEvent.change(screen.getByTestId('workflow-block-reason-input'), {
       target: { value: '等甲方确认口播' },
     });
@@ -141,6 +147,18 @@ describe('WorkflowGraphEditor', () => {
         '等甲方确认口播',
       );
       expect(screen.getByTestId('summary-blocking-item').textContent).toContain('等甲方确认口播');
+    });
+
+    // Re-selecting the blocked node keeps the recorded reason visible in controls.
+    await selectNode(container, 'script');
+    await selectNode(container, 'outline');
+    await waitFor(() => {
+      expect(screen.getByTestId('workflow-detail-blocking-reason').textContent).toContain(
+        '等甲方确认口播',
+      );
+      expect(screen.getByTestId('workflow-aside-blocking-reason').textContent).toContain(
+        '等甲方确认口播',
+      );
     });
   });
 

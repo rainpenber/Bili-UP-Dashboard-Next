@@ -103,12 +103,6 @@ function nextCustomNodeId(graph: WorkflowGraph): string {
   return `custom-${i}`;
 }
 
-function terminalNodeIds(connections: WorkflowConnection[], nodeIds: Iterable<string>): string[] {
-  const idSet = new Set(nodeIds);
-  const hasOutgoing = new Set(connections.map((c) => c.from));
-  return [...idSet].filter((id) => !hasOutgoing.has(id));
-}
-
 export function addWorkflowNode(graph: WorkflowGraph, name: string): WorkflowEditResult {
   const trimmed = name.trim();
   if (!trimmed) {
@@ -118,14 +112,11 @@ export function addWorkflowNode(graph: WorkflowGraph, name: string): WorkflowEdi
     return { ok: false, message: `节点名称「${trimmed}」已存在，同一流程内名称必须唯一。` };
   }
 
+  // Adding a node is a single structural change: no silent auto-connections to leaves.
   const next = withMaterializedConnections(graph);
   const id = nextCustomNodeId(next);
   const node: WorkflowGraphNode = { id, name: trimmed, status: 'not_reached' };
-  const sinks = terminalNodeIds(next.connections!, indexWorkflowNodes(next).keys());
   appendSerialNode(next, node);
-  for (const from of sinks) {
-    next.connections!.push({ from, to: id });
-  }
   return { ok: true, graph: next };
 }
 

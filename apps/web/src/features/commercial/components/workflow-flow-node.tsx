@@ -94,20 +94,22 @@ export function WorkflowFlowNode({ data, id }: NodeProps<Node<WorkflowFlowNodeDa
                       >
                         完成
                       </Button>
-                      <Input
-                        value={editor.blockReasonDraft ?? ''}
-                        onChange={(e) => editor.setBlockReasonDraft?.(e.target.value)}
-                        placeholder="阻塞原因（可选）"
-                        className="h-7 text-xs"
-                        data-testid="workflow-block-reason-input"
-                      />
+                      <label className="block space-y-1">
+                        <span className="text-[11px] text-muted-foreground">阻塞原因（可选）</span>
+                        <Input
+                          value={editor.blockReasonDraft ?? ''}
+                          onChange={(e) => editor.setBlockReasonDraft?.(e.target.value)}
+                          placeholder="阻塞原因（可选）"
+                          className="h-7 text-xs"
+                          aria-label="阻塞原因（可选）"
+                        />
+                      </label>
                       <Button
                         type="button"
                         size="sm"
                         variant="destructive"
                         className="h-7 text-xs"
                         onClick={() => editor.onBlock?.(editor.blockReasonDraft ?? '')}
-                        data-testid="workflow-block-submit"
                       >
                         标记阻塞
                       </Button>
