@@ -187,7 +187,7 @@ export function JunctionNode() {
     <div
       data-workflow-junction="anchor"
       aria-hidden
-      className="workflow-pop relative cursor-grab"
+      className="relative cursor-grab"
       style={{ width: 10, height: 10 }}
     >
       <Handle

@@ -102,6 +102,13 @@ html.dark .workflow-stage[data-status='done'] {
   bottom: -6px;
 }
 
+/* The gold dot must not use the pop animation: that keyframe starts at opacity 0 and
+   also sets transform, which on this 10px root stays at the transparent frame. */
+.workflow-mock-flow [data-workflow-junction='anchor'] {
+  opacity: 1 !important;
+  animation: none !important;
+}
+
 .workflow-mock-flow .react-flow__node-junction .junction-port {
   width: 6px !important;
   height: 6px !important;

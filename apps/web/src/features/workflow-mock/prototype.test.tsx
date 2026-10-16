@@ -38,9 +38,14 @@ describe('workflow mock prototype', () => {
     expect(anchors.length).toBe(2);
     for (const anchor of anchors) {
       expect(anchor.textContent?.replace(/\s/g, '')).toBe('inout');
+      expect(anchor.className).not.toContain('workflow-pop');
       expect(anchor.style.opacity).not.toBe('0');
       expect(anchor.style.pointerEvents).not.toBe('none');
       expect(parseFloat(anchor.style.width)).toBeGreaterThanOrEqual(10);
+      const core = anchor.querySelector('[data-junction-core="true"]') as HTMLElement;
+      expect(core.style.backgroundColor.replace(/\s/g, '').toLowerCase()).toMatch(
+        /#e8b15a|rgb\(232,177,90\)/,
+      );
       const host = anchor.closest('.react-flow__node') as HTMLElement;
       expect(host.style.pointerEvents).not.toBe('none');
       expect(host.style.opacity).not.toBe('0');
@@ -140,6 +145,9 @@ describe('workflow mock prototype', () => {
       ).toBeTruthy();
     });
     expect(view.container.querySelector('.react-flow.is-vertical')).toBeTruthy();
+    expect(
+      view.container.querySelector('[data-workflow-junction="anchor"]')?.className ?? '',
+    ).not.toContain('workflow-pop');
     expect(
       view.container.querySelector('.react-flow__node-junction .react-flow__handle-top'),
     ).toBeTruthy();
