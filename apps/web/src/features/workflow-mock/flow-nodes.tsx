@@ -20,28 +20,33 @@ export function StageNode({ data, selected }: NodeProps<Node<StageNodeData>>) {
   );
 }
 
-/** Visible meeting dot. No card, name, or status. */
+/** Gold meeting dot. Invisible handles cover it so wires can start and end here. */
 export function JunctionNode() {
   return (
     <div
       data-workflow-junction="anchor"
       aria-hidden
-      className="cursor-grab rounded-full active:cursor-grabbing"
-      style={{ width: 10, height: 10, backgroundColor: '#e8b15a' }}
+      className="relative cursor-grab"
+      style={{ width: 10, height: 10 }}
     >
       <Handle
         type="target"
         position={Position.Left}
         id="in"
-        isConnectable={false}
-        className="pointer-events-none opacity-0"
+        isConnectable
+        className="junction-port"
       />
       <Handle
         type="source"
         position={Position.Right}
         id="out"
-        isConnectable={false}
-        className="pointer-events-none opacity-0"
+        isConnectable
+        isConnectableEnd={false}
+        className="junction-port"
+      />
+      <span
+        className="pointer-events-none absolute inset-0 rounded-full"
+        style={{ backgroundColor: '#e8b15a' }}
       />
     </div>
   );

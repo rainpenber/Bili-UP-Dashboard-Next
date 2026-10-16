@@ -40,6 +40,7 @@ export const copy = {
   duplicateEdge: '已经连上',
   cycle: '会成环',
   missing: '没有这个节点',
+  junctions: '不能两个汇合点相连',
 } as const;
 
 const MAX_HISTORY = 50;
@@ -179,10 +180,11 @@ function reaches(graph: FlowGraph, start: string, goal: string): boolean {
 export function connectNodes(graph: FlowGraph, source: string, target: string): GraphResult {
   const from = nodeById(graph, source);
   const to = nodeById(graph, target);
-  if (!from || !to || from.kind === 'merge' || to.kind === 'merge') {
-    return { ok: false, message: copy.missing };
-  }
+  if (!from || !to) return { ok: false, message: copy.missing };
   if (source === target) return { ok: false, message: copy.self };
+  if (from.kind === 'merge' && to.kind === 'merge') {
+    return { ok: false, message: copy.junctions };
+  }
   if (graph.edges.some((item) => item.source === source && item.target === target)) {
     return { ok: false, message: copy.duplicateEdge };
   }

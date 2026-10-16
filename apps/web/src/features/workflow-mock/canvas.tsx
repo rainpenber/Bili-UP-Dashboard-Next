@@ -103,7 +103,7 @@ function toFlowNodes(graph: FlowGraph): FlowNode[] {
         data: { kind: 'merge' },
         draggable: true,
         selectable: false,
-        connectable: false,
+        connectable: true,
         focusable: false,
         deletable: false,
         width: JUNCTION_SIZE,
@@ -124,6 +124,12 @@ function toFlowNodes(graph: FlowGraph): FlowNode[] {
       handles: portHandles(STAGE_W, STAGE_H),
     };
   });
+}
+
+function clientPoint(event: MouseEvent | TouchEvent): { x: number; y: number } | null {
+  if ('clientX' in event) return { x: event.clientX, y: event.clientY };
+  const touch = event.changedTouches[0];
+  return touch ? { x: touch.clientX, y: touch.clientY } : null;
 }
 
 function toFlowEdges(graph: FlowGraph): Edge[] {
@@ -161,6 +167,8 @@ function CanvasInner({
   const edgesRef = useRef(edges);
   const dragOrigin = useRef<FlowGraph | null>(null);
   const accepted = useRef(false);
+  const [incoming, setIncoming] = useState(false);
+  const junctionGesture = useRef<{ id: string; origin: FlowGraph } | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   historyRef.current = history;
   nodesRef.current = nodes;
@@ -397,22 +405,57 @@ function CanvasInner({
         setNotice(result.message);
         return;
       }
+      setNotice(null);
       commit(result.graph);
     },
     [commit],
   );
 
-  const onConnectEnd = useCallback<OnConnectEnd>((_event, state) => {
-    if (accepted.current) {
-      accepted.current = false;
-      return;
-    }
-    const source = state.fromNode?.id;
-    const target = state.toNode?.id;
-    if (!source || !target) return;
-    const result = connectNodes(historyRef.current.present, source, target);
-    if (!result.ok) setNotice(result.message);
-  }, []);
+  const onConnectStart = useCallback(
+    (_: MouseEvent | TouchEvent, params: { nodeId?: string | null }) => {
+      const from = historyRef.current.present.nodes.find((node) => node.id === params.nodeId);
+      if (from?.kind === 'merge') {
+        junctionGesture.current = { id: from.id, origin: cloneGraph(historyRef.current.present) };
+        setIncoming(false);
+        return;
+      }
+      junctionGesture.current = null;
+      setIncoming(Boolean(params.nodeId));
+    },
+    [],
+  );
+
+  const onConnectEnd = useCallback<OnConnectEnd>(
+    (event, state) => {
+      const gesture = junctionGesture.current;
+      junctionGesture.current = null;
+      setIncoming(false);
+      if (accepted.current) {
+        accepted.current = false;
+        return;
+      }
+      const source = state.fromNode?.id;
+      const target = state.toNode?.id;
+      if (source && target) {
+        const result = connectNodes(historyRef.current.present, source, target);
+        if (!result.ok) setNotice(result.message);
+        return;
+      }
+      if (!gesture) return;
+      const point = clientPoint(event);
+      if (!point) return;
+      const flow = screenToFlowPosition(point);
+      const moved = applyPositions(
+        gesture.origin,
+        new Map([[gesture.id, { x: flow.x - JUNCTION_SIZE / 2, y: flow.y - JUNCTION_SIZE / 2 }]]),
+      );
+      const updated = commitDrag(historyRef.current, gesture.origin, moved);
+      historyRef.current = updated;
+      setHistory(updated);
+      sync(updated.present);
+    },
+    [screenToFlowPosition, sync],
+  );
 
   const isValidConnection = useCallback((connection: Connection | Edge) => {
     if (!connection.source || !connection.target) return false;
@@ -536,7 +579,8 @@ function CanvasInner({
           </p>
         ) : null}
         <ReactFlow
-          className="workflow-mock-flow"
+          className={incoming ? 'workflow-mock-flow is-connecting-in' : 'workflow-mock-flow'}
+          onConnectStart={onConnectStart}
           nodes={nodes}
           edges={viewEdges}
           nodeTypes={nodeTypes}

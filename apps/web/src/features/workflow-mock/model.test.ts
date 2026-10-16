@@ -34,8 +34,27 @@ describe('workflow mock graphs', () => {
     expect(connectNodes(v1, 'inq', 'inq')).toEqual({ ok: false, message: '不能连自己' });
     expect(connectNodes(v1, 'inq', 'outline')).toEqual({ ok: false, message: '已经连上' });
     expect(connectNodes(v1, 'pub', 'inq')).toEqual({ ok: false, message: '会成环' });
-    expect(connectNodes(v1, 'inq', 'merge-prep')).toEqual({ ok: false, message: '没有这个节点' });
     expect(connectNodes(v1, 'missing', 'inq')).toEqual({ ok: false, message: '没有这个节点' });
+    expect(connectNodes(v1, 'merge-prep', 'merge-pub')).toEqual({
+      ok: false,
+      message: '不能两个汇合点相连',
+    });
+    expect(connectNodes(v1, 'script', 'merge-prep')).toEqual({ ok: false, message: '已经连上' });
+    expect(connectNodes(v1, 'settle', 'merge-prep')).toEqual({ ok: false, message: '会成环' });
+    const into = connectNodes(v1, 'outline', 'merge-pub');
+    expect(into.ok).toBe(true);
+    if (into.ok) {
+      expect(
+        into.graph.edges.some((edge) => edge.source === 'outline' && edge.target === 'merge-pub'),
+      ).toBe(true);
+    }
+    const outOf = connectNodes(v1, 'merge-prep', 'rev');
+    expect(outOf.ok).toBe(true);
+    if (outOf.ok) {
+      expect(
+        outOf.graph.edges.some((edge) => edge.source === 'merge-prep' && edge.target === 'rev'),
+      ).toBe(true);
+    }
     const added = connectNodes(v1, 'settle', 'dist');
     expect(added.ok).toBe(true);
     if (added.ok) {
