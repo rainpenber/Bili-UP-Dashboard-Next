@@ -23,7 +23,6 @@
   right: -6px;
 }
 
-.workflow-mock-flow .react-flow__node-junction,
 .workflow-mock-flow .react-flow__node-junction .react-flow__handle {
   pointer-events: none !important;
   opacity: 0 !important;

@@ -1,5 +1,5 @@
 import dagre from '@dagrejs/dagre';
-import { STAGE_H, STAGE_W, type FlowGraph } from './model';
+import { JUNCTION_SIZE, STAGE_H, STAGE_W, type FlowGraph } from './model';
 
 export function layoutWithDagre(graph: FlowGraph): FlowGraph {
   const g = new dagre.graphlib.Graph();
@@ -8,7 +8,10 @@ export function layoutWithDagre(graph: FlowGraph): FlowGraph {
 
   for (const node of graph.nodes) {
     const anchor = node.kind === 'merge';
-    g.setNode(node.id, { width: anchor ? 1 : STAGE_W, height: anchor ? 1 : STAGE_H });
+    g.setNode(node.id, {
+      width: anchor ? JUNCTION_SIZE : STAGE_W,
+      height: anchor ? JUNCTION_SIZE : STAGE_H,
+    });
   }
   for (const item of graph.edges) {
     g.setEdge(item.source, item.target);
@@ -20,8 +23,8 @@ export function layoutWithDagre(graph: FlowGraph): FlowGraph {
     nodes: graph.nodes.map((node) => {
       const pos = g.node(node.id) as { x: number; y: number } | undefined;
       if (!pos) return node;
-      const width = node.kind === 'merge' ? 1 : STAGE_W;
-      const height = node.kind === 'merge' ? 1 : STAGE_H;
+      const width = node.kind === 'merge' ? JUNCTION_SIZE : STAGE_W;
+      const height = node.kind === 'merge' ? JUNCTION_SIZE : STAGE_H;
       return { ...node, x: pos.x - width / 2, y: pos.y - height / 2 };
     }),
   };

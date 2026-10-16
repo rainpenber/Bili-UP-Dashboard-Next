@@ -90,10 +90,21 @@ describe('workflow mock graphs', () => {
       v1.nodes.find((node) => node.id === 'inq')!.x + 40,
     );
     expect(commitDrag(start, v1, v1).past).toHaveLength(0);
+    const anchor = v1.nodes.find((node) => node.id === 'merge-prep')!;
+    const shifted = applyPositions(
+      v1,
+      new Map([['merge-prep', { x: anchor.x + 30, y: anchor.y + 20 }]]),
+    );
+    expect(shifted.nodes.find((node) => node.id === 'merge-prep')).toMatchObject({
+      x: anchor.x + 30,
+      y: anchor.y + 20,
+    });
+    const anchorDrag = commitDrag(start, v1, shifted);
     expect(
-      applyPositions(v1, new Map([['merge-prep', { x: 9, y: 9 }]])).nodes.find(
-        (n) => n.id === 'merge-prep',
-      ),
-    ).toEqual(v1.nodes.find((n) => n.id === 'merge-prep'));
+      undoHistory(anchorDrag).present.nodes.find((node) => node.id === 'merge-prep'),
+    ).toMatchObject({
+      x: anchor.x,
+      y: anchor.y,
+    });
   });
 });

@@ -31,6 +31,7 @@ export type GraphResult = { ok: true; graph: FlowGraph } | { ok: false; message:
 
 export const STAGE_W = 168;
 export const STAGE_H = 40;
+export const JUNCTION_SIZE = 10;
 
 export const copy = {
   needName: '需要名称',
@@ -255,7 +256,7 @@ export function applyPositions(
     ...graph,
     nodes: graph.nodes.map((node) => {
       const next = positions.get(node.id);
-      if (!next || node.kind === 'merge') return node;
+      if (!next) return node;
       return { ...node, x: next.x, y: next.y };
     }),
   };

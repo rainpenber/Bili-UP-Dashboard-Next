@@ -20,10 +20,15 @@ export function StageNode({ data, selected }: NodeProps<Node<StageNodeData>>) {
   );
 }
 
-/** Invisible edge anchor. No label, no status, no pointer events. */
+/** Visible meeting dot. No card, name, or status. */
 export function JunctionNode() {
   return (
-    <div data-workflow-junction="anchor" aria-hidden className="size-px">
+    <div
+      data-workflow-junction="anchor"
+      aria-hidden
+      className="cursor-grab rounded-full active:cursor-grabbing"
+      style={{ width: 10, height: 10, backgroundColor: '#e8b15a' }}
+    >
       <Handle
         type="target"
         position={Position.Left}

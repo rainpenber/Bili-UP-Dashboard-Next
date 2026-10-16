@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { JunctionNode, StageNode, type JunctionNodeData, type StageNodeData } from './flow-nodes';
 import {
+  JUNCTION_SIZE,
   STAGE_H,
   STAGE_W,
   addStageNode,
@@ -67,6 +68,31 @@ function portHandles(width: number, height: number) {
   ];
 }
 
+/** Both ports sit on the dot center so wires meet inside the circle. */
+function junctionHandles() {
+  const mid = JUNCTION_SIZE / 2;
+  return [
+    {
+      id: 'in',
+      type: 'target' as const,
+      position: Position.Left,
+      x: mid,
+      y: mid - 0.5,
+      width: 1,
+      height: 1,
+    },
+    {
+      id: 'out',
+      type: 'source' as const,
+      position: Position.Right,
+      x: mid - 1,
+      y: mid - 0.5,
+      width: 1,
+      height: 1,
+    },
+  ];
+}
+
 function toFlowNodes(graph: FlowGraph): FlowNode[] {
   return graph.nodes.map((node) => {
     if (node.kind === 'merge') {
@@ -75,16 +101,16 @@ function toFlowNodes(graph: FlowGraph): FlowNode[] {
         type: 'junction',
         position: { x: node.x, y: node.y },
         data: { kind: 'merge' },
-        draggable: false,
+        draggable: true,
         selectable: false,
         connectable: false,
         focusable: false,
         deletable: false,
-        width: 1,
-        height: 1,
-        measured: { width: 1, height: 1 },
-        handles: portHandles(1, 1),
-        style: { width: 1, height: 1, opacity: 0, pointerEvents: 'none' },
+        width: JUNCTION_SIZE,
+        height: JUNCTION_SIZE,
+        measured: { width: JUNCTION_SIZE, height: JUNCTION_SIZE },
+        handles: junctionHandles(),
+        style: { width: JUNCTION_SIZE, height: JUNCTION_SIZE },
       };
     }
     return {

@@ -32,12 +32,18 @@ describe('workflow mock prototype', () => {
     expect(
       view.container.querySelectorAll('.react-flow__node-stage .react-flow__handle').length,
     ).toBeGreaterThan(0);
-    const anchors = view.container.querySelectorAll('[data-workflow-junction="anchor"]');
+    const anchors = view.container.querySelectorAll<HTMLElement>(
+      '[data-workflow-junction="anchor"]',
+    );
     expect(anchors.length).toBe(2);
     for (const anchor of anchors) {
       expect(anchor.textContent?.trim()).toBe('');
+      expect(anchor.style.opacity).not.toBe('0');
+      expect(anchor.style.pointerEvents).not.toBe('none');
+      expect(parseFloat(anchor.style.width)).toBeGreaterThanOrEqual(10);
       const host = anchor.closest('.react-flow__node') as HTMLElement;
-      expect(host.style.pointerEvents).toBe('none');
+      expect(host.style.pointerEvents).not.toBe('none');
+      expect(host.style.opacity).not.toBe('0');
       expect(host.textContent?.trim()).toBe('');
     }
     expect(screen.queryByText('已完成')).toBeNull();
