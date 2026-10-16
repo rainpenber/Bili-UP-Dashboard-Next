@@ -111,6 +111,17 @@ describe('workflow mock graphs', () => {
       v1.nodes.find((node) => node.id === 'inq')!.x + 40,
     );
     expect(commitDrag(start, v1, v1).past).toHaveLength(0);
+    const shifted = applyPositions(v1, new Map([['inq', { x: 5, y: 5 }]]));
+    const tidied = layoutWithDagre(shifted);
+    expect(tidied.edges.map((edge) => edge.id).sort()).toEqual(
+      v1.edges.map((edge) => edge.id).sort(),
+    );
+    expect(tidied.nodes.map((node) => node.id).sort()).toEqual(
+      v1.nodes.map((node) => node.id).sort(),
+    );
+    expect(tidied.nodes.find((node) => node.id === 'inq')!.x).not.toBe(5);
+    const tidyHistory = commitHistory({ past: [], present: shifted, future: [] }, tidied);
+    expect(undoHistory(tidyHistory).present.nodes.find((node) => node.id === 'inq')!.x).toBe(5);
 
     const placed = addJunction(v1, { x: 40, y: 50 });
     const created = placed.nodes.find((node) => node.id === 'merge-1');
@@ -133,15 +144,15 @@ describe('workflow mock graphs', () => {
       true,
     );
     const anchor = v1.nodes.find((node) => node.id === 'merge-prep')!;
-    const shifted = applyPositions(
+    const movedAnchor = applyPositions(
       v1,
       new Map([['merge-prep', { x: anchor.x + 30, y: anchor.y + 20 }]]),
     );
-    expect(shifted.nodes.find((node) => node.id === 'merge-prep')).toMatchObject({
+    expect(movedAnchor.nodes.find((node) => node.id === 'merge-prep')).toMatchObject({
       x: anchor.x + 30,
       y: anchor.y + 20,
     });
-    const anchorDrag = commitDrag(start, v1, shifted);
+    const anchorDrag = commitDrag(start, v1, movedAnchor);
     expect(
       undoHistory(anchorDrag).present.nodes.find((node) => node.id === 'merge-prep'),
     ).toMatchObject({

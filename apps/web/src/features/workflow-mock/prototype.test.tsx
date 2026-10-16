@@ -76,8 +76,12 @@ describe('workflow mock prototype', () => {
     await waitFor(() => {
       expect(view.container.querySelectorAll('[data-workflow-junction="anchor"]').length).toBe(3);
     });
-    fireEvent.click(screen.getByTestId('workflow-mock-undo'));
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
     expect(view.container.querySelectorAll('[data-workflow-junction="anchor"]').length).toBe(2);
+    expect(screen.getByTestId('workflow-mock-tidy')).toBeTruthy();
+    expect(screen.getByTestId('workflow-mock-fit')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '添加' })).toBeNull();
+    expect(view.container.querySelector('.react-flow__minimap')).toBeTruthy();
   });
 
   test('opening V1 renders one edge element per model connection', async () => {
@@ -93,16 +97,16 @@ describe('workflow mock prototype', () => {
     openVersion('v1');
     await waitFor(() => expect(screen.getByText('询单')).toBeTruthy());
 
-    fireEvent.click(screen.getByRole('button', { name: '添加' }));
+    fireEvent.keyDown(window, { key: 'a' });
     fireEvent.change(screen.getByLabelText('名称'), { target: { value: '定妆' } });
     fireEvent.submit(screen.getByLabelText('名称').closest('form')!);
     expect(screen.getByText('定妆')).toBeTruthy();
 
     fireEvent.click(screen.getByText('定妆'));
-    fireEvent.click(screen.getByRole('button', { name: '删除' }));
+    fireEvent.keyDown(window, { key: 'Delete' });
     expect(screen.queryByText('定妆')).toBeNull();
 
-    fireEvent.click(screen.getByTestId('workflow-mock-undo'));
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
     expect(screen.getByText('定妆')).toBeTruthy();
   });
 
@@ -113,6 +117,15 @@ describe('workflow mock prototype', () => {
     fireEvent.click(screen.getByText('其他'));
     fireEvent.keyDown(window, { key: 'Delete' });
     expect(screen.queryByText('其他')).toBeNull();
+    expect(view.container.querySelectorAll('[data-workflow-junction="anchor"]').length).toBe(2);
+
+    fireEvent.keyDown(window, { key: 'j' });
+    expect(view.container.querySelectorAll('[data-workflow-junction="anchor"]').length).toBe(3);
+    const edgesBeforeTidy = view.container.querySelectorAll('.react-flow__edge').length;
+    fireEvent.keyDown(window, { key: 'l' });
+    expect(view.container.querySelectorAll('.react-flow__edge').length).toBe(edgesBeforeTidy);
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
     expect(view.container.querySelectorAll('[data-workflow-junction="anchor"]').length).toBe(2);
 
     fireEvent.keyDown(window, { key: 'a' });
