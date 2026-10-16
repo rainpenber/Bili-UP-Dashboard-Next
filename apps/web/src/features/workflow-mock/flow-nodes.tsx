@@ -20,7 +20,7 @@ export function StageNode({ data, selected }: NodeProps<Node<StageNodeData>>) {
   );
 }
 
-/** Gold meeting dot. Invisible handles cover it so wires can start and end here. */
+/** Gold dot moves by dragging the body. Ports appear beside it on hover. */
 export function JunctionNode() {
   return (
     <div
@@ -35,6 +35,8 @@ export function JunctionNode() {
         id="in"
         isConnectable
         className="junction-port"
+        data-port="in"
+        aria-label="in"
       />
       <Handle
         type="source"
@@ -43,9 +45,14 @@ export function JunctionNode() {
         isConnectable
         isConnectableEnd={false}
         className="junction-port"
+        data-port="out"
+        aria-label="out"
       />
+      <span className="junction-label junction-label-in">in</span>
+      <span className="junction-label junction-label-out">out</span>
       <span
-        className="pointer-events-none absolute inset-0 rounded-full"
+        data-junction-core="true"
+        className="pointer-events-auto absolute inset-0 rounded-full"
         style={{ backgroundColor: '#e8b15a' }}
       />
     </div>

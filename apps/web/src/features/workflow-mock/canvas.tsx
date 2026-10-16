@@ -18,11 +18,18 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { JunctionNode, StageNode, type JunctionNodeData, type StageNodeData } from './flow-nodes';
 import {
   JUNCTION_SIZE,
   STAGE_H,
   STAGE_W,
+  addJunction,
   addStageNode,
   applyPositions,
   cloneGraph,
@@ -31,6 +38,7 @@ import {
   connectNodes,
   redoHistory,
   removeElements,
+  removeJunction,
   undoHistory,
   type FlowGraph,
   type HistoryState,
@@ -70,25 +78,26 @@ function portHandles(width: number, height: number) {
 
 /** Both ports sit on the dot center so wires meet inside the circle. */
 function junctionHandles() {
-  const mid = JUNCTION_SIZE / 2;
+  const port = 6;
+  const y = (JUNCTION_SIZE - port) / 2;
   return [
     {
       id: 'in',
       type: 'target' as const,
       position: Position.Left,
-      x: mid,
-      y: mid - 0.5,
-      width: 1,
-      height: 1,
+      x: -14,
+      y,
+      width: port,
+      height: port,
     },
     {
       id: 'out',
       type: 'source' as const,
       position: Position.Right,
-      x: mid - 1,
-      y: mid - 0.5,
-      width: 1,
-      height: 1,
+      x: JUNCTION_SIZE + 8,
+      y,
+      width: port,
+      height: port,
     },
   ];
 }
@@ -110,7 +119,7 @@ function toFlowNodes(graph: FlowGraph): FlowNode[] {
         height: JUNCTION_SIZE,
         measured: { width: JUNCTION_SIZE, height: JUNCTION_SIZE },
         handles: junctionHandles(),
-        style: { width: JUNCTION_SIZE, height: JUNCTION_SIZE },
+        style: { width: JUNCTION_SIZE, height: JUNCTION_SIZE, overflow: 'visible' },
       };
     }
     return {
@@ -124,12 +133,6 @@ function toFlowNodes(graph: FlowGraph): FlowNode[] {
       handles: portHandles(STAGE_W, STAGE_H),
     };
   });
-}
-
-function clientPoint(event: MouseEvent | TouchEvent): { x: number; y: number } | null {
-  if ('clientX' in event) return { x: event.clientX, y: event.clientY };
-  const touch = event.changedTouches[0];
-  return touch ? { x: touch.clientX, y: touch.clientY } : null;
 }
 
 function toFlowEdges(graph: FlowGraph): Edge[] {
@@ -167,8 +170,13 @@ function CanvasInner({
   const edgesRef = useRef(edges);
   const dragOrigin = useRef<FlowGraph | null>(null);
   const accepted = useRef(false);
-  const [incoming, setIncoming] = useState(false);
-  const junctionGesture = useRef<{ id: string; origin: FlowGraph } | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [menu, setMenu] = useState<
+    | { kind: 'pane'; at: { x: number; y: number } }
+    | { kind: 'junction'; id: string }
+    | { kind: 'edge'; id: string }
+    | null
+  >(null);
   const shellRef = useRef<HTMLDivElement>(null);
   historyRef.current = history;
   nodesRef.current = nodes;
@@ -411,51 +419,22 @@ function CanvasInner({
     [commit],
   );
 
-  const onConnectStart = useCallback(
-    (_: MouseEvent | TouchEvent, params: { nodeId?: string | null }) => {
-      const from = historyRef.current.present.nodes.find((node) => node.id === params.nodeId);
-      if (from?.kind === 'merge') {
-        junctionGesture.current = { id: from.id, origin: cloneGraph(historyRef.current.present) };
-        setIncoming(false);
-        return;
-      }
-      junctionGesture.current = null;
-      setIncoming(Boolean(params.nodeId));
-    },
-    [],
-  );
+  const onConnectStart = useCallback(() => {
+    setConnecting(true);
+  }, []);
 
-  const onConnectEnd = useCallback<OnConnectEnd>(
-    (event, state) => {
-      const gesture = junctionGesture.current;
-      junctionGesture.current = null;
-      setIncoming(false);
-      if (accepted.current) {
-        accepted.current = false;
-        return;
-      }
-      const source = state.fromNode?.id;
-      const target = state.toNode?.id;
-      if (source && target) {
-        const result = connectNodes(historyRef.current.present, source, target);
-        if (!result.ok) setNotice(result.message);
-        return;
-      }
-      if (!gesture) return;
-      const point = clientPoint(event);
-      if (!point) return;
-      const flow = screenToFlowPosition(point);
-      const moved = applyPositions(
-        gesture.origin,
-        new Map([[gesture.id, { x: flow.x - JUNCTION_SIZE / 2, y: flow.y - JUNCTION_SIZE / 2 }]]),
-      );
-      const updated = commitDrag(historyRef.current, gesture.origin, moved);
-      historyRef.current = updated;
-      setHistory(updated);
-      sync(updated.present);
-    },
-    [screenToFlowPosition, sync],
-  );
+  const onConnectEnd = useCallback<OnConnectEnd>((_event, state) => {
+    setConnecting(false);
+    if (accepted.current) {
+      accepted.current = false;
+      return;
+    }
+    const source = state.fromNode?.id;
+    const target = state.toNode?.id;
+    if (!source || !target) return;
+    const result = connectNodes(historyRef.current.present, source, target);
+    if (!result.ok) setNotice(result.message);
+  }, []);
 
   const isValidConnection = useCallback((connection: Connection | Edge) => {
     if (!connection.source || !connection.target) return false;
@@ -568,67 +547,120 @@ function CanvasInner({
           ) : null}
         </div>
       </div>
-      <div className="relative min-h-0 flex-1">
-        {notice ? (
-          <p
-            role="status"
-            data-testid="workflow-mock-notice"
-            className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded bg-black/80 px-2 py-1 text-xs text-zinc-100"
-          >
-            {notice}
-          </p>
-        ) : null}
-        <ReactFlow
-          className={incoming ? 'workflow-mock-flow is-connecting-in' : 'workflow-mock-flow'}
-          onConnectStart={onConnectStart}
-          nodes={nodes}
-          edges={viewEdges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onConnectEnd={onConnectEnd}
-          isValidConnection={isValidConnection}
-          connectionMode={ConnectionMode.Strict}
-          connectionRadius={32}
-          connectionLineStyle={{ stroke: '#e8b15a', strokeWidth: 1.75 }}
-          minZoom={0.35}
-          nodeDragThreshold={1}
-          maxZoom={1.75}
-          panOnDrag
-          selectionOnDrag={false}
-          deleteKeyCode={null}
-          proOptions={{ hideAttribution: true }}
-          colorMode="dark"
-          onNodeClick={(_, node) => {
-            if (node.type === 'junction') return;
-            const nextNodes = nodesRef.current.map((item) => ({
-              ...item,
-              selected: item.id === node.id,
-            }));
-            const nextEdges = edgesRef.current.map((item) => ({ ...item, selected: false }));
-            nodesRef.current = nextNodes;
-            edgesRef.current = nextEdges;
-            setNodes(nextNodes);
-            setEdges(nextEdges);
-          }}
-          onEdgeClick={(_, edge) => {
-            const nextEdges = edgesRef.current.map((item) => ({
-              ...item,
-              selected: item.id === edge.id,
-            }));
-            const nextNodes = nodesRef.current.map((item) => ({ ...item, selected: false }));
-            nodesRef.current = nextNodes;
-            edgesRef.current = nextEdges;
-            setNodes(nextNodes);
-            setEdges(nextEdges);
-          }}
-          onPaneClick={clearSelection}
-          aria-label="节点画布"
-        >
-          <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#333333" />
-        </ReactFlow>
-      </div>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="relative min-h-0 flex-1">
+            {notice ? (
+              <p
+                role="status"
+                data-testid="workflow-mock-notice"
+                className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded bg-black/80 px-2 py-1 text-xs text-zinc-100"
+              >
+                {notice}
+              </p>
+            ) : null}
+            <ReactFlow
+              className={connecting ? 'workflow-mock-flow is-connecting' : 'workflow-mock-flow'}
+              onConnectStart={onConnectStart}
+              nodes={nodes}
+              edges={viewEdges}
+              nodeTypes={nodeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onConnectEnd={onConnectEnd}
+              isValidConnection={isValidConnection}
+              connectionMode={ConnectionMode.Strict}
+              connectionRadius={32}
+              connectionLineStyle={{ stroke: '#e8b15a', strokeWidth: 1.75 }}
+              minZoom={0.35}
+              nodeDragThreshold={1}
+              maxZoom={1.75}
+              panOnDrag
+              selectionOnDrag={false}
+              deleteKeyCode={null}
+              proOptions={{ hideAttribution: true }}
+              colorMode="dark"
+              onNodeClick={(_, node) => {
+                if (node.type === 'junction') return;
+                const nextNodes = nodesRef.current.map((item) => ({
+                  ...item,
+                  selected: item.id === node.id,
+                }));
+                const nextEdges = edgesRef.current.map((item) => ({ ...item, selected: false }));
+                nodesRef.current = nextNodes;
+                edgesRef.current = nextEdges;
+                setNodes(nextNodes);
+                setEdges(nextEdges);
+              }}
+              onEdgeClick={(_, edge) => {
+                const nextEdges = edgesRef.current.map((item) => ({
+                  ...item,
+                  selected: item.id === edge.id,
+                }));
+                const nextNodes = nodesRef.current.map((item) => ({ ...item, selected: false }));
+                nodesRef.current = nextNodes;
+                edgesRef.current = nextEdges;
+                setNodes(nextNodes);
+                setEdges(nextEdges);
+              }}
+              onPaneClick={clearSelection}
+              onPaneContextMenu={(event) => {
+                const target = event.target as HTMLElement;
+                if (target.closest('.react-flow__node') || target.closest('.react-flow__edge'))
+                  return;
+                setMenu({
+                  kind: 'pane',
+                  at: screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+                });
+              }}
+              onNodeContextMenu={(event, node) => {
+                if (node.type !== 'junction') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  return;
+                }
+                setMenu({ kind: 'junction', id: node.id });
+              }}
+              onEdgeContextMenu={(_event, edge) => {
+                setMenu({ kind: 'edge', id: edge.id });
+              }}
+              aria-label="节点画布"
+            >
+              <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#333333" />
+            </ReactFlow>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {menu?.kind === 'pane' ? (
+            <ContextMenuItem
+              onSelect={() => {
+                commit(addJunction(historyRef.current.present, menu.at));
+              }}
+            >
+              增加汇合点
+            </ContextMenuItem>
+          ) : null}
+          {menu?.kind === 'junction' ? (
+            <ContextMenuItem
+              onSelect={() => {
+                commit(removeJunction(historyRef.current.present, menu.id));
+              }}
+            >
+              删除汇合点
+            </ContextMenuItem>
+          ) : null}
+          {menu?.kind === 'edge' ? (
+            <ContextMenuItem
+              onSelect={() => {
+                commit(removeElements(historyRef.current.present, [], [menu.id]));
+              }}
+            >
+              删除连线
+            </ContextMenuItem>
+          ) : null}
+        </ContextMenuContent>
+      </ContextMenu>
     </div>
   );
 }

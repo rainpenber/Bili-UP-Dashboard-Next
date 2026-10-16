@@ -238,6 +238,38 @@ export function addStageNode(
   };
 }
 
+function nextMergeId(graph: FlowGraph): string {
+  const ids = new Set(graph.nodes.map((node) => node.id));
+  let i = 1;
+  while (ids.has(`merge-${i}`)) i += 1;
+  return `merge-${i}`;
+}
+
+export function addJunction(graph: FlowGraph, at: { x: number; y: number }): FlowGraph {
+  return {
+    ...graph,
+    nodes: [
+      ...graph.nodes,
+      {
+        id: nextMergeId(graph),
+        name: '',
+        kind: 'merge',
+        x: at.x - JUNCTION_SIZE / 2,
+        y: at.y - JUNCTION_SIZE / 2,
+      },
+    ],
+  };
+}
+
+export function removeJunction(graph: FlowGraph, id: string): FlowGraph {
+  const node = nodeById(graph, id);
+  if (!node || node.kind !== 'merge') return graph;
+  return {
+    nodes: graph.nodes.filter((item) => item.id !== id),
+    edges: graph.edges.filter((item) => item.source !== id && item.target !== id),
+  };
+}
+
 export function removeElements(graph: FlowGraph, nodeIds: string[], edgeIds: string[]): FlowGraph {
   const dropNodes = new Set(nodeIds.filter((id) => nodeById(graph, id)?.kind === 'stage'));
   const dropEdges = new Set(edgeIds);

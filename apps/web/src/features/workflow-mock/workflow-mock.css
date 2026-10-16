@@ -23,31 +23,64 @@
   right: -6px;
 }
 
-.workflow-mock-flow .react-flow__node-junction .react-flow__handle {
-  top: 0 !important;
-  left: 0 !important;
-  right: auto !important;
-  width: 10px !important;
-  height: 10px !important;
+.workflow-mock-flow .react-flow__node-junction .junction-port {
+  width: 6px !important;
+  height: 6px !important;
   min-width: 0;
   min-height: 0;
-  border: 0 !important;
-  background: transparent !important;
-  transform: none !important;
-  opacity: 0 !important;
+  border: 1px solid #1b1b1b !important;
+  background: #f4f4f4 !important;
   border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.workflow-mock-flow .react-flow__node-junction .react-flow__handle.target {
-  pointer-events: none !important;
+.workflow-mock-flow .react-flow__node-junction .junction-port.target {
+  top: 2px !important;
+  left: -14px !important;
+  transform: none !important;
 }
 
-.workflow-mock-flow.is-connecting-in .react-flow__node-junction .react-flow__handle.source {
-  pointer-events: none !important;
+.workflow-mock-flow .react-flow__node-junction .junction-port.source {
+  top: 2px !important;
+  left: auto !important;
+  right: -14px !important;
+  transform: none !important;
 }
 
-.workflow-mock-flow.is-connecting-in .react-flow__node-junction .react-flow__handle.target {
-  pointer-events: auto !important;
+.workflow-mock-flow .react-flow__node-junction:hover .junction-port,
+.workflow-mock-flow.is-connecting .react-flow__node-junction .junction-port {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.workflow-mock-flow .react-flow__node-junction .junction-port::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.workflow-mock-flow .junction-label {
+  position: absolute;
+  top: -11px;
+  font-size: 9px;
+  line-height: 1;
+  color: #f4f4f4;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workflow-mock-flow .junction-label-in {
+  left: -14px;
+}
+
+.workflow-mock-flow .junction-label-out {
+  right: -16px;
+}
+
+.workflow-mock-flow .react-flow__node-junction:hover .junction-label,
+.workflow-mock-flow.is-connecting .junction-label {
+  opacity: 1;
 }
 
 .workflow-mock-flow .react-flow__edge-path {

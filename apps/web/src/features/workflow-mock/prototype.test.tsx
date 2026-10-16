@@ -37,20 +37,47 @@ describe('workflow mock prototype', () => {
     );
     expect(anchors.length).toBe(2);
     for (const anchor of anchors) {
-      expect(anchor.textContent?.trim()).toBe('');
+      expect(anchor.textContent?.replace(/\s/g, '')).toBe('inout');
       expect(anchor.style.opacity).not.toBe('0');
       expect(anchor.style.pointerEvents).not.toBe('none');
       expect(parseFloat(anchor.style.width)).toBeGreaterThanOrEqual(10);
       const host = anchor.closest('.react-flow__node') as HTMLElement;
       expect(host.style.pointerEvents).not.toBe('none');
       expect(host.style.opacity).not.toBe('0');
-      expect(host.textContent?.trim()).toBe('');
+      expect(host.textContent?.replace(/\s/g, '')).toBe('inout');
     }
     expect(screen.queryByText('已完成')).toBeNull();
     expect(screen.queryByText('被卡住')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '返回' }));
     expect(screen.queryByText('样片')).toBeNull();
     expect(view.container.querySelector('.react-flow')).toBeNull();
+  });
+
+  test('junction ports are beside the dot and the context menu can add one', async () => {
+    const view = render(<WorkflowMockPage />);
+    openVersion('v1');
+    await waitFor(() => {
+      expect(view.container.querySelectorAll('.react-flow__edge').length).toBe(17);
+    });
+    const anchor = view.container.querySelector('[data-workflow-junction="anchor"]');
+    expect(anchor?.querySelector('[data-port="in"]')).toBeTruthy();
+    expect(anchor?.querySelector('[data-port="out"]')).toBeTruthy();
+    expect(anchor?.textContent).toContain('in');
+    expect(anchor?.textContent).toContain('out');
+    expect(anchor?.querySelector('[data-junction-core="true"]')?.className).not.toContain(
+      'react-flow__handle',
+    );
+
+    const pane = view.container.querySelector('.react-flow__pane');
+    expect(pane).toBeTruthy();
+    fireEvent.contextMenu(pane!);
+    const add = await screen.findByText('增加汇合点');
+    fireEvent.click(add);
+    await waitFor(() => {
+      expect(view.container.querySelectorAll('[data-workflow-junction="anchor"]').length).toBe(3);
+    });
+    fireEvent.click(screen.getByTestId('workflow-mock-undo'));
+    expect(view.container.querySelectorAll('[data-workflow-junction="anchor"]').length).toBe(2);
   });
 
   test('opening V1 renders one edge element per model connection', async () => {

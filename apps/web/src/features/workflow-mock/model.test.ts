@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { layoutWithDagre } from './layout';
 import {
+  addJunction,
   addStageNode,
   applyPositions,
   buildMockVersions,
@@ -9,6 +10,7 @@ import {
   connectNodes,
   redoHistory,
   removeElements,
+  removeJunction,
   undoHistory,
   type HistoryState,
 } from './model';
@@ -109,6 +111,27 @@ describe('workflow mock graphs', () => {
       v1.nodes.find((node) => node.id === 'inq')!.x + 40,
     );
     expect(commitDrag(start, v1, v1).past).toHaveLength(0);
+
+    const placed = addJunction(v1, { x: 40, y: 50 });
+    const created = placed.nodes.find((node) => node.id === 'merge-1');
+    expect(created).toMatchObject({ kind: 'merge', name: '', x: 35, y: 45 });
+    const linked = connectNodes(placed, 'outline', 'merge-1');
+    expect(linked.ok).toBe(true);
+    if (!linked.ok) return;
+    const removed = removeJunction(linked.graph, 'merge-1');
+    expect(removed.nodes.some((node) => node.id === 'merge-1')).toBe(false);
+    expect(
+      removed.edges.some((edge) => edge.source === 'merge-1' || edge.target === 'merge-1'),
+    ).toBe(false);
+    const junctionHistory = commitHistory({ past: [], present: linked.graph, future: [] }, removed);
+    expect(undoHistory(junctionHistory).present.nodes.some((node) => node.id === 'merge-1')).toBe(
+      true,
+    );
+    const withoutEdge = removeElements(v1, [], ['e-inq-outline']);
+    const edgeHistory = commitHistory({ past: [], present: v1, future: [] }, withoutEdge);
+    expect(undoHistory(edgeHistory).present.edges.some((edge) => edge.id === 'e-inq-outline')).toBe(
+      true,
+    );
     const anchor = v1.nodes.find((node) => node.id === 'merge-prep')!;
     const shifted = applyPositions(
       v1,
