@@ -8,9 +8,19 @@
   overflow: visible;
 }
 
-.workflow-mock-flow .react-flow__node:hover [data-testid='workflow-node-edit'],
-.workflow-mock-flow .react-flow__node:hover [data-testid='workflow-node-expand'] {
+.workflow-mock-flow .react-flow__node-stage .react-flow__handle {
+  z-index: 1;
+}
+
+.workflow-mock-flow .workflow-node-hover {
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workflow-mock-flow .react-flow__node:hover .workflow-node-hover {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .workflow-mock-flow .react-flow__handle {

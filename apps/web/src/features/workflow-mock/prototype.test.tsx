@@ -187,19 +187,26 @@ describe('workflow mock prototype', () => {
     expect(view.container.querySelectorAll('[data-workflow-node="stage"]').length).toBe(before);
 
     fireEvent.contextMenu(screen.getByText('询单'));
-    fireEvent.click(await screen.findByText('修改节点名称'));
+    const renameItem = await screen.findByRole('menuitem', { name: /修改节点名称/ });
+    expect(renameItem.querySelector('[data-slot="kbd"]')?.textContent).toBe('Enter');
+    fireEvent.click(renameItem);
     const rename = screen.getByLabelText('名称');
     fireEvent.change(rename, { target: { value: '来询' } });
     fireEvent.blur(rename);
     expect(screen.getByText('来询')).toBeTruthy();
 
+    await act(async () => {
+      document.documentElement.classList.add('dark');
+    });
     fireEvent.contextMenu(view.container.querySelector('.react-flow__pane')!);
     const menu = await screen.findByText('增加节点');
-    expect(menu.closest('[data-slot="context-menu-content"]')?.className).toContain(
-      'bg-background',
-    );
-    expect(menu.closest('[data-slot="context-menu-content"]')?.className).toContain(
-      'text-foreground',
-    );
+    const popup = menu.closest('[data-slot="context-menu-content"]');
+    expect(popup?.className).toContain('bg-background');
+    expect(popup?.className).toContain('text-foreground');
+    expect(popup?.className).toContain('dark');
+    expect(popup?.getAttribute('data-theme')).toBe('dark');
+    await act(async () => {
+      document.documentElement.classList.remove('dark');
+    });
   });
 });

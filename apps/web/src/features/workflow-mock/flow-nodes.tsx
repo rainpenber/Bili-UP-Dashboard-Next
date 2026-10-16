@@ -95,25 +95,27 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
               type="button"
               aria-label="修改名称"
               data-testid="workflow-node-edit"
-              className="nodrag absolute -right-1 -top-1 flex size-4 items-center justify-center rounded bg-[#3a3a3a] text-[#f4f4f4] opacity-0 transition-opacity duration-150"
+              className="nodrag nopan workflow-node-hover absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded border border-[#666] bg-[#3a3a3a] text-[#f4f4f4]"
+              onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation();
                 ui?.startEdit(id);
               }}
             >
-              <Pencil className="size-2.5" />
+              <Pencil className="size-3" />
             </button>
             <button
               type="button"
               aria-label="展开"
               data-testid="workflow-node-expand"
-              className="nodrag absolute top-1/2 -right-3 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border border-[#666] bg-[#2a2a2a] text-[#f4f4f4] opacity-0 transition-opacity duration-150"
+              className="nodrag nopan workflow-node-hover absolute top-1/2 left-[calc(100%+16px)] flex size-5 -translate-y-1/2 items-center justify-center rounded-full border border-[#888] bg-[#2a2a2a] text-[#f4f4f4]"
+              onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation();
                 ui?.toggleDetail(id);
               }}
             >
-              <PanelRight className="size-2.5" />
+              <PanelRight className="size-3" />
             </button>
           </>
         )}

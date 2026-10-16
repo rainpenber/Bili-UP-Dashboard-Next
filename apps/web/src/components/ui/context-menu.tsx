@@ -12,16 +12,40 @@ function ContextMenuTrigger({
   return <ContextMenuPrimitive.Trigger data-slot="context-menu-trigger" {...props} />;
 }
 
+function readDocumentTheme() {
+  return {
+    dark: document.documentElement.classList.contains('dark'),
+    accent: document.documentElement.dataset.accent,
+  };
+}
+
+function useDocumentTheme() {
+  const [theme, setTheme] = React.useState(readDocumentTheme);
+  React.useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => setTheme(readDocumentTheme());
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ['class', 'data-accent'] });
+    return () => observer.disconnect();
+  }, []);
+  return theme;
+}
+
 function ContextMenuContent({
   className,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Content>) {
+  const theme = useDocumentTheme();
   return (
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Content
         data-slot="context-menu-content"
+        data-accent={theme.accent}
+        data-theme={theme.dark ? 'dark' : 'light'}
         className={cn(
           'z-50 min-w-36 origin-top-left overflow-hidden rounded-md border border-border bg-background p-1 text-sm text-foreground shadow-md',
+          theme.dark && 'dark',
           'workflow-menu-in',
           className,
         )}

@@ -803,7 +803,10 @@ function CanvasInner({
             ) : null}
             {menu?.kind === 'stage' ? (
               <>
-                <ContextMenuItem onSelect={() => startEdit(menu.id)}>修改节点名称</ContextMenuItem>
+                <ContextMenuItem onSelect={() => startEdit(menu.id)}>
+                  修改节点名称
+                  <Kbd className="ml-auto">Enter</Kbd>
+                </ContextMenuItem>
                 <ContextMenuItem
                   onSelect={() => commit(removeElements(historyRef.current.present, [menu.id], []))}
                 >
