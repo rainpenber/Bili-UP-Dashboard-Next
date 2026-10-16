@@ -1,10 +1,18 @@
 import dagre from '@dagrejs/dagre';
 import { JUNCTION_SIZE, STAGE_H, STAGE_W, type FlowGraph } from './model';
 
-export function layoutWithDagre(graph: FlowGraph): FlowGraph {
+export type FlowDirection = 'lr' | 'tb';
+
+export function layoutWithDagre(graph: FlowGraph, direction: FlowDirection = 'lr'): FlowGraph {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: 'LR', nodesep: 36, ranksep: 84, marginx: 32, marginy: 32 });
+  g.setGraph({
+    rankdir: direction === 'tb' ? 'TB' : 'LR',
+    nodesep: 36,
+    ranksep: 84,
+    marginx: 32,
+    marginy: 32,
+  });
 
   for (const node of graph.nodes) {
     const anchor = node.kind === 'merge';

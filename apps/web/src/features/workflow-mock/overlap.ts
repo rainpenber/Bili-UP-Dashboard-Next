@@ -14,21 +14,17 @@ function overlaps(a: OverlapBox, b: OverlapBox): boolean {
 }
 
 /** Push `mover` fully outside `fixed`, leaving `gap`. Returns whether it moved. */
-function clearOf(mover: OverlapBox, fixed: OverlapBox, gap: number): boolean {
+function clearOf(mover: OverlapBox, fixed: OverlapBox, gap: number, prefer?: 'x' | 'y'): boolean {
   if (!overlaps(mover, fixed)) return false;
-  const vertical =
-    mover.y + mover.h / 2 >= fixed.y + fixed.h / 2
-      ? fixed.y + fixed.h + gap - mover.y
-      : mover.y + mover.h - (fixed.y - gap);
-  const horizontal =
-    mover.x + mover.w / 2 >= fixed.x + fixed.w / 2
-      ? fixed.x + fixed.w + gap - mover.x
-      : mover.x + mover.w - (fixed.x - gap);
-  if (vertical <= horizontal) {
-    mover.y += mover.y + mover.h / 2 >= fixed.y + fixed.h / 2 ? vertical : -vertical;
-  } else {
-    mover.x += mover.x + mover.w / 2 >= fixed.x + fixed.w / 2 ? horizontal : -horizontal;
-  }
+  const below = mover.y + mover.h / 2 >= fixed.y + fixed.h / 2;
+  const right = mover.x + mover.w / 2 >= fixed.x + fixed.w / 2;
+  const vertical = below ? fixed.y + fixed.h + gap - mover.y : mover.y + mover.h - (fixed.y - gap);
+  const horizontal = right
+    ? fixed.x + fixed.w + gap - mover.x
+    : mover.x + mover.w - (fixed.x - gap);
+  const verticalFirst = prefer === 'y' || (prefer !== 'x' && vertical <= horizontal);
+  if (verticalFirst) mover.y += below ? vertical : -vertical;
+  else mover.x += right ? horizontal : -horizontal;
   return true;
 }
 
@@ -39,6 +35,7 @@ function clearOf(mover: OverlapBox, fixed: OverlapBox, gap: number): boolean {
 export function nudgeOverlaps(
   boxes: OverlapBox[],
   gap = 14,
+  prefer?: 'x' | 'y',
 ): Record<string, { x: number; y: number }> {
   const work = boxes.map((box) => ({ ...box }));
   const origin = new Map(boxes.map((box) => [box.id, { x: box.x, y: box.y }]));
@@ -50,9 +47,9 @@ export function nudgeOverlaps(
         const b = work[j]!;
         if (!overlaps(a, b)) continue;
         if (a.anchor && b.anchor) continue;
-        if (a.anchor) moved = clearOf(b, a, gap) || moved;
-        else if (b.anchor) moved = clearOf(a, b, gap) || moved;
-        else moved = clearOf(a, b, gap) || moved;
+        if (a.anchor) moved = clearOf(b, a, gap, prefer) || moved;
+        else if (b.anchor) moved = clearOf(a, b, gap, prefer) || moved;
+        else moved = clearOf(a, b, gap, prefer) || moved;
       }
     }
     if (!moved) break;

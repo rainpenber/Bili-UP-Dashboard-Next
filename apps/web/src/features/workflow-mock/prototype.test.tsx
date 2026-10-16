@@ -121,6 +121,45 @@ describe('workflow mock prototype', () => {
     expect(screen.queryByLabelText('名称')).toBeNull();
   });
 
+  test('switches the canvas between horizontal and vertical', async () => {
+    const view = render(<WorkflowMockPage />);
+    openVersion('v1');
+    await waitFor(() => {
+      expect(view.container.querySelectorAll('.react-flow__edge').length).toBe(17);
+    });
+    const horizontal = screen.getByRole('button', { name: '横向' });
+    const vertical = screen.getByRole('button', { name: '纵向' });
+    expect(horizontal.getAttribute('aria-pressed')).toBe('true');
+    expect(
+      view.container.querySelector('.react-flow__node-stage .react-flow__handle-left'),
+    ).toBeTruthy();
+    fireEvent.click(vertical);
+    await waitFor(() => {
+      expect(
+        view.container.querySelector('.react-flow__node-stage .react-flow__handle-top'),
+      ).toBeTruthy();
+    });
+    expect(view.container.querySelector('.react-flow.is-vertical')).toBeTruthy();
+    expect(
+      view.container.querySelector('.react-flow__node-junction .react-flow__handle-top'),
+    ).toBeTruthy();
+    expect(
+      view.container.querySelector('.react-flow__node-junction .react-flow__handle-bottom'),
+    ).toBeTruthy();
+    expect(view.container.querySelectorAll('.react-flow__edge').length).toBe(17);
+    expect(vertical.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByTestId('workflow-mock-tidy'));
+    expect(view.container.querySelectorAll('.react-flow__edge').length).toBe(17);
+    fireEvent.click(horizontal);
+    await waitFor(() => {
+      expect(
+        view.container.querySelector('.react-flow__node-stage .react-flow__handle-left'),
+      ).toBeTruthy();
+    });
+    expect(view.container.querySelector('.react-flow.is-vertical')).toBeNull();
+    expect(view.container.querySelectorAll('.react-flow__edge').length).toBe(17);
+  });
+
   test('adds, deletes, and undoes a node from the canvas', async () => {
     render(<WorkflowMockPage />);
     openVersion('v1');

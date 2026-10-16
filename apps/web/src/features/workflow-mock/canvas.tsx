@@ -34,7 +34,7 @@ import {
   type MockDetail,
   type StageNodeData,
 } from './flow-nodes';
-import { layoutWithDagre } from './layout';
+import { layoutWithDagre, type FlowDirection } from './layout';
 import { nudgeOverlaps } from './overlap';
 import {
   JUNCTION_SIZE,
@@ -65,10 +65,35 @@ const toolButton =
 type FlowNode = Node<StageNodeData | JunctionNodeData>;
 
 /**
- * Connection points sit on the card's vertical center after it is shifted onto the
- * 40px layout line, and on the 14px dots (6px outside each side of the card).
+ * Connection points sit on the card center after it is shifted into the layout slot,
+ * on the 14px dots 6px outside the card. Horizontal uses the left and right edges;
+ * vertical uses the top and bottom edges.
  */
-function stageHandles(cardWidth: number) {
+function stageHandles(cardWidth: number, cardHeight: number, direction: FlowDirection) {
+  if (direction === 'tb') {
+    const x = STAGE_W / 2 - 0.5;
+    const top = (STAGE_H - cardHeight) / 2 - 6;
+    return [
+      {
+        id: 'in',
+        type: 'target' as const,
+        position: Position.Top,
+        x,
+        y: top,
+        width: 1,
+        height: 1,
+      },
+      {
+        id: 'out',
+        type: 'source' as const,
+        position: Position.Bottom,
+        x,
+        y: (STAGE_H + cardHeight) / 2 + 5,
+        width: 1,
+        height: 1,
+      },
+    ];
+  }
   const left = (STAGE_W - cardWidth) / 2;
   const y = STAGE_H / 2 - 0.5;
   return [
@@ -93,16 +118,41 @@ function stageHandles(cardWidth: number) {
   ];
 }
 
-function withStageHandles<T extends FlowNode>(node: T): T {
+function withStageHandles<T extends FlowNode>(node: T, direction: FlowDirection): T {
   if (node.type !== 'stage') return node;
-  const measured = node.measured?.width;
-  const cardWidth = measured && measured > 0 ? measured : STAGE_W;
-  return { ...node, handles: stageHandles(cardWidth) };
+  const measuredWidth = node.measured?.width;
+  const measuredHeight = node.measured?.height;
+  const cardWidth = measuredWidth && measuredWidth > 0 ? measuredWidth : STAGE_W;
+  const cardHeight = measuredHeight && measuredHeight > 0 ? measuredHeight : STAGE_H;
+  return { ...node, handles: stageHandles(cardWidth, cardHeight, direction) };
 }
 
-/** Both ports sit on the dot center so wires meet inside the circle. */
-function junctionHandles() {
+/** Both ports sit on the dot so wires meet the in/out circles. */
+function junctionHandles(direction: FlowDirection) {
   const port = 6;
+  if (direction === 'tb') {
+    const x = (JUNCTION_SIZE - port) / 2;
+    return [
+      {
+        id: 'in',
+        type: 'target' as const,
+        position: Position.Top,
+        x,
+        y: -14,
+        width: port,
+        height: port,
+      },
+      {
+        id: 'out',
+        type: 'source' as const,
+        position: Position.Bottom,
+        x,
+        y: JUNCTION_SIZE + 8,
+        width: port,
+        height: port,
+      },
+    ];
+  }
   const y = (JUNCTION_SIZE - port) / 2;
   return [
     {
@@ -126,7 +176,7 @@ function junctionHandles() {
   ];
 }
 
-function toFlowNodes(graph: FlowGraph): FlowNode[] {
+function toFlowNodes(graph: FlowGraph, direction: FlowDirection): FlowNode[] {
   return graph.nodes.map((node) => {
     if (node.kind === 'merge') {
       return {
@@ -142,7 +192,7 @@ function toFlowNodes(graph: FlowGraph): FlowNode[] {
         width: JUNCTION_SIZE,
         height: JUNCTION_SIZE,
         measured: { width: JUNCTION_SIZE, height: JUNCTION_SIZE },
-        handles: junctionHandles(),
+        handles: junctionHandles(direction),
         style: { width: JUNCTION_SIZE, height: JUNCTION_SIZE, overflow: 'visible' },
       };
     }
@@ -153,7 +203,7 @@ function toFlowNodes(graph: FlowGraph): FlowNode[] {
       data: { name: node.name },
       initialWidth: STAGE_W,
       initialHeight: STAGE_H,
-      handles: stageHandles(STAGE_W),
+      handles: stageHandles(STAGE_W, STAGE_H, direction),
     };
   });
 }
@@ -183,7 +233,11 @@ function CanvasInner({
     present: cloneGraph(initial),
     future: [],
   }));
-  const [nodes, setNodes] = useState<FlowNode[]>(() => toFlowNodes(initial));
+  const [direction, setDirection] = useState<FlowDirection>('lr');
+  const directionRef = useRef<FlowDirection>('lr');
+  const directionPast = useRef<FlowDirection[]>([]);
+  const directionFuture = useRef<FlowDirection[]>([]);
+  const [nodes, setNodes] = useState<FlowNode[]>(() => toFlowNodes(initial, 'lr'));
   const [edges, setEdges] = useState<Edge[]>(() => toFlowEdges(initial));
   const [notice, setNotice] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -204,6 +258,7 @@ function CanvasInner({
   >(null);
   const shellRef = useRef<HTMLDivElement>(null);
   historyRef.current = history;
+  directionRef.current = direction;
   nodesRef.current = nodes;
   edgesRef.current = edges;
   const { fitView, screenToFlowPosition, setViewport, getNodes } = useReactFlow();
@@ -248,13 +303,16 @@ function CanvasInner({
       edgesRef.current.filter((edge) => edge.selected).map((edge) => edge.id),
     );
     const previous = new Map(nodesRef.current.map((node) => [node.id, node]));
-    const nextNodes = toFlowNodes(graph).map((node) => {
+    const nextNodes = toFlowNodes(graph, directionRef.current).map((node) => {
       const measured = previous.get(node.id)?.measured;
-      return withStageHandles({
-        ...node,
-        selected: selectedNodes.has(node.id),
-        ...(measured ? { measured } : {}),
-      });
+      return withStageHandles(
+        {
+          ...node,
+          selected: selectedNodes.has(node.id),
+          ...(measured ? { measured } : {}),
+        },
+        directionRef.current,
+      );
     });
     const nextEdges = toFlowEdges(graph).map((edge) => ({
       ...edge,
@@ -268,6 +326,8 @@ function CanvasInner({
 
   const commit = useCallback(
     (next: FlowGraph) => {
+      directionPast.current.push(directionRef.current);
+      directionFuture.current = [];
       const updated = commitHistory(historyRef.current, next);
       historyRef.current = updated;
       setHistory(updated);
@@ -278,6 +338,13 @@ function CanvasInner({
 
   const undo = useCallback(() => {
     const updated = undoHistory(historyRef.current);
+    if (updated === historyRef.current) return;
+    const previous = directionPast.current.pop();
+    if (previous) {
+      directionFuture.current.unshift(directionRef.current);
+      directionRef.current = previous;
+      setDirection(previous);
+    }
     historyRef.current = updated;
     setHistory(updated);
     sync(updated.present);
@@ -285,6 +352,13 @@ function CanvasInner({
 
   const redo = useCallback(() => {
     const updated = redoHistory(historyRef.current);
+    if (updated === historyRef.current) return;
+    const next = directionFuture.current.shift();
+    if (next) {
+      directionPast.current.push(directionRef.current);
+      directionRef.current = next;
+      setDirection(next);
+    }
     historyRef.current = updated;
     setHistory(updated);
     sync(updated.present);
@@ -415,8 +489,19 @@ function CanvasInner({
       detail: (id: string) => details[id] ?? { open: false, status: 'idle' as const, reason: '' },
       setStatus,
       setReason,
+      direction,
     }),
-    [editingId, startEdit, commitEdit, cancelEdit, toggleDetail, details, setStatus, setReason],
+    [
+      editingId,
+      startEdit,
+      commitEdit,
+      cancelEdit,
+      toggleDetail,
+      details,
+      setStatus,
+      setReason,
+      direction,
+    ],
   );
 
   const [nudge, setNudge] = useState<Record<string, { x: number; y: number }>>({});
@@ -447,7 +532,7 @@ function CanvasInner({
         anchor: open.has(node.id),
       };
     });
-    const next = nudgeOverlaps(boxes);
+    const next = nudgeOverlaps(boxes, 14, direction === 'tb' ? 'y' : undefined);
     setNudge((prev) => {
       const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
       for (const key of keys) {
@@ -457,7 +542,7 @@ function CanvasInner({
       }
       return prev;
     });
-  }, [details, nodes]);
+  }, [details, nodes, direction]);
 
   const displayNodes = useMemo(
     () =>
@@ -478,8 +563,26 @@ function CanvasInner({
   }, [commit, viewCenter]);
 
   const tidy = useCallback(() => {
-    commit(layoutWithDagre(historyRef.current.present));
+    commit(layoutWithDagre(historyRef.current.present, directionRef.current));
   }, [commit]);
+
+  const applyDirection = useCallback(
+    (next: FlowDirection) => {
+      if (next === directionRef.current) return;
+      const laidOut = layoutWithDagre(historyRef.current.present, next);
+      directionPast.current.push(directionRef.current);
+      directionFuture.current = [];
+      directionRef.current = next;
+      setDirection(next);
+      setNudge({});
+      const updated = commitHistory(historyRef.current, laidOut);
+      historyRef.current = updated;
+      setHistory(updated);
+      sync(laidOut);
+      void fitView({ padding: 0.2 });
+    },
+    [fitView, sync],
+  );
 
   const fit = useCallback(() => {
     void fitView({ padding: 0.2 });
@@ -595,8 +698,8 @@ function CanvasInner({
           position: { x: change.position.x - offset.x, y: change.position.y - offset.y },
         };
       });
-    const next = (applyNodeChanges(structural, nodesRef.current) as FlowNode[]).map(
-      withStageHandles,
+    const next = (applyNodeChanges(structural, nodesRef.current) as FlowNode[]).map((node) =>
+      withStageHandles(node, directionRef.current),
     );
     nodesRef.current = next;
     setNodes(next);
@@ -614,6 +717,10 @@ function CanvasInner({
       const positions = new Map(next.map((node) => [node.id, node.position]));
       const moved = applyPositions(historyRef.current.present, positions);
       const updated = commitDrag(historyRef.current, origin, moved);
+      if (updated !== historyRef.current) {
+        directionPast.current.push(directionRef.current);
+        directionFuture.current = [];
+      }
       historyRef.current = updated;
       setHistory(updated);
     }
@@ -699,6 +806,39 @@ function CanvasInner({
             {label}
           </span>
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            <div
+              role="group"
+              aria-label="方向"
+              data-testid="workflow-mock-direction"
+              className="flex overflow-hidden rounded-md border border-white/15"
+            >
+              <button
+                type="button"
+                aria-pressed={direction === 'lr'}
+                data-direction="lr"
+                className={
+                  direction === 'lr'
+                    ? 'bg-white/15 px-2 py-1 text-xs text-zinc-100'
+                    : 'px-2 py-1 text-xs text-zinc-400 hover:bg-white/10'
+                }
+                onClick={() => applyDirection('lr')}
+              >
+                横向
+              </button>
+              <button
+                type="button"
+                aria-pressed={direction === 'tb'}
+                data-direction="tb"
+                className={
+                  direction === 'tb'
+                    ? 'bg-white/15 px-2 py-1 text-xs text-zinc-100'
+                    : 'px-2 py-1 text-xs text-zinc-400 hover:bg-white/10'
+                }
+                onClick={() => applyDirection('tb')}
+              >
+                纵向
+              </button>
+            </div>
             <Button
               type="button"
               size="sm"
@@ -751,7 +891,13 @@ function CanvasInner({
                 </p>
               ) : null}
               <ReactFlow
-                className={connecting ? 'workflow-mock-flow is-connecting' : 'workflow-mock-flow'}
+                className={[
+                  'workflow-mock-flow',
+                  connecting ? 'is-connecting' : '',
+                  direction === 'tb' ? 'is-vertical' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 onConnectStart={onConnectStart}
                 nodes={displayNodes}
                 edges={viewEdges}

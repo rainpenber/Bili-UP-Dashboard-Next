@@ -35,4 +35,14 @@ describe('nudgeOverlaps', () => {
     const movedBottom = 80 + 36 + nudge.above!.y;
     expect(movedBottom).toBeLessThanOrEqual(100 - 10 + 0.5);
   });
+
+  test('prefers a vertical push when the canvas flows downward', () => {
+    const nudge = nudgeOverlaps(
+      [box('open', 0, 0, 100, 80, true), box('side', 90, 20, 40, 30)],
+      14,
+      'y',
+    );
+    expect(Math.abs(nudge.side?.y ?? 0)).toBeGreaterThan(0);
+    expect(nudge.side?.x ?? 0).toBe(0);
+  });
 });

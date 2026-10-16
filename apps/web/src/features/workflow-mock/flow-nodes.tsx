@@ -1,6 +1,7 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { ChevronDown } from 'lucide-react';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import type { FlowDirection } from './layout';
 import { STAGE_H, STAGE_W } from './model';
 
 export type StageNodeData = { name: string };
@@ -26,6 +27,7 @@ export type NodeUi = {
   detail: (id: string) => MockDetail;
   setStatus: (id: string, status: MockStatus) => void;
   setReason: (id: string, reason: string) => void;
+  direction: FlowDirection;
 };
 
 export const NodeUiContext = createContext<NodeUi | null>(null);
@@ -49,6 +51,7 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
     return () => window.clearTimeout(timer);
   }, [editing, data.name]);
 
+  const vertical = (ui?.direction ?? 'lr') === 'tb';
   const shown = (editing ? value : data.name) || '名称';
   return (
     <div
@@ -67,7 +70,12 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
         data-workflow-node="stage"
         data-status={detail.status}
       >
-        <Handle type="target" position={Position.Left} id="in" isConnectable />
+        <Handle
+          type="target"
+          position={vertical ? Position.Top : Position.Left}
+          id="in"
+          isConnectable
+        />
         <div className="relative">
           <p className={`break-all whitespace-pre-wrap leading-snug ${editing ? 'invisible' : ''}`}>
             {shown}
@@ -160,7 +168,12 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
             ) : null}
           </div>
         ) : null}
-        <Handle type="source" position={Position.Right} id="out" isConnectable />
+        <Handle
+          type="source"
+          position={vertical ? Position.Bottom : Position.Right}
+          id="out"
+          isConnectable
+        />
       </div>
     </div>
   );
@@ -168,6 +181,8 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
 
 /** Gold dot moves by dragging the body. Ports appear beside it on hover. */
 export function JunctionNode() {
+  const ui = useContext(NodeUiContext);
+  const vertical = (ui?.direction ?? 'lr') === 'tb';
   return (
     <div
       data-workflow-junction="anchor"
@@ -177,7 +192,7 @@ export function JunctionNode() {
     >
       <Handle
         type="target"
-        position={Position.Left}
+        position={vertical ? Position.Top : Position.Left}
         id="in"
         isConnectable
         className="junction-port"
@@ -186,7 +201,7 @@ export function JunctionNode() {
       />
       <Handle
         type="source"
-        position={Position.Right}
+        position={vertical ? Position.Bottom : Position.Right}
         id="out"
         isConnectable
         isConnectableEnd={false}

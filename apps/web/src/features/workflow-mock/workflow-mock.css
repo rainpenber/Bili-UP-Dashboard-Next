@@ -94,6 +94,14 @@ html.dark .workflow-stage[data-status='done'] {
   right: -6px;
 }
 
+.workflow-mock-flow.is-vertical .react-flow__node-stage .react-flow__handle-top {
+  top: -6px;
+}
+
+.workflow-mock-flow.is-vertical .react-flow__node-stage .react-flow__handle-bottom {
+  bottom: -6px;
+}
+
 .workflow-mock-flow .react-flow__node-junction .junction-port {
   width: 6px !important;
   height: 6px !important;
@@ -147,6 +155,33 @@ html.dark .workflow-stage[data-status='done'] {
 
 .workflow-mock-flow .junction-label-out {
   right: -16px;
+}
+
+.workflow-mock-flow.is-vertical .react-flow__node-junction .junction-port.target {
+  top: -14px !important;
+  left: 2px !important;
+  right: auto !important;
+  bottom: auto !important;
+}
+
+.workflow-mock-flow.is-vertical .react-flow__node-junction .junction-port.source {
+  top: auto !important;
+  bottom: -14px !important;
+  left: 2px !important;
+  right: auto !important;
+}
+
+.workflow-mock-flow.is-vertical .junction-label-in {
+  top: -22px;
+  left: 0;
+  right: auto;
+}
+
+.workflow-mock-flow.is-vertical .junction-label-out {
+  top: auto;
+  bottom: -16px;
+  left: 0;
+  right: auto;
 }
 
 .workflow-mock-flow .react-flow__node-junction:hover .junction-label,

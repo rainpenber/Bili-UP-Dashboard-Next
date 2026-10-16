@@ -13,6 +13,7 @@ import {
   renameStageNode,
   removeElements,
   removeJunction,
+  STAGE_H,
   undoHistory,
   type HistoryState,
 } from './model';
@@ -130,6 +131,11 @@ describe('workflow mock graphs', () => {
     expect(tidied.nodes.find((node) => node.id === 'inq')!.x).not.toBe(5);
     const tidyHistory = commitHistory({ past: [], present: shifted, future: [] }, tidied);
     expect(undoHistory(tidyHistory).present.nodes.find((node) => node.id === 'inq')!.x).toBe(5);
+    const vertical = layoutWithDagre(v1, 'tb');
+    const inquiry = vertical.nodes.find((node) => node.id === 'inq')!;
+    const publish = vertical.nodes.find((node) => node.id === 'pub')!;
+    expect(publish.y).toBeGreaterThan(inquiry.y + STAGE_H);
+    expect(vertical.edges).toHaveLength(v1.edges.length);
 
     const placed = addJunction(v1, { x: 40, y: 50 });
     const created = placed.nodes.find((node) => node.id === 'merge-1');
