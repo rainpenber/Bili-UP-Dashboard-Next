@@ -1,0 +1,38 @@
+.workflow-mock-flow {
+  background: #1b1b1b;
+}
+
+.workflow-mock-flow .react-flow__handle {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #1b1b1b;
+  background: #f2f2f2;
+}
+
+.workflow-mock-flow .react-flow__node-stage .react-flow__handle::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+}
+
+.workflow-mock-flow .react-flow__handle-left {
+  left: -6px;
+}
+
+.workflow-mock-flow .react-flow__handle-right {
+  right: -6px;
+}
+
+.workflow-mock-flow .react-flow__node-junction,
+.workflow-mock-flow .react-flow__node-junction .react-flow__handle {
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
+
+.workflow-mock-flow .react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+.workflow-mock-flow .react-flow__attribution {
+  display: none;
+}

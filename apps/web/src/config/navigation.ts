@@ -61,7 +61,17 @@ export const primaryNav: NavItem[] = [
   },
 ];
 
+const workflowMockNav: NavItem = {
+  to: '/workflow-mock',
+  label: '流程',
+  description: '节点工作流原型',
+  icon: Blocks,
+  implemented: true,
+};
+
 export function navItemForPath(pathname: string): NavItem | undefined {
+  if (pathname === '/workflow-mock' || pathname.startsWith('/workflow-mock/'))
+    return workflowMockNav;
   if (pathname === '/') return primaryNav[0];
   return primaryNav.find((item) => item.to !== '/' && pathname.startsWith(item.to));
 }

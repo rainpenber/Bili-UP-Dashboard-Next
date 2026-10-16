@@ -10,6 +10,7 @@ describe('app routes', () => {
     expect(paths).toContain('projects');
     expect(paths).toContain('projects/:projectId');
     expect(paths).toContain('integrations');
+    expect(paths).toContain('workflow-mock');
   });
 
   test('redirects legacy /monitor to monitoring', () => {
