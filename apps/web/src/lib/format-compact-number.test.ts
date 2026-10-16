@@ -32,8 +32,8 @@ describe('formatExactNumber', () => {
 });
 
 describe('formatUnknownMetric', () => {
-  test('null shows 暂无数据', () => {
-    expect(formatUnknownMetric(null)).toBe('暂无数据');
+  test('null shows 还没有', () => {
+    expect(formatUnknownMetric(null)).toBe('还没有');
     expect(formatUnknownMetric('100')).toBe('100');
   });
 });
@@ -43,8 +43,8 @@ describe('video play vs online display', () => {
     const viewCount = '12345678';
     const onlineRaw = '1000+';
     expect(formatViewCountDisplay(viewCount)).toBe(formatCompactNumber(viewCount));
-    expect(formatViewCountDisplay(viewCount)).not.toContain('下界');
-    expect(formatOnlineViewersDisplay(null, onlineRaw)).toContain('下界');
+    expect(formatViewCountDisplay(viewCount)).not.toContain('+');
+    expect(formatOnlineViewersDisplay(null, onlineRaw)).toBe('1千+');
     expect(formatViewCountDisplay(viewCount)).not.toBe(formatOnlineViewersDisplay(null, onlineRaw));
   });
 });

@@ -8,9 +8,9 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
     <aside className="flex h-full flex-col border-r border-sidebar-border bg-sidebar">
       <div className="border-b border-sidebar-border px-4 py-4">
         <p className="text-base font-semibold tracking-tight text-sidebar-foreground">
-          Studio Ops Hub
+          工作室运营台
         </p>
-        <p className="mt-1 text-xs text-muted-foreground">三人自媒体工作室运营台</p>
+        <p className="mt-1 text-xs text-muted-foreground">商单、进度、账号数据</p>
       </div>
       <nav className="flex-1 space-y-1 p-3" aria-label="主导航">
         {primaryNav.map((item) => {

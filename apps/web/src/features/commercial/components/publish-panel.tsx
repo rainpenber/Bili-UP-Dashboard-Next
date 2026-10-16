@@ -43,7 +43,7 @@ export function PublishPanel({
   const displayGoLive = override?.goLiveAtLabel ?? project.goLiveAtLabel;
 
   if (project.archived) {
-    return <p className="text-sm text-muted-foreground">该项目已归档，发布信息仅供查看。</p>;
+    return <p className="text-sm text-muted-foreground">已经结案，发布信息只能看。</p>;
   }
 
   if (isPublished && !editing) {
@@ -68,7 +68,7 @@ export function PublishPanel({
   if (!editing) {
     return (
       <Button type="button" onClick={() => setEditing(true)}>
-        进入发布状态
+        标成已发布
       </Button>
     );
   }
@@ -108,14 +108,12 @@ export function PublishPanel({
         />
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button type="submit">确认发布（演示）</Button>
+        <Button type="submit">确认已发布</Button>
         <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
           取消
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">
-        此处仅在本机浏览器里记住演示状态，不会真的投稿或改后台。
-      </p>
+      <p className="text-xs text-muted-foreground">只记在这台浏览器里，不会真的投稿。</p>
     </form>
   );
 }

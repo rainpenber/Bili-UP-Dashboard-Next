@@ -52,7 +52,7 @@ export function MetricCharts(props: Props) {
   );
 
   if (points.length === 0) {
-    return <p className="text-sm text-muted-foreground">暂无播放与互动数据</p>;
+    return <p className="text-sm text-muted-foreground">还没有数据。</p>;
   }
 
   if (props.kind === 'video') {
@@ -79,20 +79,31 @@ export function MetricCharts(props: Props) {
 
     return (
       <div className="space-y-4">
-        <ReactECharts
-          option={buildVideoViewsOption(sampledAtList, online, views, colors, tooltipTimes)}
-          style={{ height: 300, width: '100%' }}
-          opts={{ renderer: 'canvas' }}
-          notMerge
-        />
-        <ReactECharts
-          option={buildVideoEngagementOption(sampledAtList, engagementSeries, colors, tooltipTimes)}
-          style={{ height: 300, width: '100%' }}
-          opts={{ renderer: 'canvas' }}
-          notMerge
-        />
+        <div className="space-y-2">
+          <p className="text-sm font-medium">播放量和在线观看</p>
+          <ReactECharts
+            option={buildVideoViewsOption(sampledAtList, online, views, colors, tooltipTimes)}
+            style={{ height: 300, width: '100%' }}
+            opts={{ renderer: 'canvas' }}
+            notMerge
+          />
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-medium">{engagementSeries.map((s) => s.name).join('、')}</p>
+          <ReactECharts
+            option={buildVideoEngagementOption(
+              sampledAtList,
+              engagementSeries,
+              colors,
+              tooltipTimes,
+            )}
+            style={{ height: 300, width: '100%' }}
+            opts={{ renderer: 'canvas' }}
+            notMerge
+          />
+        </div>
         {!hasAnyNumeric(comments) ? (
-          <p className="text-xs text-muted-foreground">评论数：历史数据暂无，未绘制评论曲线。</p>
+          <p className="text-xs text-muted-foreground">评论还没有历史数据，图上先不画。</p>
         ) : null}
       </div>
     );
@@ -138,7 +149,7 @@ export function MetricCharts(props: Props) {
         notMerge
       />
       {!hasAnyNumeric(comments) ? (
-        <p className="text-xs text-muted-foreground">评论数：暂无数据。</p>
+        <p className="text-xs text-muted-foreground">评论还没有数据。</p>
       ) : null}
     </div>
   );

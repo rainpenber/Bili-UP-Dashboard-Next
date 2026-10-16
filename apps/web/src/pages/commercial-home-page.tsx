@@ -9,6 +9,7 @@ import {
 } from '@/features/commercial/commercial-selectors';
 import { useCommercialProjectsQuery } from '@/features/commercial/use-commercial-queries';
 import { Link } from 'react-router-dom';
+import { toUserErrorMessage } from '@/lib/user-facing-error';
 import { cn } from '@/lib/utils';
 
 function Section({
@@ -40,13 +41,13 @@ export function CommercialHomePage() {
     <>
       <PageHeader
         title="今日看板"
-        description="先看今天要催谁、自己要干什么，以及哪些项目节点被卡住了。"
+        description="先看今天要催谁、自己要干什么，以及哪些项目卡住了。"
         crumbs={[{ label: '工作室', to: '/' }, { label: '今日看板' }]}
       />
 
       {query.isError ? (
         <ErrorState
-          message={query.error instanceof Error ? query.error.message : '加载失败'}
+          message={toUserErrorMessage(query.error, '没加载出来，请再试一次。')}
           onRetry={() => void query.refetch()}
         />
       ) : null}
@@ -55,16 +56,13 @@ export function CommercialHomePage() {
 
       {!query.isError && query.isSuccess ? (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3 xl:items-start">
-          <Section title="我方要处理的事项">
+          <Section title="我们要办的事">
             {(() => {
               const items = getOurActionItems(query.data);
               const byProject = new Map(query.data.map((p) => [p.id, p]));
               if (items.length === 0) {
                 return (
-                  <EmptyState
-                    title="这边暂时没有待办"
-                    description="有商单需要你们推进时，会出现在这里。"
-                  />
+                  <EmptyState title="这边暂时没有待办" description="需要你们推进时会出现在这里。" />
                 );
               }
               return (
@@ -79,7 +77,7 @@ export function CommercialHomePage() {
             })()}
           </Section>
 
-          <Section title="等待甲方处理的事项">
+          <Section title="等甲方的事">
             {(() => {
               const items = getClientActionItems(query.data);
               const byProject = new Map(query.data.map((p) => [p.id, p]));
@@ -105,8 +103,8 @@ export function CommercialHomePage() {
 
           <Section
             className="lg:col-span-2 xl:col-span-1"
-            title="进行中项目的阻塞节点汇总"
-            description="按项目汇总：卡在哪、主要因为什么、对外承诺时间和已卡天数。"
+            title="卡住的项目"
+            description="卡在哪一步、为什么、答应什么时候，以及已经卡了几天。"
           >
             {(() => {
               const rows = getBlockedProjectSummaries(query.data);
@@ -114,7 +112,7 @@ export function CommercialHomePage() {
                 return (
                   <EmptyState
                     title="目前没有明确卡住的节点"
-                    description="有具体阻塞原因的项目会出现在这里。"
+                    description="能说清卡在哪的项目会出现在这里。"
                   />
                 );
               }
@@ -131,15 +129,15 @@ export function CommercialHomePage() {
                           <p className="font-medium">{row.projectName}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">卡住的节点</p>
+                          <p className="text-xs text-muted-foreground">卡在哪一步</p>
                           <p>{row.blockedNode}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">主要阻塞项</p>
+                          <p className="text-xs text-muted-foreground">为什么</p>
                           <p className="text-sm">{row.mainBlockingItem}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">对外时间 · 已卡天数</p>
+                          <p className="text-xs text-muted-foreground">答应的时间 · 已卡天数</p>
                           <p className="text-sm">
                             {row.userFacingDeadline} · 已卡 {row.blockedDays} 天
                           </p>

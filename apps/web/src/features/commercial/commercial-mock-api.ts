@@ -27,7 +27,7 @@ export async function fetchCommercialProject(
 ): Promise<CommercialProject | null> {
   await delay();
   if (options.simulateError) {
-    throw new Error('项目详情加载失败，请返回列表重试。');
+    throw new Error('这个项目没加载出来，请回到列表再试。');
   }
   return commercialProjectsMock.find((p) => p.id === id) ?? null;
 }

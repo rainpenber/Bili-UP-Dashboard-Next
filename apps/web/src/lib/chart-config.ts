@@ -71,7 +71,7 @@ export function buildTimeSeriesBase(
       { type: 'slider', height: 20, start: zoom.start, end: zoom.end },
     ],
     toolbox: {
-      feature: { restore: {} },
+      feature: { restore: { title: '还原' } },
       iconStyle: { borderColor: colors.mutedForeground },
     },
     xAxis: {
@@ -116,7 +116,7 @@ export function buildVideoViewsOption(
     yAxis: [
       {
         type: 'value',
-        name: '在线',
+        name: '在线观看',
         position: 'left',
         axisLabel: {
           color: colors.mutedForeground,
@@ -126,7 +126,7 @@ export function buildVideoViewsOption(
       },
       {
         type: 'value',
-        name: '播放(千次)',
+        name: '播放量（千次）',
         position: 'right',
         axisLabel: {
           color: colors.mutedForeground,
@@ -165,7 +165,7 @@ export function buildVideoEngagementOption(
     },
     yAxis: {
       type: 'value',
-      name: '互动',
+      name: '次数',
       axisLabel: {
         color: colors.mutedForeground,
         formatter: (v: number) => formatCompactNumber(v),

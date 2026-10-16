@@ -9,6 +9,7 @@ import { MetricCharts } from '@/features/monitoring/MetricCharts';
 import { MonitoringDetailLayout } from '@/features/monitoring/monitoring-detail-layout';
 import { formatUnknownMetric } from '@/lib/format-compact-number';
 import { formatFullLocalTime, formatShortTime } from '@/lib/format-time';
+import { toUserErrorMessage } from '@/lib/user-facing-error';
 
 export function MonitoringDynamicDetailPage() {
   const { id = '' } = useParams();
@@ -19,14 +20,14 @@ export function MonitoringDynamicDetailPage() {
   if (detailQuery.isError) {
     return (
       <ErrorState
-        title="无法加载动态"
-        message={detailQuery.error instanceof Error ? detailQuery.error.message : '加载失败'}
+        title="动态没加载出来"
+        message={toUserErrorMessage(detailQuery.error, '没加载出来，请再试一次。')}
         onRetry={() => void detailQuery.refetch()}
       />
     );
   }
   if (!detailQuery.data) {
-    return <ErrorState title="未找到动态" message={`不存在动态 ${id}`} />;
+    return <ErrorState title="没有这条动态" message={`没有编号为 ${id} 的动态。`} />;
   }
 
   const d = detailQuery.data;
@@ -35,37 +36,38 @@ export function MonitoringDynamicDetailPage() {
   return (
     <MonitoringDetailLayout
       title={d.dynamicId}
-      description="动态互动指标趋势"
+      description="点赞、转发和评论怎么变的。"
+      chartsTitle="点赞、转发和评论"
       entityLabel={d.dynamicId}
       backTo="/monitoring?tab=dynamics"
       status={
         d.deletedAt ? (
           <Badge variant="destructive">已删除</Badge>
         ) : d.archivedAt ? (
-          <Badge variant="warning">已归档</Badge>
+          <Badge variant="warning">已存档</Badge>
         ) : null
       }
       meta={[
-        { label: '动态 ID', value: d.dynamicId },
-        { label: 'UP MID', value: d.mid ?? '—' },
+        { label: '编号', value: d.dynamicId },
+        { label: 'UP 主编号', value: d.mid ?? '—' },
         { label: '分类', value: d.category ?? '未分类' },
         {
-          label: '最后采样',
+          label: '最近更新',
           value: latest ? (
             <span title={formatFullLocalTime(latest.sampledAt)}>
               {formatShortTime(latest.sampledAt)}
             </span>
           ) : (
-            '暂无采样'
+            '还没有记录'
           ),
         },
         {
-          label: '最新点赞',
+          label: '点赞',
           value: latest ? formatUnknownMetric(latest.likeCount) : '—',
         },
         {
-          label: '评论数',
-          value: latest ? formatUnknownMetric(latest.commentCount) : '暂无数据',
+          label: '评论',
+          value: latest ? formatUnknownMetric(latest.commentCount) : '还没有',
         },
       ]}
       charts={
@@ -73,9 +75,7 @@ export function MonitoringDynamicDetailPage() {
           <LoadingListSkeleton rows={2} />
         ) : metricsQuery.isError ? (
           <ErrorState
-            message={
-              metricsQuery.error instanceof Error ? metricsQuery.error.message : '指标加载失败'
-            }
+            message={toUserErrorMessage(metricsQuery.error, '数据没加载出来')}
             onRetry={() => void metricsQuery.refetch()}
           />
         ) : (

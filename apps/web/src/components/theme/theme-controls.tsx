@@ -43,9 +43,9 @@ export function ThemeControls({ className }: { className?: string }) {
         ))}
       </div>
       <Select value={accent} onValueChange={(v) => setAccent(v as ThemeAccent)}>
-        <SelectTrigger className="h-8 w-[8.5rem]" aria-label="强调色">
+        <SelectTrigger className="h-8 w-[8.5rem]" aria-label="主题色">
           <Palette className="size-3.5 shrink-0 opacity-70" aria-hidden />
-          <SelectValue placeholder="强调色" />
+          <SelectValue placeholder="主题色" />
         </SelectTrigger>
         <SelectContent>
           {(Object.keys(ACCENT_LABELS) as ThemeAccent[]).map((key) => (

@@ -21,17 +21,19 @@ export function OfflineEnvironmentBadge() {
 
   const detail =
     health.status === 'success'
-      ? `API ${health.data.status} · ${health.data.service} v${health.data.version}`
+      ? health.data.status === 'ok'
+        ? '数据服务正常'
+        : '数据服务有响应，但状态不对'
       : health.status === 'error'
-        ? `API 不可用：${health.error instanceof Error ? health.error.message : '未知错误'}`
-        : '正在检测 API…';
+        ? '数据服务暂时连不上'
+        : '正在检查数据服务…';
 
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
           <Badge variant="info" className="cursor-default font-normal">
-            离线 CSV · 不访问 B 站
+            本地数据 · 不连 B 站
           </Badge>
         </TooltipTrigger>
         <TooltipContent side="bottom">{detail}</TooltipContent>

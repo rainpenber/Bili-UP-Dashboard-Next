@@ -31,12 +31,19 @@ import { cn } from '@/lib/utils';
 import { OfflineEnvironmentBadge } from '@/features/monitoring/offline-environment-badge';
 import { formatShortTime } from '@/lib/format-time';
 import { formatUnknownMetric } from '@/lib/format-compact-number';
+import { toUserErrorMessage } from '@/lib/user-facing-error';
 import { Button } from '@/components/ui/button';
 
 const TAB_LABEL: Record<MonitorTab, string> = {
   videos: '视频',
   creators: 'UP 主',
   dynamics: '动态',
+};
+
+const TREND_TITLE: Record<MonitorTab, string> = {
+  videos: '播放量和互动',
+  creators: '粉丝数变化',
+  dynamics: '点赞、转发和评论',
 };
 
 export function MonitoringPage() {
@@ -70,13 +77,13 @@ export function MonitoringPage() {
     <>
       <PageHeader
         title="监控中心"
-        description="查看已导入的视频、UP 主与动态数据，支持筛选、分页与趋势对比。"
+        description="看已导入的视频、UP 主和动态。"
         crumbs={[{ label: '工作室', to: '/' }, { label: '监控' }]}
         actions={<OfflineEnvironmentBadge />}
       />
 
       <Tabs value={state.tab} onValueChange={(v) => onTabChange(v as MonitorTab)} className="gap-4">
-        <TabsList aria-label="监控实体类型">
+        <TabsList aria-label="视频、UP 主或动态">
           {(Object.keys(TAB_LABEL) as MonitorTab[]).map((tab) => (
             <TabsTrigger key={tab} value={tab}>
               {TAB_LABEL[tab]}
@@ -91,7 +98,7 @@ export function MonitoringPage() {
               <Input
                 id="monitor-category"
                 value={state.category}
-                placeholder="可选"
+                placeholder="输入分类"
                 onChange={(e) => patchUrl({ category: e.target.value, page: 1, selected: null })}
               />
             </div>
@@ -102,7 +109,7 @@ export function MonitoringPage() {
               <Input
                 id="monitor-q"
                 value={state.q}
-                placeholder="标题 / ID"
+                placeholder="标题或编号"
                 onChange={(e) => patchUrl({ q: e.target.value, page: 1, selected: null })}
               />
             </div>
@@ -111,19 +118,16 @@ export function MonitoringPage() {
 
         <TabsContent value={state.tab} className="mt-0">
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
-            <section aria-label="实体列表" className="min-w-0 space-y-4">
+            <section aria-label="列表" className="min-w-0 space-y-4">
               {listQuery.isLoading ? <LoadingListSkeleton rows={3} /> : null}
               {listQuery.isError ? (
                 <ErrorState
-                  message={listQuery.error instanceof Error ? listQuery.error.message : '加载失败'}
+                  message={toUserErrorMessage(listQuery.error, '没加载出来，请再试一次。')}
                   onRetry={() => void listQuery.refetch()}
                 />
               ) : null}
               {listQuery.isSuccess && listQuery.data.items.length === 0 ? (
-                <EmptyState
-                  title="没有匹配的条目"
-                  description="尝试调整筛选条件或确认离线 CSV 是否已成功导入。"
-                />
+                <EmptyState title="没有符合的内容" description="换个分类或关键词试试。" />
               ) : null}
 
               {listQuery.isSuccess && listQuery.data.items.length > 0 ? (
@@ -220,7 +224,7 @@ export function MonitoringPage() {
                                   {'uname' in c ? (c.uname ?? c.mid) : id}
                                 </p>
                                 <p className="text-xs tabular-nums text-muted-foreground">
-                                  粉丝{' '}
+                                  粉丝数{' '}
                                   {'latestMetrics' in c
                                     ? formatCount(c.latestMetrics.followerCount)
                                     : '—'}
@@ -263,14 +267,14 @@ export function MonitoringPage() {
                               <div className="min-w-0 space-y-1">
                                 <p className="break-all font-medium">{id}</p>
                                 <p className="text-xs tabular-nums text-muted-foreground">
-                                  赞{' '}
+                                  点赞{' '}
                                   {'latestMetrics' in d
                                     ? formatCount(d.latestMetrics.likeCount)
                                     : '—'}{' '}
-                                  · 评{' '}
+                                  · 评论{' '}
                                   {'latestMetrics' in d
                                     ? formatUnknownMetric(d.latestMetrics.commentCount)
-                                    : '暂无数据'}
+                                    : '还没有'}
                                 </p>
                               </div>
                             </button>
@@ -301,7 +305,7 @@ export function MonitoringPage() {
 
             <Card className="min-w-0 lg:sticky lg:top-20">
               <CardHeader className="flex-row items-center justify-between space-y-0">
-                <CardTitle className="text-base">播放与互动趋势</CardTitle>
+                <CardTitle className="text-base">{TREND_TITLE[state.tab]}</CardTitle>
                 {state.selected ? (
                   <Badge
                     variant="outline"
@@ -312,23 +316,17 @@ export function MonitoringPage() {
                 ) : null}
               </CardHeader>
               <CardContent className="space-y-4">
-                {!state.selected ? (
-                  <NoSelectionHint message="从左侧列表选择一条记录以查看趋势图。" />
-                ) : null}
+                {!state.selected ? <NoSelectionHint message="从左边点一条，看它怎么变。" /> : null}
                 {state.selected && metricsQuery.isLoading ? <LoadingListSkeleton rows={2} /> : null}
                 {state.selected && metricsQuery.isError ? (
                   <ErrorState
-                    title="指标加载失败"
-                    message={
-                      metricsQuery.error instanceof Error
-                        ? metricsQuery.error.message
-                        : '暂时拉不到趋势数据'
-                    }
+                    title="数据没加载出来"
+                    message={toUserErrorMessage(metricsQuery.error, '暂时看不到变化')}
                     onRetry={() => void metricsQuery.refetch()}
                   />
                 ) : null}
                 {state.selected && metricsQuery.isSuccess && metricsQuery.data == null ? (
-                  <NoSelectionHint message="未找到该实体的指标序列。" />
+                  <NoSelectionHint message="这条还没有记录。" />
                 ) : null}
                 {state.selected && metricsQuery.isSuccess && metricsQuery.data?.kind === 'video' ? (
                   <MetricCharts kind="video" points={metricsQuery.data.points} />
