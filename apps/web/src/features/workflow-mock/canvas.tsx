@@ -63,15 +63,20 @@ const toolButton =
 
 type FlowNode = Node<StageNodeData | JunctionNodeData>;
 
-/** Declared ports so edges render before ResizeObserver measures the DOM handles. */
-function portHandles(width: number, height: number) {
+/**
+ * Connection points sit on the card's vertical center after it is shifted onto the
+ * 40px layout line, and on the 14px dots (6px outside each side of the card).
+ */
+function stageHandles(cardWidth: number) {
+  const left = (STAGE_W - cardWidth) / 2;
+  const y = STAGE_H / 2 - 0.5;
   return [
     {
       id: 'in',
       type: 'target' as const,
       position: Position.Left,
-      x: 0,
-      y: height / 2,
+      x: left - 6,
+      y,
       width: 1,
       height: 1,
     },
@@ -79,12 +84,19 @@ function portHandles(width: number, height: number) {
       id: 'out',
       type: 'source' as const,
       position: Position.Right,
-      x: width,
-      y: height / 2,
+      x: left + cardWidth + 5,
+      y,
       width: 1,
       height: 1,
     },
   ];
+}
+
+function withStageHandles<T extends FlowNode>(node: T): T {
+  if (node.type !== 'stage') return node;
+  const measured = node.measured?.width;
+  const cardWidth = measured && measured > 0 ? measured : STAGE_W;
+  return { ...node, handles: stageHandles(cardWidth) };
 }
 
 /** Both ports sit on the dot center so wires meet inside the circle. */
@@ -140,7 +152,7 @@ function toFlowNodes(graph: FlowGraph): FlowNode[] {
       data: { name: node.name },
       initialWidth: STAGE_W,
       initialHeight: STAGE_H,
-      handles: portHandles(STAGE_W, STAGE_H),
+      handles: stageHandles(STAGE_W),
     };
   });
 }
@@ -234,10 +246,15 @@ function CanvasInner({
     const selectedEdges = new Set(
       edgesRef.current.filter((edge) => edge.selected).map((edge) => edge.id),
     );
-    const nextNodes = toFlowNodes(graph).map((node) => ({
-      ...node,
-      selected: selectedNodes.has(node.id),
-    }));
+    const previous = new Map(nodesRef.current.map((node) => [node.id, node]));
+    const nextNodes = toFlowNodes(graph).map((node) => {
+      const measured = previous.get(node.id)?.measured;
+      return withStageHandles({
+        ...node,
+        selected: selectedNodes.has(node.id),
+        ...(measured ? { measured } : {}),
+      });
+    });
     const nextEdges = toFlowEdges(graph).map((edge) => ({
       ...edge,
       selected: selectedEdges.has(edge.id),
@@ -331,6 +348,13 @@ function CanvasInner({
     setEditingId(id);
   }, []);
 
+  const startEditSelected = useCallback(() => {
+    if (editingRef.current) return;
+    const selected = nodesRef.current.filter((node) => node.selected && node.type === 'stage');
+    if (selected.length !== 1) return;
+    startEdit(selected[0]!.id);
+  }, [startEdit]);
+
   const commitEdit = useCallback(
     (id: string, value: string) => {
       const session = editingRef.current;
@@ -421,6 +445,7 @@ function CanvasInner({
     addJunctionHere,
     beginAdd,
     cancelEdit,
+    startEditSelected,
   });
   actions.current = {
     undo,
@@ -433,6 +458,7 @@ function CanvasInner({
     addJunctionHere,
     beginAdd,
     cancelEdit,
+    startEditSelected,
   };
 
   useEffect(() => {
@@ -492,6 +518,11 @@ function CanvasInner({
         actions.current.fit();
         return;
       }
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        actions.current.startEditSelected();
+        return;
+      }
       if (event.key === 'Escape') {
         if (editingRef.current) actions.current.cancelEdit(editingRef.current.id);
         else actions.current.clearSelection();
@@ -503,7 +534,9 @@ function CanvasInner({
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     const structural = changes.filter((change) => change.type !== 'remove');
-    const next = applyNodeChanges(structural, nodesRef.current) as FlowNode[];
+    const next = (applyNodeChanges(structural, nodesRef.current) as FlowNode[]).map(
+      withStageHandles,
+    );
     nodesRef.current = next;
     setNodes(next);
 

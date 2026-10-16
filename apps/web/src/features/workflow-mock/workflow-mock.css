@@ -4,8 +4,8 @@
 
 .workflow-mock-flow .react-flow__node-stage {
   width: max-content !important;
-  max-width: 200px !important;
   height: max-content !important;
+  overflow: visible;
 }
 
 .workflow-mock-flow .react-flow__node:hover [data-testid='workflow-node-edit'],

@@ -92,6 +92,32 @@ describe('workflow mock prototype', () => {
     });
   });
 
+  test('enter edits the selected stage, then confirms the name', async () => {
+    render(<WorkflowMockPage />);
+    openVersion('v1');
+    await waitFor(() => expect(screen.getByText('询单')).toBeTruthy());
+
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(screen.queryByLabelText('名称')).toBeNull();
+
+    fireEvent.click(screen.getByText('询单'));
+    fireEvent.keyDown(window, { key: 'Enter' });
+    const name = screen.getByLabelText('名称');
+    expect(name.getAttribute('rows')).toBe('1');
+    expect(name.closest('[data-stage-align="true"]')).toBeTruthy();
+    fireEvent.change(name, { target: { value: '来单' } });
+    fireEvent.keyDown(name, { key: 'Enter' });
+    expect(screen.getByText('来单')).toBeTruthy();
+    expect(screen.queryByLabelText('名称')).toBeNull();
+
+    const card = screen.getByText('来单').closest('[data-workflow-node="stage"]') as HTMLElement;
+    fireEvent.click(card.querySelector('[data-testid="workflow-node-expand"]')!);
+    const reason = screen.getByLabelText('阻塞原因');
+    reason.focus();
+    fireEvent.keyDown(reason, { key: 'Enter' });
+    expect(screen.queryByLabelText('名称')).toBeNull();
+  });
+
   test('adds, deletes, and undoes a node from the canvas', async () => {
     render(<WorkflowMockPage />);
     openVersion('v1');
