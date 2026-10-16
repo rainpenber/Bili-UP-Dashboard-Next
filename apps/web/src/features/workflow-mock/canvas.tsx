@@ -2,6 +2,7 @@ import {
   Background,
   BackgroundVariant,
   ConnectionMode,
+  Position,
   ReactFlow,
   ReactFlowProvider,
   applyEdgeChanges,
@@ -42,6 +43,30 @@ const toolButton =
 
 type FlowNode = Node<StageNodeData | JunctionNodeData>;
 
+/** Declared ports so edges render before ResizeObserver measures the DOM handles. */
+function portHandles(width: number, height: number) {
+  return [
+    {
+      id: 'in',
+      type: 'target' as const,
+      position: Position.Left,
+      x: 0,
+      y: height / 2,
+      width: 1,
+      height: 1,
+    },
+    {
+      id: 'out',
+      type: 'source' as const,
+      position: Position.Right,
+      x: width,
+      y: height / 2,
+      width: 1,
+      height: 1,
+    },
+  ];
+}
+
 function toFlowNodes(graph: FlowGraph): FlowNode[] {
   return graph.nodes.map((node) => {
     if (node.kind === 'merge') {
@@ -58,6 +83,7 @@ function toFlowNodes(graph: FlowGraph): FlowNode[] {
         width: 1,
         height: 1,
         measured: { width: 1, height: 1 },
+        handles: portHandles(1, 1),
         style: { width: 1, height: 1, opacity: 0, pointerEvents: 'none' },
       };
     }
@@ -69,6 +95,7 @@ function toFlowNodes(graph: FlowGraph): FlowNode[] {
       width: STAGE_W,
       height: STAGE_H,
       measured: { width: STAGE_W, height: STAGE_H },
+      handles: portHandles(STAGE_W, STAGE_H),
     };
   });
 }

@@ -47,6 +47,14 @@ describe('workflow mock prototype', () => {
     expect(view.container.querySelector('.react-flow')).toBeNull();
   });
 
+  test('opening V1 renders one edge element per model connection', async () => {
+    const view = render(<WorkflowMockPage />);
+    openVersion('v1');
+    await waitFor(() => {
+      expect(view.container.querySelectorAll('.react-flow__edge').length).toBe(17);
+    });
+  });
+
   test('adds, deletes, and undoes a node from the canvas', async () => {
     render(<WorkflowMockPage />);
     openVersion('v1');
