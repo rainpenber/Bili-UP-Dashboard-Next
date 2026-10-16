@@ -6,7 +6,16 @@ import { STAGE_H, STAGE_W } from './model';
 export type StageNodeData = { name: string };
 export type JunctionNodeData = { kind: 'merge' };
 
-export type MockDetail = { open: boolean; status: string; reason: string };
+export type MockStatus = 'idle' | 'active' | 'blocked' | 'done';
+
+export type MockDetail = { open: boolean; status: MockStatus; reason: string };
+
+const STATUS_CHOICES: { id: MockStatus; label: string }[] = [
+  { id: 'idle', label: '未完成' },
+  { id: 'active', label: '进行中' },
+  { id: 'blocked', label: '阻塞' },
+  { id: 'done', label: '完成' },
+];
 
 export type NodeUi = {
   editingId: string | null;
@@ -15,13 +24,13 @@ export type NodeUi = {
   cancelEdit: (id: string) => void;
   toggleDetail: (id: string) => void;
   detail: (id: string) => MockDetail;
-  mockAction: (id: string, action: 'forward' | 'block' | 'done') => void;
+  setStatus: (id: string, status: MockStatus) => void;
   setReason: (id: string, reason: string) => void;
 };
 
 export const NodeUiContext = createContext<NodeUi | null>(null);
 
-const emptyDetail: MockDetail = { open: false, status: '未到', reason: '' };
+const emptyDetail: MockDetail = { open: false, status: 'idle', reason: '' };
 
 export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>) {
   const ui = useContext(NodeUiContext);
@@ -52,10 +61,11 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
       <div
         className={
           selected
-            ? 'workflow-stage workflow-pop group relative w-fit min-w-[7.5rem] max-w-[200px] break-all rounded border border-[#e8b15a] bg-[#2a2a2a] px-3 py-2 text-[13px] text-[#f4f4f4] shadow-[0_0_0_1px_#e8b15a]'
-            : 'workflow-stage workflow-pop group relative w-fit min-w-[7.5rem] max-w-[200px] break-all rounded border border-[#454545] bg-[#2a2a2a] px-3 py-2 text-[13px] text-[#f4f4f4]'
+            ? 'workflow-stage workflow-pop group relative w-fit min-w-[7.5rem] max-w-[200px] break-all rounded border bg-[#2a2a2a] px-3 py-2 text-[13px] text-[#f4f4f4] shadow-[0_0_0_1px_#e8b15a]'
+            : 'workflow-stage workflow-pop group relative w-fit min-w-[7.5rem] max-w-[200px] break-all rounded border bg-[#2a2a2a] px-3 py-2 text-[13px] text-[#f4f4f4]'
         }
         data-workflow-node="stage"
+        data-status={detail.status}
       >
         <Handle type="target" position={Position.Left} id="in" isConnectable />
         <div className="relative">
@@ -114,42 +124,40 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
           >
-            <p className="text-[#9a9a9a]">状态</p>
-            <p className="mb-2" data-testid="workflow-node-status">
-              {detail.status}
-            </p>
-            <label className="text-[#9a9a9a]">
-              阻塞原因
-              <input
-                value={detail.reason}
-                aria-label="阻塞原因"
-                className="nodrag nowheel mt-1 h-7 w-full rounded border border-white/20 bg-[#1b1b1b] px-1 text-[#f4f4f4]"
-                onChange={(event) => ui?.setReason(id, event.target.value)}
-              />
-            </label>
-            <div className="mt-2 flex flex-wrap gap-1">
-              <button
-                type="button"
-                className="rounded border border-white/20 px-1.5 py-0.5"
-                onClick={() => ui?.mockAction(id, 'forward')}
-              >
-                前进
-              </button>
-              <button
-                type="button"
-                className="rounded border border-white/20 px-1.5 py-0.5"
-                onClick={() => ui?.mockAction(id, 'block')}
-              >
-                阻塞
-              </button>
-              <button
-                type="button"
-                className="rounded border border-white/20 px-1.5 py-0.5"
-                onClick={() => ui?.mockAction(id, 'done')}
-              >
-                完成
-              </button>
+            <div
+              role="radiogroup"
+              aria-label="状态"
+              data-testid="workflow-node-status"
+              className="grid grid-cols-4 overflow-hidden rounded border border-white/20"
+            >
+              {STATUS_CHOICES.map((choice) => {
+                const on = detail.status === choice.id;
+                return (
+                  <button
+                    key={choice.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    data-status-choice={choice.id}
+                    className="workflow-status-choice nodrag px-0.5 py-1 whitespace-nowrap"
+                    onClick={() => ui?.setStatus(id, choice.id)}
+                  >
+                    {choice.label}
+                  </button>
+                );
+              })}
             </div>
+            {detail.status === 'blocked' ? (
+              <label className="mt-2 block text-[#9a9a9a]">
+                阻塞原因
+                <input
+                  value={detail.reason}
+                  aria-label="阻塞原因"
+                  className="nodrag nowheel mt-1 h-7 w-full rounded border border-white/20 bg-[#1b1b1b] px-1 text-[#f4f4f4]"
+                  onChange={(event) => ui?.setReason(id, event.target.value)}
+                />
+              </label>
+            ) : null}
           </div>
         ) : null}
         <Handle type="source" position={Position.Right} id="out" isConnectable />

@@ -2,6 +2,55 @@
   background: #1b1b1b;
 }
 
+.workflow-stage[data-status='idle'] {
+  --status: #6b7280;
+  --status-fg: #ffffff;
+}
+
+.workflow-stage[data-status='active'] {
+  --status: #1d4ed8;
+  --status-fg: #ffffff;
+}
+
+.workflow-stage[data-status='blocked'] {
+  --status: #c2410c;
+  --status-fg: #ffffff;
+}
+
+.workflow-stage[data-status='done'] {
+  --status: #15803d;
+  --status-fg: #ffffff;
+}
+
+html.dark .workflow-stage[data-status='idle'] {
+  --status: #b0b0b0;
+  --status-fg: #1a1a1a;
+}
+
+html.dark .workflow-stage[data-status='active'] {
+  --status: #7eb6ff;
+  --status-fg: #0b1b33;
+}
+
+html.dark .workflow-stage[data-status='blocked'] {
+  --status: #ff9b7a;
+  --status-fg: #2a1008;
+}
+
+html.dark .workflow-stage[data-status='done'] {
+  --status: #6ee7a8;
+  --status-fg: #062216;
+}
+
+.workflow-stage {
+  border-color: var(--status, #6b7280);
+}
+
+.workflow-status-choice[aria-checked='true'] {
+  background: var(--status);
+  color: var(--status-fg);
+}
+
 .workflow-mock-flow .react-flow__node-stage {
   width: max-content !important;
   height: max-content !important;

@@ -35,6 +35,7 @@ import {
   type StageNodeData,
 } from './flow-nodes';
 import { layoutWithDagre } from './layout';
+import { nudgeOverlaps } from './overlap';
 import {
   JUNCTION_SIZE,
   STAGE_H,
@@ -385,25 +386,22 @@ function CanvasInner({
 
   const toggleDetail = useCallback((id: string) => {
     setDetails((current) => {
-      const prev = current[id] ?? { open: false, status: '未到', reason: '' };
+      const prev = current[id] ?? { open: false, status: 'idle' as const, reason: '' };
       return { ...current, [id]: { ...prev, open: !prev.open } };
     });
   }, []);
 
   const setReason = useCallback((id: string, reason: string) => {
     setDetails((current) => {
-      const prev = current[id] ?? { open: true, status: '未到', reason: '' };
+      const prev = current[id] ?? { open: true, status: 'blocked' as const, reason: '' };
       return { ...current, [id]: { ...prev, reason } };
     });
   }, []);
 
-  const mockAction = useCallback((id: string, action: 'forward' | 'block' | 'done') => {
+  const setStatus = useCallback((id: string, status: MockDetail['status']) => {
     setDetails((current) => {
-      const prev = current[id] ?? { open: true, status: '未到', reason: '' };
-      if (action === 'forward') return { ...current, [id]: { ...prev, status: '进行' } };
-      if (action === 'block')
-        return { ...current, [id]: { ...prev, status: '卡住', reason: prev.reason || '演示' } };
-      return { ...current, [id]: { ...prev, status: '完成', reason: '' } };
+      const prev = current[id] ?? { open: true, status: 'idle' as const, reason: '' };
+      return { ...current, [id]: { ...prev, status } };
     });
   }, []);
 
@@ -414,11 +412,64 @@ function CanvasInner({
       commitEdit,
       cancelEdit,
       toggleDetail,
-      detail: (id: string) => details[id] ?? { open: false, status: '未到', reason: '' },
-      mockAction,
+      detail: (id: string) => details[id] ?? { open: false, status: 'idle' as const, reason: '' },
+      setStatus,
       setReason,
     }),
-    [editingId, startEdit, commitEdit, cancelEdit, toggleDetail, details, mockAction, setReason],
+    [editingId, startEdit, commitEdit, cancelEdit, toggleDetail, details, setStatus, setReason],
+  );
+
+  const [nudge, setNudge] = useState<Record<string, { x: number; y: number }>>({});
+  const nudgeRef = useRef(nudge);
+  nudgeRef.current = nudge;
+
+  useEffect(() => {
+    if (dragOrigin.current) return;
+    const open = new Set(
+      Object.entries(details)
+        .filter(([, item]) => item.open)
+        .map(([id]) => id),
+    );
+    if (open.size === 0) {
+      setNudge((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      return;
+    }
+    const boxes = nodesRef.current.map((node) => {
+      const junction = node.type === 'junction';
+      const w = junction ? JUNCTION_SIZE : (node.measured?.width ?? STAGE_W);
+      const h = junction ? JUNCTION_SIZE : (node.measured?.height ?? STAGE_H);
+      return {
+        id: node.id,
+        x: junction ? node.position.x : node.position.x + (STAGE_W - w) / 2,
+        y: junction ? node.position.y : node.position.y + (STAGE_H - h) / 2,
+        w,
+        h,
+        anchor: open.has(node.id),
+      };
+    });
+    const next = nudgeOverlaps(boxes);
+    setNudge((prev) => {
+      const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+      for (const key of keys) {
+        const a = prev[key];
+        const b = next[key];
+        if (!a || !b || Math.abs(a.x - b.x) > 0.5 || Math.abs(a.y - b.y) > 0.5) return next;
+      }
+      return prev;
+    });
+  }, [details, nodes]);
+
+  const displayNodes = useMemo(
+    () =>
+      nodes.map((node) => {
+        const offset = nudge[node.id];
+        if (!offset) return node;
+        return {
+          ...node,
+          position: { x: node.position.x + offset.x, y: node.position.y + offset.y },
+        };
+      }),
+    [nodes, nudge],
   );
 
   const addJunctionHere = useCallback(() => {
@@ -533,7 +584,17 @@ function CanvasInner({
   }, []);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
-    const structural = changes.filter((change) => change.type !== 'remove');
+    const structural = changes
+      .filter((change) => change.type !== 'remove')
+      .map((change) => {
+        if (change.type !== 'position' || !change.position) return change;
+        const offset = nudgeRef.current[change.id];
+        if (!offset) return change;
+        return {
+          ...change,
+          position: { x: change.position.x - offset.x, y: change.position.y - offset.y },
+        };
+      });
     const next = (applyNodeChanges(structural, nodesRef.current) as FlowNode[]).map(
       withStageHandles,
     );
@@ -692,7 +753,7 @@ function CanvasInner({
               <ReactFlow
                 className={connecting ? 'workflow-mock-flow is-connecting' : 'workflow-mock-flow'}
                 onConnectStart={onConnectStart}
-                nodes={nodes}
+                nodes={displayNodes}
                 edges={viewEdges}
                 nodeTypes={nodeTypes}
                 onNodesChange={onNodesChange}

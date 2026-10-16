@@ -113,6 +113,8 @@ describe('workflow mock prototype', () => {
 
     const card = screen.getByText('来单').closest('[data-workflow-node="stage"]') as HTMLElement;
     fireEvent.click(card.querySelector('[data-testid="workflow-node-expand"]')!);
+    expect(screen.queryByLabelText('阻塞原因')).toBeNull();
+    fireEvent.click(screen.getByRole('radio', { name: '阻塞' }));
     const reason = screen.getByLabelText('阻塞原因');
     reason.focus();
     fireEvent.keyDown(reason, { key: 'Enter' });
@@ -177,14 +179,17 @@ describe('workflow mock prototype', () => {
     );
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(toggle.className).toContain('workflow-node-open');
-    expect(screen.getByText('状态')).toBeTruthy();
-    expect(screen.getByText('阻塞原因')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '前进' }));
-    expect(screen.getByTestId('workflow-node-status').textContent).toBe('进行');
-    fireEvent.click(screen.getByRole('button', { name: '阻塞' }));
-    expect(screen.getByTestId('workflow-node-status').textContent).toBe('卡住');
-    fireEvent.click(screen.getByRole('button', { name: '完成' }));
-    expect(screen.getByTestId('workflow-node-status').textContent).toBe('完成');
+    expect(screen.getByRole('radio', { name: '未完成' })).toBeTruthy();
+    expect(screen.queryByLabelText('阻塞原因')).toBeNull();
+    fireEvent.click(screen.getByRole('radio', { name: '进行中' }));
+    expect(card.getAttribute('data-status')).toBe('active');
+    expect(screen.queryByLabelText('阻塞原因')).toBeNull();
+    fireEvent.click(screen.getByRole('radio', { name: '阻塞' }));
+    expect(card.getAttribute('data-status')).toBe('blocked');
+    expect(screen.getByLabelText('阻塞原因')).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: '完成' }));
+    expect(card.getAttribute('data-status')).toBe('done');
+    expect(screen.queryByLabelText('阻塞原因')).toBeNull();
     fireEvent.click(toggle);
     expect(card.querySelector('[data-testid="workflow-node-detail"]')).toBeNull();
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
