@@ -18,7 +18,8 @@
   pointer-events: none;
 }
 
-.workflow-mock-flow .react-flow__node:hover .workflow-node-hover {
+.workflow-mock-flow .react-flow__node:hover .workflow-node-hover,
+.workflow-mock-flow .workflow-node-open {
   opacity: 1;
   pointer-events: auto;
 }

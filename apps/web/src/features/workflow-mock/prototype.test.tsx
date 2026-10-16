@@ -102,6 +102,7 @@ describe('workflow mock prototype', () => {
 
     fireEvent.click(screen.getByText('询单'));
     fireEvent.keyDown(window, { key: 'Enter' });
+    expect(screen.queryByTestId('workflow-node-detail')).toBeNull();
     const name = screen.getByLabelText('名称');
     expect(name.getAttribute('rows')).toBe('1');
     expect(name.closest('[data-stage-align="true"]')).toBeTruthy();
@@ -165,7 +166,17 @@ describe('workflow mock prototype', () => {
     expect(card.className).toContain('max-w-[200px]');
     expect(card.className).toContain('break-all');
     expect(card.className).toContain('workflow-pop');
-    fireEvent.click(card.querySelector('[data-testid="workflow-node-expand"]')!);
+    const toggle = card.querySelector('[data-testid="workflow-node-expand"]') as HTMLElement;
+    expect(card.querySelector('[data-testid="workflow-node-edit"]')).toBeNull();
+    fireEvent.click(toggle);
+    const detail = screen.getByTestId('workflow-node-detail');
+    expect(detail.closest('[data-workflow-node="stage"]')).toBe(card);
+    expect(detail.className).not.toContain('absolute');
+    expect(detail.compareDocumentPosition(card.querySelector('p')!)).toBe(
+      Node.DOCUMENT_POSITION_PRECEDING,
+    );
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.className).toContain('workflow-node-open');
     expect(screen.getByText('状态')).toBeTruthy();
     expect(screen.getByText('阻塞原因')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '前进' }));
@@ -174,6 +185,9 @@ describe('workflow mock prototype', () => {
     expect(screen.getByTestId('workflow-node-status').textContent).toBe('卡住');
     fireEvent.click(screen.getByRole('button', { name: '完成' }));
     expect(screen.getByTestId('workflow-node-status').textContent).toBe('完成');
+    fireEvent.click(toggle);
+    expect(card.querySelector('[data-testid="workflow-node-detail"]')).toBeNull();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
 
     const before = view.container.querySelectorAll('[data-workflow-node="stage"]').length;
     fireEvent.keyDown(window, { key: 'a' });

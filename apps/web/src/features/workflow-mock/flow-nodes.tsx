@@ -1,5 +1,5 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import { PanelRight, Pencil } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { STAGE_H, STAGE_W } from './model';
 
@@ -89,73 +89,62 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
             />
           ) : null}
         </div>
-        {editing ? null : (
-          <>
-            <button
-              type="button"
-              aria-label="修改名称"
-              data-testid="workflow-node-edit"
-              className="nodrag nopan workflow-node-hover absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded border border-[#666] bg-[#3a3a3a] text-[#f4f4f4]"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                ui?.startEdit(id);
-              }}
-            >
-              <Pencil className="size-3" />
-            </button>
-            <button
-              type="button"
-              aria-label="展开"
-              data-testid="workflow-node-expand"
-              className="nodrag nopan workflow-node-hover absolute top-1/2 left-[calc(100%+16px)] flex size-5 -translate-y-1/2 items-center justify-center rounded-full border border-[#888] bg-[#2a2a2a] text-[#f4f4f4]"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                ui?.toggleDetail(id);
-              }}
-            >
-              <PanelRight className="size-3" />
-            </button>
-          </>
-        )}
+        <button
+          type="button"
+          aria-label={detail.open ? '收起' : '展开'}
+          aria-expanded={detail.open}
+          data-testid="workflow-node-expand"
+          className={
+            detail.open
+              ? 'nodrag nopan workflow-node-open absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded border border-[#666] bg-[#3a3a3a] text-[#f4f4f4]'
+              : 'nodrag nopan workflow-node-hover absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded border border-[#666] bg-[#3a3a3a] text-[#f4f4f4]'
+          }
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            ui?.toggleDetail(id);
+          }}
+        >
+          <ChevronDown className={detail.open ? 'size-3 rotate-180' : 'size-3'} />
+        </button>
         {detail.open ? (
           <div
             data-testid="workflow-node-detail"
-            className="nodrag workflow-edit-in absolute top-0 left-full z-20 ml-3 w-40 rounded-md border border-border bg-background p-2 text-xs text-foreground shadow-md"
+            className="nodrag nowheel workflow-edit-in mt-2 border-t border-white/15 pt-2 text-[11px] text-[#d8d8d8]"
             onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
           >
-            <p className="text-muted-foreground">状态</p>
+            <p className="text-[#9a9a9a]">状态</p>
             <p className="mb-2" data-testid="workflow-node-status">
               {detail.status}
             </p>
-            <label className="text-muted-foreground">
+            <label className="text-[#9a9a9a]">
               阻塞原因
               <input
                 value={detail.reason}
                 aria-label="阻塞原因"
-                className="mt-1 h-7 w-full rounded border border-input bg-background px-1 text-foreground"
+                className="nodrag nowheel mt-1 h-7 w-full rounded border border-white/20 bg-[#1b1b1b] px-1 text-[#f4f4f4]"
                 onChange={(event) => ui?.setReason(id, event.target.value)}
               />
             </label>
             <div className="mt-2 flex flex-wrap gap-1">
               <button
                 type="button"
-                className="rounded border px-1.5 py-0.5"
+                className="rounded border border-white/20 px-1.5 py-0.5"
                 onClick={() => ui?.mockAction(id, 'forward')}
               >
                 前进
               </button>
               <button
                 type="button"
-                className="rounded border px-1.5 py-0.5"
+                className="rounded border border-white/20 px-1.5 py-0.5"
                 onClick={() => ui?.mockAction(id, 'block')}
               >
                 阻塞
               </button>
               <button
                 type="button"
-                className="rounded border px-1.5 py-0.5"
+                className="rounded border border-white/20 px-1.5 py-0.5"
                 onClick={() => ui?.mockAction(id, 'done')}
               >
                 完成
