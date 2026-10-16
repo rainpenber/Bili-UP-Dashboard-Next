@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { WorkflowMockPage } from '@/pages/workflow-mock-page';
 
@@ -98,8 +98,10 @@ describe('workflow mock prototype', () => {
     await waitFor(() => expect(screen.getByText('询单')).toBeTruthy());
 
     fireEvent.keyDown(window, { key: 'a' });
-    fireEvent.change(screen.getByLabelText('名称'), { target: { value: '定妆' } });
-    fireEvent.submit(screen.getByLabelText('名称').closest('form')!);
+    const nameInput = screen.getByLabelText('名称');
+    expect(nameInput.closest('[data-workflow-node="stage"]')).toBeTruthy();
+    fireEvent.change(nameInput, { target: { value: '定妆' } });
+    fireEvent.keyDown(nameInput, { key: 'Enter' });
     expect(screen.getByText('定妆')).toBeTruthy();
 
     fireEvent.click(screen.getByText('定妆'));
@@ -129,8 +131,49 @@ describe('workflow mock prototype', () => {
     expect(view.container.querySelectorAll('[data-workflow-junction="anchor"]').length).toBe(2);
 
     fireEvent.keyDown(window, { key: 'a' });
-    fireEvent.change(screen.getByLabelText('名称'), { target: { value: '   ' } });
-    fireEvent.submit(screen.getByLabelText('名称').closest('form')!);
-    expect(screen.getByTestId('workflow-mock-notice').textContent).toBe('需要名称');
+    fireEvent.blur(screen.getByLabelText('名称'));
+    expect(screen.getByText('流程节点')).toBeTruthy();
+    const card = screen
+      .getByText('流程节点')
+      .closest('[data-workflow-node="stage"]') as HTMLElement;
+    expect(card.className).toContain('max-w-[200px]');
+    expect(card.className).toContain('break-all');
+    expect(card.className).toContain('workflow-pop');
+    fireEvent.click(card.querySelector('[data-testid="workflow-node-expand"]')!);
+    expect(screen.getByText('状态')).toBeTruthy();
+    expect(screen.getByText('阻塞原因')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '前进' }));
+    expect(screen.getByTestId('workflow-node-status').textContent).toBe('进行');
+    fireEvent.click(screen.getByRole('button', { name: '阻塞' }));
+    expect(screen.getByTestId('workflow-node-status').textContent).toBe('卡住');
+    fireEvent.click(screen.getByRole('button', { name: '完成' }));
+    expect(screen.getByTestId('workflow-node-status').textContent).toBe('完成');
+
+    const before = view.container.querySelectorAll('[data-workflow-node="stage"]').length;
+    fireEvent.keyDown(window, { key: 'a' });
+    const draft = screen.getByLabelText('名称');
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.activeElement).toBe(draft);
+    fireEvent.keyDown(draft, { key: 'Escape' });
+    expect(screen.queryByLabelText('名称')).toBeNull();
+    expect(view.container.querySelectorAll('[data-workflow-node="stage"]').length).toBe(before);
+
+    fireEvent.contextMenu(screen.getByText('询单'));
+    fireEvent.click(await screen.findByText('修改节点名称'));
+    const rename = screen.getByLabelText('名称');
+    fireEvent.change(rename, { target: { value: '来询' } });
+    fireEvent.blur(rename);
+    expect(screen.getByText('来询')).toBeTruthy();
+
+    fireEvent.contextMenu(view.container.querySelector('.react-flow__pane')!);
+    const menu = await screen.findByText('增加节点');
+    expect(menu.closest('[data-slot="context-menu-content"]')?.className).toContain(
+      'bg-background',
+    );
+    expect(menu.closest('[data-slot="context-menu-content"]')?.className).toContain(
+      'text-foreground',
+    );
   });
 });

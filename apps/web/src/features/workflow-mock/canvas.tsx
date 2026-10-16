@@ -26,14 +26,20 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { Kbd } from '@/components/ui/kbd';
-import { JunctionNode, StageNode, type JunctionNodeData, type StageNodeData } from './flow-nodes';
+import {
+  JunctionNode,
+  NodeUiContext,
+  StageNode,
+  type JunctionNodeData,
+  type MockDetail,
+  type StageNodeData,
+} from './flow-nodes';
 import { layoutWithDagre } from './layout';
 import {
   JUNCTION_SIZE,
   STAGE_H,
   STAGE_W,
   addJunction,
-  addStageNode,
   applyPositions,
   cloneGraph,
   commitDrag,
@@ -42,6 +48,8 @@ import {
   redoHistory,
   removeElements,
   removeJunction,
+  renameStageNode,
+  createStageNode,
   undoHistory,
   type FlowGraph,
   type HistoryState,
@@ -130,9 +138,8 @@ function toFlowNodes(graph: FlowGraph): FlowNode[] {
       type: 'stage',
       position: { x: node.x, y: node.y },
       data: { name: node.name },
-      width: STAGE_W,
-      height: STAGE_H,
-      measured: { width: STAGE_W, height: STAGE_H },
+      initialWidth: STAGE_W,
+      initialHeight: STAGE_H,
       handles: portHandles(STAGE_W, STAGE_H),
     };
   });
@@ -165,15 +172,15 @@ function CanvasInner({
   }));
   const [nodes, setNodes] = useState<FlowNode[]>(() => toFlowNodes(initial));
   const [edges, setEdges] = useState<Edge[]>(() => toFlowEdges(initial));
-  const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingRef = useRef<{ id: string; isNew: boolean } | null>(null);
+  const [details, setDetails] = useState<Record<string, MockDetail>>({});
   const historyRef = useRef(history);
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const dragOrigin = useRef<FlowGraph | null>(null);
   const accepted = useRef(false);
-  const addAt = useRef<{ x: number; y: number } | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [menu, setMenu] = useState<
     | { kind: 'pane'; at: { x: number; y: number } }
@@ -306,25 +313,89 @@ function CanvasInner({
     });
   }, [screenToFlowPosition]);
 
-  const submitAdd = useCallback(() => {
-    const at = addAt.current ?? viewCenter();
-    addAt.current = null;
-    const result = addStageNode(historyRef.current.present, draft, at);
-    if (!result.ok) {
-      setNotice(result.message);
-      return;
-    }
-    setDraft('');
-    setAdding(false);
-    setNotice(null);
-    commit(result.graph);
-  }, [commit, draft, viewCenter]);
+  const beginAdd = useCallback(
+    (at?: { x: number; y: number }) => {
+      const point = at ?? viewCenter() ?? { x: 240, y: 160 };
+      const created = createStageNode(historyRef.current.present, point);
+      editingRef.current = { id: created.id, isNew: true };
+      setEditingId(created.id);
+      setNotice(null);
+      commit(created.graph);
+    },
+    [commit, viewCenter],
+  );
 
-  const beginAdd = useCallback((at?: { x: number; y: number }) => {
-    addAt.current = at ?? null;
-    setDraft('');
-    setAdding(true);
+  const startEdit = useCallback((id: string) => {
+    if (editingRef.current?.id === id) return;
+    editingRef.current = { id, isNew: false };
+    setEditingId(id);
   }, []);
+
+  const commitEdit = useCallback(
+    (id: string, value: string) => {
+      const session = editingRef.current;
+      if (!session || session.id !== id) return;
+      const result = renameStageNode(historyRef.current.present, id, value);
+      if (!result.ok) {
+        setNotice(result.message);
+        return;
+      }
+      editingRef.current = null;
+      setEditingId(null);
+      setNotice(null);
+      if (result.graph !== historyRef.current.present) commit(result.graph);
+    },
+    [commit],
+  );
+
+  const cancelEdit = useCallback(
+    (id: string) => {
+      const session = editingRef.current;
+      if (!session || session.id !== id) return;
+      editingRef.current = null;
+      setEditingId(null);
+      if (session.isNew) commit(removeElements(historyRef.current.present, [id], []));
+    },
+    [commit],
+  );
+
+  const toggleDetail = useCallback((id: string) => {
+    setDetails((current) => {
+      const prev = current[id] ?? { open: false, status: '未到', reason: '' };
+      return { ...current, [id]: { ...prev, open: !prev.open } };
+    });
+  }, []);
+
+  const setReason = useCallback((id: string, reason: string) => {
+    setDetails((current) => {
+      const prev = current[id] ?? { open: true, status: '未到', reason: '' };
+      return { ...current, [id]: { ...prev, reason } };
+    });
+  }, []);
+
+  const mockAction = useCallback((id: string, action: 'forward' | 'block' | 'done') => {
+    setDetails((current) => {
+      const prev = current[id] ?? { open: true, status: '未到', reason: '' };
+      if (action === 'forward') return { ...current, [id]: { ...prev, status: '进行' } };
+      if (action === 'block')
+        return { ...current, [id]: { ...prev, status: '卡住', reason: prev.reason || '演示' } };
+      return { ...current, [id]: { ...prev, status: '完成', reason: '' } };
+    });
+  }, []);
+
+  const nodeUi = useMemo(
+    () => ({
+      editingId,
+      startEdit,
+      commitEdit,
+      cancelEdit,
+      toggleDetail,
+      detail: (id: string) => details[id] ?? { open: false, status: '未到', reason: '' },
+      mockAction,
+      setReason,
+    }),
+    [editingId, startEdit, commitEdit, cancelEdit, toggleDetail, details, mockAction, setReason],
+  );
 
   const addJunctionHere = useCallback(() => {
     const at = viewCenter() ?? { x: 240, y: 160 };
@@ -349,6 +420,7 @@ function CanvasInner({
     tidy,
     addJunctionHere,
     beginAdd,
+    cancelEdit,
   });
   actions.current = {
     undo,
@@ -360,6 +432,7 @@ function CanvasInner({
     tidy,
     addJunctionHere,
     beginAdd,
+    cancelEdit,
   };
 
   useEffect(() => {
@@ -383,11 +456,9 @@ function CanvasInner({
         return;
       }
       if (typing) {
-        if (event.key === 'Escape') {
+        if (event.key === 'Escape' && editingRef.current) {
           event.preventDefault();
-          addAt.current = null;
-          setAdding(false);
-          setDraft('');
+          actions.current.cancelEdit(editingRef.current.id);
         }
         return;
       }
@@ -422,10 +493,8 @@ function CanvasInner({
         return;
       }
       if (event.key === 'Escape') {
-        addAt.current = null;
-        setAdding(false);
-        setDraft('');
-        actions.current.clearSelection();
+        if (editingRef.current) actions.current.cancelEdit(editingRef.current.id);
+        else actions.current.clearSelection();
       }
     }
     window.addEventListener('keydown', onKey);
@@ -516,229 +585,219 @@ function CanvasInner({
   const canRedo = history.future.length > 0;
 
   return (
-    <div
-      ref={shellRef}
-      className="flex h-[calc(100svh-7.5rem)] min-h-[28rem] flex-col overflow-hidden rounded-lg border border-black/40 bg-[#1b1b1b]"
-      data-testid="workflow-mock-canvas"
-    >
-      <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className={toolButton}
-          onClick={() => onBack(historyRef.current.present)}
-        >
-          返回
-        </Button>
-        <span className="text-sm text-zinc-100" data-testid="workflow-mock-open-version">
-          {label}
-        </span>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {adding ? (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                submitAdd();
-              }}
-            >
-              <input
-                autoFocus
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder="名称"
-                aria-label="名称"
-                autoComplete="off"
-                data-testid="workflow-mock-name"
-                className="h-8 w-36 rounded-md border border-white/15 bg-transparent px-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
-              />
-            </form>
-          ) : null}
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className={toolButton}
-            data-testid="workflow-mock-tidy"
-            onClick={tidy}
-          >
-            整理
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className={toolButton}
-            data-testid="workflow-mock-fit"
-            onClick={fit}
-          >
-            复位
-          </Button>
-        </div>
-      </div>
-      <p
-        className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-white/10 px-3 py-1.5 text-[11px] text-zinc-400"
-        data-testid="workflow-mock-keys"
+    <NodeUiContext.Provider value={nodeUi}>
+      <div
+        ref={shellRef}
+        className="flex h-[calc(100svh-7.5rem)] min-h-[28rem] flex-col overflow-hidden rounded-lg border border-black/40 bg-[#1b1b1b]"
+        data-testid="workflow-mock-canvas"
       >
-        <Kbd className="border-white/20 bg-white/10 text-zinc-200">A</Kbd>
-        添加
-        <Kbd className="border-white/20 bg-white/10 text-zinc-200">L</Kbd>
-        整理
-        <Kbd className="border-white/20 bg-white/10 text-zinc-200">J</Kbd>
-        汇合点
-        <Kbd className="border-white/20 bg-white/10 text-zinc-200">F</Kbd>
-        复位全图
-        <Kbd className="border-white/20 bg-white/10 text-zinc-200">Delete</Kbd>
-        删除
-        <Kbd className="border-white/20 bg-white/10 text-zinc-200">Ctrl+Z</Kbd>
-        撤销
-      </p>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div className="relative min-h-0 flex-1">
-            {notice ? (
-              <p
-                role="status"
-                data-testid="workflow-mock-notice"
-                className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded bg-black/80 px-2 py-1 text-xs text-zinc-100"
-              >
-                {notice}
-              </p>
-            ) : null}
-            <ReactFlow
-              className={connecting ? 'workflow-mock-flow is-connecting' : 'workflow-mock-flow'}
-              onConnectStart={onConnectStart}
-              nodes={nodes}
-              edges={viewEdges}
-              nodeTypes={nodeTypes}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onConnectEnd={onConnectEnd}
-              isValidConnection={isValidConnection}
-              connectionMode={ConnectionMode.Strict}
-              connectionRadius={32}
-              connectionLineStyle={{ stroke: '#e8b15a', strokeWidth: 1.75 }}
-              minZoom={0.35}
-              nodeDragThreshold={1}
-              maxZoom={1.75}
-              panOnDrag
-              selectionOnDrag={false}
-              deleteKeyCode={null}
-              proOptions={{ hideAttribution: true }}
-              colorMode="dark"
-              onNodeClick={(_, node) => {
-                if (node.type === 'junction') return;
-                const nextNodes = nodesRef.current.map((item) => ({
-                  ...item,
-                  selected: item.id === node.id,
-                }));
-                const nextEdges = edgesRef.current.map((item) => ({ ...item, selected: false }));
-                nodesRef.current = nextNodes;
-                edgesRef.current = nextEdges;
-                setNodes(nextNodes);
-                setEdges(nextEdges);
-              }}
-              onEdgeClick={(_, edge) => {
-                const nextEdges = edgesRef.current.map((item) => ({
-                  ...item,
-                  selected: item.id === edge.id,
-                }));
-                const nextNodes = nodesRef.current.map((item) => ({ ...item, selected: false }));
-                nodesRef.current = nextNodes;
-                edgesRef.current = nextEdges;
-                setNodes(nextNodes);
-                setEdges(nextEdges);
-              }}
-              onPaneClick={clearSelection}
-              onPaneContextMenu={(event) => {
-                const target = event.target as HTMLElement;
-                if (target.closest('.react-flow__node') || target.closest('.react-flow__edge'))
-                  return;
-                setMenu({
-                  kind: 'pane',
-                  at: screenToFlowPosition({ x: event.clientX, y: event.clientY }),
-                });
-              }}
-              onNodeContextMenu={(_event, node) => {
-                if (node.type === 'junction') {
-                  setMenu({ kind: 'junction', id: node.id });
-                  return;
-                }
-                setMenu({ kind: 'stage', id: node.id });
-              }}
-              onEdgeContextMenu={(_event, edge) => {
-                setMenu({ kind: 'edge', id: edge.id });
-              }}
-              aria-label="节点画布"
+        <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className={toolButton}
+            onClick={() => onBack(historyRef.current.present)}
+          >
+            返回
+          </Button>
+          <span className="text-sm text-zinc-100" data-testid="workflow-mock-open-version">
+            {label}
+          </span>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className={toolButton}
+              data-testid="workflow-mock-tidy"
+              onClick={tidy}
             >
-              <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#333333" />
-              <MiniMap
-                position="bottom-right"
-                pannable
-                zoomable
-                bgColor="#141414"
-                maskColor="rgba(0,0,0,0.55)"
-                nodeStrokeColor="#8e8e8e"
-                nodeColor={(node) => (node.type === 'junction' ? '#e8b15a' : '#3a3a3a')}
-                style={{ background: '#141414' }}
-              />
-            </ReactFlow>
+              整理
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className={toolButton}
+              data-testid="workflow-mock-fit"
+              onClick={fit}
+            >
+              复位
+            </Button>
           </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          {menu?.kind === 'pane' ? (
-            <>
-              <ContextMenuItem onSelect={() => beginAdd(menu.at)}>
-                增加节点
-                <Kbd className="ml-auto">A</Kbd>
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => commit(addJunction(historyRef.current.present, menu.at))}
+        </div>
+        <p
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-white/10 px-3 py-1.5 text-[11px] text-zinc-400"
+          data-testid="workflow-mock-keys"
+        >
+          <Kbd className="border-white/20 bg-white/10 text-zinc-200">A</Kbd>
+          添加
+          <Kbd className="border-white/20 bg-white/10 text-zinc-200">L</Kbd>
+          整理
+          <Kbd className="border-white/20 bg-white/10 text-zinc-200">J</Kbd>
+          汇合点
+          <Kbd className="border-white/20 bg-white/10 text-zinc-200">F</Kbd>
+          复位全图
+          <Kbd className="border-white/20 bg-white/10 text-zinc-200">Delete</Kbd>
+          删除
+          <Kbd className="border-white/20 bg-white/10 text-zinc-200">Ctrl+Z</Kbd>
+          撤销
+        </p>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div className="relative min-h-0 flex-1">
+              {notice ? (
+                <p
+                  role="status"
+                  data-testid="workflow-mock-notice"
+                  className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded bg-black/80 px-2 py-1 text-xs text-zinc-100"
+                >
+                  {notice}
+                </p>
+              ) : null}
+              <ReactFlow
+                className={connecting ? 'workflow-mock-flow is-connecting' : 'workflow-mock-flow'}
+                onConnectStart={onConnectStart}
+                nodes={nodes}
+                edges={viewEdges}
+                nodeTypes={nodeTypes}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onConnectEnd={onConnectEnd}
+                isValidConnection={isValidConnection}
+                connectionMode={ConnectionMode.Strict}
+                connectionRadius={32}
+                connectionLineStyle={{ stroke: '#e8b15a', strokeWidth: 1.75 }}
+                minZoom={0.35}
+                nodeDragThreshold={1}
+                maxZoom={1.75}
+                panOnDrag
+                selectionOnDrag={false}
+                deleteKeyCode={null}
+                proOptions={{ hideAttribution: true }}
+                colorMode="dark"
+                onNodeClick={(_, node) => {
+                  if (node.type === 'junction') return;
+                  const nextNodes = nodesRef.current.map((item) => ({
+                    ...item,
+                    selected: item.id === node.id,
+                  }));
+                  const nextEdges = edgesRef.current.map((item) => ({ ...item, selected: false }));
+                  nodesRef.current = nextNodes;
+                  edgesRef.current = nextEdges;
+                  setNodes(nextNodes);
+                  setEdges(nextEdges);
+                }}
+                onEdgeClick={(_, edge) => {
+                  const nextEdges = edgesRef.current.map((item) => ({
+                    ...item,
+                    selected: item.id === edge.id,
+                  }));
+                  const nextNodes = nodesRef.current.map((item) => ({ ...item, selected: false }));
+                  nodesRef.current = nextNodes;
+                  edgesRef.current = nextEdges;
+                  setNodes(nextNodes);
+                  setEdges(nextEdges);
+                }}
+                onPaneClick={clearSelection}
+                onPaneContextMenu={(event) => {
+                  const target = event.target as HTMLElement;
+                  if (target.closest('.react-flow__node') || target.closest('.react-flow__edge'))
+                    return;
+                  setMenu({
+                    kind: 'pane',
+                    at: screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+                  });
+                }}
+                onNodeContextMenu={(_event, node) => {
+                  if (node.type === 'junction') {
+                    setMenu({ kind: 'junction', id: node.id });
+                    return;
+                  }
+                  setMenu({ kind: 'stage', id: node.id });
+                }}
+                onEdgeContextMenu={(_event, edge) => {
+                  setMenu({ kind: 'edge', id: edge.id });
+                }}
+                aria-label="节点画布"
               >
-                增加汇合点
-                <Kbd className="ml-auto">J</Kbd>
+                <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#333333" />
+                <MiniMap
+                  position="bottom-right"
+                  pannable
+                  zoomable
+                  bgColor="#141414"
+                  maskColor="rgba(0,0,0,0.55)"
+                  nodeStrokeColor="#8e8e8e"
+                  nodeColor={(node) => (node.type === 'junction' ? '#e8b15a' : '#3a3a3a')}
+                  style={{ background: '#141414' }}
+                />
+              </ReactFlow>
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+            }}
+          >
+            {menu?.kind === 'pane' ? (
+              <>
+                <ContextMenuItem onSelect={() => beginAdd(menu.at)}>
+                  增加节点
+                  <Kbd className="ml-auto">A</Kbd>
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onSelect={() => commit(addJunction(historyRef.current.present, menu.at))}
+                >
+                  增加汇合点
+                  <Kbd className="ml-auto">J</Kbd>
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={tidy}>
+                  整理
+                  <Kbd className="ml-auto">L</Kbd>
+                </ContextMenuItem>
+                <ContextMenuItem disabled={!canUndo} onSelect={undo}>
+                  撤销
+                  <Kbd className="ml-auto">Ctrl+Z</Kbd>
+                </ContextMenuItem>
+                <ContextMenuItem disabled={!canRedo} onSelect={redo}>
+                  重做
+                  <Kbd className="ml-auto">Ctrl+Shift+Z</Kbd>
+                </ContextMenuItem>
+              </>
+            ) : null}
+            {menu?.kind === 'stage' ? (
+              <>
+                <ContextMenuItem onSelect={() => startEdit(menu.id)}>修改节点名称</ContextMenuItem>
+                <ContextMenuItem
+                  onSelect={() => commit(removeElements(historyRef.current.present, [menu.id], []))}
+                >
+                  删除节点
+                  <Kbd className="ml-auto">Delete</Kbd>
+                </ContextMenuItem>
+              </>
+            ) : null}
+            {menu?.kind === 'junction' ? (
+              <ContextMenuItem
+                onSelect={() => commit(removeJunction(historyRef.current.present, menu.id))}
+              >
+                删除汇合点
               </ContextMenuItem>
-              <ContextMenuItem onSelect={tidy}>
-                整理
-                <Kbd className="ml-auto">L</Kbd>
+            ) : null}
+            {menu?.kind === 'edge' ? (
+              <ContextMenuItem
+                onSelect={() => commit(removeElements(historyRef.current.present, [], [menu.id]))}
+              >
+                删除连线
+                <Kbd className="ml-auto">Delete</Kbd>
               </ContextMenuItem>
-              <ContextMenuItem disabled={!canUndo} onSelect={undo}>
-                撤销
-                <Kbd className="ml-auto">Ctrl+Z</Kbd>
-              </ContextMenuItem>
-              <ContextMenuItem disabled={!canRedo} onSelect={redo}>
-                重做
-                <Kbd className="ml-auto">Ctrl+Shift+Z</Kbd>
-              </ContextMenuItem>
-            </>
-          ) : null}
-          {menu?.kind === 'stage' ? (
-            <ContextMenuItem
-              onSelect={() => commit(removeElements(historyRef.current.present, [menu.id], []))}
-            >
-              删除节点
-              <Kbd className="ml-auto">Delete</Kbd>
-            </ContextMenuItem>
-          ) : null}
-          {menu?.kind === 'junction' ? (
-            <ContextMenuItem
-              onSelect={() => commit(removeJunction(historyRef.current.present, menu.id))}
-            >
-              删除汇合点
-            </ContextMenuItem>
-          ) : null}
-          {menu?.kind === 'edge' ? (
-            <ContextMenuItem
-              onSelect={() => commit(removeElements(historyRef.current.present, [], [menu.id]))}
-            >
-              删除连线
-              <Kbd className="ml-auto">Delete</Kbd>
-            </ContextMenuItem>
-          ) : null}
-        </ContextMenuContent>
-      </ContextMenu>
-    </div>
+            ) : null}
+          </ContextMenuContent>
+        </ContextMenu>
+      </div>
+    </NodeUiContext.Provider>
   );
 }
 

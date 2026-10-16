@@ -41,6 +41,7 @@ export const copy = {
   cycle: '会成环',
   missing: '没有这个节点',
   junctions: '不能两个汇合点相连',
+  defaultName: '流程节点',
 } as const;
 
 const MAX_HISTORY = 50;
@@ -200,6 +201,56 @@ function nextCustomId(graph: FlowGraph): string {
   let i = 1;
   while (ids.has(`custom-${i}`)) i += 1;
   return `custom-${i}`;
+}
+
+export function createStageNode(
+  graph: FlowGraph,
+  at?: { x: number; y: number },
+): { graph: FlowGraph; id: string } {
+  const stages = graph.nodes.filter((node) => node.kind === 'stage');
+  const fallbackX = stages.reduce((max, node) => Math.max(max, node.x), 0) + STAGE_W + 72;
+  const fallbackY =
+    stages.length > 0 ? stages.reduce((sum, node) => sum + node.y, 0) / stages.length : 0;
+  let x = at ? at.x - STAGE_W / 2 : fallbackX;
+  let y = at ? at.y - STAGE_H / 2 : fallbackY;
+  for (let step = 0; step < 12; step += 1) {
+    const blocked = graph.nodes.some(
+      (node) =>
+        node.kind === 'stage' &&
+        Math.abs(node.x - x) < STAGE_W - 8 &&
+        Math.abs(node.y - y) < STAGE_H + 12,
+    );
+    if (!blocked) break;
+    x += 40;
+    y += 52;
+  }
+  const id = nextCustomId(graph);
+  return {
+    id,
+    graph: {
+      ...graph,
+      nodes: [...graph.nodes, { id, name: '', kind: 'stage', x, y }],
+    },
+  };
+}
+
+export function renameStageNode(graph: FlowGraph, id: string, name: string): GraphResult {
+  const finalName = name.trim() || copy.defaultName;
+  const node = nodeById(graph, id);
+  if (!node || node.kind !== 'stage') return { ok: false, message: copy.missing };
+  if (node.name === finalName) return { ok: true, graph };
+  if (
+    graph.nodes.some((item) => item.kind === 'stage' && item.id !== id && item.name === finalName)
+  ) {
+    return { ok: false, message: copy.exists(finalName) };
+  }
+  return {
+    ok: true,
+    graph: {
+      ...graph,
+      nodes: graph.nodes.map((item) => (item.id === id ? { ...item, name: finalName } : item)),
+    },
+  };
 }
 
 export function addStageNode(

@@ -8,7 +8,9 @@ import {
   commitDrag,
   commitHistory,
   connectNodes,
+  createStageNode,
   redoHistory,
+  renameStageNode,
   removeElements,
   removeJunction,
   undoHistory,
@@ -67,6 +69,12 @@ describe('workflow mock graphs', () => {
   });
 
   test('adds and deletes stage nodes without touching anchors', () => {
+    const blank = createStageNode(v1);
+    const named = renameStageNode(blank.graph, blank.id, '  ');
+    expect(named.ok).toBe(true);
+    if (named.ok) {
+      expect(named.graph.nodes.find((node) => node.id === blank.id)?.name).toBe('流程节点');
+    }
     expect(addStageNode(v1, '  ')).toEqual({ ok: false, message: '需要名称' });
     expect(addStageNode(v1, '询单')).toEqual({ ok: false, message: '「询单」已存在' });
     const added = addStageNode(v1, '定妆');
