@@ -10,10 +10,7 @@ export function PlaceholderPage({ nav }: { nav: NavItem }) {
         description={nav.description}
         crumbs={[{ label: '工作室', to: '/' }, { label: nav.label }]}
       />
-      <EmptyState
-        title="该模块尚未在 M2.5 交付"
-        description="当前里程碑仅实现应用壳、设计系统与监控页面。此处不会展示虚构业务数据；后续里程碑将接入真实流程与指标。"
-      />
+      <EmptyState title="这里还没做好" description="先用看板、项目和监控。" />
     </>
   );
 }

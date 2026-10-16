@@ -1,4 +1,4 @@
-/** 图表「播放(千次)」轴与 tooltip 括号内缩放值；输入为 viewCount / 1000，不是原始播放量 */
+/** 图表「播放量（千次）」轴与 tooltip 括号内缩放值；输入为 viewCount / 1000，不是原始播放量 */
 
 function formatDecimalTrimmed(abs: number, maxDecimals: number): string {
   const s = abs.toFixed(maxDecimals).replace(/\.?0+$/, '');

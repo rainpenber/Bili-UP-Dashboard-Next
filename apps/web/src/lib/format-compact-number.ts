@@ -48,12 +48,20 @@ export function formatExactNumber(input: CompactNumberInput): string {
   return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(n);
 }
 
-/** 在线观看下界等特殊展示 */
+/**
+ * 在线观看「1000+」这类下界：页面上写成「1千+」，不再出现「下界」。
+ * 只去掉展示用的末尾加号，不改传入的原始字符串。
+ */
 export function formatMetricCount(
   value: string | null | undefined,
   rawLower?: string | null,
 ): string {
-  if (rawLower) return `${formatCompactNumber(rawLower)} (下界)`;
+  if (rawLower) {
+    const trimmed = rawLower.trim();
+    const numeric = trimmed.replace(/\+$/, '');
+    const compact = formatCompactNumber(numeric);
+    return trimmed.includes('+') ? `${compact}+` : compact;
+  }
   if (value === null || value === undefined) return '—';
   return formatCompactNumber(value);
 }
@@ -72,6 +80,6 @@ export function formatOnlineViewersDisplay(
 }
 
 export function formatUnknownMetric(value: string | null | undefined): string {
-  if (value === null || value === undefined) return '暂无数据';
+  if (value === null || value === undefined) return '还没有';
   return formatCompactNumber(value);
 }

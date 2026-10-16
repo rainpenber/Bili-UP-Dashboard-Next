@@ -31,7 +31,7 @@ export function ProjectListCard({ project }: { project: CommercialProject }) {
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
           >
-            {open ? '收起' : '展开阻塞与待办'}
+            {open ? '收起' : '展开卡点和待办'}
             <ChevronDown className={cn('size-4 transition', open && 'rotate-180')} aria-hidden />
           </Button>
         ) : null}
@@ -40,7 +40,7 @@ export function ProjectListCard({ project }: { project: CommercialProject }) {
         <div className="space-y-3 border-t px-4 py-3 text-sm">
           {project.blockedNodeName ? (
             <p>
-              <span className="text-muted-foreground">卡住的节点：</span>
+              <span className="text-muted-foreground">卡在：</span>
               {project.blockedNodeName}
               {project.blockingReason ? `（${project.blockingReason}）` : null}
             </p>
@@ -53,11 +53,11 @@ export function ProjectListCard({ project }: { project: CommercialProject }) {
                     <span className="font-medium">{item.title}</span>
                     {item.isBlocking ? (
                       <Badge variant="destructive" className="text-[10px]">
-                        卡流程
+                        会卡住
                       </Badge>
                     ) : (
                       <Badge variant="secondary" className="text-[10px]">
-                        不卡流程
+                        不卡住
                       </Badge>
                     )}
                   </div>
@@ -66,7 +66,7 @@ export function ProjectListCard({ project }: { project: CommercialProject }) {
               ))}
             </ul>
           ) : (
-            <p className="text-muted-foreground">暂无开放待办。</p>
+            <p className="text-muted-foreground">没有待办。</p>
           )}
         </div>
       ) : null}

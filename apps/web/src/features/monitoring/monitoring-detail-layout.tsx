@@ -12,6 +12,7 @@ type Props = {
   backTo: string;
   meta: { label: string; value: ReactNode }[];
   charts: ReactNode;
+  chartsTitle?: string;
   status?: ReactNode;
 };
 
@@ -22,6 +23,7 @@ export function MonitoringDetailLayout({
   backTo,
   meta,
   charts,
+  chartsTitle = '变化趋势',
   status,
 }: Props) {
   return (
@@ -46,7 +48,7 @@ export function MonitoringDetailLayout({
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">元数据</CardTitle>
+            <CardTitle className="text-base">基本信息</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             {status ? <div>{status}</div> : null}
@@ -62,7 +64,7 @@ export function MonitoringDetailLayout({
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">指标趋势</CardTitle>
+            <CardTitle className="text-base">{chartsTitle}</CardTitle>
           </CardHeader>
           <CardContent>{charts}</CardContent>
         </Card>

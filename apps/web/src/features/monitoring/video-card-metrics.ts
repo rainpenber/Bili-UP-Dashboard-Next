@@ -15,7 +15,7 @@ export function videoCardOnlineText(metrics: VideoCardLatestMetrics): string {
   return formatOnlineViewersDisplay(metrics.onlineViewers, metrics.onlineViewersRaw);
 }
 
-/** 生成卡片「播放 / 在线」摘要，两者独立格式化、不串值 */
+/** 生成卡片「播放量 / 在线观看」摘要，两者独立格式化、不串值 */
 export function formatVideoCardMetricsSummary(metrics: VideoCardLatestMetrics): string {
-  return `播放 ${videoCardPlayText(metrics)} · 在线 ${videoCardOnlineText(metrics)}`;
+  return `播放量 ${videoCardPlayText(metrics)} · 在线观看 ${videoCardOnlineText(metrics)}`;
 }

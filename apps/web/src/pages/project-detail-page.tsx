@@ -19,6 +19,7 @@ import { WorkflowGraphReadonly } from '@/features/commercial/components/workflow
 import { deriveWorkflowSummary } from '@/features/commercial/workflow-edit-logic';
 import { formatYuan } from '@/features/commercial/commercial-selectors';
 import { useCommercialProjectQuery } from '@/features/commercial/use-commercial-queries';
+import { toUserErrorMessage } from '@/lib/user-facing-error';
 import { cn } from '@/lib/utils';
 
 function ScheduleLine({ name, dateLabel }: { name: string; dateLabel: string }) {
@@ -47,9 +48,9 @@ export function ProjectDetailPage() {
   const statusText = useMemo(() => {
     if (!projectForEditor) return '';
     if (workflowSummary.blockingReason) {
-      return `当前状态：${workflowSummary.statusHeadline}，阻塞原因：${workflowSummary.blockingReason}`;
+      return `现在：${workflowSummary.statusHeadline}，卡在${workflowSummary.blockingReason}`;
     }
-    return `当前状态：${workflowSummary.statusHeadline}`;
+    return `现在：${workflowSummary.statusHeadline}`;
   }, [projectForEditor, workflowSummary]);
 
   if (query.isLoading) {
@@ -59,14 +60,14 @@ export function ProjectDetailPage() {
   if (query.isError) {
     return (
       <ErrorState
-        message={query.error instanceof Error ? query.error.message : '加载失败'}
+        message={toUserErrorMessage(query.error, '没加载出来，请再试一次。')}
         onRetry={() => query.refetch()}
       />
     );
   }
 
   if (!query.data) {
-    return <ErrorState title="找不到这个项目" message="可能链接有误，或演示数据里已移除。" />;
+    return <ErrorState title="找不到这个项目" message="链接可能不对，或演示里已经没有这个项目。" />;
   }
 
   const project = query.data;
@@ -75,24 +76,24 @@ export function ProjectDetailPage() {
     <>
       <PageHeader
         title={project.name}
-        description={project.archived ? '该项目已结案归档，仅供回看。' : project.overallStage}
+        description={project.archived ? '已经结案，只能回看。' : project.overallStage}
         crumbs={[
           { label: '工作室', to: '/' },
           { label: '项目', to: '/projects' },
           { label: project.name },
         ]}
-        actions={project.archived ? <Badge variant="secondary">已归档</Badge> : null}
+        actions={project.archived ? <Badge variant="secondary">已结案</Badge> : null}
       />
 
       <div className="space-y-6">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
           <Card className="lg:col-span-1">
             <CardHeader>
-              <CardTitle className="text-base">概要</CardTitle>
+              <CardTitle className="text-base">概况</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
               <div>
-                <p className="mb-1 text-muted-foreground">未完成节点的计划时间</p>
+                <p className="mb-1 text-muted-foreground">还没做完的时间</p>
                 {project.upcomingNodeSchedule.length > 0 ? (
                   <p className="flex flex-wrap gap-x-3 gap-y-1">
                     {project.upcomingNodeSchedule.map((s) => (
@@ -100,7 +101,7 @@ export function ProjectDetailPage() {
                     ))}
                   </p>
                 ) : (
-                  <p className="text-muted-foreground">暂无排期。</p>
+                  <p className="text-muted-foreground">还没排时间。</p>
                 )}
               </div>
 
@@ -114,7 +115,7 @@ export function ProjectDetailPage() {
                     aria-expanded={finishedOpen}
                     onClick={() => setFinishedOpen((v) => !v)}
                   >
-                    {finishedOpen ? '收起已完成节点时间' : '展开已完成节点时间'}
+                    {finishedOpen ? '收起已经做完的' : '展开已经做完的'}
                     <ChevronDown
                       className={cn('size-4', finishedOpen && 'rotate-180')}
                       aria-hidden
@@ -131,18 +132,18 @@ export function ProjectDetailPage() {
               ) : null}
 
               <p>
-                <span className="text-muted-foreground">整体阶段：</span>
+                <span className="text-muted-foreground">做到哪一步：</span>
                 {project.overallStage}
               </p>
               {workflowSummary.inProgressNodeNames.length > 0 ? (
                 <p data-testid="summary-in-progress">
-                  <span className="text-muted-foreground">进行中的节点：</span>
+                  <span className="text-muted-foreground">正在做：</span>
                   {workflowSummary.inProgressNodeNames.join('、')}
                 </p>
               ) : null}
               {workflowSummary.mainBlockingItem ? (
                 <p data-testid="summary-blocking-item">
-                  <span className="text-muted-foreground">主要阻塞项：</span>
+                  <span className="text-muted-foreground">卡在：</span>
                   {workflowSummary.mainBlockingItem}
                 </p>
               ) : null}
@@ -161,7 +162,7 @@ export function ProjectDetailPage() {
 
           <Card className="lg:col-span-1">
             <CardHeader>
-              <CardTitle className="text-base">当前状态</CardTitle>
+              <CardTitle className="text-base">现在怎样</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm" data-testid="summary-status-text">
@@ -177,7 +178,7 @@ export function ProjectDetailPage() {
 
           <Card className="lg:col-span-1">
             <CardHeader>
-              <CardTitle className="text-base">开放事项</CardTitle>
+              <CardTitle className="text-base">待办</CardTitle>
             </CardHeader>
             <CardContent>
               {project.openItems.length > 0 ? (
@@ -193,7 +194,7 @@ export function ProjectDetailPage() {
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-muted-foreground">暂无开放事项。</p>
+                <p className="text-sm text-muted-foreground">没有待办。</p>
               )}
             </CardContent>
           </Card>
@@ -216,7 +217,7 @@ export function ProjectDetailPage() {
         </Card>
 
         <Button variant="outline" asChild>
-          <Link to="/projects">返回项目列表</Link>
+          <Link to="/projects">回到项目列表</Link>
         </Button>
       </div>
     </>

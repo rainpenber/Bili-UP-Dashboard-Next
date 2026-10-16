@@ -10,6 +10,7 @@ import { MetricCharts } from '@/features/monitoring/MetricCharts';
 import { MonitoringDetailLayout } from '@/features/monitoring/monitoring-detail-layout';
 import { formatCompactNumber } from '@/lib/format-compact-number';
 import { formatFullLocalTime, formatShortTime } from '@/lib/format-time';
+import { toUserErrorMessage } from '@/lib/user-facing-error';
 
 export function MonitoringCreatorDetailPage() {
   const { mid = '' } = useParams();
@@ -20,14 +21,14 @@ export function MonitoringCreatorDetailPage() {
   if (detailQuery.isError) {
     return (
       <ErrorState
-        title="无法加载 UP 主"
-        message={detailQuery.error instanceof Error ? detailQuery.error.message : '加载失败'}
+        title="UP 主没加载出来"
+        message={toUserErrorMessage(detailQuery.error, '没加载出来，请再试一次。')}
         onRetry={() => void detailQuery.refetch()}
       />
     );
   }
   if (!detailQuery.data) {
-    return <ErrorState title="未找到 UP 主" message={`不存在 MID ${mid}`} />;
+    return <ErrorState title="没有这个 UP 主" message={`没有编号为 ${mid} 的 UP 主。`} />;
   }
 
   const c = detailQuery.data;
@@ -36,18 +37,19 @@ export function MonitoringCreatorDetailPage() {
   return (
     <MonitoringDetailLayout
       title={c.uname ?? c.mid}
-      description="UP 主粉丝趋势与元数据"
+      description="粉丝数怎么变的。"
+      chartsTitle="粉丝数变化"
       entityLabel={c.mid}
       backTo="/monitoring?tab=creators"
       status={
         c.deletedAt ? (
           <Badge variant="destructive">已删除</Badge>
         ) : c.archivedAt ? (
-          <Badge variant="warning">已归档</Badge>
+          <Badge variant="warning">已存档</Badge>
         ) : null
       }
       meta={[
-        { label: 'MID', value: c.mid },
+        { label: '编号', value: c.mid },
         { label: '昵称', value: c.uname ?? '—' },
         { label: '分类', value: c.category ?? '未分类' },
         {
@@ -63,17 +65,17 @@ export function MonitoringCreatorDetailPage() {
           ),
         },
         {
-          label: '最后采样',
+          label: '最近更新',
           value: latest ? (
             <span title={formatFullLocalTime(latest.sampledAt)}>
               {formatShortTime(latest.sampledAt)}
             </span>
           ) : (
-            '暂无采样'
+            '还没有记录'
           ),
         },
         {
-          label: '最新粉丝',
+          label: '粉丝数',
           value: latest ? formatCompactNumber(latest.followerCount) : '—',
         },
       ]}
@@ -82,9 +84,7 @@ export function MonitoringCreatorDetailPage() {
           <LoadingListSkeleton rows={2} />
         ) : metricsQuery.isError ? (
           <ErrorState
-            message={
-              metricsQuery.error instanceof Error ? metricsQuery.error.message : '指标加载失败'
-            }
+            message={toUserErrorMessage(metricsQuery.error, '数据没加载出来')}
             onRetry={() => void metricsQuery.refetch()}
           />
         ) : (

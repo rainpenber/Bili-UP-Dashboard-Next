@@ -43,7 +43,7 @@ export function EmptyState({
 }
 
 export function ErrorState({
-  title = '加载失败',
+  title = '没加载出来',
   message,
   onRetry,
 }: {
@@ -60,7 +60,7 @@ export function ErrorState({
         {onRetry ? (
           <Button type="button" variant="outline" size="sm" onClick={onRetry}>
             <RefreshCw className="size-4" />
-            重试
+            再试一次
           </Button>
         ) : null}
       </AlertDescription>

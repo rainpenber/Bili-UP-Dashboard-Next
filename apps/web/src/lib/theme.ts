@@ -5,11 +5,11 @@ export const THEME_STORAGE_KEY = 'studio-theme-mode';
 export const ACCENT_STORAGE_KEY = 'studio-theme-accent';
 
 export const ACCENT_LABELS: Record<ThemeAccent, string> = {
-  indigo: '蓝靛',
-  violet: '紫罗兰',
-  emerald: '翡翠绿',
-  amber: '琥珀橙',
-  rose: '玫瑰红',
+  indigo: '靛蓝',
+  violet: '紫色',
+  emerald: '绿色',
+  amber: '橙色',
+  rose: '玫红',
 };
 
 export function isThemeMode(value: string | null): value is ThemeMode {

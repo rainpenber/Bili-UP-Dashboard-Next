@@ -15,14 +15,15 @@ describe('video card metrics summary', () => {
     };
 
     expect(videoCardPlayText(metrics)).toBe(formatCompactNumber('12345678'));
-    expect(videoCardPlayText(metrics)).not.toContain('下界');
-    expect(videoCardOnlineText(metrics)).toContain('下界');
+    expect(videoCardPlayText(metrics)).not.toContain('+');
+    expect(videoCardOnlineText(metrics)).toBe('1千+');
 
     const summary = formatVideoCardMetricsSummary(metrics);
-    expect(summary).toMatch(/^播放 .+ · 在线 .+$/);
+    expect(summary).toMatch(/^播放量 .+ · 在线观看 .+$/);
     expect(summary).toContain(formatCompactNumber('12345678'));
-    expect(summary).toContain('下界');
-    expect(summary.indexOf('下界')).toBeGreaterThan(summary.indexOf('播放'));
+    expect(summary).toContain('1千+');
+    expect(summary.indexOf('1千+')).toBeGreaterThan(summary.indexOf('播放量'));
+    expect(summary.indexOf('在线观看')).toBeGreaterThan(summary.indexOf('播放量'));
   });
 
   test('summary keeps play and online segments distinct', () => {
@@ -32,6 +33,6 @@ describe('video card metrics summary', () => {
       onlineViewersRaw: null,
     };
     const summary = formatVideoCardMetricsSummary(metrics);
-    expect(summary).toBe('播放 999 · 在线 50');
+    expect(summary).toBe('播放量 999 · 在线观看 50');
   });
 });

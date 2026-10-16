@@ -11,6 +11,7 @@ import {
   formatViewCountDisplay,
 } from '@/lib/format-compact-number';
 import { formatFullLocalTime, formatShortTime } from '@/lib/format-time';
+import { toUserErrorMessage } from '@/lib/user-facing-error';
 
 export function MonitoringVideoDetailPage() {
   const { bvid = '' } = useParams();
@@ -21,14 +22,14 @@ export function MonitoringVideoDetailPage() {
   if (detailQuery.isError) {
     return (
       <ErrorState
-        title="无法加载视频"
-        message={detailQuery.error instanceof Error ? detailQuery.error.message : '加载失败'}
+        title="视频没加载出来"
+        message={toUserErrorMessage(detailQuery.error, '没加载出来，请再试一次。')}
         onRetry={() => void detailQuery.refetch()}
       />
     );
   }
   if (!detailQuery.data) {
-    return <ErrorState title="未找到视频" message={`不存在 BV 号 ${bvid}`} />;
+    return <ErrorState title="没有这个视频" message={`没有 BV 号为 ${bvid} 的视频。`} />;
   }
 
   const v = detailQuery.data;
@@ -37,20 +38,21 @@ export function MonitoringVideoDetailPage() {
   return (
     <MonitoringDetailLayout
       title={v.title ?? v.bvid}
-      description="视频监控详情与历史指标"
+      description="播放量、在线观看和互动怎么变的。"
+      chartsTitle="播放量和互动"
       entityLabel={v.bvid}
       backTo="/monitoring?tab=videos"
       status={
         v.deletedAt ? (
           <Badge variant="destructive">已删除</Badge>
         ) : v.archivedAt ? (
-          <Badge variant="warning">已归档</Badge>
+          <Badge variant="warning">已存档</Badge>
         ) : null
       }
       meta={[
         { label: 'BV 号', value: v.bvid },
         { label: '分类', value: v.category ?? '未分类' },
-        { label: 'UP MID', value: v.mid ?? '—' },
+        { label: 'UP 主编号', value: v.mid ?? '—' },
         {
           label: '封面',
           value: (
@@ -64,17 +66,17 @@ export function MonitoringVideoDetailPage() {
           ),
         },
         {
-          label: '最后采样',
+          label: '最近更新',
           value: latest ? (
             <span title={formatFullLocalTime(latest.sampledAt)}>
               {formatShortTime(latest.sampledAt)}
             </span>
           ) : (
-            '暂无采样'
+            '还没有记录'
           ),
         },
         {
-          label: '最新播放',
+          label: '播放量',
           value: latest ? formatViewCountDisplay(latest.viewCount) : '—',
         },
         {
@@ -84,8 +86,8 @@ export function MonitoringVideoDetailPage() {
             : '—',
         },
         {
-          label: '评论数',
-          value: latest ? formatUnknownMetric(latest.commentCount) : '暂无数据',
+          label: '评论',
+          value: latest ? formatUnknownMetric(latest.commentCount) : '还没有',
         },
       ]}
       charts={
@@ -93,9 +95,7 @@ export function MonitoringVideoDetailPage() {
           <LoadingListSkeleton rows={2} />
         ) : metricsQuery.isError ? (
           <ErrorState
-            message={
-              metricsQuery.error instanceof Error ? metricsQuery.error.message : '指标加载失败'
-            }
+            message={toUserErrorMessage(metricsQuery.error, '数据没加载出来')}
             onRetry={() => void metricsQuery.refetch()}
           />
         ) : (
