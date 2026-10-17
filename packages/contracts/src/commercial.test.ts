@@ -63,6 +63,8 @@ describe('commercial read contracts', () => {
             name: '汇合节点',
             status: 'not_reached',
             kind: 'fan',
+            templateSlug: 'merge',
+            blockingReason: null,
             updatedAt: '2026-05-20T12:00:00.000000Z',
           },
         ],
@@ -101,6 +103,8 @@ describe('commercial read contracts', () => {
           name: '文案',
           status: 'blocked',
           kind: 'stage',
+          templateSlug: 'copy',
+          blockingReason: '甲方文案批注未清',
           updatedAt: '2026-05-20T12:00:00.000000Z',
         },
         {
@@ -108,12 +112,17 @@ describe('commercial read contracts', () => {
           name: '汇合节点',
           status: 'not_reached',
           kind: 'merge',
+          templateSlug: 'merge',
+          blockingReason: null,
           updatedAt: '2026-05-20T12:00:00.100000Z',
         },
       ],
       edges: [{ id: EDGE_ID, fromNodeId: NODE_A, toNodeId: NODE_B }],
     });
     expect(graph.nodes.find((node) => node.name === '汇合节点')?.kind).toBe('merge');
+    expect(graph.nodes.find((node) => node.templateSlug === 'copy')?.blockingReason).toBe(
+      '甲方文案批注未清',
+    );
   });
 
   test('parses the default template graph', () => {
