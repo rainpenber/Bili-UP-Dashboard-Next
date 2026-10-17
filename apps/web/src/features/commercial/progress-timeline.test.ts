@@ -4,6 +4,7 @@ import {
   PROGRESS_STAGES,
   deriveProgressTimeline,
   stageIdForNode,
+  stageSituationLabel,
   timelineFactsFromDetail,
   timelineStatusLabel,
   type TimelineSourceNode,
@@ -116,6 +117,19 @@ describe('progress timeline mapping', () => {
     expect(copyPrep?.blockers).toEqual([
       expect.objectContaining({ name: '文案', blockingReason: '甲方文案批注未清' }),
     ]);
+    expect(stageSituationLabel(copyPrep!)).toBe('甲方文案批注未清');
+    expect(stageSituationLabel(timeline.stages[0]!)).toBeNull();
+    expect(
+      stageSituationLabel({
+        status: 'in_progress',
+        children: [
+          { name: 'A-roll 拍摄', status: 'in_progress' },
+          { name: 'B-roll 素材', status: 'in_progress' },
+          { name: 'AI 后期', status: 'not_reached' },
+        ],
+        blockers: [],
+      }),
+    ).toBe('A-roll 拍摄、B-roll 素材');
     expect(
       timeline.stages.every((stage) => stage.children.every((child) => child.nodeId !== 'merge')),
     ).toBe(true);

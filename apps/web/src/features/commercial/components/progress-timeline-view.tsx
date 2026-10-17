@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { formatYuan } from '../commercial-selectors';
 import {
   deriveProgressTimeline,
+  stageSituationLabel,
   type DerivedPoint,
   type DerivedStage,
   type TimelineProjectFacts,
@@ -38,7 +39,7 @@ function PointMark({ point }: { point: DerivedPoint }) {
   const color = STATUS_COLOR[point.demoStatus];
   return (
     <span
-      className="size-3.5 rounded-full border-2"
+      className="size-4 rounded-full border-2"
       style={{
         borderColor: color,
         background: point.demoStatus === 'idle' ? 'transparent' : color,
@@ -80,13 +81,13 @@ function StageHit({
   onToggle: () => void;
 }) {
   const color = STATUS_COLOR[stage.demoStatus];
-  const showGlow = stage.demoStatus === 'active' || stage.demoStatus === 'blocked';
+  const situation = stageSituationLabel(stage);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="group relative flex min-w-0 flex-1 flex-col rounded-md px-1 pt-8 text-left"
+          className="group relative flex min-w-0 flex-1 flex-col rounded-md text-left"
           data-testid="progress-stage"
           data-stage-id={stage.id}
           data-status={stage.demoStatus}
@@ -97,38 +98,50 @@ function StageHit({
         >
           <span
             data-testid="progress-stage-mask"
-            className="pointer-events-none absolute inset-0 rounded-md bg-black/40 opacity-0 group-data-[state=delayed-open]:opacity-100 group-data-[state=instant-open]:opacity-100"
+            className="pointer-events-none absolute inset-0 rounded-md bg-foreground/[0.04] opacity-0 ring-1 ring-foreground/20 group-data-[state=delayed-open]:opacity-100 group-data-[state=instant-open]:opacity-100"
             aria-hidden
           />
-          <span className="relative z-10 flex items-center">
-            <span className="relative flex h-8 min-w-0 flex-1 items-center">
-              {showGlow ? (
-                <span
-                  data-testid="progress-stage-glow"
-                  className="pointer-events-none absolute inset-x-0 bottom-1/2 h-10"
-                  style={{
-                    background: `linear-gradient(to top, ${color}99, transparent)`,
-                  }}
-                  aria-hidden
-                />
-              ) : null}
+          <span className="relative z-10 flex items-end">
+            <span className="relative flex h-6 min-w-0 flex-1 items-center">
               <span
                 className="relative z-10 block w-full rounded-full"
-                style={{ height: stage.current ? 6 : 3, background: color }}
+                style={{ height: stage.current ? 5 : 4, background: color }}
                 aria-hidden
               />
             </span>
             <span
-              className="flex w-16 shrink-0 justify-center"
+              className="flex w-[4.5rem] shrink-0 flex-col items-center"
               data-testid="progress-point"
               data-point-id={end.id}
               data-status={end.demoStatus}
               data-workflow-status={end.status}
             >
-              <PointMark point={end} />
+              <span className="relative flex h-14 w-full items-end justify-center">
+                {situation ? (
+                  <span className="absolute bottom-0 flex flex-col items-center">
+                    <span
+                      data-testid="progress-stage-situation"
+                      className="text-sm leading-tight font-medium whitespace-nowrap"
+                      style={{ color }}
+                    >
+                      {situation}
+                    </span>
+                    <span
+                      data-testid="progress-stage-glow"
+                      data-callout="dashed"
+                      className="mt-0.5 h-5 w-0"
+                      style={{ borderLeft: `1.5px dashed ${color}` }}
+                      aria-hidden
+                    />
+                  </span>
+                ) : null}
+              </span>
+              <span className="flex h-6 items-center">
+                <PointMark point={end} />
+              </span>
             </span>
           </span>
-          <span className="relative z-10 mt-3 flex text-xs leading-snug">
+          <span className="relative z-10 mt-1 flex text-sm leading-snug">
             <span
               className={cn(
                 'min-w-0 flex-1 text-center',
@@ -140,7 +153,7 @@ function StageHit({
               {stage.current ? ' · 当前' : ''}
             </span>
             <span
-              className="w-16 shrink-0 text-center font-medium"
+              className="w-[4.5rem] shrink-0 text-center font-medium"
               style={{ color: STATUS_COLOR[end.demoStatus] }}
             >
               {end.label}
@@ -149,7 +162,9 @@ function StageHit({
         </button>
       </TooltipTrigger>
       <TooltipContent
-        side="top"
+        side="bottom"
+        sideOffset={8}
+        avoidCollisions={false}
         className="max-w-64 overflow-visible px-3 py-2 text-left"
         data-testid="progress-stage-tooltip"
         data-stage-id={stage.id}
@@ -231,11 +246,12 @@ export function ProgressTimeline({ nodes }: { nodes: TimelineSourceNode[] }) {
         <TooltipProvider delayDuration={0} disableHoverableContent>
           <div data-testid="progress-timeline">
             <div className="overflow-x-auto">
-              <div className="flex min-w-[44rem] items-stretch">
+              <div className="flex min-w-[40rem] items-stretch">
                 {start ? (
-                  <div className="flex w-16 shrink-0 flex-col items-center pt-8">
+                  <div className="flex w-[4.5rem] shrink-0 flex-col items-center">
+                    <span className="h-14" aria-hidden />
                     <span
-                      className="flex h-8 items-center"
+                      className="flex h-6 items-center"
                       data-testid="progress-point"
                       data-point-id={start.id}
                       data-status={start.demoStatus}
@@ -244,7 +260,7 @@ export function ProgressTimeline({ nodes }: { nodes: TimelineSourceNode[] }) {
                       <PointMark point={start} />
                     </span>
                     <p
-                      className="mt-3 text-center text-xs leading-snug font-medium"
+                      className="mt-1 text-center text-sm leading-snug font-medium"
                       style={{ color: STATUS_COLOR[start.demoStatus] }}
                     >
                       {start.label}

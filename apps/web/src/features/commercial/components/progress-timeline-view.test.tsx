@@ -109,11 +109,15 @@ describe('ProgressTimeline', () => {
     const done = screen
       .getAllByTestId('progress-stage')
       .find((item) => item.getAttribute('data-stage-id') === 'write_outline');
-    expect(blocked?.querySelector('[data-testid="progress-stage-glow"]')).toBeTruthy();
-    expect(
-      blocked?.querySelector('[data-testid="progress-stage-glow"]')?.getAttribute('style'),
-    ).toContain('linear-gradient(to top');
+    const glow = blocked?.querySelector('[data-testid="progress-stage-glow"]');
+    const situation = blocked?.querySelector('[data-testid="progress-stage-situation"]');
+    expect(glow?.getAttribute('data-callout')).toBe('dashed');
+    expect(glow?.getAttribute('style')).toContain('dashed');
+    expect(glow?.getAttribute('style')).toContain('#c2410c');
+    expect(situation?.textContent).toBe('甲方文案批注未清');
+    expect(situation?.getAttribute('style')).toContain('#c2410c');
     expect(done?.querySelector('[data-testid="progress-stage-glow"]')).toBeNull();
+    expect(done?.querySelector('[data-testid="progress-stage-situation"]')).toBeNull();
   });
 
   test('hover on the stage line or its end point opens a tooltip and a mask', async () => {
@@ -124,6 +128,7 @@ describe('ProgressTimeline', () => {
     if (!stage) throw new Error('missing copy prep stage');
     fireEvent.pointerMove(stage);
     const tip = await screen.findByTestId('progress-stage-tooltip');
+    expect(tip.getAttribute('data-side')).toBe('bottom');
     expect(tip.getAttribute('data-stage-id')).toBe('copy_prep');
     expect(tip.textContent).toContain('文案：阻塞（甲方文案批注未清）');
     expect(tip.textContent).toContain('预拍摄：进行中');
@@ -134,7 +139,8 @@ describe('ProgressTimeline', () => {
     expect(blockedRow?.getAttribute('data-workflow-status')).toBe('blocked');
     expect(stage.getAttribute('data-state')).toMatch(/open/);
     const mask = stage.querySelector('[data-testid="progress-stage-mask"]');
-    expect(mask?.className).toContain('bg-black/40');
+    expect(mask?.className).toContain('ring-foreground/20');
+    expect(mask?.className).not.toContain('bg-black/40');
     expect(screen.getByTestId('progress-timeline').textContent).not.toContain('文案：阻塞');
 
     const endPoint = screen

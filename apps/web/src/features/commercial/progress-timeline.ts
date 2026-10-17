@@ -158,6 +158,29 @@ export function resolveTimelineNodeId(node: {
   return NAME_TO_NODE_ID[node.name] ?? null;
 }
 
+/**
+ * Phrase above a blocked or in-progress stage, in the same role as 花火's 「待UP主投稿」.
+ * Null when the stage is finished or not started.
+ */
+export function stageSituationLabel(stage: {
+  status: TimelineRollup;
+  children: { name: string; status: string }[];
+  blockers: { name: string; blockingReason: string | null }[];
+}): string | null {
+  if (stage.status === 'blocked') {
+    const blocker = stage.blockers[0];
+    if (!blocker) return '阻塞';
+    return blocker.blockingReason ?? `${blocker.name}阻塞`;
+  }
+  if (stage.status === 'in_progress') {
+    const names = stage.children
+      .filter((child) => child.status === 'in_progress')
+      .map((child) => child.name);
+    return names.length > 0 ? names.join('、') : '进行中';
+  }
+  return null;
+}
+
 export function timelineStatusLabel(status: string): string {
   switch (status) {
     case 'completed':
