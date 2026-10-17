@@ -24,3 +24,5 @@
 ## 读接口
 
 `GET /projects/:id/workflow` 的节点增加 `templateSlug` 与 `blockingReason`。阻塞原因只在节点状态为 `blocked` 时，取钉住或 `blocks_node_id` 指向该节点的开放阻塞事项标题。
+
+样例库要能重跑纠正：阻塞节点必须钉住对应的开放阻塞事项（`primary_block_pinned_item_id`），并记下 `status_before_block`。否则时间轴只会显示「节点名：阻塞」，没有「B-roll 甲方素材缺失」这类原因。详见 `docs/architecture/commercial-db.md` 的样例种子一节。

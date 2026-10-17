@@ -244,6 +244,30 @@ describe('commercial read API', () => {
     expect(multiDetail.blockingReason).toBe('B-roll 甲方素材缺失');
     expect(multiDetail.currentStageNames).toEqual(['A-roll 拍摄', 'B-roll 素材', 'AI 后期']);
 
+    const multiWorkflow = await app.request(
+      `/api/v1/commercial/projects/${FIXTURE_PROJECT_IDS.multiBlock}/workflow`,
+    );
+    const multiGraph = parseCommercialProjectWorkflow(await multiWorkflow.json());
+    expect(multiGraph.nodes.find((node) => node.templateSlug === 'b_roll')).toMatchObject({
+      name: 'B-roll 素材',
+      status: 'blocked',
+      blockingReason: 'B-roll 甲方素材缺失',
+    });
+    expect(multiGraph.nodes.find((node) => node.templateSlug === 'a_roll')).toMatchObject({
+      name: 'A-roll 拍摄',
+      status: 'blocked',
+      blockingReason: 'A-roll 素材版权待补',
+    });
+    const clientWorkflow = await app.request(
+      `/api/v1/commercial/projects/${FIXTURE_PROJECT_IDS.clientBlocking}/workflow`,
+    );
+    const clientGraph = parseCommercialProjectWorkflow(await clientWorkflow.json());
+    expect(clientGraph.nodes.find((node) => node.templateSlug === 'copy')).toMatchObject({
+      name: '文案',
+      status: 'blocked',
+      blockingReason: '甲方文案批注未清',
+    });
+
     const published = await app.request(
       `/api/v1/commercial/projects/${FIXTURE_PROJECT_IDS.publishedOpen}`,
     );
