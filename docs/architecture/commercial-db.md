@@ -37,6 +37,8 @@
 
 页面 Mock 上曾经画过 17 条边。本包的种子是数据层的依据，计数以 14 / 16 为准。
 
+`seedCommercialFixtures` 可以重复执行。样例节点的 `status`，以及样例开放事项的生命周期、影响和 `blocks_node_id`，会按样例写回，不会停在 `ON CONFLICT DO NOTHING` 留下的旧行上。样例项目里，节点 `status = 'blocked'` 当且仅当存在一条 `lifecycle = 'open'`、`impact = 'blocking'`、并且通过 `primary_block_pinned_item_id` 或 `blocks_node_id` 关联到该节点的开放事项。阻塞节点会钉住这条主阻塞事项，并把 `status_before_block` 记为 `in_progress`（写入接口只从进行中进入阻塞）。引擎仍然允许一次没有原因的阻塞；这条不变式约束的是样例数据，不是表上的 CHECK。
+
 ## 只读 API
 
 响应形状在 `@studio/contracts`。流程图节点带 `updatedAt`，这是写入时要原样交回的并发令牌。

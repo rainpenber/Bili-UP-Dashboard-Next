@@ -73,6 +73,11 @@ function fixtureEdgeId(
 
 type NodeStatus = 'not_reached' | 'in_progress' | 'completed' | 'blocked' | 'not_applicable';
 
+/** Engine only blocks a node from in_progress, so fixture blocks record that prior status. */
+const FIXTURE_STATUS_BEFORE_BLOCK = 'in_progress';
+
+type FixtureBlockPin = { itemId: string; nodeId: string };
+
 function defaultNodeStatus(projectId: string, slug: string): NodeStatus {
   if (slug === 'inquiry') return 'completed';
 
@@ -213,16 +218,35 @@ async function seedProjectWorkflowGraph(
     idMap.set(tn.id, nodeId);
     slugToNodeId.set(tn.slug, nodeId);
     const status = resolveStatus(tn.slug);
+    const statusBeforeBlock = status === 'blocked' ? FIXTURE_STATUS_BEFORE_BLOCK : null;
     const instancePkg = tn.package_id ? (pkgMap.get(tn.package_id) ?? null) : null;
     await sql`
       INSERT INTO wf_nodes (
-        id, workflow_id, project_id, template_node_id, package_id, name, kind, status, is_optional, pos_x, pos_y, phase, source
+        id, workflow_id, project_id, template_node_id, package_id, name, kind, status, is_optional, pos_x, pos_y, phase, source,
+        status_before_block
       )
       VALUES (
         ${nodeId}, ${resolvedWorkflowId}, ${projectId}, ${tn.id}, ${instancePkg}, ${tn.name}, ${tn.kind},
-        ${status}, ${tn.is_optional}, ${tn.pos_x}, ${tn.pos_y}, ${tn.phase}, 'template'
+        ${status}, ${tn.is_optional}, ${tn.pos_x}, ${tn.pos_y}, ${tn.phase}, 'template',
+        ${statusBeforeBlock}
       )
-      ON CONFLICT DO NOTHING
+      ON CONFLICT (id) DO UPDATE SET
+        status = EXCLUDED.status,
+        status_before_block = EXCLUDED.status_before_block,
+        primary_block_pinned_item_id = CASE
+          WHEN EXCLUDED.status = 'blocked' THEN wf_nodes.primary_block_pinned_item_id
+          ELSE NULL
+        END,
+        updated_at = CASE
+          WHEN wf_nodes.status IS DISTINCT FROM EXCLUDED.status
+            OR wf_nodes.status_before_block IS DISTINCT FROM EXCLUDED.status_before_block
+            OR (
+              EXCLUDED.status <> 'blocked'
+              AND wf_nodes.primary_block_pinned_item_id IS NOT NULL
+            )
+          THEN now()
+          ELSE wf_nodes.updated_at
+        END
     `;
   }
 
@@ -288,6 +312,39 @@ export async function expectedCommercialFixtureCounts(sql: Sql): Promise<{
   };
 }
 
+async function alignFixtureBlockPins(sql: Sql, pins: FixtureBlockPin[]): Promise<void> {
+  for (const pin of pins) {
+    await sql`
+      UPDATE wf_nodes
+      SET
+        primary_block_pinned_item_id = ${pin.itemId},
+        status_before_block = ${FIXTURE_STATUS_BEFORE_BLOCK},
+        updated_at = CASE
+          WHEN primary_block_pinned_item_id IS DISTINCT FROM ${pin.itemId}
+            OR status_before_block IS DISTINCT FROM ${FIXTURE_STATUS_BEFORE_BLOCK}
+          THEN now()
+          ELSE updated_at
+        END
+      WHERE id = ${pin.nodeId}
+        AND status = 'blocked'
+    `;
+  }
+
+  await sql`
+    UPDATE wf_nodes
+    SET
+      primary_block_pinned_item_id = NULL,
+      status_before_block = NULL,
+      updated_at = now()
+    WHERE project_id = ANY(${FIXTURE_PROJECT_ID_LIST})
+      AND status <> 'blocked'
+      AND (
+        primary_block_pinned_item_id IS NOT NULL
+        OR status_before_block IS NOT NULL
+      )
+  `;
+}
+
 export async function seedCommercialFixtures(sql: Sql): Promise<void> {
   await sql`
     INSERT INTO commercial_projects (id, name, net_amount, rebate_amount, overall_stage, user_deadline_at, archived_at, business_closed_at)
@@ -320,7 +377,35 @@ export async function seedCommercialFixtures(sql: Sql): Promise<void> {
       '大纲方向确认', '十余句沟通聚合为同一议题', '甲方确认方向', '整理备选结构发给甲方', 'us', 'open', 'normal',
       ${JSON.stringify({ thread: 'fixture-outline-thread', messages: 12 })}::jsonb, 0.85
     )
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT (id) DO UPDATE SET
+      title = EXCLUDED.title,
+      description = EXCLUDED.description,
+      close_criteria = EXCLUDED.close_criteria,
+      next_action = EXCLUDED.next_action,
+      next_actor = EXCLUDED.next_actor,
+      lifecycle = EXCLUDED.lifecycle,
+      impact = EXCLUDED.impact,
+      source_evidence = EXCLUDED.source_evidence,
+      confidence = EXCLUDED.confidence,
+      workflow_node_id = NULL,
+      blocks_node_id = NULL,
+      closed_at = NULL,
+      updated_at = CASE
+        WHEN open_items.title IS DISTINCT FROM EXCLUDED.title
+          OR open_items.description IS DISTINCT FROM EXCLUDED.description
+          OR open_items.close_criteria IS DISTINCT FROM EXCLUDED.close_criteria
+          OR open_items.next_action IS DISTINCT FROM EXCLUDED.next_action
+          OR open_items.next_actor IS DISTINCT FROM EXCLUDED.next_actor
+          OR open_items.lifecycle IS DISTINCT FROM EXCLUDED.lifecycle
+          OR open_items.impact IS DISTINCT FROM EXCLUDED.impact
+          OR open_items.source_evidence IS DISTINCT FROM EXCLUDED.source_evidence
+          OR open_items.confidence IS DISTINCT FROM EXCLUDED.confidence
+          OR open_items.workflow_node_id IS NOT NULL
+          OR open_items.blocks_node_id IS NOT NULL
+          OR open_items.closed_at IS NOT NULL
+        THEN now()
+        ELSE open_items.updated_at
+      END
   `;
 
   const clientBlockItemId = 'f0a10001-0001-4001-8001-0000000000a4';
@@ -335,7 +420,35 @@ export async function seedCommercialFixtures(sql: Sql): Promise<void> {
       '甲方文案批注未清', '三处口径待甲方确认', '甲方书面确认终稿', '跟进甲方群回复', 'client', 'open', 'blocking',
       ${JSON.stringify({ thread: 'fixture-client-copy-thread', messages: 8 })}::jsonb, 0.9
     )
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT (id) DO UPDATE SET
+      workflow_node_id = EXCLUDED.workflow_node_id,
+      blocks_node_id = EXCLUDED.blocks_node_id,
+      title = EXCLUDED.title,
+      description = EXCLUDED.description,
+      close_criteria = EXCLUDED.close_criteria,
+      next_action = EXCLUDED.next_action,
+      next_actor = EXCLUDED.next_actor,
+      lifecycle = EXCLUDED.lifecycle,
+      impact = EXCLUDED.impact,
+      source_evidence = EXCLUDED.source_evidence,
+      confidence = EXCLUDED.confidence,
+      closed_at = NULL,
+      updated_at = CASE
+        WHEN open_items.workflow_node_id IS DISTINCT FROM EXCLUDED.workflow_node_id
+          OR open_items.blocks_node_id IS DISTINCT FROM EXCLUDED.blocks_node_id
+          OR open_items.title IS DISTINCT FROM EXCLUDED.title
+          OR open_items.description IS DISTINCT FROM EXCLUDED.description
+          OR open_items.close_criteria IS DISTINCT FROM EXCLUDED.close_criteria
+          OR open_items.next_action IS DISTINCT FROM EXCLUDED.next_action
+          OR open_items.next_actor IS DISTINCT FROM EXCLUDED.next_actor
+          OR open_items.lifecycle IS DISTINCT FROM EXCLUDED.lifecycle
+          OR open_items.impact IS DISTINCT FROM EXCLUDED.impact
+          OR open_items.source_evidence IS DISTINCT FROM EXCLUDED.source_evidence
+          OR open_items.confidence IS DISTINCT FROM EXCLUDED.confidence
+          OR open_items.closed_at IS NOT NULL
+        THEN now()
+        ELSE open_items.updated_at
+      END
   `;
 
   const multiBlockA = 'f0a10001-0001-4001-8001-0000000000b1';
@@ -357,7 +470,29 @@ export async function seedCommercialFixtures(sql: Sql): Promise<void> {
         ${fixtureNodeId(FIXTURE_PROJECT_IDS.multiBlock, 'b_roll')},
         'B-roll 甲方素材缺失', '催甲方提供原片', 'client', 'open', 'blocking', 1
       )
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT (id) DO UPDATE SET
+      workflow_node_id = EXCLUDED.workflow_node_id,
+      blocks_node_id = EXCLUDED.blocks_node_id,
+      title = EXCLUDED.title,
+      next_action = EXCLUDED.next_action,
+      next_actor = EXCLUDED.next_actor,
+      lifecycle = EXCLUDED.lifecycle,
+      impact = EXCLUDED.impact,
+      sort_rank = EXCLUDED.sort_rank,
+      closed_at = NULL,
+      updated_at = CASE
+        WHEN open_items.workflow_node_id IS DISTINCT FROM EXCLUDED.workflow_node_id
+          OR open_items.blocks_node_id IS DISTINCT FROM EXCLUDED.blocks_node_id
+          OR open_items.title IS DISTINCT FROM EXCLUDED.title
+          OR open_items.next_action IS DISTINCT FROM EXCLUDED.next_action
+          OR open_items.next_actor IS DISTINCT FROM EXCLUDED.next_actor
+          OR open_items.lifecycle IS DISTINCT FROM EXCLUDED.lifecycle
+          OR open_items.impact IS DISTINCT FROM EXCLUDED.impact
+          OR open_items.sort_rank IS DISTINCT FROM EXCLUDED.sort_rank
+          OR open_items.closed_at IS NOT NULL
+        THEN now()
+        ELSE open_items.updated_at
+      END
   `;
 
   const rebateItemId = 'f0a10001-0001-4001-8001-0000000000d1';
@@ -372,8 +507,57 @@ export async function seedCommercialFixtures(sql: Sql): Promise<void> {
       '返点比例争议', '合同返点与对账单不一致', '双方确认最终返点金额', '整理对账差异表', 'client', 'open', 'blocking', TRUE,
       ${JSON.stringify({ thread: 'fixture-rebate-thread', messages: 15 })}::jsonb, 0.88
     )
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT (id) DO UPDATE SET
+      workflow_node_id = EXCLUDED.workflow_node_id,
+      blocks_node_id = EXCLUDED.blocks_node_id,
+      title = EXCLUDED.title,
+      description = EXCLUDED.description,
+      close_criteria = EXCLUDED.close_criteria,
+      next_action = EXCLUDED.next_action,
+      next_actor = EXCLUDED.next_actor,
+      lifecycle = EXCLUDED.lifecycle,
+      impact = EXCLUDED.impact,
+      blocks_required_for_close = EXCLUDED.blocks_required_for_close,
+      source_evidence = EXCLUDED.source_evidence,
+      confidence = EXCLUDED.confidence,
+      closed_at = NULL,
+      updated_at = CASE
+        WHEN open_items.workflow_node_id IS DISTINCT FROM EXCLUDED.workflow_node_id
+          OR open_items.blocks_node_id IS DISTINCT FROM EXCLUDED.blocks_node_id
+          OR open_items.title IS DISTINCT FROM EXCLUDED.title
+          OR open_items.description IS DISTINCT FROM EXCLUDED.description
+          OR open_items.close_criteria IS DISTINCT FROM EXCLUDED.close_criteria
+          OR open_items.next_action IS DISTINCT FROM EXCLUDED.next_action
+          OR open_items.next_actor IS DISTINCT FROM EXCLUDED.next_actor
+          OR open_items.lifecycle IS DISTINCT FROM EXCLUDED.lifecycle
+          OR open_items.impact IS DISTINCT FROM EXCLUDED.impact
+          OR open_items.blocks_required_for_close IS DISTINCT FROM EXCLUDED.blocks_required_for_close
+          OR open_items.source_evidence IS DISTINCT FROM EXCLUDED.source_evidence
+          OR open_items.confidence IS DISTINCT FROM EXCLUDED.confidence
+          OR open_items.closed_at IS NOT NULL
+        THEN now()
+        ELSE open_items.updated_at
+      END
   `;
+
+  await alignFixtureBlockPins(sql, [
+    {
+      itemId: clientBlockItemId,
+      nodeId: fixtureNodeId(FIXTURE_PROJECT_IDS.clientBlocking, 'copy'),
+    },
+    {
+      itemId: multiBlockA,
+      nodeId: fixtureNodeId(FIXTURE_PROJECT_IDS.multiBlock, 'a_roll'),
+    },
+    {
+      itemId: multiBlockB,
+      nodeId: fixtureNodeId(FIXTURE_PROJECT_IDS.multiBlock, 'b_roll'),
+    },
+    {
+      itemId: rebateItemId,
+      nodeId: fixtureNodeId(FIXTURE_PROJECT_IDS.rebateDispute, 'settlement'),
+    },
+  ]);
 
   const hermesProposalId = 'f0b10001-0001-4001-8001-000000000005';
   await sql`
