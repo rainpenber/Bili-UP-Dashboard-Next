@@ -111,24 +111,71 @@ describe('ProgressTimeline', () => {
       .find((item) => item.getAttribute('data-stage-id') === 'write_outline');
     const glow = blocked?.querySelector('[data-testid="progress-stage-glow"]');
     const dash = glow?.querySelector('[stroke-dasharray]');
-    const situation = blocked?.querySelector('[data-testid="progress-stage-situation"]');
     const gradient = blocked?.querySelector('[data-testid="progress-stage-gradient"]');
-    const lineLabel = blocked?.querySelector('[data-testid="progress-stage-line-label"]');
+    const lineLabels = blocked?.querySelectorAll('[data-testid="progress-stage-line-label"]') ?? [];
+    const lineLabel = lineLabels[0];
     expect(glow?.getAttribute('data-callout')).toBe('dashed');
     expect(dash?.getAttribute('stroke-dasharray')).toBe('6 5');
     expect(dash?.getAttribute('data-color')).toBe('#c2410c');
     expect(glow?.querySelector('linearGradient')).not.toBeNull();
+    expect(gradient?.getAttribute('data-highlight')).toBe('block');
+    expect(gradient?.className).toContain('h-24');
+    expect(gradient?.className).toContain('inset-x-1');
+    expect(gradient?.className).not.toContain('w-2');
     expect(gradient?.getAttribute('style')).toContain('linear-gradient');
+    expect(gradient?.getAttribute('style')).toContain('transparent');
     expect(gradient?.getAttribute('style')).toContain('#c2410c');
-    expect(situation?.textContent).toBe('文案：甲方文案批注未清');
-    expect(situation?.getAttribute('style')).toContain('#c2410c');
-    expect(lineLabel?.textContent).toBe('文案：甲方文案批注未清');
+    expect(lineLabels).toHaveLength(1);
+    expect(blocked?.querySelector('[data-testid="progress-stage-situation"]')).toBeNull();
+    expect(lineLabel?.textContent).toBe('文案：阻塞');
     expect(lineLabel?.getAttribute('style')).toContain('#c2410c');
+    expect(blocked?.textContent).not.toContain('甲方文案批注未清');
     expect(done?.querySelector('[stroke-dasharray]')).toBeNull();
     expect(done?.querySelector('[data-testid="progress-stage-glow"]')).toBeNull();
-    expect(done?.querySelector('[data-testid="progress-stage-situation"]')).toBeNull();
+    expect(done?.querySelector('[data-testid="progress-stage-gradient"]')).toBeNull();
     expect(done?.querySelector('[data-testid="progress-stage-line-label"]')).toBeNull();
     expect(document.querySelectorAll('[stroke-dasharray]').length).toBeGreaterThan(0);
+  });
+
+  test('shows each blocked node status once, and keeps the reason in the tooltip and detail', async () => {
+    render(
+      <ProgressTimeline
+        nodes={[
+          node('inquiry', '询单', 'completed'),
+          node('outline', '大纲', 'completed'),
+          node('copy', '文案', 'completed'),
+          node('pre_shoot', '预拍摄', 'completed'),
+          node('a_roll', 'A-roll 拍摄', 'blocked', 'A-roll 素材版权待补'),
+          node('b_roll', 'B-roll 素材', 'blocked', 'B-roll 甲方素材缺失'),
+          node('ai_post', 'AI 后期', 'in_progress'),
+        ]}
+      />,
+    );
+    const stage = screen
+      .getAllByTestId('progress-stage')
+      .find((item) => item.getAttribute('data-stage-id') === 'production');
+    if (!stage) throw new Error('missing production stage');
+    const labels = stage.querySelectorAll('[data-testid="progress-stage-line-label"]');
+    expect(labels).toHaveLength(1);
+    expect(labels[0]?.textContent).toBe('A-roll 拍摄：阻塞\nB-roll 素材：阻塞');
+    expect(stage.textContent).not.toContain('A-roll 素材版权待补');
+    expect(stage.textContent).not.toContain('B-roll 甲方素材缺失');
+    const gradient = stage.querySelector('[data-testid="progress-stage-gradient"]');
+    expect(gradient?.getAttribute('data-highlight')).toBe('block');
+    expect(gradient?.getAttribute('style')).toContain('linear-gradient');
+
+    fireEvent.pointerMove(stage);
+    const tip = await screen.findByTestId('progress-stage-tooltip');
+    expect(tip.textContent).toContain('A-roll 拍摄：阻塞（A-roll 素材版权待补）');
+    expect(tip.textContent).toContain('B-roll 素材：阻塞（B-roll 甲方素材缺失）');
+
+    fireEvent.click(stage);
+    expect(screen.getByTestId('progress-stage-blockers').textContent).toContain(
+      'B-roll 素材：B-roll 甲方素材缺失',
+    );
+    expect(screen.getByTestId('progress-stage-blockers').textContent).toContain(
+      'A-roll 拍摄：A-roll 素材版权待补',
+    );
   });
 
   test('hover on the stage line or its end point opens a tooltip and a mask', async () => {
@@ -152,7 +199,9 @@ describe('ProgressTimeline', () => {
     const mask = stage.querySelector('[data-testid="progress-stage-mask"]');
     expect(mask?.className).toContain('ring-foreground/20');
     expect(mask?.className).not.toContain('bg-black/40');
-    expect(screen.getByTestId('progress-timeline').textContent).not.toContain('文案：阻塞');
+    const timeline = screen.getByTestId('progress-timeline');
+    expect(timeline.textContent).toContain('文案：阻塞');
+    expect(timeline.textContent).not.toContain('甲方文案批注未清');
 
     const endPoint = screen
       .getAllByTestId('progress-point')
