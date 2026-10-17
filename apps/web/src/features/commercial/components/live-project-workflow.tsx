@@ -11,6 +11,8 @@ import {
   type LiveGraphNode,
 } from '../workflow-live-graph';
 import { useLiveProjectDetailQuery, useLiveProjectWorkflowQuery } from '../use-live-workflow';
+import { ProgressSummary, ProgressTimeline } from './progress-timeline-view';
+import { timelineFactsFromDetail, timelineNodesFromWorkflow } from '../progress-timeline';
 import { WorkflowLiveCanvas } from './workflow-live-canvas';
 
 function withNames(nodes: LiveGraphNode[], names: Record<string, string>): LiveGraphNode[] {
@@ -37,7 +39,8 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
     return <LoadingListSkeleton rows={4} />;
   }
 
-  if (workflowQuery.isError || !live) {
+  const workflow = workflowQuery.data;
+  if (workflowQuery.isError || !live || !workflow) {
     return (
       <ErrorState
         message={
@@ -53,6 +56,8 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
 
   const archived = detailQuery.data?.overallStage === 'archived';
   const title = detailQuery.data?.name ?? '项目流程';
+  const facts = timelineFactsFromDetail(detailQuery.data);
+  const timelineNodes = timelineNodesFromWorkflow(workflow.nodes, names);
 
   return (
     <>
@@ -67,6 +72,8 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
         actions={archived ? <Badge variant="secondary">已归档</Badge> : null}
       />
       <div className="space-y-4">
+        <ProgressTimeline nodes={timelineNodes} facts={facts} />
+        <ProgressSummary facts={facts} />
         <Card>
           <CardHeader>
             <CardTitle className="text-base">流程</CardTitle>

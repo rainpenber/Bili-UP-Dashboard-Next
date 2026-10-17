@@ -51,6 +51,8 @@ describe('commercialWorkflowToLive', () => {
           name: '大纲',
           status: 'in_progress',
           kind: 'stage',
+          templateSlug: 'outline',
+          blockingReason: null,
           updatedAt: '2026-01-01T00:00:00.000Z',
         },
         {
@@ -58,6 +60,8 @@ describe('commercialWorkflowToLive', () => {
           name: '汇合节点',
           status: 'not_applicable',
           kind: 'merge',
+          templateSlug: 'merge',
+          blockingReason: null,
           updatedAt: '2026-01-01T00:00:00.000Z',
         },
       ],

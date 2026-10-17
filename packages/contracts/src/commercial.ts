@@ -95,6 +95,10 @@ export type CommercialWorkflowNode = {
   name: string;
   status: WfNodeStatus;
   kind: WfNodeKind;
+  /** Template slug when the row was copied from a template node. Null for ad-hoc nodes. */
+  templateSlug: string | null;
+  /** Open blocking item title for this node, or null when it is not blocked or has no reason. */
+  blockingReason: string | null;
   /** Concurrency token. Clients send this value back unchanged as expectedUpdatedAt. */
   updatedAt: string;
 };
@@ -238,6 +242,19 @@ export function parseCommercialProjectDetail(value: unknown): CommercialProjectD
   };
 }
 
+function parseOptionalSlug(value: unknown): string | null {
+  if (value == null) return null;
+  return parseName(value, 'templateSlug');
+}
+
+function parseNodeBlockingReason(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error('blockingReason must be a non-empty string or null');
+  }
+  return value;
+}
+
 function parseWorkflowNode(value: unknown): CommercialWorkflowNode {
   const record = asRecord(value, 'workflow node');
   if (!isWfNodeStatus(record.status)) throw new Error('node status is invalid');
@@ -247,6 +264,8 @@ function parseWorkflowNode(value: unknown): CommercialWorkflowNode {
     name: parseName(record.name, 'node name'),
     status: record.status,
     kind: record.kind,
+    templateSlug: parseOptionalSlug(record.templateSlug),
+    blockingReason: parseNodeBlockingReason(record.blockingReason),
     updatedAt: parseIso(record.updatedAt, 'updatedAt'),
   };
 }

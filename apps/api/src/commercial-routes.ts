@@ -155,17 +155,45 @@ export function createCommercialRoutes(db: Sql) {
       const workflow = workflows[0];
       if (!workflow) return c.json({ error: 'workflow not found' }, 404);
       const nodes = await db<
-        { id: string; name: string; status: string; kind: string; updated_at: string }[]
+        {
+          id: string;
+          name: string;
+          status: string;
+          kind: string;
+          template_slug: string | null;
+          blocking_reason: string | null;
+          updated_at: string;
+        }[]
       >`
         SELECT
-          id,
-          name,
-          status,
-          kind,
-          to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
-        FROM wf_nodes
-        WHERE workflow_id = ${workflow.id}
-        ORDER BY pos_y, pos_x, id
+          n.id,
+          n.name,
+          n.status,
+          n.kind,
+          t.slug AS template_slug,
+          (
+            SELECT oi.title
+            FROM open_items oi
+            WHERE n.status = 'blocked'
+              AND oi.project_id = n.project_id
+              AND oi.lifecycle = 'open'
+              AND oi.impact = 'blocking'
+              AND (
+                oi.id = n.primary_block_pinned_item_id
+                OR oi.blocks_node_id = n.id
+              )
+            ORDER BY
+              (oi.id = n.primary_block_pinned_item_id) DESC,
+              oi.sort_rank ASC,
+              oi.created_at ASC,
+              oi.id ASC
+            LIMIT 1
+          ) AS blocking_reason,
+          to_char(n.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
+        FROM wf_nodes n
+        LEFT JOIN wf_template_nodes t ON t.id = n.template_node_id
+        WHERE n.workflow_id = ${workflow.id}
+        ORDER BY n.pos_y, n.pos_x, n.id
       `;
       const edges = await db<{ id: string; from_node_id: string; to_node_id: string }[]>`
         SELECT e.id, e.from_node_id, e.to_node_id
@@ -185,6 +213,8 @@ export function createCommercialRoutes(db: Sql) {
             name: node.name,
             status: nodeStatus(node.status),
             kind: nodeKind(node.kind),
+            templateSlug: node.template_slug,
+            blockingReason: node.blocking_reason,
             updatedAt: node.updated_at,
           })),
           edges: edges.map((edge) => ({

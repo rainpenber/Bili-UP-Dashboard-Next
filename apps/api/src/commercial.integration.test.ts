@@ -267,6 +267,8 @@ describe('commercial read API', () => {
           name: string;
           status: string;
           kind: string;
+          template_slug: string | null;
+          blocking_reason: string | null;
           workflow_id: string;
           updated_at: string;
         }[]
@@ -276,9 +278,29 @@ describe('commercial read API', () => {
           n.name,
           n.status,
           n.kind,
+          t.slug AS template_slug,
+          (
+            SELECT oi.title
+            FROM open_items oi
+            WHERE n.status = 'blocked'
+              AND oi.project_id = n.project_id
+              AND oi.lifecycle = 'open'
+              AND oi.impact = 'blocking'
+              AND (
+                oi.id = n.primary_block_pinned_item_id
+                OR oi.blocks_node_id = n.id
+              )
+            ORDER BY
+              (oi.id = n.primary_block_pinned_item_id) DESC,
+              oi.sort_rank ASC,
+              oi.created_at ASC,
+              oi.id ASC
+            LIMIT 1
+          ) AS blocking_reason,
           n.workflow_id,
           to_char(n.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at
         FROM wf_nodes n
+        LEFT JOIN wf_template_nodes t ON t.id = n.template_node_id
         WHERE n.project_id = ${projectId}
         ORDER BY n.pos_y, n.pos_x, n.id
       `;
@@ -293,6 +315,8 @@ describe('commercial read API', () => {
           name: row.name,
           status: asNodeStatus(row.status),
           kind: asNodeKind(row.kind),
+          templateSlug: row.template_slug,
+          blockingReason: row.blocking_reason,
           updatedAt: row.updated_at,
         })),
       );
@@ -435,6 +459,8 @@ describe('commercial read API', () => {
         name: '汇合节点',
         status: 'blocked',
         kind: 'merge',
+        templateSlug: null,
+        blockingReason: null,
         updatedAt: stamp.updated_at,
       },
     ]);
