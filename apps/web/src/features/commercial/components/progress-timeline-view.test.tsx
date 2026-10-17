@@ -110,14 +110,25 @@ describe('ProgressTimeline', () => {
       .getAllByTestId('progress-stage')
       .find((item) => item.getAttribute('data-stage-id') === 'write_outline');
     const glow = blocked?.querySelector('[data-testid="progress-stage-glow"]');
+    const dash = glow?.querySelector('[stroke-dasharray]');
     const situation = blocked?.querySelector('[data-testid="progress-stage-situation"]');
+    const gradient = blocked?.querySelector('[data-testid="progress-stage-gradient"]');
+    const lineLabel = blocked?.querySelector('[data-testid="progress-stage-line-label"]');
     expect(glow?.getAttribute('data-callout')).toBe('dashed');
-    expect(glow?.getAttribute('style')).toContain('dashed');
-    expect(glow?.getAttribute('style')).toContain('#c2410c');
-    expect(situation?.textContent).toBe('甲方文案批注未清');
+    expect(dash?.getAttribute('stroke-dasharray')).toBe('5 4');
+    expect(dash?.getAttribute('data-color')).toBe('#c2410c');
+    expect(glow?.querySelector('linearGradient')).not.toBeNull();
+    expect(gradient?.getAttribute('style')).toContain('linear-gradient');
+    expect(gradient?.getAttribute('style')).toContain('#c2410c');
+    expect(situation?.textContent).toBe('文案：甲方文案批注未清');
     expect(situation?.getAttribute('style')).toContain('#c2410c');
+    expect(lineLabel?.textContent).toBe('文案：甲方文案批注未清');
+    expect(lineLabel?.getAttribute('style')).toContain('#c2410c');
+    expect(done?.querySelector('[stroke-dasharray]')).toBeNull();
     expect(done?.querySelector('[data-testid="progress-stage-glow"]')).toBeNull();
     expect(done?.querySelector('[data-testid="progress-stage-situation"]')).toBeNull();
+    expect(done?.querySelector('[data-testid="progress-stage-line-label"]')).toBeNull();
+    expect(document.querySelectorAll('[stroke-dasharray]').length).toBeGreaterThan(0);
   });
 
   test('hover on the stage line or its end point opens a tooltip and a mask', async () => {
@@ -163,7 +174,7 @@ describe('ProgressTimeline', () => {
     });
   });
 
-  test('click expands the child list inside the progress block without summary fields', () => {
+  test('click expands the child list inside the progress block without summary fields', async () => {
     render(<ProgressTimeline nodes={blockedCopy} />);
     const stage = screen
       .getAllByTestId('progress-stage')
@@ -186,6 +197,48 @@ describe('ProgressTimeline', () => {
     expect(rows.map((row) => row.getAttribute('data-node-id'))).toEqual(['copy', 'pre_shoot']);
     expect(rows.map((row) => row.getAttribute('data-status'))).toEqual(['blocked', 'active']);
     expect(screen.getByTestId('progress-blocker').textContent).toBe('文案：甲方文案批注未清');
+    const motion = screen.getByTestId('progress-stage-detail-body');
+    expect(motion.getAttribute('data-motion')).toBe('120ms');
+    expect(motion.className).toContain('progress-detail-panel');
+    await waitFor(() => {
+      expect(motion.getAttribute('data-open')).toBe('true');
+    });
+  });
+
+  test('pins the tooltip after click until the same stage or elsewhere is clicked', async () => {
+    render(<ProgressTimeline nodes={blockedCopy} />);
+    const stage = screen
+      .getAllByTestId('progress-stage')
+      .find((item) => item.getAttribute('data-stage-id') === 'copy_prep');
+    if (!stage) throw new Error('missing copy prep stage');
+    fireEvent.click(stage);
+    expect(stage.getAttribute('data-pinned')).toBe('true');
+    fireEvent.pointerLeave(stage);
+    const tip = await screen.findByTestId('progress-stage-tooltip');
+    expect(tip.getAttribute('data-stage-id')).toBe('copy_prep');
+    expect(stage.getAttribute('data-state')).toMatch(/open/);
+    expect(screen.getByTestId('progress-stage-detail').textContent).toContain('文案准备');
+
+    fireEvent.click(stage);
+    expect(stage.getAttribute('aria-expanded')).toBe('false');
+    expect(stage.getAttribute('data-pinned')).toBe('false');
+    await waitFor(() => {
+      expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+    });
+
+    fireEvent.click(stage);
+    fireEvent.pointerLeave(stage);
+    expect(screen.getByTestId('progress-stage-tooltip').getAttribute('data-stage-id')).toBe(
+      'copy_prep',
+    );
+    fireEvent.pointerDown(document.body);
+    await waitFor(() => {
+      expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+      expect(screen.getByTestId('progress-stage-detail').getAttribute('data-open')).toBe('false');
+    });
+    expect(screen.getByTestId('progress-stage-detail').textContent).toContain(
+      '点击阶段连线或它的终点成就点',
+    );
   });
 
   test('paints not_applicable children as unfinished', () => {
@@ -259,10 +312,11 @@ describe('LiveProjectWorkflow timeline placement', () => {
     const canvas = await screen.findByTestId('workflow-live-canvas');
     const follows = (earlier: Node, later: Node) =>
       Boolean(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(follows(title, timeline)).toBe(true);
+    expect(follows(title, summary)).toBe(true);
+    expect(follows(summary, timeline)).toBe(true);
     expect(follows(timeline, detail)).toBe(true);
-    expect(follows(detail, summary)).toBe(true);
-    expect(follows(summary, canvas)).toBe(true);
+    expect(follows(detail, canvas)).toBe(true);
+    expect(summary.className).toContain('rounded-lg');
     expect(summary.textContent).toContain('到手金额');
     expect(summary.textContent).toContain('¥18,000');
     expect(detail.textContent).not.toContain('到手金额');

@@ -3,6 +3,7 @@ import {
   ACHIEVEMENT_POINTS,
   PROGRESS_STAGES,
   deriveProgressTimeline,
+  stageBlockLineLabel,
   stageIdForNode,
   stageSituationLabel,
   timelineFactsFromDetail,
@@ -117,8 +118,19 @@ describe('progress timeline mapping', () => {
     expect(copyPrep?.blockers).toEqual([
       expect.objectContaining({ name: '文案', blockingReason: '甲方文案批注未清' }),
     ]);
-    expect(stageSituationLabel(copyPrep!)).toBe('甲方文案批注未清');
+    expect(stageSituationLabel(copyPrep!)).toBe('文案：甲方文案批注未清');
+    expect(stageBlockLineLabel(copyPrep!)).toBe('文案：甲方文案批注未清');
+    expect(stageBlockLineLabel(timeline.stages[0]!)).toBeNull();
     expect(stageSituationLabel(timeline.stages[0]!)).toBeNull();
+    expect(
+      stageBlockLineLabel({
+        status: 'blocked',
+        blockers: [
+          { name: 'A-roll 拍摄', blockingReason: 'A-roll 素材版权待补' },
+          { name: 'B-roll 素材', blockingReason: 'B-roll 甲方素材缺失' },
+        ],
+      }),
+    ).toBe('A-roll 拍摄：A-roll 素材版权待补、B-roll 素材：B-roll 甲方素材缺失');
     expect(
       stageSituationLabel({
         status: 'in_progress',

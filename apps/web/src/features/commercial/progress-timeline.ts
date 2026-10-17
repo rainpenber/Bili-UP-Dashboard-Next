@@ -158,20 +158,34 @@ export function resolveTimelineNodeId(node: {
   return NAME_TO_NODE_ID[node.name] ?? null;
 }
 
-/**
- * Phrase above a blocked or in-progress stage, in the same role as 花火's 「待UP主投稿」.
- * Null when the stage is finished or not started.
- */
-export function stageSituationLabel(stage: {
+type SituationStage = {
   status: TimelineRollup;
   children: { name: string; status: string }[];
   blockers: { name: string; blockingReason: string | null }[];
+};
+
+/** 「节点名：阻塞原因」 for every blocked child, in stage order. */
+export function stageBlockLineLabel(stage: {
+  status: TimelineRollup;
+  blockers: { name: string; blockingReason: string | null }[];
 }): string | null {
-  if (stage.status === 'blocked') {
-    const blocker = stage.blockers[0];
-    if (!blocker) return '阻塞';
-    return blocker.blockingReason ?? `${blocker.name}阻塞`;
-  }
+  if (stage.status !== 'blocked') return null;
+  if (stage.blockers.length === 0) return '阻塞';
+  return stage.blockers
+    .map((blocker) =>
+      blocker.blockingReason
+        ? `${blocker.name}：${blocker.blockingReason}`
+        : `${blocker.name}：阻塞`,
+    )
+    .join('、');
+}
+
+/**
+ * Phrase above a blocked or in-progress stage, in the same role as 花火's 「待UP主投稿」.
+ * Blocked stages use the node name plus the block reason. Null when finished or not started.
+ */
+export function stageSituationLabel(stage: SituationStage): string | null {
+  if (stage.status === 'blocked') return stageBlockLineLabel(stage);
   if (stage.status === 'in_progress') {
     const names = stage.children
       .filter((child) => child.status === 'in_progress')
