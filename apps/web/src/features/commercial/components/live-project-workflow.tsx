@@ -72,7 +72,7 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
         actions={archived ? <Badge variant="secondary">已归档</Badge> : null}
       />
       <div className="space-y-4">
-        <ProgressTimeline nodes={timelineNodes} facts={facts} />
+        <ProgressTimeline nodes={timelineNodes} />
         <ProgressSummary facts={facts} />
         <Card>
           <CardHeader>

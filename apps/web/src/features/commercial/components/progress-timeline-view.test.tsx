@@ -67,7 +67,7 @@ const blockedCopy: TimelineSourceNode[] = [
 
 describe('ProgressTimeline', () => {
   test('renders six points, five stage lines, and status colors', () => {
-    render(<ProgressTimeline nodes={blockedCopy} facts={null} />);
+    render(<ProgressTimeline nodes={blockedCopy} />);
     const points = screen.getAllByTestId('progress-point');
     const stages = screen.getAllByTestId('progress-stage');
     expect(points.map((point) => point.getAttribute('data-point-id'))).toEqual([
@@ -100,17 +100,31 @@ describe('ProgressTimeline', () => {
       'idle',
       'idle',
     ]);
-    expect(screen.getByTestId('progress-stage-detail').textContent).toContain('点击上方阶段连线');
+    expect(screen.getByTestId('progress-stage-detail').textContent).toContain(
+      '点击阶段连线或它的终点成就点',
+    );
+    const blocked = screen
+      .getAllByTestId('progress-stage')
+      .find((item) => item.getAttribute('data-stage-id') === 'copy_prep');
+    const done = screen
+      .getAllByTestId('progress-stage')
+      .find((item) => item.getAttribute('data-stage-id') === 'write_outline');
+    expect(blocked?.querySelector('[data-testid="progress-stage-glow"]')).toBeTruthy();
+    expect(
+      blocked?.querySelector('[data-testid="progress-stage-glow"]')?.getAttribute('style'),
+    ).toContain('linear-gradient(to top');
+    expect(done?.querySelector('[data-testid="progress-stage-glow"]')).toBeNull();
   });
 
-  test('hover shows child status and the blocked node reason; click expands the list', () => {
-    render(<ProgressTimeline nodes={blockedCopy} facts={null} />);
+  test('hover on the stage line or its end point opens a tooltip and a mask', async () => {
+    render(<ProgressTimeline nodes={blockedCopy} />);
     const stage = screen
       .getAllByTestId('progress-stage')
       .find((item) => item.getAttribute('data-stage-id') === 'copy_prep');
     if (!stage) throw new Error('missing copy prep stage');
-    fireEvent.mouseEnter(stage);
-    const tip = screen.getByTestId('progress-stage-tooltip');
+    fireEvent.pointerMove(stage);
+    const tip = await screen.findByTestId('progress-stage-tooltip');
+    expect(tip.getAttribute('data-stage-id')).toBe('copy_prep');
     expect(tip.textContent).toContain('文案：阻塞（甲方文案批注未清）');
     expect(tip.textContent).toContain('预拍摄：进行中');
     const blockedRow = [...tip.querySelectorAll('li')].find((item) =>
@@ -118,22 +132,58 @@ describe('ProgressTimeline', () => {
     );
     expect(blockedRow?.getAttribute('data-status')).toBe('blocked');
     expect(blockedRow?.getAttribute('data-workflow-status')).toBe('blocked');
+    expect(stage.getAttribute('data-state')).toMatch(/open/);
+    const mask = stage.querySelector('[data-testid="progress-stage-mask"]');
+    expect(mask?.className).toContain('bg-black/40');
+    expect(screen.getByTestId('progress-timeline').textContent).not.toContain('文案：阻塞');
 
+    const endPoint = screen
+      .getAllByTestId('progress-point')
+      .find((item) => item.getAttribute('data-point-id') === 'outline_locked');
+    if (!endPoint) throw new Error('missing outline point');
+    fireEvent.pointerMove(endPoint);
+    const outlineTip = await screen.findByTestId('progress-stage-tooltip');
+    expect(outlineTip.getAttribute('data-stage-id')).toBe('write_outline');
+    expect(outlineTip.textContent).toContain('大纲：完成');
+
+    const outlineStage = screen
+      .getAllByTestId('progress-stage')
+      .find((item) => item.getAttribute('data-stage-id') === 'write_outline');
+    if (!outlineStage) throw new Error('missing outline stage');
+    fireEvent.pointerLeave(outlineStage);
+    await waitFor(() => {
+      expect(outlineStage.getAttribute('data-state')).toBe('closed');
+      expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+    });
+  });
+
+  test('click expands the child list inside the progress block without summary fields', () => {
+    render(<ProgressTimeline nodes={blockedCopy} />);
+    const stage = screen
+      .getAllByTestId('progress-stage')
+      .find((item) => item.getAttribute('data-stage-id') === 'copy_prep');
+    if (!stage) throw new Error('missing copy prep stage');
     fireEvent.click(stage);
     expect(stage.getAttribute('aria-expanded')).toBe('true');
     const detail = screen.getByTestId('progress-stage-detail');
+    const timeline = screen.getByTestId('progress-timeline');
+    expect(
+      timeline.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(detail.closest('[data-testid="progress-summary"]')).toBeNull();
     expect(detail.textContent).toContain('文案准备');
+    expect(detail.textContent).not.toContain('到手金额');
+    expect(detail.textContent).not.toContain('返点金额');
+    expect(detail.textContent).not.toContain('尚未发布');
+    expect(detail.textContent).not.toContain('任务');
     const rows = screen.getAllByTestId('progress-stage-node');
     expect(rows.map((row) => row.getAttribute('data-node-id'))).toEqual(['copy', 'pre_shoot']);
     expect(rows.map((row) => row.getAttribute('data-status'))).toEqual(['blocked', 'active']);
     expect(screen.getByTestId('progress-blocker').textContent).toBe('文案：甲方文案批注未清');
-
-    fireEvent.mouseLeave(stage);
-    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
   });
 
   test('paints not_applicable children as unfinished', () => {
-    render(<ProgressTimeline nodes={blockedCopy} facts={null} />);
+    render(<ProgressTimeline nodes={blockedCopy} />);
     const settlement = screen
       .getAllByTestId('progress-stage')
       .find((item) => item.getAttribute('data-stage-id') === 'distribution_settlement');
@@ -209,6 +259,8 @@ describe('LiveProjectWorkflow timeline placement', () => {
     expect(follows(summary, canvas)).toBe(true);
     expect(summary.textContent).toContain('到手金额');
     expect(summary.textContent).toContain('¥18,000');
+    expect(detail.textContent).not.toContain('到手金额');
+    expect(detail.textContent).not.toContain('任务');
     expect(summary.textContent).toContain('文案、预拍摄');
     expect(canvas.getAttribute('data-live-node-count')).toBe(String(blockedCopy.length));
     await waitFor(() => {
