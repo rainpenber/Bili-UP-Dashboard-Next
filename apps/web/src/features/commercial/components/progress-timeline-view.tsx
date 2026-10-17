@@ -70,14 +70,18 @@ function StageTooltipBody({ stage }: { stage: DerivedStage }) {
   );
 }
 
+function blockCaptionLines(label: string): string {
+  return label.replaceAll('、', '\n');
+}
+
 function StageCallout({ stageId, color }: { stageId: string; color: string }) {
   const gradientId = `progress-dash-${stageId}`;
   return (
     <span className="relative mt-0.5 block h-12 w-3" aria-hidden>
       <span
         data-testid="progress-stage-gradient"
-        className="absolute inset-y-0 -left-1 w-5"
-        style={{ backgroundImage: `linear-gradient(to top, ${color}, transparent)` }}
+        className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2"
+        style={{ backgroundImage: `linear-gradient(to top, ${color}55, transparent)` }}
       />
       <svg
         data-testid="progress-stage-glow"
@@ -97,18 +101,19 @@ function StageCallout({ stageId, color }: { stageId: string; color: string }) {
             gradientUnits="userSpaceOnUse"
           >
             <stop offset="0%" stopColor={color} />
-            <stop offset="100%" stopColor={color} stopOpacity="0.45" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.35" />
           </linearGradient>
         </defs>
+        <rect x="5" y="0" width="2" height="48" fill={`url(#${gradientId})`} opacity="0.45" />
         <line
           x1="6"
-          y1="48"
+          y1="47"
           x2="6"
           y2="1"
-          stroke={`url(#${gradientId})`}
-          strokeWidth="2.5"
-          strokeDasharray="5 4"
-          strokeLinecap="round"
+          stroke={color}
+          strokeWidth="3"
+          strokeDasharray="6 5"
+          strokeLinecap="butt"
           data-color={color}
         />
       </svg>
@@ -165,10 +170,10 @@ function StageHit({
               {lineLabel ? (
                 <span
                   data-testid="progress-stage-line-label"
-                  className="relative z-10 mb-1 rounded-sm bg-background px-1 py-0.5 text-center text-xs leading-snug font-medium"
+                  className="relative z-10 mb-1 rounded-sm bg-background px-1 py-0.5 text-center text-xs leading-snug font-medium whitespace-pre-line"
                   style={{ color }}
                 >
-                  {lineLabel}
+                  {blockCaptionLines(lineLabel)}
                 </span>
               ) : null}
               <span className="flex h-6 items-center">
@@ -191,10 +196,10 @@ function StageHit({
                   <>
                     <span
                       data-testid="progress-stage-situation"
-                      className="pointer-events-none absolute bottom-14 left-1/2 z-20 w-max max-w-[14rem] -translate-x-4 text-left text-xs leading-tight font-medium"
+                      className="pointer-events-none absolute bottom-14 left-1/2 z-20 w-max max-w-[18rem] -translate-x-1/2 text-center text-xs leading-tight font-medium whitespace-pre-line"
                       style={{ color }}
                     >
-                      {situation}
+                      {blockCaptionLines(situation)}
                     </span>
                     <StageCallout stageId={stage.id} color={color} />
                   </>

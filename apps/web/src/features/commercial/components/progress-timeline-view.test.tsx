@@ -115,7 +115,7 @@ describe('ProgressTimeline', () => {
     const gradient = blocked?.querySelector('[data-testid="progress-stage-gradient"]');
     const lineLabel = blocked?.querySelector('[data-testid="progress-stage-line-label"]');
     expect(glow?.getAttribute('data-callout')).toBe('dashed');
-    expect(dash?.getAttribute('stroke-dasharray')).toBe('5 4');
+    expect(dash?.getAttribute('stroke-dasharray')).toBe('6 5');
     expect(dash?.getAttribute('data-color')).toBe('#c2410c');
     expect(glow?.querySelector('linearGradient')).not.toBeNull();
     expect(gradient?.getAttribute('style')).toContain('linear-gradient');
