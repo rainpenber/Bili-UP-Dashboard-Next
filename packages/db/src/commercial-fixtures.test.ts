@@ -234,8 +234,8 @@ async function expectFixtureBlockInvariant(sql: Sql): Promise<void> {
         OR n.status_before_block IS NOT NULL
       )
   `;
-  expect(blockedWithoutItem).toEqual([]);
-  expect(itemWithoutBlocked).toEqual([]);
-  expect(missingPin).toEqual([]);
-  expect(pinnedWhileOpen).toEqual([]);
+  expect(blockedWithoutItem).toHaveLength(0);
+  expect(itemWithoutBlocked).toHaveLength(0);
+  expect(missingPin).toHaveLength(0);
+  expect(pinnedWhileOpen).toHaveLength(0);
 }
