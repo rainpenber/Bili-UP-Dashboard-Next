@@ -29,6 +29,13 @@ describe('DefaultFlowEditor', () => {
     );
     await waitForGraphReady(container);
 
+    const canvases = () => container.querySelectorAll('[data-testid="workflow-live-canvas"]');
+    expect(canvases()).toHaveLength(1);
+    expect(canvases()[0]?.getAttribute('data-live-node-count')).toBe('15');
+    expect(canvases()[0]?.getAttribute('data-live-stage-count')).toBe('13');
+    expect(canvases()[0]?.getAttribute('data-live-merge-count')).toBe('2');
+    expect(canvases()[0]?.getAttribute('data-live-edge-count')).toBe('17');
+
     expect(screen.getByTestId('default-flow-demo-notice').textContent).toContain('演示数据');
     expect(screen.getByTestId('default-flow-demo-notice').textContent).toContain('不会静默改写');
     expect(screen.getByTestId('default-flow-version-1')).toBeTruthy();
@@ -60,6 +67,7 @@ describe('DefaultFlowEditor', () => {
       expect(screen.getByTestId('default-flow-version-view')).toBeTruthy();
     });
     await waitForGraphReady(container);
+    expect(canvases()).toHaveLength(1);
     expect(
       [...container.querySelectorAll('[data-workflow-node]')].some((el) =>
         el.textContent?.includes('询单回访'),
@@ -71,6 +79,8 @@ describe('DefaultFlowEditor', () => {
       expect(screen.getByTestId('default-flow-version-view').textContent).toContain('v2');
     });
     await waitForGraphReady(container);
+    expect(canvases()).toHaveLength(1);
+    expect(canvases()[0]?.getAttribute('data-live-node-count')).toBe('15');
     expect(
       [...container.querySelectorAll('[data-workflow-node]')].some((el) =>
         el.textContent?.includes('询单回访'),
