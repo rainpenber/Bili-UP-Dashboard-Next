@@ -13,6 +13,7 @@ import { MonitoringPage } from '@/features/monitoring/monitoring-page';
 import { MonitoringCreatorDetailPage } from '@/pages/monitoring-creator-detail-page';
 import { MonitoringDynamicDetailPage } from '@/pages/monitoring-dynamic-detail-page';
 import { MonitoringVideoDetailPage } from '@/pages/monitoring-video-detail-page';
+import { WorkflowMockPage } from '@/pages/workflow-mock-page';
 
 function placeholderFor(path: string) {
   const nav = primaryNav.find((item) => item.to === path);
@@ -35,6 +36,7 @@ export const appRouteConfig: RouteObject[] = [
       { path: 'content', element: placeholderFor('/content') },
       { path: 'integrations', element: <IntegrationsSettingsPage /> },
       { path: 'design-system', element: <DesignSystemPage /> },
+      { path: 'workflow-mock', element: <WorkflowMockPage /> },
       { path: 'monitor', element: <Navigate to="/monitoring" replace /> },
       { path: '*', element: <NotFoundPage /> },
     ],

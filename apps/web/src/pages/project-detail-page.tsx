@@ -1,3 +1,4 @@
+import { isUuidString } from '@studio/contracts';
 import { ChevronDown } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -18,6 +19,7 @@ import {
 import { WorkflowGraphReadonly } from '@/features/commercial/components/workflow-graph-readonly';
 import { deriveWorkflowSummary } from '@/features/commercial/workflow-edit-logic';
 import { formatYuan } from '@/features/commercial/commercial-selectors';
+import { LiveProjectWorkflow } from '@/features/commercial/components/live-project-workflow';
 import { useCommercialProjectQuery } from '@/features/commercial/use-commercial-queries';
 import { cn } from '@/lib/utils';
 
@@ -31,6 +33,13 @@ function ScheduleLine({ name, dateLabel }: { name: string; dateLabel: string }) 
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  if (projectId && isUuidString(projectId)) {
+    return <LiveProjectWorkflow projectId={projectId} />;
+  }
+  return <MockProjectDetail projectId={projectId} />;
+}
+
+function MockProjectDetail({ projectId }: { projectId: string | undefined }) {
   const query = useCommercialProjectQuery(projectId);
   const [publishOverride, setPublishOverride] = useState<PublishOverride | null>(() =>
     projectId ? readPublishOverride(projectId) : null,
@@ -201,9 +210,9 @@ export function ProjectDetailPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">完整工作流图</CardTitle>
+            <CardTitle className="text-base">流程</CardTitle>
             <p className="text-sm font-normal text-muted-foreground">
-              在此推进或回退节点、标记阻塞、增删节点与连接（演示数据，刷新后恢复）。
+              演示项目。状态只展示，改名留在本页。
             </p>
           </CardHeader>
           <CardContent>
