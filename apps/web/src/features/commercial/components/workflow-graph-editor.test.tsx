@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { commercialProjectsMock } from '../mock-data';
 import { useProjectWorkflowEditor, WorkflowGraphEditor } from './workflow-graph-editor';
@@ -26,8 +26,10 @@ async function renameNode(container: HTMLElement, nodeId: string, name: string) 
   const card = container.querySelector(`[data-workflow-node="${nodeId}"]`);
   if (!card) throw new Error(`missing node ${nodeId}`);
   fireEvent.click(card);
-  fireEvent.keyDown(screen.getByTestId('workflow-live-canvas'), { key: 'Enter' });
-  const input = await screen.findByTestId('workflow-node-name');
+  const shell = container.querySelector('[data-testid="workflow-live-canvas"]');
+  if (!(shell instanceof HTMLElement)) throw new Error('missing canvas');
+  fireEvent.keyDown(shell, { key: 'Enter' });
+  const input = await within(container).findByTestId('workflow-node-name');
   fireEvent.change(input, { target: { value: name } });
   fireEvent.keyDown(input, { key: 'Enter' });
 }
@@ -50,10 +52,12 @@ describe('WorkflowGraphEditor', () => {
     );
     expect(container.querySelectorAll('[data-junction-core]')).toHaveLength(2);
     expect(container.querySelector('.react-flow__minimap')).toBeTruthy();
-    expect(screen.getByTestId('workflow-live-direction')).toBeTruthy();
-    expect(screen.getByTestId('workflow-live-keys').textContent).toContain('改名');
-    expect(screen.queryByTestId('workflow-structure-panel')).toBeNull();
-    expect(screen.queryByTestId('workflow-complete')).toBeNull();
+    expect(container.querySelector('[data-testid="workflow-live-direction"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="workflow-live-keys"]')?.textContent).toContain(
+      '改名',
+    );
+    expect(container.querySelector('[data-testid="workflow-structure-panel"]')).toBeNull();
+    expect(container.querySelector('[data-testid="workflow-complete"]')).toBeNull();
   });
 
   test('status cells are visible and do not write', async () => {
@@ -85,7 +89,7 @@ describe('WorkflowGraphEditor', () => {
     expect(outline.getAttribute('data-workflow-status')).toBe('blocked');
     expect(outline.getAttribute('data-status')).toBe('blocked');
     fireEvent.click(outline.querySelector('[data-testid="workflow-node-expand"]')!);
-    const reason = await screen.findByLabelText('阻塞原因');
+    const reason = await within(container).findByLabelText('阻塞原因');
     expect((reason as HTMLInputElement).value).toContain('甲方反馈写作方向');
     expect((reason as HTMLInputElement).readOnly).toBe(true);
   });
@@ -126,17 +130,19 @@ describe('WorkflowGraphEditor', () => {
     await waitForGraphReady(container);
     await renameNode(container, 'outline', '   ');
     await waitFor(() => {
-      expect(screen.getByTestId('workflow-action-error').textContent).toContain('不能为空');
+      expect(within(container).getByTestId('workflow-action-error').textContent).toContain(
+        '不能为空',
+      );
     });
-    expect(screen.getByTestId('workflow-node-name')).toBeTruthy();
-    fireEvent.keyDown(screen.getByTestId('workflow-node-name'), { key: 'Escape' });
+    expect(within(container).getByTestId('workflow-node-name')).toBeTruthy();
+    fireEvent.keyDown(within(container).getByTestId('workflow-node-name'), { key: 'Escape' });
     await renameNode(container, 'outline', '询单');
     await waitFor(() => {
-      expect(screen.getByTestId('workflow-action-error').textContent).toContain('唯一');
+      expect(within(container).getByTestId('workflow-action-error').textContent).toContain('唯一');
     });
-    fireEvent.keyDown(screen.getByTestId('workflow-node-name'), { key: 'Escape' });
+    fireEvent.keyDown(within(container).getByTestId('workflow-node-name'), { key: 'Escape' });
     await waitFor(() => {
-      expect(screen.queryByTestId('workflow-node-name')).toBeNull();
+      expect(within(container).queryByTestId('workflow-node-name')).toBeNull();
     });
     const outline = container.querySelector('[data-workflow-node="outline"]')?.textContent ?? '';
     expect(outline).toContain('大纲');
@@ -155,8 +161,10 @@ describe('WorkflowGraphEditor', () => {
       expect(container.querySelector('.workflow-mock-flow')?.className).toContain('is-vertical');
     });
     expect(container.querySelectorAll('[data-junction-core]')).toHaveLength(2);
-    fireEvent.keyDown(screen.getByTestId('workflow-live-canvas'), { key: 'l' });
-    fireEvent.keyDown(screen.getByTestId('workflow-live-canvas'), { key: 'f' });
+    const shell = container.querySelector('[data-testid="workflow-live-canvas"]');
+    if (!(shell instanceof HTMLElement)) throw new Error('missing canvas');
+    fireEvent.keyDown(shell, { key: 'l' });
+    fireEvent.keyDown(shell, { key: 'f' });
     expect(container.querySelectorAll('.react-flow__edge-path').length).toBeGreaterThan(0);
   });
 });

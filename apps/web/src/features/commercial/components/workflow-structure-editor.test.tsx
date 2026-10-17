@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { commercialProjectsMock } from '../mock-data';
 import { indexWorkflowNodes } from '../workflow-edit-logic';
@@ -60,8 +60,8 @@ describe('WorkflowGraphEditor live display', () => {
     expect(new Set(collapsed.map((edge) => `${edge.from}->${edge.to}`))).toEqual(
       new Set(declared.map((edge) => `${edge.from}->${edge.to}`)),
     );
-    expect(screen.queryByTestId('workflow-add-node')).toBeNull();
-    expect(screen.queryByTestId('workflow-connect-from')).toBeNull();
+    expect(container.querySelector('[data-testid="workflow-add-node"]')).toBeNull();
+    expect(container.querySelector('[data-testid="workflow-connect-from"]')).toBeNull();
   });
 
   test('add and delete shortcuts do not change the graph', async () => {
@@ -73,11 +73,14 @@ describe('WorkflowGraphEditor live display', () => {
       </div>,
     );
     await waitForGraphReady(container);
-    const shell = screen.getByTestId('workflow-live-canvas');
+    const shell = container.querySelector('[data-testid="workflow-live-canvas"]');
+    if (!(shell instanceof HTMLElement)) throw new Error('missing canvas');
     fireEvent.keyDown(shell, { key: 'a' });
     fireEvent.keyDown(shell, { key: 'j' });
     fireEvent.keyDown(shell, { key: 'Delete' });
-    expect(screen.getByTestId('workflow-live-notice').textContent).toContain('留到后续');
+    expect(container.querySelector('[data-testid="workflow-live-notice"]')?.textContent).toContain(
+      '留到后续',
+    );
     expect(container.querySelectorAll('[data-workflow-node]')).toHaveLength(before);
   });
 });

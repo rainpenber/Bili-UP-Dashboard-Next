@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { resetDefaultFlowWorkspaceForTests } from '../default-flow-store';
 import { DefaultFlowEditor } from './default-flow-editor';
@@ -34,10 +34,11 @@ describe('DefaultFlowEditor', () => {
     expect(screen.getByTestId('default-flow-version-1')).toBeTruthy();
 
     const inquiry = container.querySelector('[data-workflow-node="inq"]');
-    if (!inquiry) throw new Error('missing inquiry node');
+    const shell = container.querySelector('[data-testid="workflow-live-canvas"]');
+    if (!inquiry || !(shell instanceof HTMLElement)) throw new Error('missing inquiry canvas');
     fireEvent.click(inquiry);
-    fireEvent.keyDown(screen.getByTestId('workflow-live-canvas'), { key: 'Enter' });
-    const input = await screen.findByTestId('workflow-node-name');
+    fireEvent.keyDown(shell, { key: 'Enter' });
+    const input = await within(container).findByTestId('workflow-node-name');
     fireEvent.change(input, { target: { value: '询单回访' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() => {
