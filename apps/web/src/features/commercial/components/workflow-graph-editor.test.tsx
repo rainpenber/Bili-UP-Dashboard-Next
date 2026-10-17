@@ -1,7 +1,6 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { commercialProjectsMock } from '../mock-data';
-import { deriveWorkflowSummary } from '../workflow-edit-logic';
 import { useProjectWorkflowEditor, WorkflowGraphEditor } from './workflow-graph-editor';
 
 setDefaultTimeout(30_000);
@@ -11,20 +10,7 @@ afterEach(() => cleanup());
 function EditorHarness({ projectId }: { projectId: string }) {
   const project = commercialProjectsMock.find((p) => p.id === projectId)!;
   const editor = useProjectWorkflowEditor(project.workflow);
-  const summary = deriveWorkflowSummary(editor.graph);
-  const statusText = summary.blockingReason
-    ? `当前状态：${summary.statusHeadline}，阻塞原因：${summary.blockingReason}`
-    : `当前状态：${summary.statusHeadline}`;
-
-  return (
-    <div>
-      <p data-testid="summary-status-text">{statusText}</p>
-      {summary.mainBlockingItem ? (
-        <p data-testid="summary-blocking-item">{summary.mainBlockingItem}</p>
-      ) : null}
-      <WorkflowGraphEditor editor={editor} />
-    </div>
-  );
+  return <WorkflowGraphEditor editor={editor} />;
 }
 
 async function waitForGraphReady(container: HTMLElement) {
@@ -36,181 +22,141 @@ async function waitForGraphReady(container: HTMLElement) {
   );
 }
 
-async function selectNode(container: HTMLElement, nodeId: string) {
+async function renameNode(container: HTMLElement, nodeId: string, name: string) {
   const card = container.querySelector(`[data-workflow-node="${nodeId}"]`);
   if (!card) throw new Error(`missing node ${nodeId}`);
-  await act(async () => {
-    fireEvent.click(card);
-  });
-  await waitFor(() => {
-    expect(container.querySelector('[data-testid="workflow-node-actions"]')).toBeTruthy();
-  });
+  fireEvent.click(card);
+  fireEvent.keyDown(screen.getByTestId('workflow-live-canvas'), { key: 'Enter' });
+  const input = await screen.findByTestId('workflow-node-name');
+  fireEvent.change(input, { target: { value: name } });
+  fireEvent.keyDown(input, { key: 'Enter' });
 }
 
 describe('WorkflowGraphEditor', () => {
-  test('complete updates DOM, detail panel and summary', async () => {
+  test('renders demo cards, status colors, junctions, and shortcuts', async () => {
     const { container } = render(
       <div style={{ width: 1280, height: 900 }}>
         <EditorHarness projectId="proj-snack-crisp" />
       </div>,
     );
     await waitForGraphReady(container);
-    await selectNode(container, 'outline');
-    fireEvent.click(screen.getByTestId('workflow-complete'));
-    await waitFor(() => {
-      expect(
-        container
-          .querySelector('[data-workflow-node="outline"]')
-          ?.getAttribute('data-workflow-status'),
-      ).toBe('done');
-    });
-  });
 
-  test('start shows predecessor confirmation instead of dead-end error', async () => {
-    const { container } = render(
-      <div style={{ width: 1280, height: 900 }}>
-        <EditorHarness projectId="proj-snack-crisp" />
-      </div>,
+    const outline = container.querySelector('[data-workflow-node="outline"]');
+    expect(outline?.textContent).toContain('大纲');
+    expect(outline?.getAttribute('data-workflow-status')).toBe('in_progress');
+    expect(outline?.getAttribute('data-status')).toBe('active');
+    expect(container.querySelector('[data-workflow-node="inq"]')?.getAttribute('data-status')).toBe(
+      'done',
     );
-    await waitForGraphReady(container);
-    await selectNode(container, 'script');
-    fireEvent.click(screen.getByTestId('workflow-start'));
-    await waitFor(() => {
-      expect(screen.getByTestId('workflow-predecessor-confirm')).toBeTruthy();
-    });
-    expect(screen.queryByTestId('workflow-action-error')).toBeNull();
-    fireEvent.click(screen.getByTestId('workflow-predecessor-confirm-yes'));
-    await waitFor(() => {
-      expect(
-        container
-          .querySelector('[data-workflow-node="script"]')
-          ?.getAttribute('data-workflow-status'),
-      ).toBe('in_progress');
-    });
-  });
-
-  test('blocking with empty reason succeeds and renders no empty reason line', async () => {
-    const { container } = render(
-      <div style={{ width: 1280, height: 900 }}>
-        <EditorHarness projectId="proj-snack-crisp" />
-      </div>,
-    );
-    await waitForGraphReady(container);
-    await selectNode(container, 'outline');
-    expect(screen.getByTestId('workflow-block-reason-input')).toBeTruthy();
-    expect(
-      (screen.getByTestId('workflow-block-reason-input') as HTMLInputElement).placeholder,
-    ).toContain('可选');
-    fireEvent.click(screen.getByTestId('workflow-block-submit'));
-    await waitFor(() => {
-      expect(
-        container
-          .querySelector('[data-workflow-node="outline"]')
-          ?.getAttribute('data-workflow-status'),
-      ).toBe('blocked');
-    });
-    expect(screen.queryByTestId('workflow-action-error')).toBeNull();
-    expect(screen.queryByTestId('workflow-detail-blocking-reason')).toBeNull();
-    expect(screen.queryByTestId('workflow-aside-blocking-reason')).toBeNull();
-    expect(screen.queryByTestId('summary-blocking-item')).toBeNull();
-    expect(screen.getByTestId('summary-status-text').textContent).not.toContain('阻塞原因：');
-    fireEvent.click(screen.getByTestId('workflow-clear-block'));
-    await waitFor(() => {
-      expect(
-        container
-          .querySelector('[data-workflow-node="outline"]')
-          ?.getAttribute('data-workflow-status'),
-      ).toBe('in_progress');
-    });
-  });
-
-  test('blocking with a filled reason shows on the node and in the summary card', async () => {
-    const { container } = render(
-      <div style={{ width: 1280, height: 900 }}>
-        <EditorHarness projectId="proj-snack-crisp" />
-      </div>,
-    );
-    await waitForGraphReady(container);
-    await selectNode(container, 'outline');
-    expect(screen.getByTestId('workflow-block-reason-input')).toBeTruthy();
-    fireEvent.change(screen.getByTestId('workflow-block-reason-input'), {
-      target: { value: '等甲方确认口播' },
-    });
-    fireEvent.click(screen.getByTestId('workflow-block-submit'));
-    await waitFor(() => {
-      expect(
-        container
-          .querySelector('[data-workflow-node="outline"]')
-          ?.getAttribute('data-workflow-status'),
-      ).toBe('blocked');
-      expect(screen.getByTestId('workflow-detail-blocking-reason').textContent).toContain(
-        '等甲方确认口播',
-      );
-      expect(screen.getByTestId('summary-blocking-item').textContent).toContain('等甲方确认口播');
-    });
-
-    // Re-selecting the blocked node keeps the recorded reason visible in controls.
-    await selectNode(container, 'script');
-    await selectNode(container, 'outline');
-    await waitFor(() => {
-      expect(screen.getByTestId('workflow-detail-blocking-reason').textContent).toContain(
-        '等甲方确认口播',
-      );
-      expect(screen.getByTestId('workflow-aside-blocking-reason').textContent).toContain(
-        '等甲方确认口播',
-      );
-    });
-  });
-
-  test('undo and redo restore rendered node status', async () => {
-    const { container } = render(
-      <div style={{ width: 1280, height: 900 }}>
-        <EditorHarness projectId="proj-snack-crisp" />
-      </div>,
-    );
-    await waitForGraphReady(container);
-    const before = container
-      .querySelector('[data-workflow-node="outline"]')
-      ?.getAttribute('data-workflow-status');
-    await selectNode(container, 'outline');
-    fireEvent.click(screen.getByTestId('workflow-complete'));
-    await waitFor(() => {
-      expect(
-        container
-          .querySelector('[data-workflow-node="outline"]')
-          ?.getAttribute('data-workflow-status'),
-      ).toBe('done');
-    });
-    fireEvent.click(screen.getByTestId('workflow-undo'));
-    await waitFor(() => {
-      expect(
-        container
-          .querySelector('[data-workflow-node="outline"]')
-          ?.getAttribute('data-workflow-status'),
-      ).toBe(before);
-    });
-    fireEvent.click(screen.getByTestId('workflow-redo'));
-    await waitFor(() => {
-      expect(
-        container
-          .querySelector('[data-workflow-node="outline"]')
-          ?.getAttribute('data-workflow-status'),
-      ).toBe('done');
-    });
-  });
-
-  test('shows start and complete buttons only when meaningful', async () => {
-    const { container } = render(
-      <div style={{ width: 1280, height: 900 }}>
-        <EditorHarness projectId="proj-snack-crisp" />
-      </div>,
-    );
-    await waitForGraphReady(container);
-    await selectNode(container, 'outline');
-    expect(screen.queryByTestId('workflow-start')).toBeNull();
-    expect(screen.getByTestId('workflow-complete')).toBeTruthy();
-    await selectNode(container, 'script');
-    expect(screen.getByTestId('workflow-start')).toBeTruthy();
+    expect(container.querySelectorAll('[data-junction-core]')).toHaveLength(2);
+    expect(container.querySelector('.react-flow__minimap')).toBeTruthy();
+    expect(screen.getByTestId('workflow-live-direction')).toBeTruthy();
+    expect(screen.getByTestId('workflow-live-keys').textContent).toContain('改名');
+    expect(screen.queryByTestId('workflow-structure-panel')).toBeNull();
     expect(screen.queryByTestId('workflow-complete')).toBeNull();
+  });
+
+  test('status cells are visible and do not write', async () => {
+    const { container } = render(
+      <div style={{ width: 1280, height: 900 }}>
+        <EditorHarness projectId="proj-snack-crisp" />
+      </div>,
+    );
+    await waitForGraphReady(container);
+    const outline = container.querySelector('[data-workflow-node="outline"]')!;
+    fireEvent.click(outline.querySelector('[data-testid="workflow-node-expand"]')!);
+    await waitFor(() => {
+      expect(outline.querySelector('[data-testid="workflow-node-status"]')).toBeTruthy();
+    });
+    expect(outline.querySelectorAll('[data-status-choice]')).toHaveLength(4);
+    fireEvent.click(outline.querySelector('[data-status-choice="done"]')!);
+    expect(outline.getAttribute('data-workflow-status')).toBe('in_progress');
+    expect(outline.getAttribute('data-status')).toBe('active');
+  });
+
+  test('blocked nodes show the stored reason and keep the blocked color', async () => {
+    const { container } = render(
+      <div style={{ width: 1280, height: 900 }}>
+        <EditorHarness projectId="proj-nev-spring" />
+      </div>,
+    );
+    await waitForGraphReady(container);
+    const outline = container.querySelector('[data-workflow-node="outline"]')!;
+    expect(outline.getAttribute('data-workflow-status')).toBe('blocked');
+    expect(outline.getAttribute('data-status')).toBe('blocked');
+    fireEvent.click(outline.querySelector('[data-testid="workflow-node-expand"]')!);
+    const reason = await screen.findByLabelText('阻塞原因');
+    expect((reason as HTMLInputElement).value).toContain('甲方反馈写作方向');
+    expect((reason as HTMLInputElement).readOnly).toBe(true);
+  });
+
+  test('inline rename updates the card and undo restores it', async () => {
+    const { container } = render(
+      <div style={{ width: 1280, height: 900 }}>
+        <EditorHarness projectId="proj-snack-crisp" />
+      </div>,
+    );
+    await waitForGraphReady(container);
+    await renameNode(container, 'outline', '大纲定稿');
+    await waitFor(() => {
+      expect(container.querySelector('[data-workflow-node="outline"]')?.textContent).toContain(
+        '大纲定稿',
+      );
+    });
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+    await waitFor(() => {
+      const text = container.querySelector('[data-workflow-node="outline"]')?.textContent ?? '';
+      expect(text).toContain('大纲');
+      expect(text).not.toContain('大纲定稿');
+    });
+    fireEvent.keyDown(window, { key: 'y', ctrlKey: true });
+    await waitFor(() => {
+      expect(container.querySelector('[data-workflow-node="outline"]')?.textContent).toContain(
+        '大纲定稿',
+      );
+    });
+  });
+
+  test('empty and duplicate names are refused', async () => {
+    const { container } = render(
+      <div style={{ width: 1280, height: 900 }}>
+        <EditorHarness projectId="proj-snack-crisp" />
+      </div>,
+    );
+    await waitForGraphReady(container);
+    await renameNode(container, 'outline', '   ');
+    await waitFor(() => {
+      expect(screen.getByTestId('workflow-action-error').textContent).toContain('不能为空');
+    });
+    expect(screen.getByTestId('workflow-node-name')).toBeTruthy();
+    fireEvent.keyDown(screen.getByTestId('workflow-node-name'), { key: 'Escape' });
+    await renameNode(container, 'outline', '询单');
+    await waitFor(() => {
+      expect(screen.getByTestId('workflow-action-error').textContent).toContain('唯一');
+    });
+    fireEvent.keyDown(screen.getByTestId('workflow-node-name'), { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByTestId('workflow-node-name')).toBeNull();
+    });
+    const outline = container.querySelector('[data-workflow-node="outline"]')?.textContent ?? '';
+    expect(outline).toContain('大纲');
+    expect(outline).not.toContain('询单');
+  });
+
+  test('direction switch marks the canvas vertical', async () => {
+    const { container } = render(
+      <div style={{ width: 1280, height: 900 }}>
+        <EditorHarness projectId="proj-snack-crisp" />
+      </div>,
+    );
+    await waitForGraphReady(container);
+    fireEvent.click(container.querySelector('[data-direction="tb"]')!);
+    await waitFor(() => {
+      expect(container.querySelector('.workflow-mock-flow')?.className).toContain('is-vertical');
+    });
+    expect(container.querySelectorAll('[data-junction-core]')).toHaveLength(2);
+    fireEvent.keyDown(screen.getByTestId('workflow-live-canvas'), { key: 'l' });
+    fireEvent.keyDown(screen.getByTestId('workflow-live-canvas'), { key: 'f' });
+    expect(container.querySelectorAll('.react-flow__edge-path').length).toBeGreaterThan(0);
   });
 });

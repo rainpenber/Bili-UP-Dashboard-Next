@@ -6,6 +6,7 @@ import {
   blockWorkflowNode,
   clearWorkflowBlock,
   cloneWorkflowGraph,
+  indexWorkflowNodes,
   rollbackWorkflowNode,
   type WorkflowEditResult,
   type WorkflowTransitionKind,
@@ -16,6 +17,7 @@ import {
   confirmDeleteWorkflowNode,
   connectWorkflowNodes,
   disconnectWorkflowNodes,
+  renameWorkflowNode,
   type StructureDeletePreview,
 } from './workflow-structure-logic';
 
@@ -250,6 +252,28 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
     [graph, pushHistory],
   );
 
+  const renameNode = useCallback(
+    (nodeId: string, name: string): string | null => {
+      const result = renameWorkflowNode(graph, nodeId, name);
+      if (!result.ok) {
+        setActionError(result.message);
+        return result.message;
+      }
+      const currentName = indexWorkflowNodes(graph).get(nodeId)?.name;
+      if (currentName === name.trim()) {
+        setActionError(null);
+        return null;
+      }
+      pushHistory(graph);
+      setGraph(result.graph);
+      setActionError(null);
+      setPredecessorPrompt(null);
+      setDeletePrompt(null);
+      return null;
+    },
+    [graph, pushHistory],
+  );
+
   const disconnectNodes = useCallback(
     (fromId: string, toId: string) => {
       applyResult(
@@ -298,6 +322,7 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
       cancelDeletePrompt,
       deletePrompt,
       connectNodes,
+      renameNode,
       disconnectNodes,
       undo,
       redo,
@@ -323,6 +348,7 @@ export function useWorkflowEditor(initialGraph: WorkflowGraph) {
       cancelDeletePrompt,
       deletePrompt,
       connectNodes,
+      renameNode,
       disconnectNodes,
       undo,
       redo,

@@ -4,7 +4,12 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { FlowDirection } from './layout';
 import { STAGE_H, STAGE_W } from './model';
 
-export type StageNodeData = { name: string };
+export type StageNodeData = {
+  name: string;
+  /** Real editor node id. The mock canvas leaves this unset and marks the card as `stage`. */
+  workflowNodeId?: string;
+  workflowStatus?: string;
+};
 export type JunctionNodeData = { kind: 'merge' };
 
 export type MockStatus = 'idle' | 'active' | 'blocked' | 'done';
@@ -28,6 +33,8 @@ export type NodeUi = {
   setStatus: (id: string, status: MockStatus) => void;
   setReason: (id: string, reason: string) => void;
   direction: FlowDirection;
+  /** Real graphs display status but do not write it until a later integration step. */
+  statusReadOnly?: boolean;
 };
 
 export const NodeUiContext = createContext<NodeUi | null>(null);
@@ -67,7 +74,8 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
             ? 'workflow-stage workflow-pop group relative w-fit min-w-[7.5rem] max-w-[200px] break-all rounded border bg-[#2a2a2a] px-3 py-2 text-[13px] text-[#f4f4f4] shadow-[0_0_0_1px_#e8b15a]'
             : 'workflow-stage workflow-pop group relative w-fit min-w-[7.5rem] max-w-[200px] break-all rounded border bg-[#2a2a2a] px-3 py-2 text-[13px] text-[#f4f4f4]'
         }
-        data-workflow-node="stage"
+        data-workflow-node={data.workflowNodeId ?? 'stage'}
+        data-workflow-status={data.workflowStatus}
         data-status={detail.status}
       >
         <Handle
@@ -148,7 +156,10 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
                     aria-checked={on}
                     data-status-choice={choice.id}
                     className="workflow-status-choice nodrag px-0.5 py-1 whitespace-nowrap"
-                    onClick={() => ui?.setStatus(id, choice.id)}
+                    onClick={() => {
+                      if (ui?.statusReadOnly) return;
+                      ui?.setStatus(id, choice.id);
+                    }}
                   >
                     {choice.label}
                   </button>
@@ -161,8 +172,12 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
                 <input
                   value={detail.reason}
                   aria-label="阻塞原因"
+                  readOnly={ui?.statusReadOnly}
                   className="nodrag nowheel mt-1 h-7 w-full rounded border border-white/20 bg-[#1b1b1b] px-1 text-[#f4f4f4]"
-                  onChange={(event) => ui?.setReason(id, event.target.value)}
+                  onChange={(event) => {
+                    if (ui?.statusReadOnly) return;
+                    ui?.setReason(id, event.target.value);
+                  }}
                 />
               </label>
             ) : null}
