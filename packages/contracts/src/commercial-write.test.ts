@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
   parseCommercialBlockRequest,
+  parseCommercialNodeStepRequest,
+  parseCommercialStageStepRequest,
   parseCommercialCancelItemRequest,
   parseCommercialNodeWriteResponse,
   parseCommercialPlanRequest,
@@ -112,6 +114,34 @@ describe('commercial write contracts', () => {
         platform: 'bilibili',
       }),
     ).toThrow(/bvid or videoUrl/);
+  });
+
+  test('a step request keeps force and publish optional', () => {
+    const node = parseCommercialNodeStepRequest({
+      expectedUpdatedAt: STAMP,
+      direction: 'forward',
+    });
+    expect(node.force).toBe(false);
+    expect(node.publish).toBeNull();
+    const stage = parseCommercialStageStepRequest({
+      direction: 'rollback',
+      tokens: [{ nodeId: NODE_ID, expectedUpdatedAt: STAMP }],
+      force: true,
+    });
+    expect(stage.force).toBe(true);
+    expect(stage.tokens).toEqual([{ nodeId: NODE_ID, expectedUpdatedAt: STAMP }]);
+  });
+
+  test('confirmation errors keep the blocks and the planned effects', () => {
+    const parsed = parseCommercialWriteError({
+      error: '有开放阻塞，确认后才会强制推进并标记前置完成',
+      code: 'confirmation_required',
+      names: ['文案'],
+      blocks: [{ nodeId: NODE_ID, nodeName: '文案', reason: '等甲方', itemId: ITEM_ID }],
+      effects: [{ nodeId: NODE_ID, nodeName: '文案', from: 'blocked', to: 'in_progress' }],
+    });
+    expect(parsed.blocks?.[0]?.reason).toBe('等甲方');
+    expect(parsed.effects?.[0]?.to).toBe('in_progress');
   });
 
   test('error body carries the code and the offending names', () => {

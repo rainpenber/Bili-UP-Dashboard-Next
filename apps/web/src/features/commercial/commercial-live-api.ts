@@ -3,10 +3,15 @@ import {
   parseCommercialNodeWriteResponse,
   parseCommercialProjectDetail,
   parseCommercialProjectWorkflow,
+  parseCommercialStepResponse,
+  parseCommercialWriteError,
   type CommercialDefaultTemplate,
   type CommercialNodeWriteResponse,
   type CommercialProjectDetail,
   type CommercialProjectWorkflow,
+  type CommercialStepPublish,
+  type CommercialStageStepToken,
+  type CommercialWriteErrorBody,
 } from '@studio/contracts';
 
 async function getJson(path: string): Promise<unknown> {
@@ -55,6 +60,66 @@ export async function saveLiveNodePlan(
     throw new Error(message);
   }
   return parseCommercialNodeWriteResponse(payload);
+}
+
+export type LiveStepResult =
+  { ok: true } | { ok: false; status: number; body: CommercialWriteErrorBody };
+
+async function postStep(path: string, body: unknown): Promise<LiveStepResult> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const payload: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    try {
+      return { ok: false, status: res.status, body: parseCommercialWriteError(payload) };
+    } catch {
+      const message =
+        typeof payload === 'object' &&
+        payload !== null &&
+        'error' in payload &&
+        typeof payload.error === 'string'
+          ? payload.error
+          : `HTTP ${res.status}`;
+      return { ok: false, status: res.status, body: { error: message, code: 'invalid_body' } };
+    }
+  }
+  parseCommercialStepResponse(payload);
+  return { ok: true };
+}
+
+export function postLiveNodeStep(
+  projectId: string,
+  nodeId: string,
+  body: {
+    expectedUpdatedAt: string;
+    direction: 'forward' | 'rollback';
+    force?: boolean;
+    publish?: CommercialStepPublish | null;
+  },
+): Promise<LiveStepResult> {
+  return postStep(
+    `/api/v1/commercial/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/step`,
+    body,
+  );
+}
+
+export function postLiveStageStep(
+  projectId: string,
+  stageId: string,
+  body: {
+    direction: 'forward' | 'rollback';
+    tokens: CommercialStageStepToken[];
+    force?: boolean;
+    publish?: CommercialStepPublish | null;
+  },
+): Promise<LiveStepResult> {
+  return postStep(
+    `/api/v1/commercial/projects/${encodeURIComponent(projectId)}/stages/${encodeURIComponent(stageId)}/step`,
+    body,
+  );
 }
 
 export function fetchLiveDefaultTemplate(): Promise<CommercialDefaultTemplate> {

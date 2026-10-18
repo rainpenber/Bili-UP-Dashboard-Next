@@ -12,11 +12,60 @@ import {
   type LiveGraphNode,
 } from '../workflow-live-graph';
 import { useLiveProjectDetailQuery, useLiveProjectWorkflowQuery } from '../use-live-workflow';
-import { saveLiveNodePlan } from '../commercial-live-api';
+import { postLiveNodeStep, postLiveStageStep, saveLiveNodePlan } from '../commercial-live-api';
+import type { StepCall, StepResult } from './stage-step-controls';
 import { ProjectVideoMetrics } from './project-video-metrics';
 import { ProgressSummary, ProgressTimeline } from './progress-timeline-view';
 import { timelineFactsFromDetail, timelineNodesFromWorkflow } from '../progress-timeline';
 import { WorkflowLiveCanvas } from './workflow-live-canvas';
+
+async function runLiveStep(
+  projectId: string,
+  call: StepCall,
+  queryClient: ReturnType<typeof useQueryClient>,
+): Promise<StepResult> {
+  const publish = call.publish ?? null;
+  const result =
+    call.kind === 'node' && call.nodeId && call.expectedUpdatedAt
+      ? await postLiveNodeStep(projectId, call.nodeId, {
+          expectedUpdatedAt: call.expectedUpdatedAt,
+          direction: call.direction,
+          force: call.force,
+          publish,
+        })
+      : await postLiveStageStep(projectId, call.stageId ?? '', {
+          direction: call.direction,
+          tokens: call.tokens,
+          force: call.force,
+          publish,
+        });
+  if (result.ok) {
+    await queryClient.invalidateQueries({ queryKey: ['commercial', 'live-workflow', projectId] });
+    await queryClient.invalidateQueries({ queryKey: ['commercial', 'live-project', projectId] });
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    message: result.body.error,
+    code: result.body.code,
+    blocks: (result.body.blocks ?? []).map((item) => ({
+      nodeId: item.nodeId,
+      nodeName: item.nodeName,
+      reason: item.reason,
+    })),
+    effects: (result.body.effects ?? []).map((item) => ({
+      nodeId: item.nodeId,
+      nodeName: item.nodeName,
+      from: item.from,
+      to: item.to,
+    })),
+    successors: (result.body.successors ?? []).map((item) => ({
+      nodeId: item.nodeId,
+      nodeName: item.nodeName,
+      templateSlug: item.templateSlug,
+    })),
+  };
+}
 
 function withNames(nodes: LiveGraphNode[], names: Record<string, string>): LiveGraphNode[] {
   return nodes.map((node) => {
@@ -82,6 +131,14 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
         <ProgressSummary facts={facts} nodes={timelineNodes} />
         <ProgressTimeline
           nodes={timelineNodes}
+          stepEditor={{
+            disabled: Boolean(archived),
+            onRefresh: () => {
+              void workflowQuery.refetch();
+              void detailQuery.refetch();
+            },
+            onStep: (call) => runLiveStep(projectId, call, queryClient),
+          }}
           planEditor={{
             disabled: Boolean(archived),
             savingId: savingPlanId,

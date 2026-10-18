@@ -1,10 +1,12 @@
 /** Commercial workflow write contracts (WP-004R2-3A). */
 
 import {
+  isOverallStage,
   isPublishSource,
   isUuidString,
   isWfNodeKind,
   isWfNodeStatus,
+  type OverallStage,
   type PublishSource,
   type WfNodeKind,
   type WfNodeStatus,
@@ -22,6 +24,7 @@ export const COMMERCIAL_WRITE_ERROR_CODES = [
   'unsupported_platform',
   'not_applicable_block',
   'invalid_body',
+  'confirmation_required',
 ] as const;
 
 export type CommercialWriteErrorCode = (typeof COMMERCIAL_WRITE_ERROR_CODES)[number];
@@ -35,11 +38,37 @@ export type OpenItemImpact = (typeof OPEN_ITEM_IMPACTS)[number];
 export const MONITOR_JOB_TYPES = ['metadata', 'metrics'] as const;
 export type MonitorJobType = (typeof MONITOR_JOB_TYPES)[number];
 
+export type CommercialStepEffect = {
+  nodeId: string;
+  nodeName: string;
+  from: WfNodeStatus;
+  to: WfNodeStatus;
+};
+
+export type CommercialStepBlock = {
+  nodeId: string;
+  nodeName: string;
+  reason: string | null;
+  itemId: string | null;
+};
+
+export type CommercialStepSuccessor = {
+  nodeId: string;
+  nodeName: string;
+  templateSlug: string | null;
+};
+
 export type CommercialWriteErrorBody = {
   error: string;
   code: CommercialWriteErrorCode;
   /** Offending node names, in refusal order. */
   names?: string[];
+  /** Open blocks that must be confirmed before a forward step writes. */
+  blocks?: CommercialStepBlock[];
+  /** Status changes the step would make. Present on confirmation and publish refusals. */
+  effects?: CommercialStepEffect[];
+  /** Business successors that have to be rolled back first. */
+  successors?: CommercialStepSuccessor[];
 };
 
 export type CommercialNodeSnapshot = {
@@ -147,6 +176,42 @@ export type CommercialPublishRequest = {
   videoUrl?: string;
   publishedAt?: string;
   publishSource?: PublishSource;
+};
+
+export type CommercialStepDirection = 'forward' | 'rollback';
+
+export type CommercialStepPublish = {
+  idempotencyKey: string;
+  platform: string;
+  bvid?: string;
+  videoUrl?: string;
+  publishedAt?: string;
+  publishSource?: PublishSource;
+};
+
+export type CommercialNodeStepRequest = {
+  expectedUpdatedAt: string;
+  direction: CommercialStepDirection;
+  force: boolean;
+  publish: CommercialStepPublish | null;
+};
+
+export type CommercialStageStepToken = {
+  nodeId: string;
+  expectedUpdatedAt: string;
+};
+
+export type CommercialStageStepRequest = {
+  direction: CommercialStepDirection;
+  tokens: CommercialStageStepToken[];
+  force: boolean;
+  publish: CommercialStepPublish | null;
+};
+
+export type CommercialStepResponse = {
+  projectId: string;
+  overallStage: OverallStage;
+  nodes: CommercialNodeSnapshot[];
 };
 
 function asRecord(value: unknown, label: string): Record<string, unknown> {
@@ -334,6 +399,43 @@ export function parseCommercialPublishResponse(value: unknown): CommercialPublis
   };
 }
 
+function parseStepEffect(value: unknown, index: number): CommercialStepEffect {
+  const record = asRecord(value, `effects[${index}]`);
+  if (!isWfNodeStatus(record.from) || !isWfNodeStatus(record.to)) {
+    throw new Error(`effects[${index}] status is invalid`);
+  }
+  return {
+    nodeId: parseUuid(record.nodeId, `effects[${index}].nodeId`),
+    nodeName: parseName(record.nodeName, `effects[${index}].nodeName`),
+    from: record.from,
+    to: record.to,
+  };
+}
+
+function parseStepBlock(value: unknown, index: number): CommercialStepBlock {
+  const record = asRecord(value, `blocks[${index}]`);
+  const reason =
+    record.reason === null ? null : parseName(record.reason, `blocks[${index}].reason`);
+  return {
+    nodeId: parseUuid(record.nodeId, `blocks[${index}].nodeId`),
+    nodeName: parseName(record.nodeName, `blocks[${index}].nodeName`),
+    reason,
+    itemId: record.itemId === null ? null : parseUuid(record.itemId, `blocks[${index}].itemId`),
+  };
+}
+
+function parseStepSuccessor(value: unknown, index: number): CommercialStepSuccessor {
+  const record = asRecord(value, `successors[${index}]`);
+  return {
+    nodeId: parseUuid(record.nodeId, `successors[${index}].nodeId`),
+    nodeName: parseName(record.nodeName, `successors[${index}].nodeName`),
+    templateSlug:
+      record.templateSlug === null
+        ? null
+        : parseName(record.templateSlug, `successors[${index}].templateSlug`),
+  };
+}
+
 export function parseCommercialWriteError(value: unknown): CommercialWriteErrorBody {
   const record = asRecord(value, 'write error');
   if (!isWriteErrorCode(record.code)) throw new Error('error code is invalid');
@@ -344,6 +446,18 @@ export function parseCommercialWriteError(value: unknown): CommercialWriteErrorB
   if (record.names !== undefined) {
     if (!Array.isArray(record.names)) throw new Error('names must be an array');
     body.names = record.names.map((item, index) => parseName(item, `names[${index}]`));
+  }
+  if (record.blocks !== undefined) {
+    if (!Array.isArray(record.blocks)) throw new Error('blocks must be an array');
+    body.blocks = record.blocks.map((item, index) => parseStepBlock(item, index));
+  }
+  if (record.effects !== undefined) {
+    if (!Array.isArray(record.effects)) throw new Error('effects must be an array');
+    body.effects = record.effects.map((item, index) => parseStepEffect(item, index));
+  }
+  if (record.successors !== undefined) {
+    if (!Array.isArray(record.successors)) throw new Error('successors must be an array');
+    body.successors = record.successors.map((item, index) => parseStepSuccessor(item, index));
   }
   return body;
 }
@@ -451,4 +565,82 @@ export function parseCommercialPublishRequest(value: unknown): CommercialPublish
     request.publishSource = record.publishSource;
   }
   return request;
+}
+
+function parseDirection(value: unknown): CommercialStepDirection {
+  if (value !== 'forward' && value !== 'rollback') {
+    throw new Error('direction must be forward or rollback');
+  }
+  return value;
+}
+
+function parseForce(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value !== 'boolean') throw new Error('force must be a boolean');
+  return value;
+}
+
+function parseStepPublish(value: unknown): CommercialStepPublish | null {
+  if (value === undefined || value === null) return null;
+  const record = asRecord(value, 'publish');
+  const publish: CommercialStepPublish = {
+    idempotencyKey: parseName(record.idempotencyKey, 'idempotencyKey'),
+    platform: parseName(record.platform, 'platform'),
+  };
+  if (record.bvid !== undefined && record.bvid !== null)
+    publish.bvid = parseName(record.bvid, 'bvid');
+  if (record.videoUrl !== undefined && record.videoUrl !== null) {
+    publish.videoUrl = parseName(record.videoUrl, 'videoUrl');
+  }
+  if (publish.bvid === undefined && publish.videoUrl === undefined) {
+    throw new Error('bvid or videoUrl is required');
+  }
+  if (record.publishedAt !== undefined && record.publishedAt !== null) {
+    publish.publishedAt = parseIso(record.publishedAt, 'publishedAt');
+  }
+  if (record.publishSource !== undefined && record.publishSource !== null) {
+    if (!isPublishSource(record.publishSource)) throw new Error('publishSource is invalid');
+    publish.publishSource = record.publishSource;
+  }
+  return publish;
+}
+
+export function parseCommercialNodeStepRequest(value: unknown): CommercialNodeStepRequest {
+  const record = asRecord(value, 'node step');
+  return {
+    expectedUpdatedAt: parseIso(record.expectedUpdatedAt, 'expectedUpdatedAt'),
+    direction: parseDirection(record.direction),
+    force: parseForce(record.force),
+    publish: parseStepPublish(record.publish),
+  };
+}
+
+export function parseCommercialStageStepRequest(value: unknown): CommercialStageStepRequest {
+  const record = asRecord(value, 'stage step');
+  if (!Array.isArray(record.tokens) || record.tokens.length === 0) {
+    throw new Error('tokens must list the stage nodes');
+  }
+  return {
+    direction: parseDirection(record.direction),
+    force: parseForce(record.force),
+    publish: parseStepPublish(record.publish),
+    tokens: record.tokens.map((item, index) => {
+      const token = asRecord(item, `tokens[${index}]`);
+      return {
+        nodeId: parseUuid(token.nodeId, `tokens[${index}].nodeId`),
+        expectedUpdatedAt: parseIso(token.expectedUpdatedAt, `tokens[${index}].expectedUpdatedAt`),
+      };
+    }),
+  };
+}
+
+export function parseCommercialStepResponse(value: unknown): CommercialStepResponse {
+  const record = asRecord(value, 'step result');
+  if (!isOverallStage(record.overallStage)) throw new Error('overallStage is invalid');
+  if (!Array.isArray(record.nodes)) throw new Error('nodes must be an array');
+  return {
+    projectId: parseUuid(record.projectId, 'projectId'),
+    overallStage: record.overallStage,
+    nodes: record.nodes.map((node) => parseCommercialNodeSnapshot(node)),
+  };
 }

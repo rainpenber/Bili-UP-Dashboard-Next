@@ -1,0 +1,518 @@
+import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Pencil } from 'lucide-react';
+import type { CommercialStepPublish } from '@studio/contracts';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { stageIdForNode, type TimelineChild } from '../progress-timeline';
+
+const STATUS_WORD: Record<string, string> = {
+  not_reached: '未开始',
+  in_progress: '进行中',
+  completed: '完成',
+  blocked: '阻塞',
+  not_applicable: '不适用',
+};
+
+export type StepCall = {
+  kind: 'node' | 'stage';
+  nodeId: string | null;
+  stageId: string | null;
+  direction: 'forward' | 'rollback';
+  expectedUpdatedAt: string | null;
+  tokens: { nodeId: string; expectedUpdatedAt: string }[];
+  force: boolean;
+  publish: CommercialStepPublish | null;
+};
+
+export type StepEffectView = {
+  nodeId: string;
+  nodeName: string;
+  from: string;
+  to: string;
+};
+
+export type StepBlockView = {
+  nodeId: string;
+  nodeName: string;
+  reason: string | null;
+};
+
+export type StepSuccessorView = {
+  nodeId: string;
+  nodeName: string;
+  templateSlug: string | null;
+};
+
+export type StepResult =
+  | { ok: true }
+  | {
+      ok: false;
+      message: string;
+      code: string;
+      blocks: StepBlockView[];
+      effects: StepEffectView[];
+      successors: StepSuccessorView[];
+    };
+
+export type StepEditor = {
+  disabled: boolean;
+  onStep: (call: StepCall) => Promise<StepResult>;
+  onRefresh: () => void;
+};
+
+type PendingCall = StepCall;
+
+export function useStepController(
+  editor: StepEditor | undefined,
+  onLocate: (stageId: string) => void,
+) {
+  const lock = useRef(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successors, setSuccessors] = useState<StepSuccessorView[]>([]);
+  const [confirm, setConfirm] = useState<{
+    call: PendingCall;
+    result: Exclude<StepResult, { ok: true }>;
+  } | null>(null);
+  const [publish, setPublish] = useState<{ call: PendingCall; key: string } | null>(null);
+
+  const run = async (call: PendingCall) => {
+    if (!editor || editor.disabled || lock.current) return;
+    lock.current = true;
+    setPending(true);
+    setError(null);
+    setSuccessors([]);
+    try {
+      const result = await editor.onStep(call);
+      if (result.ok) {
+        setConfirm(null);
+        setPublish(null);
+        return;
+      }
+      if (result.code === 'confirmation_required') {
+        setPublish(null);
+        setConfirm({ call, result });
+        return;
+      }
+      if (result.code === 'publish_required') {
+        setConfirm(null);
+        setPublish({ call, key: crypto.randomUUID() });
+        return;
+      }
+      setConfirm(null);
+      setPublish(null);
+      setError(result.message);
+      setSuccessors(result.successors);
+    } finally {
+      lock.current = false;
+      setPending(false);
+    }
+  };
+
+  return {
+    pending,
+    error,
+    successors,
+    confirm,
+    publish,
+    run,
+    cancelConfirm: () => setConfirm(null),
+    cancelPublish: () => setPublish(null),
+    locate: (slug: string | null) => {
+      if (!slug) return;
+      const stageId = stageIdForNode(slug);
+      if (stageId) onLocate(stageId);
+    },
+    refresh: () => editor?.onRefresh(),
+  };
+}
+
+export type StepController = ReturnType<typeof useStepController>;
+
+function forwardCopy(status: string, stage: boolean): { label: string; hint: string } | null {
+  if (status === 'not_reached') {
+    return stage
+      ? { label: '推进阶段', hint: '下一步：让本阶段进入进行中' }
+      : { label: '开始', hint: '下一步：进入进行中' };
+  }
+  if (status === 'in_progress') {
+    return stage
+      ? { label: '完成阶段', hint: '下一步：完成本阶段适用节点' }
+      : { label: '标记完成', hint: '下一步：标记完成' };
+  }
+  if (status === 'blocked') {
+    return stage
+      ? { label: '处理阻塞并完成', hint: '下一步：关闭阻塞并完成本阶段' }
+      : { label: '解除阻塞', hint: '下一步：关闭阻塞并恢复为进行中' };
+  }
+  if (status === 'completed') return { label: '已完成', hint: '已完成' };
+  return null;
+}
+
+function canRollBack(status: string): boolean {
+  return status === 'completed' || status === 'in_progress' || status === 'not_applicable';
+}
+
+export function StageStepBar({
+  stageId,
+  status,
+  members,
+  controller,
+}: {
+  stageId: string;
+  status: string;
+  members: TimelineChild[];
+  controller: StepController;
+}) {
+  const copy = forwardCopy(status, true);
+  const tokens = members.flatMap((child) =>
+    child.updatedAt ? [{ nodeId: child.id, expectedUpdatedAt: child.updatedAt }] : [],
+  );
+  const ready = tokens.length === members.length && members.length > 0;
+  const call = (direction: 'forward' | 'rollback', force = false): StepCall => ({
+    kind: 'stage',
+    nodeId: null,
+    stageId,
+    direction,
+    expectedUpdatedAt: null,
+    tokens,
+    force,
+    publish: null,
+  });
+  return (
+    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+      {canRollBack(status) ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground"
+          disabled={controller.pending || !ready}
+          data-testid="stage-rollback"
+          data-pending={controller.pending ? 'true' : 'false'}
+          onClick={() => void controller.run(call('rollback'))}
+        >
+          回退阶段
+        </Button>
+      ) : null}
+      {copy ? (
+        <Button
+          type="button"
+          size="sm"
+          variant={status === 'completed' ? 'secondary' : 'default'}
+          className="h-7 text-xs"
+          disabled={controller.pending || !ready || status === 'completed'}
+          data-testid="stage-step"
+          data-stage-id={stageId}
+          data-status={status}
+          data-pending={controller.pending ? 'true' : 'false'}
+          onClick={() => void controller.run(call('forward'))}
+        >
+          {copy.label}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+export function stageHint(status: string): string | null {
+  return forwardCopy(status, true)?.hint ?? null;
+}
+
+export function NodeStepActions({
+  child,
+  controller,
+}: {
+  child: TimelineChild;
+  controller: StepController;
+}) {
+  const copy = forwardCopy(child.status, false);
+  const ready = Boolean(child.updatedAt);
+  const call = (direction: 'forward' | 'rollback'): StepCall => ({
+    kind: 'node',
+    nodeId: child.id,
+    stageId: null,
+    direction,
+    expectedUpdatedAt: child.updatedAt,
+    tokens: child.updatedAt ? [{ nodeId: child.id, expectedUpdatedAt: child.updatedAt }] : [],
+    force: false,
+    publish: null,
+  });
+  return (
+    <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
+      {canRollBack(child.status) ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground"
+          disabled={controller.pending || !ready}
+          data-testid="node-rollback"
+          data-node-id={child.nodeId}
+          data-pending={controller.pending ? 'true' : 'false'}
+          onClick={() => void controller.run(call('rollback'))}
+        >
+          回退一级
+        </Button>
+      ) : (
+        <span />
+      )}
+      {copy ? (
+        <Button
+          type="button"
+          size="sm"
+          variant={child.status === 'completed' ? 'secondary' : 'default'}
+          className="h-7 max-w-full text-xs"
+          disabled={controller.pending || !ready || child.status === 'completed'}
+          data-testid="node-step"
+          data-node-id={child.nodeId}
+          data-status={child.status}
+          data-pending={controller.pending ? 'true' : 'false'}
+          onClick={() => void controller.run(call('forward'))}
+        >
+          {copy.label}
+        </Button>
+      ) : null}
+      {copy ? (
+        <p className="basis-full text-xs text-muted-foreground" data-testid="node-step-hint">
+          {copy.hint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function PlanEditButton({
+  name,
+  nodeId,
+  onOpen,
+}: {
+  name: string;
+  nodeId: string;
+  onOpen: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="h-7 px-2 text-muted-foreground"
+      aria-label={`${name}编辑计划日期`}
+      data-testid={`plan-date-edit-${nodeId}`}
+      onClick={onOpen}
+    >
+      <Pencil className="size-3.5" />
+    </Button>
+  );
+}
+
+export function StepNotices({ controller }: { controller: StepController }) {
+  const confirmCompletes =
+    controller.confirm?.result.effects.some((item) => item.to === 'completed') ?? false;
+  const confirmLabel = confirmCompletes ? '强制推进并标记前置完成' : '关闭阻塞并恢复';
+  return (
+    <>
+      {controller.error ? (
+        <div className="mb-2 space-y-1" role="alert" data-testid="step-error">
+          <p className="text-xs text-destructive">{controller.error}</p>
+          {controller.successors.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {controller.successors.map((item) => (
+                <Button
+                  key={item.nodeId}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  data-testid={`step-locate-${item.nodeId}`}
+                  onClick={() => controller.locate(item.templateSlug)}
+                >
+                  查看{item.nodeName}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            data-testid="step-refresh"
+            onClick={() => controller.refresh()}
+          >
+            刷新后重试
+          </Button>
+        </div>
+      ) : null}
+      {controller.confirm
+        ? createPortal(
+            <div
+              data-step-layer="confirm"
+              className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                data-testid="step-confirm"
+                className="max-h-[80vh] w-full max-w-md overflow-auto rounded-lg border bg-background p-4 text-sm shadow-lg"
+              >
+                <p className="font-medium">这次会改这些节点</p>
+                <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                  {controller.confirm.result.effects.map((item) => (
+                    <li key={item.nodeId}>
+                      {item.nodeName}：{STATUS_WORD[item.from] ?? item.from} →{' '}
+                      {STATUS_WORD[item.to] ?? item.to}
+                    </li>
+                  ))}
+                </ul>
+                {controller.confirm.result.blocks.length > 0 ? (
+                  <ul className="mt-2 space-y-1 text-xs">
+                    {controller.confirm.result.blocks.map((item) => (
+                      <li key={item.nodeId} data-testid="step-block-reason">
+                        {item.nodeName}阻塞：{item.reason ?? '尚未记录原因'}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {confirmCompletes
+                    ? '确认后关闭这些阻塞事项，并按上面的结果写入。取消则不会改任何数据。'
+                    : '确认后关闭阻塞事项并恢复为进行中，本次不标记完成。之后可以再点一次标记完成。取消则不会改任何数据。'}
+                </p>
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    data-testid="step-confirm-cancel"
+                    onClick={controller.cancelConfirm}
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    data-testid="step-confirm-force"
+                    disabled={controller.pending}
+                    onClick={() =>
+                      void controller.run({ ...controller.confirm!.call, force: true })
+                    }
+                  >
+                    {confirmLabel}
+                  </Button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+      {controller.publish
+        ? createPortal(
+            <PublishDialog
+              pending={controller.pending}
+              onCancel={controller.cancelPublish}
+              onSubmit={(publish) =>
+                void controller.run({ ...controller.publish!.call, force: true, publish })
+              }
+              idempotencyKey={controller.publish.key}
+            />,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
+function PublishDialog({
+  pending,
+  idempotencyKey,
+  onCancel,
+  onSubmit,
+}: {
+  pending: boolean;
+  idempotencyKey: string;
+  onCancel: () => void;
+  onSubmit: (publish: CommercialStepPublish) => void;
+}) {
+  const [bvid, setBvid] = useState('');
+  const [publishedAt, setPublishedAt] = useState('');
+  const [localError, setLocalError] = useState<string | null>(null);
+  return (
+    <div
+      data-step-layer="publish"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+    >
+      <form
+        role="dialog"
+        aria-modal="true"
+        data-testid="step-publish"
+        className="w-full max-w-md rounded-lg border bg-background p-4 text-sm shadow-lg"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const trimmed = bvid.trim();
+          if (!/^BV[0-9A-Za-z]+$/.test(trimmed)) {
+            setLocalError('请填写 BV 号');
+            return;
+          }
+          const stamp = publishedAt ? new Date(publishedAt).toISOString() : null;
+          if (publishedAt && Number.isNaN(Date.parse(stamp ?? ''))) {
+            setLocalError('发布时间无法读取');
+            return;
+          }
+          setLocalError(null);
+          onSubmit({
+            idempotencyKey,
+            platform: 'bilibili',
+            bvid: trimmed,
+            ...(stamp ? { publishedAt: stamp } : {}),
+            publishSource: 'web',
+          });
+        }}
+      >
+        <p className="font-medium">补上发布信息</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          发布节点要在同一次提交里记下 BV 号。取消则这次不会改任何节点，也不会请求外网。
+        </p>
+        <label className="mt-3 block space-y-1 text-xs text-muted-foreground">
+          BV 号
+          <Input
+            value={bvid}
+            data-testid="step-publish-bvid"
+            aria-label="BV 号"
+            onChange={(event) => setBvid(event.target.value)}
+          />
+        </label>
+        <label className="mt-2 block space-y-1 text-xs text-muted-foreground">
+          发布时间
+          <Input
+            type="datetime-local"
+            value={publishedAt}
+            data-testid="step-publish-at"
+            aria-label="发布时间"
+            onChange={(event) => setPublishedAt(event.target.value)}
+          />
+        </label>
+        {localError ? (
+          <p className="mt-2 text-xs text-destructive" role="alert">
+            {localError}
+          </p>
+        ) : null}
+        <div className="mt-3 flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="step-publish-cancel"
+            onClick={onCancel}
+          >
+            取消
+          </Button>
+          <Button type="submit" size="sm" disabled={pending} data-testid="step-publish-submit">
+            记录发布并继续
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}

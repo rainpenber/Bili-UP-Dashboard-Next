@@ -1,0 +1,323 @@
+import { describe, expect, test } from 'bun:test';
+import type { EngineEdge } from './engine';
+import { planNodeStep, planStageStep, type PlanNode, type StepPlan } from './step-plan';
+
+function node(
+  id: string,
+  name: string,
+  status: PlanNode['status'],
+  extra: Partial<PlanNode> = {},
+): PlanNode {
+  return {
+    id,
+    name,
+    status,
+    kind: extra.kind ?? 'stage',
+    templateSlug: extra.templateSlug ?? id,
+    statusBeforeBlock: extra.statusBeforeBlock ?? null,
+    blockItemId: extra.blockItemId ?? null,
+    blockingReason: extra.blockingReason ?? null,
+  };
+}
+
+const edges: EngineEdge[] = [
+  { fromNodeId: 'inquiry', toNodeId: 'outline' },
+  { fromNodeId: 'outline', toNodeId: 'copy' },
+  { fromNodeId: 'outline', toNodeId: 'pre_shoot' },
+  { fromNodeId: 'copy', toNodeId: 'merge' },
+  { fromNodeId: 'pre_shoot', toNodeId: 'merge' },
+  { fromNodeId: 'merge', toNodeId: 'a_roll' },
+  { fromNodeId: 'merge', toNodeId: 'b_roll' },
+  { fromNodeId: 'merge', toNodeId: 'ai_post' },
+  { fromNodeId: 'a_roll', toNodeId: 'review' },
+  { fromNodeId: 'b_roll', toNodeId: 'review' },
+  { fromNodeId: 'ai_post', toNodeId: 'review' },
+  { fromNodeId: 'review', toNodeId: 'publish' },
+  { fromNodeId: 'publish', toNodeId: 'settlement' },
+  { fromNodeId: 'publish', toNodeId: 'distribution' },
+  { fromNodeId: 'publish', toNodeId: 'data_maint' },
+  { fromNodeId: 'publish', toNodeId: 'other' },
+];
+
+function fresh(): PlanNode[] {
+  return [
+    node('inquiry', '询单', 'not_reached'),
+    node('outline', '大纲', 'not_reached'),
+    node('copy', '文案', 'not_reached'),
+    node('pre_shoot', '预拍摄', 'not_reached'),
+    node('merge', '汇合节点', 'not_reached', { kind: 'merge', templateSlug: 'merge' }),
+    node('a_roll', 'A-roll 拍摄', 'not_reached'),
+    node('b_roll', 'B-roll 素材', 'not_reached'),
+    node('ai_post', 'AI 后期', 'not_reached'),
+    node('review', '审核', 'not_reached'),
+    node('publish', '发布', 'not_reached'),
+    node('settlement', '结算', 'not_reached'),
+    node('distribution', '全平台分发', 'not_reached'),
+    node('data_maint', '数据维护', 'not_reached'),
+    node('other', '其他', 'not_reached'),
+  ];
+}
+
+function ok(plan: StepPlan) {
+  if (!plan.ok) throw new Error(`${plan.code} ${plan.error}`);
+  return plan;
+}
+
+function targets(plan: StepPlan): Record<string, string> {
+  const body = ok(plan);
+  return Object.fromEntries(body.effects.map((item) => [item.nodeId, item.to]));
+}
+
+describe('node step plan', () => {
+  test('advancing 文案 completes only its ancestors and leaves the parallel sibling', () => {
+    const plan = ok(planNodeStep(fresh(), edges, 'copy', 'forward'));
+    expect(plan.action).toBe('advance');
+    expect(targets(plan)).toEqual({
+      inquiry: 'completed',
+      outline: 'completed',
+      copy: 'in_progress',
+    });
+    expect(plan.publishNodeId).toBeNull();
+    expect(plan.blocks).toEqual([]);
+  });
+
+  test('completing 文案 does not complete 预拍摄', () => {
+    const nodes = fresh().map((item) => {
+      if (item.id === 'inquiry' || item.id === 'outline')
+        return { ...item, status: 'completed' as const };
+      if (item.id === 'copy') return { ...item, status: 'in_progress' as const };
+      return item;
+    });
+    const plan = ok(planNodeStep(nodes, edges, 'copy', 'forward'));
+    expect(plan.action).toBe('complete');
+    expect(targets(plan)).toEqual({ copy: 'completed' });
+  });
+
+  test('advancing A-roll completes both upstream branches and the merge, not B-roll', () => {
+    const plan = ok(planNodeStep(fresh(), edges, 'a_roll', 'forward'));
+    expect(targets(plan)).toEqual({
+      inquiry: 'completed',
+      outline: 'completed',
+      copy: 'completed',
+      pre_shoot: 'completed',
+      merge: 'completed',
+      a_roll: 'in_progress',
+    });
+    expect(targets(plan).b_roll).toBeUndefined();
+  });
+
+  test('a not_applicable merge stays untouched and does not hide unfinished ancestors', () => {
+    const nodes = fresh().map((item) =>
+      item.id === 'merge' ? { ...item, status: 'not_applicable' as const } : item,
+    );
+    const plan = ok(planNodeStep(nodes, edges, 'a_roll', 'forward'));
+    expect(plan.effects.some((item) => item.nodeId === 'merge')).toBe(false);
+    expect(targets(plan).copy).toBe('completed');
+    expect(targets(plan).pre_shoot).toBe('completed');
+    expect(targets(plan).a_roll).toBe('in_progress');
+  });
+
+  test('a blocked ancestor is listed and a blocked target only restores one step', () => {
+    const nodes = fresh().map((item) => {
+      if (item.id === 'outline') {
+        return {
+          ...item,
+          status: 'blocked' as const,
+          statusBeforeBlock: 'in_progress' as const,
+          blockItemId: 'item-1',
+          blockingReason: '等大纲',
+        };
+      }
+      return item;
+    });
+    const advance = ok(planNodeStep(nodes, edges, 'copy', 'forward'));
+    expect(advance.blocks).toEqual([
+      { nodeId: 'outline', nodeName: '大纲', reason: '等大纲', itemId: 'item-1' },
+    ]);
+    expect(targets(advance).outline).toBe('completed');
+    expect(targets(advance).copy).toBe('in_progress');
+
+    const blockedCopy = nodes.map((item) =>
+      item.id === 'copy'
+        ? {
+            ...item,
+            status: 'blocked' as const,
+            statusBeforeBlock: 'in_progress' as const,
+            blockItemId: 'item-2',
+            blockingReason: '等文案',
+          }
+        : item,
+    );
+    const restore = ok(planNodeStep(blockedCopy, edges, 'copy', 'forward'));
+    expect(restore.action).toBe('unblock');
+    expect(targets(restore)).toEqual({ copy: 'in_progress' });
+    expect(restore.blocks[0]?.reason).toBe('等文案');
+  });
+
+  test('a completed node plans nothing', () => {
+    const nodes = fresh().map((item) =>
+      item.id === 'copy' ? { ...item, status: 'completed' as const } : item,
+    );
+    const plan = planNodeStep(nodes, edges, 'copy', 'forward');
+    expect(plan.ok).toBe(false);
+    if (!plan.ok) expect(plan.error).toBe('节点已完成');
+  });
+
+  test('merge is not a step target', () => {
+    const plan = planNodeStep(fresh(), edges, 'merge', 'forward');
+    expect(plan.ok).toBe(false);
+  });
+
+  test('rollback is one step and rewinds only a transparent merge', () => {
+    const nodes = fresh().map((item) => {
+      if (['inquiry', 'outline', 'copy', 'pre_shoot', 'merge'].includes(item.id)) {
+        return { ...item, status: 'completed' as const };
+      }
+      return item;
+    });
+    const plan = ok(planNodeStep(nodes, edges, 'copy', 'rollback'));
+    expect(plan.action).toBe('rollback');
+    expect(targets(plan)).toEqual({ merge: 'not_reached', copy: 'in_progress' });
+    expect(targets(plan).pre_shoot).toBeUndefined();
+    expect(targets(plan).outline).toBeUndefined();
+  });
+
+  test('rollback refuses an advanced business successor and names it', () => {
+    const nodes = fresh().map((item) => {
+      if (['inquiry', 'outline', 'copy', 'pre_shoot', 'merge', 'a_roll'].includes(item.id)) {
+        return { ...item, status: 'completed' as const };
+      }
+      return item;
+    });
+    const plan = planNodeStep(nodes, edges, 'copy', 'rollback');
+    expect(plan.ok).toBe(false);
+    if (plan.ok) return;
+    expect(plan.code).toBe('successors_advanced');
+    expect(plan.successors.map((item) => item.nodeName)).toEqual(['A-roll 拍摄']);
+    expect(plan.names).not.toContain('汇合节点');
+  });
+});
+
+describe('stage step plan', () => {
+  test('the first production advance opens only the legal frontier', () => {
+    const plan = ok(planStageStep(fresh(), edges, 'production', 'forward'));
+    expect(plan.action).toBe('advance');
+    expect(targets(plan)).toEqual({
+      inquiry: 'completed',
+      outline: 'completed',
+      copy: 'completed',
+      pre_shoot: 'completed',
+      merge: 'completed',
+      a_roll: 'in_progress',
+      b_roll: 'in_progress',
+      ai_post: 'in_progress',
+    });
+    expect(targets(plan).review).toBeUndefined();
+  });
+
+  test('advancing 甲方审核 starts 审核 and leaves 发布 unstarted', () => {
+    const plan = ok(planStageStep(fresh(), edges, 'client_review', 'forward'));
+    expect(targets(plan).review).toBe('in_progress');
+    expect(targets(plan).publish).toBeUndefined();
+    expect(targets(plan).a_roll).toBe('completed');
+    expect(targets(plan).settlement).toBeUndefined();
+    expect(plan.publishNodeId).toBeNull();
+  });
+
+  test('completing 甲方审核 completes 审核 and 发布 and not the next stage', () => {
+    const nodes = fresh().map((item) => {
+      if (
+        [
+          'inquiry',
+          'outline',
+          'copy',
+          'pre_shoot',
+          'merge',
+          'a_roll',
+          'b_roll',
+          'ai_post',
+        ].includes(item.id)
+      ) {
+        return { ...item, status: 'completed' as const };
+      }
+      if (item.id === 'review') return { ...item, status: 'in_progress' as const };
+      return item;
+    });
+    const plan = ok(planStageStep(nodes, edges, 'client_review', 'forward'));
+    expect(plan.action).toBe('complete');
+    expect(targets(plan)).toEqual({ review: 'completed', publish: 'completed' });
+    expect(plan.publishNodeId).toBe('publish');
+    expect(targets(plan).settlement).toBeUndefined();
+  });
+
+  test('a second complete of a finished stage is refused', () => {
+    const nodes = fresh().map((item) =>
+      item.templateSlug === 'outline' ? { ...item, status: 'completed' as const } : item,
+    );
+    const plan = planStageStep(nodes, edges, 'write_outline', 'forward');
+    expect(plan.ok).toBe(false);
+    if (!plan.ok) expect(plan.error).toBe('阶段已完成');
+  });
+
+  test('rolling a finished serial stage moves only the exit back to in_progress', () => {
+    const nodes = fresh().map((item) => {
+      if (['review', 'publish', 'a_roll'].includes(item.id))
+        return { ...item, status: 'completed' as const };
+      return item;
+    });
+    const plan = ok(planStageStep(nodes, edges, 'client_review', 'rollback'));
+    expect(targets(plan)).toEqual({ publish: 'in_progress' });
+  });
+
+  test('rolling an in-progress stage returns its members to not_reached and keeps other stages', () => {
+    const nodes = fresh().map((item) => {
+      if (['inquiry', 'outline', 'copy', 'pre_shoot', 'merge'].includes(item.id)) {
+        return { ...item, status: 'completed' as const };
+      }
+      if (['a_roll', 'b_roll', 'ai_post'].includes(item.id))
+        return { ...item, status: 'in_progress' as const };
+      return item;
+    });
+    const plan = ok(planStageStep(nodes, edges, 'production', 'rollback'));
+    expect(targets(plan)).toEqual({
+      a_roll: 'not_reached',
+      b_roll: 'not_reached',
+      ai_post: 'not_reached',
+    });
+  });
+
+  test('stage rollback refuses outside successors and does not list the merge', () => {
+    const nodes = fresh().map((item) => {
+      if (item.id === 'settlement') return { ...item, status: 'in_progress' as const };
+      if (['review', 'publish'].includes(item.id)) return { ...item, status: 'completed' as const };
+      return item;
+    });
+    const plan = planStageStep(nodes, edges, 'client_review', 'rollback');
+    expect(plan.ok).toBe(false);
+    if (plan.ok) return;
+    expect(plan.successors.map((item) => item.nodeId)).toEqual(['settlement']);
+  });
+
+  test('a blocked stage complete lists the block and still scopes to that stage', () => {
+    const nodes = fresh().map((item) => {
+      if (item.id === 'copy') {
+        return {
+          ...item,
+          status: 'blocked' as const,
+          blockItemId: 'item-copy',
+          blockingReason: '甲方未回',
+          statusBeforeBlock: 'in_progress' as const,
+        };
+      }
+      if (item.id === 'pre_shoot') return { ...item, status: 'in_progress' as const };
+      if (item.id === 'inquiry' || item.id === 'outline')
+        return { ...item, status: 'completed' as const };
+      return item;
+    });
+    const plan = ok(planStageStep(nodes, edges, 'copy_prep', 'forward'));
+    expect(plan.action).toBe('complete');
+    expect(targets(plan)).toEqual({ copy: 'completed', pre_shoot: 'completed' });
+    expect(plan.blocks.map((item) => item.nodeId)).toEqual(['copy']);
+    expect(targets(plan).a_roll).toBeUndefined();
+  });
+});

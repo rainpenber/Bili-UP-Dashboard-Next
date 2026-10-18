@@ -1,4 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import {
+  NodeStepActions,
+  PlanEditButton,
+  StageStepBar,
+  StepNotices,
+  stageHint,
+  useStepController,
+  type StepEditor,
+} from './stage-step-controls';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -289,10 +298,36 @@ function PlanFields({ child, editor }: { child: TimelineChild; editor: PlanEdito
   );
 }
 
-function StageDetailBody({ stage, planEditor }: { stage: DerivedStage; planEditor?: PlanEditor }) {
+function StageDetailBody({
+  stage,
+  planEditor,
+  stepEditor,
+  step,
+}: {
+  stage: DerivedStage;
+  planEditor?: PlanEditor;
+  stepEditor?: StepEditor;
+  step: ReturnType<typeof useStepController> | null;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const hint = step ? stageHint(stage.status) : null;
   return (
     <div className="pb-1">
-      <p className="mb-2 font-medium">{stage.label}</p>
+      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="min-w-0">
+          <p className="font-medium">{stage.label}</p>
+          {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+        </div>
+        {step && stepEditor && !stepEditor.disabled ? (
+          <StageStepBar
+            stageId={stage.id}
+            status={stage.status}
+            members={stage.children}
+            controller={step}
+          />
+        ) : null}
+      </div>
+      {step ? <StepNotices controller={step} /> : null}
       {stage.children.length === 0 ? (
         <p className="text-muted-foreground">这个阶段还没有子节点。</p>
       ) : (
@@ -303,14 +338,15 @@ function StageDetailBody({ stage, planEditor }: { stage: DerivedStage; planEdito
           {stage.children.map((child) => (
             <article
               key={child.id}
-              className="rounded-lg border bg-background px-3 py-3 shadow-sm"
+              className="min-w-0 rounded-lg border bg-background px-3 py-3 shadow-sm"
               data-testid="progress-stage-node"
               data-node-id={child.nodeId}
-              data-status={child.demoStatus}
+              data-status={child.status}
+              data-demo-status={child.demoStatus}
               data-workflow-status={child.status}
             >
               <div className="flex items-start justify-between gap-2">
-                <h4 className="font-medium leading-snug">{child.name}</h4>
+                <h4 className="min-w-0 font-medium leading-snug">{child.name}</h4>
                 <Badge variant={statusBadgeVariant(child.demoStatus)}>{child.statusLabel}</Badge>
               </div>
               {child.status === 'blocked' ? (
@@ -327,12 +363,27 @@ function StageDetailBody({ stage, planEditor }: { stage: DerivedStage; planEdito
                   实际 {formatScheduleLabel(child.completedAt)}
                 </p>
               ) : null}
-              {planEditor && !planEditor.disabled ? (
+              <div className="mt-2 flex items-center justify-between gap-2">
+                {child.plannedAt ? (
+                  <p className="text-xs text-muted-foreground">
+                    计划 {formatScheduleLabel(child.plannedAt)}
+                  </p>
+                ) : (
+                  <span />
+                )}
+                {planEditor && !planEditor.disabled ? (
+                  <PlanEditButton
+                    name={child.name}
+                    nodeId={child.nodeId}
+                    onOpen={() => setEditingId(child.id)}
+                  />
+                ) : null}
+              </div>
+              {planEditor && !planEditor.disabled && editingId === child.id ? (
                 <PlanFields child={child} editor={planEditor} />
-              ) : child.plannedAt ? (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  计划 {formatScheduleLabel(child.plannedAt)}
-                </p>
+              ) : null}
+              {step && stepEditor && !stepEditor.disabled ? (
+                <NodeStepActions child={child} controller={step} />
               ) : null}
             </article>
           ))}
@@ -345,9 +396,13 @@ function StageDetailBody({ stage, planEditor }: { stage: DerivedStage; planEdito
 function StageDetail({
   stage,
   planEditor,
+  stepEditor,
+  step,
 }: {
   stage: DerivedStage | null;
   planEditor?: PlanEditor;
+  stepEditor?: StepEditor;
+  step: ReturnType<typeof useStepController> | null;
 }) {
   const [grown, setGrown] = useState(false);
   const open = Boolean(stage);
@@ -376,11 +431,12 @@ function StageDetail({
       >
         <div className="overflow-hidden">
           {stage ? (
-            planEditor ? (
-              <StageDetailBody stage={stage} planEditor={planEditor} />
-            ) : (
-              <StageDetailBody stage={stage} />
-            )
+            <StageDetailBody
+              stage={stage}
+              {...(planEditor ? { planEditor } : {})}
+              {...(stepEditor ? { stepEditor } : {})}
+              step={step}
+            />
           ) : null}
         </div>
       </div>
@@ -394,15 +450,18 @@ function StageDetail({
 export function ProgressTimeline({
   nodes,
   planEditor,
+  stepEditor,
 }: {
   nodes: TimelineSourceNode[];
   planEditor?: PlanEditor;
+  stepEditor?: StepEditor;
 }) {
   const timeline = deriveProgressTimeline(nodes);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const openStage = timeline.stages.find((stage) => stage.id === selectedId) ?? null;
+  const step = useStepController(stepEditor, (stageId) => setSelectedId(stageId));
   const tipId = hoverId ?? focusId;
   const tipStage = timeline.stages.find((stage) => stage.id === tipId) ?? null;
   const shownTip = useRef<DerivedStage | null>(null);
@@ -429,12 +488,24 @@ export function ProgressTimeline({
       if (target.closest('[data-testid="progress-stage"]')) return;
       if (target.closest('[data-testid="progress-stage-tooltip"]')) return;
       if (target.closest('[data-testid="progress-stage-detail"]')) return;
+      if (target.closest('[data-testid="step-confirm"]')) return;
+      if (target.closest('[data-testid="step-publish"]')) return;
+      if (target.closest('[data-step-layer]')) return;
       if (target.closest('[data-testid="progress-schedule-overlay"]')) return;
       if (target.closest('[data-testid="progress-summary-schedule"]')) return;
       setSelectedId(null);
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelectedId(null);
+      if (event.key !== 'Escape') return;
+      if (step.confirm) {
+        step.cancelConfirm();
+        return;
+      }
+      if (step.publish) {
+        step.cancelPublish();
+        return;
+      }
+      setSelectedId(null);
     };
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
@@ -442,7 +513,7 @@ export function ProgressTimeline({
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [selectedId]);
+  }, [selectedId, step]);
 
   return (
     <Card>
@@ -519,11 +590,12 @@ export function ProgressTimeline({
             <RecordOverlayList items={childItems(overlayStage)} />
           ) : null}
         </AnchoredRecordOverlay>
-        {planEditor ? (
-          <StageDetail stage={openStage} planEditor={planEditor} />
-        ) : (
-          <StageDetail stage={openStage} />
-        )}
+        <StageDetail
+          stage={openStage}
+          {...(planEditor ? { planEditor } : {})}
+          {...(stepEditor ? { stepEditor } : {})}
+          step={stepEditor ? step : null}
+        />
       </CardContent>
     </Card>
   );
