@@ -7,7 +7,7 @@
 只看商单详情里的 `publish.published` 和 `publish.bvid`。未发布不挂载视频数据区，也不请求监控接口。已发布时先请求 `GET /api/v1/monitor/videos/:bvid`：
 
 - 404（`not found`）表示这个 BV 不在监控库，显示「暂未接入监控」，不再请求指标。
-- 视频存在后才请求 `GET /api/v1/monitor/videos/:bvid/metrics`。空列表表示已接入但无采样，不绘制曲线。
+- 视频存在后才请求 `GET /api/v1/monitor/videos/:bvid/metrics`。空列表表示已接入但无采样，不绘制曲线。返回窗口是过滤后最新的 `limit` 条，按采样时间从早到晚排列；`newestMetricPoint` 取时间最大的一点。项目页和监控详情因此看到同一次采样，而不是被上限截掉的早期末点。
 - 其他读取失败留在这一块里，带重试。时间轴、概要和节点图继续可用。
 
 不使用 `project_monitor_contracts.linked_bvid` 或按标题猜测另一个视频。播放量与在线观看各自取 `viewCount` 和 `onlineViewers` / `onlineViewersRaw`。`null` 保持为空，不写成 0。评论没有历史数值时不补评论曲线。

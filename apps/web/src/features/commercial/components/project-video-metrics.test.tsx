@@ -2,8 +2,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { VideoMetricPoint } from '@studio/contracts';
+import {
+  formatOnlineViewersDisplay,
+  formatUnknownMetric,
+  formatViewCountDisplay,
+} from '@/lib/format-compact-number';
+import { formatFullLocalTime } from '@/lib/format-time';
 
 mock.module('echarts-for-react', () => ({
   default: React.forwardRef(function MockECharts(
@@ -19,7 +25,9 @@ mock.module('echarts-for-react', () => ({
 }));
 
 const { LiveProjectWorkflow } = await import('./live-project-workflow');
+const { ProjectVideoMetrics } = await import('./project-video-metrics');
 const { MetricCharts } = await import('@/features/monitoring/MetricCharts');
+const { MonitoringVideoDetailPage } = await import('@/pages/monitoring-video-detail-page');
 
 const originalFetch = globalThis.fetch;
 
@@ -405,6 +413,83 @@ describe('published project video metrics', () => {
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(await screen.findByTestId('metric-charts-columns')).toBeTruthy();
     expect(screen.getByTestId('metric-chart-playback').textContent).toContain('8千');
+  });
+});
+
+describe('newest sample is the displayed latest value', () => {
+  test('project page and monitoring detail agree on the newest point, not the window start', async () => {
+    const windowBvid = 'BVWINDOW01';
+    const olderAt = '2025-05-17T09:52:00.000Z';
+    const newestAt = '2026-10-12T11:09:00.000Z';
+    const items = [
+      point({
+        sampledAt: olderAt,
+        viewCount: '40889',
+        onlineViewers: '4',
+        likeCount: '100',
+      }),
+      point({
+        sampledAt: newestAt,
+        viewCount: '55300',
+        onlineViewers: '1',
+        likeCount: '1356',
+      }),
+    ];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/metrics')) return jsonResponse({ bvid: windowBvid, limit: 500, items });
+      if (url.includes('/api/v1/monitor/videos/')) {
+        return jsonResponse({ ...videoDetailBody(), bvid: windowBvid, title: '历史视频' });
+      }
+      return jsonResponse({ error: 'unexpected' }, 500);
+    }) as typeof fetch;
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <ProjectVideoMetrics bvid={windowBvid} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const project = await screen.findByTestId('project-video-metrics');
+    const playback = await screen.findByTestId('project-video-playback-latest');
+    expect(playback.querySelector('[data-metric="viewCount"]')?.textContent).toBe(
+      formatViewCountDisplay('55300'),
+    );
+    expect(playback.querySelector('[data-metric="onlineViewers"]')?.textContent).toBe(
+      formatOnlineViewersDisplay('1', null),
+    );
+    expect(playback.querySelector('[data-metric="viewCount"]')?.textContent).not.toBe(
+      formatViewCountDisplay('40889'),
+    );
+    expect(project.textContent).toContain(formatFullLocalTime(newestAt));
+    expect(project.textContent).not.toContain(formatFullLocalTime(olderAt));
+    expect(
+      screen
+        .getByTestId('project-video-engagement-latest')
+        .querySelector('[data-metric="likeCount"]')?.textContent,
+    ).toBe(formatUnknownMetric('1356'));
+    cleanup();
+
+    const detailClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={detailClient}>
+        <MemoryRouter initialEntries={[`/monitoring/videos/${windowBvid}`]}>
+          <Routes>
+            <Route path="/monitoring/videos/:bvid" element={<MonitoringVideoDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText('历史视频');
+    expect(document.body.textContent).toContain(formatViewCountDisplay('55300'));
+    expect(document.body.textContent).toContain(formatOnlineViewersDisplay('1', null));
+    expect(document.querySelector(`[title="${formatFullLocalTime(newestAt)}"]`)).toBeTruthy();
+    expect(document.body.textContent).not.toContain(formatViewCountDisplay('40889'));
+    expect(screen.queryByTestId('metric-charts-columns')).toBeNull();
   });
 });
 

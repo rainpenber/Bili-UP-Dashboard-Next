@@ -117,6 +117,27 @@ export function parseMetricsLimit(raw: string | undefined): number {
   return Math.min(MONITOR_MAX_METRICS_LIMIT, Math.floor(n));
 }
 
+/**
+ * Newest sample in a metrics payload.
+ * Series endpoints return a bounded chronological window whose last point is the
+ * newest row matching the filter, not the oldest page of history.
+ */
+export function newestMetricPoint<T extends { sampledAt: string }>(
+  points: readonly T[],
+): T | undefined {
+  let newest: T | undefined;
+  let newestMs = Number.NEGATIVE_INFINITY;
+  for (const point of points) {
+    const ms = Date.parse(point.sampledAt);
+    if (Number.isNaN(ms)) continue;
+    if (!newest || ms >= newestMs) {
+      newest = point;
+      newestMs = ms;
+    }
+  }
+  return newest;
+}
+
 export function parseIsoDateParam(raw: string | undefined, name: string): Date | null {
   if (!raw) return null;
   const d = new Date(raw);

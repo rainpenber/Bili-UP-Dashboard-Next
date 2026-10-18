@@ -169,12 +169,17 @@ export function createMonitorRoutes(db: Sql) {
       >`
         SELECT sampled_at, raw_time, source_timezone, timestamp_precision,
           view_count, online_viewers, online_viewers_raw, like_count, coin_count, favorite_count, share_count, danmaku_count, comment_count
-        FROM video_metric_samples
-        WHERE bvid = ${bvid}
-        AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
-        AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+        FROM (
+          SELECT sampled_at, raw_time, source_timezone, timestamp_precision,
+            view_count, online_viewers, online_viewers_raw, like_count, coin_count, favorite_count, share_count, danmaku_count, comment_count
+          FROM video_metric_samples
+          WHERE bvid = ${bvid}
+          AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
+          AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+          ORDER BY sampled_at DESC
+          LIMIT ${limit}
+        ) recent
         ORDER BY sampled_at ASC
-        LIMIT ${limit}
       `;
       const items: VideoMetricPoint[] = rows.map((r) => ({
         sampledAt: r.sampled_at.toISOString(),
@@ -307,12 +312,16 @@ export function createMonitorRoutes(db: Sql) {
       const limit = parseMetricsLimit(c.req.query('limit'));
       const rows = await db`
         SELECT sampled_at, raw_time, source_timezone, timestamp_precision, follower_count
-        FROM creator_follower_samples
-        WHERE mid = ${mid}
-        AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
-        AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+        FROM (
+          SELECT sampled_at, raw_time, source_timezone, timestamp_precision, follower_count
+          FROM creator_follower_samples
+          WHERE mid = ${mid}
+          AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
+          AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+          ORDER BY sampled_at DESC
+          LIMIT ${limit}
+        ) recent
         ORDER BY sampled_at ASC
-        LIMIT ${limit}
       `;
       const typedRows = rows as unknown as {
         sampled_at: Date;
@@ -449,12 +458,16 @@ export function createMonitorRoutes(db: Sql) {
         }[]
       >`
         SELECT sampled_at, raw_time, source_timezone, timestamp_precision, like_count, repost_count, comment_count
-        FROM dynamic_metric_samples
-        WHERE dynamic_id = ${dynamicId}
-        AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
-        AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+        FROM (
+          SELECT sampled_at, raw_time, source_timezone, timestamp_precision, like_count, repost_count, comment_count
+          FROM dynamic_metric_samples
+          WHERE dynamic_id = ${dynamicId}
+          AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
+          AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+          ORDER BY sampled_at DESC
+          LIMIT ${limit}
+        ) recent
         ORDER BY sampled_at ASC
-        LIMIT ${limit}
       `;
       const items: DynamicMetricPoint[] = rows.map((r) => ({
         sampledAt: r.sampled_at.toISOString(),

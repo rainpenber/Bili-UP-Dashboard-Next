@@ -1,3 +1,4 @@
+import { newestMetricPoint } from '@studio/contracts';
 import { useParams } from 'react-router-dom';
 import {
   useDynamicDetailQuery,
@@ -30,7 +31,7 @@ export function MonitoringDynamicDetailPage() {
   }
 
   const d = detailQuery.data;
-  const latest = metricsQuery.data?.items.at(-1);
+  const latest = newestMetricPoint(metricsQuery.data?.items ?? []);
 
   return (
     <MonitoringDetailLayout

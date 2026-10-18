@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import type { VideoMetricPoint } from '@studio/contracts';
+import { newestMetricPoint, type VideoMetricPoint } from '@studio/contracts';
 import { useVideoDetailQuery, useVideoMetricsDetailQuery } from '@/api/hooks/use-monitor-queries';
 import { ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
 import { Button } from '@/components/ui/button';
@@ -103,7 +103,7 @@ export function ProjectVideoMetrics({ bvid }: { bvid: string }) {
   const detailQuery = useVideoDetailQuery(bvid);
   const metricsQuery = useVideoMetricsDetailQuery(bvid, detailQuery.isSuccess);
   const notFound = detailQuery.isError && isMonitorNotFound(detailQuery.error);
-  const latest = metricsQuery.data?.items.at(-1);
+  const latest = newestMetricPoint(metricsQuery.data?.items ?? []);
 
   let body: ReactNode;
   if (detailQuery.isPending) {
@@ -139,7 +139,7 @@ export function ProjectVideoMetrics({ bvid }: { bvid: string }) {
       </p>
     );
   } else {
-    const point = latest ?? metricsQuery.data.items[0];
+    const point = latest;
     body = point ? (
       <MetricCharts
         kind="video"
