@@ -290,17 +290,34 @@ describe('published project video metrics', () => {
     expect(playback.textContent).toContain('播放');
     expect(engagement.textContent).toContain('互动');
 
-    const view = playback.querySelector('[data-metric="viewCount"]');
-    const online = playback.querySelector('[data-metric="onlineViewers"]');
-    expect(view?.textContent).toBe('8千');
-    expect(online?.textContent).toBe('15');
-    expect(view?.textContent).not.toBe(online?.textContent);
-    expect(engagement.querySelector('[data-metric="likeCount"]')?.textContent).toBe('12');
-    expect(engagement.querySelector('[data-metric="coinCount"]')?.textContent).toBe('4');
-    expect(engagement.querySelector('[data-metric="favoriteCount"]')?.textContent).toBe('6');
-    expect(engagement.querySelector('[data-metric="danmakuCount"]')?.textContent).toBe('13');
-    expect(engagement.querySelector('[data-metric="shareCount"]')?.textContent).toBe('8');
-    expect(engagement.querySelector('[data-metric="commentCount"]')?.textContent).toBe('2');
+    const latestSummary = screen.getByTestId('project-video-latest-summary');
+    expect(screen.getAllByTestId('project-video-latest-summary')).toHaveLength(1);
+    expect(columns.contains(latestSummary)).toBe(false);
+    expect(playback.contains(latestSummary)).toBe(false);
+    expect(engagement.contains(latestSummary)).toBe(false);
+    expect(follows(latestSummary, columns)).toBe(true);
+    expect(latestSummary.className).toContain('flex-wrap');
+    expect(latestSummary.querySelector('[data-metric="onlineViewers"]')).toBeNull();
+    expect(latestSummary.textContent).not.toContain('在线');
+    const metricOrder = [...latestSummary.querySelectorAll('[data-metric]')].map((item) =>
+      item.getAttribute('data-metric'),
+    );
+    expect(metricOrder).toEqual([
+      'viewCount',
+      'likeCount',
+      'coinCount',
+      'favoriteCount',
+      'danmakuCount',
+      'shareCount',
+      'commentCount',
+    ]);
+    expect(latestSummary.querySelector('[data-metric="viewCount"]')?.textContent).toBe('8千');
+    expect(latestSummary.querySelector('[data-metric="likeCount"]')?.textContent).toBe('12');
+    expect(latestSummary.querySelector('[data-metric="coinCount"]')?.textContent).toBe('4');
+    expect(latestSummary.querySelector('[data-metric="favoriteCount"]')?.textContent).toBe('6');
+    expect(latestSummary.querySelector('[data-metric="danmakuCount"]')?.textContent).toBe('13');
+    expect(latestSummary.querySelector('[data-metric="shareCount"]')?.textContent).toBe('8');
+    expect(latestSummary.querySelector('[data-metric="commentCount"]')?.textContent).toBe('2');
     expect(video.textContent).toContain('最近更新');
 
     await waitFor(() => {
@@ -412,7 +429,8 @@ describe('published project video metrics', () => {
     expect(await screen.findByText('database unavailable')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(await screen.findByTestId('metric-charts-columns')).toBeTruthy();
-    expect(screen.getByTestId('metric-chart-playback').textContent).toContain('8千');
+    expect(screen.getByTestId('project-video-latest-summary').textContent).toContain('8千');
+    expect(screen.getByTestId('metric-chart-playback').querySelector('[data-metric]')).toBeNull();
   });
 });
 
@@ -454,23 +472,24 @@ describe('newest sample is the displayed latest value', () => {
     );
 
     const project = await screen.findByTestId('project-video-metrics');
-    const playback = await screen.findByTestId('project-video-playback-latest');
-    expect(playback.querySelector('[data-metric="viewCount"]')?.textContent).toBe(
+    const latestSummary = await screen.findByTestId('project-video-latest-summary');
+    expect(latestSummary.querySelector('[data-metric="viewCount"]')?.textContent).toBe(
       formatViewCountDisplay('55300'),
     );
-    expect(playback.querySelector('[data-metric="onlineViewers"]')?.textContent).toBe(
-      formatOnlineViewersDisplay('1', null),
-    );
-    expect(playback.querySelector('[data-metric="viewCount"]')?.textContent).not.toBe(
+    expect(latestSummary.querySelector('[data-metric="onlineViewers"]')).toBeNull();
+    expect(latestSummary.textContent).not.toContain('在线');
+    expect(latestSummary.querySelector('[data-metric="viewCount"]')?.textContent).not.toBe(
       formatViewCountDisplay('40889'),
     );
+    expect(latestSummary.querySelector('[data-metric="coinCount"]')?.textContent).toBe(
+      formatUnknownMetric(null),
+    );
+    expect(latestSummary.querySelector('[data-metric="coinCount"]')?.textContent).not.toBe('0');
     expect(project.textContent).toContain(formatFullLocalTime(newestAt));
     expect(project.textContent).not.toContain(formatFullLocalTime(olderAt));
-    expect(
-      screen
-        .getByTestId('project-video-engagement-latest')
-        .querySelector('[data-metric="likeCount"]')?.textContent,
-    ).toBe(formatUnknownMetric('1356'));
+    expect(latestSummary.querySelector('[data-metric="likeCount"]')?.textContent).toBe(
+      formatUnknownMetric('1356'),
+    );
     cleanup();
 
     const detailClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

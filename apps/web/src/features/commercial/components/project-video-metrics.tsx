@@ -6,11 +6,7 @@ import { ErrorState, LoadingListSkeleton } from '@/components/states/async-state
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
-import {
-  formatOnlineViewersDisplay,
-  formatUnknownMetric,
-  formatViewCountDisplay,
-} from '@/lib/format-compact-number';
+import { formatUnknownMetric, formatViewCountDisplay } from '@/lib/format-compact-number';
 import { formatFullLocalTime } from '@/lib/format-time';
 
 function isMonitorNotFound(error: unknown): boolean {
@@ -22,27 +18,9 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '加载失败';
 }
 
-function PlaybackLatest({ latest }: { latest: VideoMetricPoint }) {
-  return (
-    <dl className="grid grid-cols-2 gap-2 text-sm" data-testid="project-video-playback-latest">
-      <div>
-        <dt className="text-muted-foreground">播放</dt>
-        <dd className="font-medium tabular-nums" data-metric="viewCount">
-          {formatViewCountDisplay(latest.viewCount)}
-        </dd>
-      </div>
-      <div>
-        <dt className="text-muted-foreground">在线观看</dt>
-        <dd className="font-medium tabular-nums" data-metric="onlineViewers">
-          {formatOnlineViewersDisplay(latest.onlineViewers, latest.onlineViewersRaw)}
-        </dd>
-      </div>
-    </dl>
-  );
-}
-
-function EngagementLatest({ latest }: { latest: VideoMetricPoint }) {
+function LatestSummary({ latest }: { latest: VideoMetricPoint }) {
   const rows = [
+    ['播放', 'viewCount', formatViewCountDisplay(latest.viewCount)],
     ['点赞', 'likeCount', formatUnknownMetric(latest.likeCount)],
     ['投币', 'coinCount', formatUnknownMetric(latest.coinCount)],
     ['收藏', 'favoriteCount', formatUnknownMetric(latest.favoriteCount)],
@@ -51,9 +29,12 @@ function EngagementLatest({ latest }: { latest: VideoMetricPoint }) {
     ['评论', 'commentCount', formatUnknownMetric(latest.commentCount)],
   ] as const;
   return (
-    <dl className="grid grid-cols-3 gap-2 text-sm" data-testid="project-video-engagement-latest">
+    <dl
+      className="flex max-w-full flex-wrap gap-x-4 gap-y-1 text-sm"
+      data-testid="project-video-latest-summary"
+    >
       {rows.map(([label, metric, value]) => (
-        <div key={metric}>
+        <div key={metric} className="flex items-baseline gap-1 whitespace-nowrap">
           <dt className="text-muted-foreground">{label}</dt>
           <dd className="font-medium tabular-nums" data-metric={metric}>
             {value}
@@ -141,13 +122,10 @@ export function ProjectVideoMetrics({ bvid }: { bvid: string }) {
   } else {
     const point = latest;
     body = point ? (
-      <MetricCharts
-        kind="video"
-        layout="columns"
-        points={metricsQuery.data.items}
-        playbackSummary={<PlaybackLatest latest={point} />}
-        engagementSummary={<EngagementLatest latest={point} />}
-      />
+      <div className="min-w-0 space-y-3">
+        <LatestSummary latest={point} />
+        <MetricCharts kind="video" layout="columns" points={metricsQuery.data.items} />
+      </div>
     ) : null;
   }
 
