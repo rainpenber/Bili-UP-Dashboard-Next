@@ -35,6 +35,26 @@ import { AnchoredRecordOverlay, RecordOverlayList, type RecordOverlayItem } from
 /** Bottom of the stage wash. 0x1f / 255 ≈ 0.12, inside the 0.10–0.14 band. */
 const HIGHLIGHT_ALPHA = '1f';
 
+function isStageChrome(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    Boolean(
+      target.closest('[data-testid="progress-stage-tooltip"]') ||
+      target.closest('[data-testid="progress-stage"]'),
+    )
+  );
+}
+
+/** Keyboard focus is actually inside this stage trigger or its tooltip, not a stale id. */
+function stageChromeHoldsFocus(stageId: string): boolean {
+  const active = document.activeElement;
+  if (!(active instanceof Element) || active === document.body) return false;
+  const tip = active.closest('[data-testid="progress-stage-tooltip"]');
+  if (tip?.getAttribute('data-stage-id') === stageId) return true;
+  const stage = active.closest('[data-testid="progress-stage"]');
+  return stage?.getAttribute('data-stage-id') === stageId;
+}
+
 export type PlanEditor = {
   disabled: boolean;
   savingId: string | null;
@@ -509,6 +529,9 @@ export function ProgressTimeline({
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null;
       setHoverId((current) => (current === id ? null : current));
+      if (!stageChromeHoldsFocus(id)) {
+        setFocusId((current) => (current === id ? null : current));
+      }
     }, 140);
   };
   const dismissTransient = () => {
@@ -647,6 +670,14 @@ export function ProgressTimeline({
           onFocus={(event) => {
             const id = event.currentTarget.getAttribute('data-stage-id');
             if (id) setFocusId(id);
+          }}
+          onBlur={(event) => {
+            const id = event.currentTarget.getAttribute('data-stage-id');
+            if (!id) return;
+            const next = event.relatedTarget;
+            if (isStageChrome(next)) return;
+            if (next == null && stageChromeHoldsFocus(id)) return;
+            setFocusId((current) => (current === id ? null : current));
           }}
           onKeyDown={(event) => {
             if (event.key !== 'Tab' || !event.shiftKey) return;

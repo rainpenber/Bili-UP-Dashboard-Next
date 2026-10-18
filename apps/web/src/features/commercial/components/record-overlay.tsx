@@ -102,6 +102,7 @@ export function AnchoredRecordOverlay({
   onPointerLeave,
   onKeyDown,
   onFocus,
+  onBlur,
   children,
 }: {
   open: boolean;
@@ -116,6 +117,7 @@ export function AnchoredRecordOverlay({
   onPointerLeave: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onKeyDown?: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
   onFocus?: (event: ReactFocusEvent<HTMLDivElement>) => void;
+  onBlur?: (event: ReactFocusEvent<HTMLDivElement>) => void;
   children: ReactNode;
 }) {
   const headingId = useId();
@@ -176,6 +178,7 @@ export function AnchoredRecordOverlay({
       onPointerLeave={onPointerLeave}
       onKeyDown={onKeyDown}
       onFocus={onFocus}
+      onBlur={onBlur}
     >
       <span className="record-overlay-arrow" aria-hidden />
       <p id={headingId} className="record-overlay-heading">

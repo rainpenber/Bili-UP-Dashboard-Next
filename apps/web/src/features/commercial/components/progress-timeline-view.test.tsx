@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { MemoryRouter } from 'react-router-dom';
 import { LiveProjectWorkflow } from './live-project-workflow';
@@ -1641,5 +1641,127 @@ describe('stage tooltip quick actions', () => {
     fireEvent.click(retry);
     await waitFor(() => expect(calls.filter((call) => call.force === false).length).toBe(3));
     expect(screen.queryByTestId('step-error')).toBeNull();
+  });
+
+  test('native tooltip activation does not pin the overlay after focus and pointer both leave', async () => {
+    const calls: StepCall[] = [];
+    render(
+      <ProgressTimeline
+        nodes={[
+          stamped('outline', '大纲', 'not_reached'),
+          stamped('review', '审核', 'completed'),
+          stamped('publish', '发布', 'not_reached'),
+          stamped('distribution', '全平台分发', 'not_reached'),
+          stamped('settlement', '结算', 'not_reached'),
+        ]}
+        stepEditor={{
+          disabled: false,
+          onRefresh: () => undefined,
+          recordedPublish: {
+            bvid: 'BV1xx411c7mD',
+            publishedAt: '2026-05-20T12:00:00.000Z',
+            idempotencyKey: 'publish-key-1',
+          },
+          onStep: async (call) => {
+            calls.push(call);
+            if (call.stageId === 'distribution_settlement' && call.publish == null) {
+              const refused: StepResult = {
+                ok: false,
+                message: '发布节点要补上已有记录',
+                code: 'publish_required',
+                blocks: [],
+                effects: [],
+                successors: [],
+              };
+              return refused;
+            }
+            return { ok: true };
+          },
+        }}
+      />,
+    );
+    const review = stageButton('client_review');
+    const settlement = stageButton('distribution_settlement');
+    fireEvent.pointerDown(review, { pointerType: 'mouse' });
+    fireEvent.click(review);
+    expect(review.getAttribute('data-selected')).toBe('true');
+
+    fireEvent.pointerMove(settlement);
+    const tip = await screen.findByTestId('progress-stage-tooltip');
+    expect(tip.getAttribute('data-stage-id')).toBe('distribution_settlement');
+    fireEvent.pointerLeave(settlement, { relatedTarget: document.body });
+    await wait(40);
+    expect(screen.getByTestId('progress-stage-tooltip')).toBe(tip);
+    fireEvent.pointerEnter(tip);
+
+    const forward = within(tip).getByTestId('stage-step');
+    expect(forward.textContent).toBe('推进');
+    await act(async () => {
+      forward.focus();
+      forward.click();
+    });
+    expect(document.activeElement).toBe(forward);
+
+    const dialog = await screen.findByTestId('step-publish');
+    expect((within(dialog).getByTestId('step-publish-bvid') as HTMLInputElement).value).toBe(
+      'BV1xx411c7mD',
+    );
+    await act(async () => {
+      screen.getByTestId('step-publish-cancel').click();
+    });
+    await waitFor(() => expect(screen.queryByTestId('step-publish')).toBeNull());
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.publish ?? null).toBeNull();
+    expect(screen.getByTestId('progress-stage-tooltip').getAttribute('data-stage-id')).toBe(
+      'distribution_settlement',
+    );
+    expect(review.getAttribute('data-selected')).toBe('true');
+
+    const openTip = screen.getByTestId('progress-stage-tooltip');
+    fireEvent.pointerLeave(openTip, { relatedTarget: document.body });
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    await wait(450);
+    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+    expect(settlement.getAttribute('data-state')).toBe('closed');
+    expect(review.getAttribute('data-selected')).toBe('true');
+    expect(review.getAttribute('aria-expanded')).toBe('true');
+    expect(document.activeElement).toBe(document.body);
+    expect(screen.getByTestId('progress-stage-detail').textContent).toContain('甲方审核');
+    expect(screen.getByTestId('progress-stage-detail').textContent).not.toContain('分发结算');
+    expect(calls).toHaveLength(1);
+
+    fireEvent.pointerMove(stageButton('write_outline'));
+    const outlineTip = await screen.findByTestId('progress-stage-tooltip');
+    const outlineForward = within(outlineTip).getByTestId('stage-step');
+    outlineForward.focus();
+    outlineForward.click();
+    expect(calls.at(-1)).toMatchObject({
+      kind: 'stage',
+      stageId: 'write_outline',
+      direction: 'forward',
+    });
+    fireEvent.pointerLeave(outlineTip, { relatedTarget: document.body });
+    await wait(40);
+    expect(screen.getByTestId('progress-stage-tooltip').getAttribute('data-stage-id')).toBe(
+      'write_outline',
+    );
+    expect(document.activeElement).toBe(outlineForward);
+    fireEvent.blur(outlineForward, { relatedTarget: document.body });
+    await wait(450);
+    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+    expect(stageButton('write_outline').getAttribute('data-state')).toBe('closed');
+    expect(review.getAttribute('data-selected')).toBe('true');
+
+    const outline = stageButton('write_outline');
+    fireEvent.focus(outline);
+    fireEvent.keyDown(outline, { key: 'Tab' });
+    const keyed = within(screen.getByTestId('progress-stage-tooltip')).getByTestId('stage-step');
+    expect(document.activeElement).toBe(keyed);
+    fireEvent.keyDown(keyed, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(outline);
+    expect(screen.getByTestId('progress-stage-tooltip')).toBeTruthy();
+    fireEvent.blur(outline, { relatedTarget: document.body });
+    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+    expect(calls.filter((call) => call.stageId === 'write_outline')).toHaveLength(1);
   });
 });
