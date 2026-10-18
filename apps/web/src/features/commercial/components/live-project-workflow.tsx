@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/page-header';
@@ -11,6 +12,7 @@ import {
   type LiveGraphNode,
 } from '../workflow-live-graph';
 import { useLiveProjectDetailQuery, useLiveProjectWorkflowQuery } from '../use-live-workflow';
+import { saveLiveNodePlan } from '../commercial-live-api';
 import { ProjectVideoMetrics } from './project-video-metrics';
 import { ProgressSummary, ProgressTimeline } from './progress-timeline-view';
 import { timelineFactsFromDetail, timelineNodesFromWorkflow } from '../progress-timeline';
@@ -27,8 +29,11 @@ function withNames(nodes: LiveGraphNode[], names: Record<string, string>): LiveG
 export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
   const detailQuery = useLiveProjectDetailQuery(projectId);
   const workflowQuery = useLiveProjectWorkflowQuery(projectId);
+  const queryClient = useQueryClient();
   const [names, setNames] = useState<Record<string, string>>({});
   const [renameError, setRenameError] = useState<string | null>(null);
+  const [savingPlanId, setSavingPlanId] = useState<string | null>(null);
+  const [planError, setPlanError] = useState<{ nodeId: string; message: string } | null>(null);
 
   const live = useMemo(() => {
     if (!workflowQuery.data) return null;
@@ -74,8 +79,33 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
         actions={archived ? <Badge variant="secondary">已归档</Badge> : null}
       />
       <div className="space-y-4">
-        <ProgressSummary facts={facts} />
-        <ProgressTimeline nodes={timelineNodes} />
+        <ProgressSummary facts={facts} nodes={timelineNodes} />
+        <ProgressTimeline
+          nodes={timelineNodes}
+          planEditor={{
+            disabled: Boolean(archived),
+            savingId: savingPlanId,
+            error: planError,
+            onSave: (nodeId, updatedAt, plannedAt) => {
+              setSavingPlanId(nodeId);
+              setPlanError(null);
+              void saveLiveNodePlan(projectId, nodeId, { expectedUpdatedAt: updatedAt, plannedAt })
+                .then(() =>
+                  queryClient.invalidateQueries({
+                    queryKey: ['commercial', 'live-workflow', projectId],
+                  }),
+                )
+                .then(() => undefined)
+                .catch((err: unknown) => {
+                  setPlanError({
+                    nodeId,
+                    message: err instanceof Error ? err.message : '计划日期保存失败',
+                  });
+                })
+                .finally(() => setSavingPlanId(null));
+            },
+          }}
+        />
         {publishedBvid ? <ProjectVideoMetrics bvid={publishedBvid} /> : null}
         <Card>
           <CardHeader>

@@ -3,7 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, test } from 'bun:test';
 import { MemoryRouter } from 'react-router-dom';
 import { LiveProjectWorkflow } from './live-project-workflow';
-import { ProgressTimeline } from './progress-timeline-view';
+import { ProgressSummary, ProgressTimeline } from './progress-timeline-view';
+import type { TimelineProjectFacts } from '../progress-timeline';
 import type { TimelineSourceNode } from '../progress-timeline';
 
 const originalFetch = globalThis.fetch;
@@ -164,8 +165,11 @@ describe('ProgressTimeline', () => {
 
     fireEvent.pointerMove(stage);
     const tip = await screen.findByTestId('progress-stage-tooltip');
-    expect(tip.textContent).toContain('A-roll 拍摄：阻塞（A-roll 素材版权待补）');
-    expect(tip.textContent).toContain('B-roll 素材：阻塞（B-roll 甲方素材缺失）');
+    expect(tip.textContent).toContain('A-roll 拍摄');
+    expect(tip.textContent).toContain('A-roll 素材版权待补');
+    expect(tip.textContent).toContain('B-roll 素材');
+    expect(tip.textContent).toContain('B-roll 甲方素材缺失');
+    expect(tip.textContent).not.toContain('实际');
 
     fireEvent.click(stage);
     const nodes = screen.getByTestId('progress-stage-nodes');
@@ -200,8 +204,12 @@ describe('ProgressTimeline', () => {
     const tip = await screen.findByTestId('progress-stage-tooltip');
     expect(tip.getAttribute('data-side')).toBe('bottom');
     expect(tip.getAttribute('data-stage-id')).toBe('copy_prep');
-    expect(tip.textContent).toContain('文案：阻塞（甲方文案批注未清）');
-    expect(tip.textContent).toContain('预拍摄：进行中');
+    expect(tip.textContent).toContain('文案');
+    expect(tip.textContent).toContain('阻塞');
+    expect(tip.textContent).toContain('甲方文案批注未清');
+    expect(tip.textContent).toContain('预拍摄');
+    expect(tip.textContent).toContain('进行中');
+    expect(tip.textContent).not.toContain('实际');
     const blockedRow = [...tip.querySelectorAll('li')].find((item) =>
       item.textContent?.includes('文案'),
     );
@@ -224,7 +232,9 @@ describe('ProgressTimeline', () => {
     fireEvent.pointerMove(endPoint);
     const outlineTip = await screen.findByTestId('progress-stage-tooltip');
     expect(outlineTip.getAttribute('data-stage-id')).toBe('write_outline');
-    expect(outlineTip.textContent).toContain('大纲：完成');
+    expect(outlineTip.textContent).toContain('大纲');
+    expect(outlineTip.textContent).toContain('完成');
+    expect(outlineTip.className).toContain('record-overlay');
 
     const outlineStage = screen
       .getAllByTestId('progress-stage')
@@ -398,6 +408,8 @@ describe('LiveProjectWorkflow timeline placement', () => {
               kind: item.kind,
               templateSlug: item.templateSlug,
               blockingReason: item.blockingReason,
+              plannedAt: null,
+              completedAt: null,
               updatedAt: '2026-05-20T12:00:00.000Z',
             })),
             edges: [],
@@ -452,7 +464,7 @@ describe('LiveProjectWorkflow timeline placement', () => {
     expect(money.textContent).toContain('到手金额');
     expect(money.textContent).toContain('¥18,000');
     expect(money.textContent).toContain('返点');
-    expect(screen.getByTestId('progress-summary-schedule').textContent).toContain('尚未发布');
+    expect(screen.getByTestId('progress-summary-schedule').textContent).toContain('排期待确认');
     expect(screen.getByTestId('progress-summary-tasks').textContent).toContain('文案、预拍摄');
     expect(screen.getByTestId('progress-summary-tasks').textContent).not.toContain(
       '甲方文案批注未清',
@@ -463,5 +475,316 @@ describe('LiveProjectWorkflow timeline placement', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('progress-point')).toHaveLength(6);
     });
+  });
+
+  test('saves, clears, and surfaces a plan date error from the stage card', async () => {
+    const nodes = blockedCopy.map((item) => ({
+      ...item,
+      updatedAt: '2026-05-20T12:00:00.000000Z',
+      plannedAt: item.templateSlug === 'copy' ? '2026-04-01T16:00:00.000Z' : null,
+      completedAt: null,
+    }));
+    let workflowNodes = nodes.map((item) => ({
+      id: item.id,
+      name: item.name,
+      status: item.status,
+      kind: item.kind,
+      templateSlug: item.templateSlug,
+      blockingReason: item.blockingReason ?? null,
+      plannedAt: item.plannedAt,
+      completedAt: item.completedAt,
+      updatedAt: item.updatedAt,
+    }));
+    const calls: { plannedAt: string | null; expectedUpdatedAt: string }[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as {
+          plannedAt: string | null;
+          expectedUpdatedAt: string;
+        };
+        calls.push(body);
+        if (body.plannedAt === '2026-04-20') {
+          return new Response(
+            JSON.stringify({
+              error: '并发令牌已过期，请按最近一次读取的 updatedAt 重试',
+              code: 'stale_write',
+            }),
+            { status: 409, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        const plannedAt =
+          body.plannedAt === null
+            ? null
+            : new Date(`${body.plannedAt}T00:00:00+08:00`).toISOString();
+        workflowNodes = workflowNodes.map((node) =>
+          node.id.endsWith('0003')
+            ? { ...node, plannedAt, updatedAt: '2026-05-21T12:00:00.000000Z' }
+            : node,
+        );
+        return new Response(
+          JSON.stringify({
+            projectId: PROJECT_ID,
+            node: {
+              id: NODE_IDS.copy,
+              name: '文案',
+              status: 'blocked',
+              kind: 'stage',
+              updatedAt: '2026-05-21T12:00:00.000000Z',
+              statusBeforeBlock: 'in_progress',
+              primaryBlockItemId: null,
+              plannedAt,
+              completedAt: null,
+            },
+            blockingReason: '甲方文案批注未清',
+            pinnedItem: null,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      const body = url.endsWith('/workflow')
+        ? {
+            projectId: PROJECT_ID,
+            workflowId: 'a2000001-0001-4001-8001-000000000001',
+            templateVersionId: 'ffff1111-1111-4111-8111-111111111111',
+            nodes: workflowNodes,
+            edges: [],
+          }
+        : {
+            id: PROJECT_ID,
+            name: '甲方卡文案确认样例',
+            netAmount: '18000.00',
+            rebateAmount: '600.00',
+            overallStage: 'pre_publish',
+            currentStageNames: ['文案'],
+            anyNodeBlocked: true,
+            blockingReason: '甲方文案批注未清',
+            publish: { published: false, bvid: null, publishedAt: null, publishSource: null },
+          };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <LiveProjectWorkflow projectId={PROJECT_ID} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole('heading', { name: '甲方卡文案确认样例' });
+    const copyStage = screen
+      .getAllByTestId('progress-stage')
+      .find((item) => item.getAttribute('data-stage-id') === 'copy_prep');
+    if (!copyStage) throw new Error('missing copy stage');
+    fireEvent.click(copyStage);
+    const input = await screen.findByTestId('plan-date-copy');
+    expect((input as HTMLInputElement).value).toBe('2026-04-02');
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('plan-date-save-copy'));
+    expect(screen.getByTestId('plan-date-error').textContent).toContain('请选择日期');
+    expect(calls).toHaveLength(0);
+
+    fireEvent.change(input, { target: { value: '2026-04-20' } });
+    fireEvent.click(screen.getByTestId('plan-date-save-copy'));
+    await waitFor(() => {
+      expect(screen.getByTestId('plan-date-error').textContent).toContain('并发令牌已过期');
+    });
+
+    fireEvent.change(input, { target: { value: '2026-04-09' } });
+    fireEvent.click(screen.getByTestId('plan-date-save-copy'));
+    await waitFor(() => {
+      expect((screen.getByTestId('plan-date-copy') as HTMLInputElement).value).toBe('2026-04-09');
+    });
+    expect(calls.at(-1)).toMatchObject({
+      plannedAt: '2026-04-09',
+      expectedUpdatedAt: '2026-05-20T12:00:00.000000Z',
+    });
+
+    fireEvent.click(screen.getByTestId('plan-date-clear-copy'));
+    await waitFor(() => {
+      expect((screen.getByTestId('plan-date-copy') as HTMLInputElement).value).toBe('');
+    });
+    expect(calls.at(-1)?.plannedAt).toBeNull();
+  });
+});
+
+const NOW = new Date('2026-04-10T04:00:00.000Z');
+
+function summaryFacts(overrides: Partial<TimelineProjectFacts> = {}): TimelineProjectFacts {
+  return {
+    netAmount: '18000.00',
+    rebateAmount: '600.00',
+    overallStage: 'pre_publish',
+    overallStageLabel: '发布前',
+    currentTasks: ['文案'],
+    published: false,
+    publishedAt: null,
+    blockingReason: null,
+    ...overrides,
+  };
+}
+
+describe('schedule summary overlay', () => {
+  test('shows the next delivery, an overdue mark, and separates plan from actual', async () => {
+    render(
+      <ProgressSummary
+        now={NOW}
+        facts={summaryFacts()}
+        nodes={[
+          node('copy', '文案', 'blocked', '等甲方'),
+          node('pre_shoot', '预拍摄', 'not_reached'),
+          node('merge', '汇合节点', 'not_reached'),
+          node('other', '其他', 'not_applicable'),
+        ].map((item) => {
+          if (item.templateSlug === 'copy') {
+            return {
+              ...item,
+              plannedAt: new Date('2026-04-01T00:00:00+08:00').toISOString(),
+              completedAt: null,
+            };
+          }
+          if (item.templateSlug === 'pre_shoot') {
+            return {
+              ...item,
+              plannedAt: new Date('2026-04-18T14:30:00+08:00').toISOString(),
+              completedAt: null,
+            };
+          }
+          return item;
+        })}
+      />,
+    );
+    const card = screen.getByTestId('progress-summary-schedule');
+    expect(card.textContent).toContain('下一次交付');
+    expect(card.textContent).toContain('文案');
+    expect(card.textContent).toContain('4月1日');
+    expect(card.textContent).toContain('逾期');
+    expect(card.textContent).not.toContain('00:00');
+    expect(card.textContent).not.toContain('预拍摄');
+    fireEvent.pointerEnter(card);
+    const overlay = await screen.findByTestId('progress-schedule-overlay');
+    expect(overlay.className).toContain('record-overlay');
+    expect(overlay.getAttribute('data-side')).toBe('bottom');
+    expect(overlay.getAttribute('data-motion')).toBe('140ms');
+    expect(Number.parseFloat(overlay.style.width)).toBeLessThanOrEqual(360);
+    const copyRow = [...overlay.querySelectorAll('li')].find((row) =>
+      row.textContent?.includes('文案'),
+    );
+    const shootRow = [...overlay.querySelectorAll('li')].find((row) =>
+      row.textContent?.includes('预拍摄'),
+    );
+    expect(copyRow?.textContent).toContain('计划 4月1日');
+    expect(copyRow?.textContent).toContain('等甲方');
+    expect(copyRow?.textContent).not.toContain('实际');
+    expect(shootRow?.textContent).toContain('计划 4月18日 14:30');
+    expect(overlay.textContent).not.toContain('汇合节点');
+    expect(overlay.textContent).not.toContain('其他');
+    expect(overlay.textContent).not.toContain('待安排');
+    fireEvent.pointerLeave(card, { relatedTarget: overlay });
+    expect(screen.getByTestId('progress-schedule-overlay')).toBeTruthy();
+    fireEvent.pointerLeave(overlay);
+    await waitFor(() => {
+      expect(screen.queryByTestId('progress-schedule-overlay')).toBeNull();
+    });
+    expect(card.textContent).toContain('下一次交付');
+  });
+
+  test('keyboard focus opens the schedule and a coarse pointer toggles it', async () => {
+    render(
+      <ProgressSummary
+        now={NOW}
+        facts={summaryFacts()}
+        nodes={[node('copy', '文案', 'in_progress')]}
+      />,
+    );
+    const trigger = screen.getByTestId('progress-summary-schedule-trigger');
+    expect(screen.getByTestId('progress-summary-schedule').textContent).toContain('排期待确认');
+    fireEvent.focus(trigger);
+    const overlay = await screen.findByTestId('progress-schedule-overlay');
+    expect(overlay.textContent).toContain('待安排：文案');
+    fireEvent.blur(trigger);
+    await waitFor(() => {
+      expect(screen.queryByTestId('progress-schedule-overlay')).toBeNull();
+    });
+
+    const original = window.matchMedia.bind(window);
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('coarse'),
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+    fireEvent.pointerEnter(screen.getByTestId('progress-summary-schedule'), {
+      pointerType: 'touch',
+    });
+    expect(screen.queryByTestId('progress-schedule-overlay')).toBeNull();
+    fireEvent.click(trigger);
+    expect(await screen.findByTestId('progress-schedule-overlay')).toBeTruthy();
+    fireEvent.click(trigger);
+    await waitFor(() => {
+      expect(screen.queryByTestId('progress-schedule-overlay')).toBeNull();
+    });
+    window.matchMedia = original;
+  });
+
+  test('published and closed summaries do not invent the next task', () => {
+    const { rerender } = render(
+      <ProgressSummary
+        now={NOW}
+        facts={summaryFacts({
+          overallStage: 'published_winding_down',
+          overallStageLabel: '已上线，收尾中',
+          published: true,
+          publishedAt: '2026-05-20T12:00:00.000Z',
+        })}
+        nodes={[node('publish', '发布', 'completed', null)]}
+      />,
+    );
+    const card = screen.getByTestId('progress-summary-schedule');
+    expect(card.textContent).toContain('已发布');
+    expect(card.textContent).toContain('5月20日 20:00');
+    expect(card.textContent).not.toContain('下一次交付');
+    rerender(
+      <ProgressSummary
+        now={NOW}
+        facts={summaryFacts({ overallStage: 'closed', overallStageLabel: '已结案' })}
+        nodes={[node('settlement', '结算', 'completed')]}
+      />,
+    );
+    expect(card.textContent).toContain('已结案');
+    expect(card.textContent).toContain('无下一交付');
+    expect(card.textContent).not.toContain('结算');
+  });
+});
+
+describe('stage tooltip focus and touch', () => {
+  test('keyboard focus opens the tooltip and touch selection does not pin it', async () => {
+    render(<ProgressTimeline nodes={blockedCopy} />);
+    const stage = screen
+      .getAllByTestId('progress-stage')
+      .find((item) => item.getAttribute('data-stage-id') === 'copy_prep');
+    if (!stage) throw new Error('missing stage');
+    fireEvent.focus(stage);
+    expect(
+      (await screen.findByTestId('progress-stage-tooltip')).getAttribute('data-stage-id'),
+    ).toBe('copy_prep');
+    fireEvent.blur(stage);
+    await waitFor(() => {
+      expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+    });
+    fireEvent.pointerDown(stage, { pointerType: 'touch' });
+    fireEvent.pointerEnter(stage, { pointerType: 'touch' });
+    fireEvent.click(stage);
+    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+    expect(stage.getAttribute('data-selected')).toBe('true');
+    expect(screen.getByTestId('progress-stage-detail').textContent).toContain('文案准备');
   });
 });

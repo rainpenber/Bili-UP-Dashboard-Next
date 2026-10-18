@@ -1,8 +1,10 @@
 import {
   parseCommercialDefaultTemplate,
+  parseCommercialNodeWriteResponse,
   parseCommercialProjectDetail,
   parseCommercialProjectWorkflow,
   type CommercialDefaultTemplate,
+  type CommercialNodeWriteResponse,
   type CommercialProjectDetail,
   type CommercialProjectWorkflow,
 } from '@studio/contracts';
@@ -26,6 +28,33 @@ export function fetchLiveProjectWorkflow(projectId: string): Promise<CommercialP
   return getJson(`/api/v1/commercial/projects/${encodeURIComponent(projectId)}/workflow`).then(
     parseCommercialProjectWorkflow,
   );
+}
+
+export async function saveLiveNodePlan(
+  projectId: string,
+  nodeId: string,
+  body: { expectedUpdatedAt: string; plannedAt: string | null },
+): Promise<CommercialNodeWriteResponse> {
+  const res = await fetch(
+    `/api/v1/commercial/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/plan`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  const payload: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message =
+      typeof payload === 'object' &&
+      payload !== null &&
+      'error' in payload &&
+      typeof payload.error === 'string'
+        ? payload.error
+        : `HTTP ${res.status}`;
+    throw new Error(message);
+  }
+  return parseCommercialNodeWriteResponse(payload);
 }
 
 export function fetchLiveDefaultTemplate(): Promise<CommercialDefaultTemplate> {

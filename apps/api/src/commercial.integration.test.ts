@@ -294,6 +294,8 @@ describe('commercial read API', () => {
           template_slug: string | null;
           blocking_reason: string | null;
           workflow_id: string;
+          planned_at: string | null;
+          completed_at: string | null;
           updated_at: string;
         }[]
       >`
@@ -322,6 +324,8 @@ describe('commercial read API', () => {
             LIMIT 1
           ) AS blocking_reason,
           n.workflow_id,
+          to_char(n.planned_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS planned_at,
+          to_char(n.completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS completed_at,
           to_char(n.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at
         FROM wf_nodes n
         LEFT JOIN wf_template_nodes t ON t.id = n.template_node_id
@@ -341,6 +345,8 @@ describe('commercial read API', () => {
           kind: asNodeKind(row.kind),
           templateSlug: row.template_slug,
           blockingReason: row.blocking_reason,
+          plannedAt: row.planned_at,
+          completedAt: row.completed_at,
           updatedAt: row.updated_at,
         })),
       );
@@ -485,6 +491,8 @@ describe('commercial read API', () => {
         kind: 'merge',
         templateSlug: null,
         blockingReason: null,
+        plannedAt: null,
+        completedAt: null,
         updatedAt: stamp.updated_at,
       },
     ]);

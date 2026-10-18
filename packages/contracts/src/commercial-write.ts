@@ -50,6 +50,8 @@ export type CommercialNodeSnapshot = {
   updatedAt: string;
   statusBeforeBlock: WfNodeStatus | null;
   primaryBlockItemId: string | null;
+  /** Unchanged by status writes. Null when the node has no plan. */
+  plannedAt: string | null;
   completedAt: string | null;
 };
 
@@ -112,6 +114,12 @@ export type CommercialPublishResponse = {
 
 export type CommercialNodeTokenRequest = {
   expectedUpdatedAt: string;
+};
+
+/** Calendar date in Asia/Shanghai, or null to clear. Not a timestamp. */
+export type CommercialPlanRequest = {
+  expectedUpdatedAt: string;
+  plannedAt: string | null;
 };
 
 export type CommercialBlockRequest = {
@@ -211,6 +219,7 @@ export function parseCommercialNodeSnapshot(value: unknown): CommercialNodeSnaps
       record.primaryBlockItemId === null
         ? null
         : parseUuid(record.primaryBlockItemId, 'primaryBlockItemId'),
+    plannedAt: parseNullableIso(record.plannedAt, 'plannedAt'),
     completedAt: parseNullableIso(record.completedAt, 'completedAt'),
   };
 }
@@ -342,6 +351,37 @@ export function parseCommercialWriteError(value: unknown): CommercialWriteErrorB
 export function parseCommercialNodeTokenRequest(value: unknown): CommercialNodeTokenRequest {
   const record = asRecord(value, 'node write');
   return { expectedUpdatedAt: parseIso(record.expectedUpdatedAt, 'expectedUpdatedAt') };
+}
+
+const PLAN_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Accept a calendar date or null. Reject timestamps so midnight is not stored as an agreed time. */
+export function parseCommercialPlanRequest(value: unknown): CommercialPlanRequest {
+  const record = asRecord(value, 'plan request');
+  let plannedAt: string | null;
+  if (record.plannedAt === null) {
+    plannedAt = null;
+  } else if (typeof record.plannedAt === 'string' && PLAN_DATE_RE.test(record.plannedAt)) {
+    const match = PLAN_DATE_RE.exec(record.plannedAt);
+    const year = Number(match?.[1]);
+    const month = Number(match?.[2]);
+    const day = Number(match?.[3]);
+    const check = new Date(Date.UTC(year, month - 1, day));
+    if (
+      check.getUTCFullYear() !== year ||
+      check.getUTCMonth() !== month - 1 ||
+      check.getUTCDate() !== day
+    ) {
+      throw new Error('plannedAt must be a real calendar date');
+    }
+    plannedAt = record.plannedAt;
+  } else {
+    throw new Error('plannedAt must be a YYYY-MM-DD date or null');
+  }
+  return {
+    expectedUpdatedAt: parseIso(record.expectedUpdatedAt, 'expectedUpdatedAt'),
+    plannedAt,
+  };
 }
 
 export function parseCommercialBlockRequest(value: unknown): CommercialBlockRequest {

@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { formatFullLocalTime } from '@/lib/format-time';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { formatYuan } from '../commercial-selectors';
+import {
+  calendarDayKey,
+  deriveKeySchedule,
+  formatScheduleLabel,
+  type KeySchedule,
+} from '../node-schedule';
 import {
   deriveProgressTimeline,
   stageSituationLabel,
@@ -14,30 +20,25 @@ import {
   type TimelineProjectFacts,
   type TimelineSourceNode,
 } from '../progress-timeline';
+import { DEMO_STATUS_COLOR } from '../workflow-status-map';
 import type { MockStatus } from '../../workflow-mock/flow-nodes';
-
-const STATUS_COLOR: Record<MockStatus, string> = {
-  done: '#15803d',
-  active: '#1d4ed8',
-  blocked: '#c2410c',
-  idle: '#6b7280',
-};
+import { AnchoredRecordOverlay, RecordOverlayList, type RecordOverlayItem } from './record-overlay';
 
 /** Bottom of the stage wash. 0x1f / 255 ≈ 0.12, inside the 0.10–0.14 band. */
 const HIGHLIGHT_ALPHA = '1f';
+
+export type PlanEditor = {
+  disabled: boolean;
+  savingId: string | null;
+  error: { nodeId: string; message: string } | null;
+  onSave: (nodeId: string, updatedAt: string, plannedAt: string | null) => void;
+};
 
 function moneyLabel(value: string | null): string {
   if (value === null) return '未填写';
   const amount = Number(value);
   if (!Number.isFinite(amount)) return value;
   return formatYuan(amount);
-}
-
-function childLine(child: TimelineChild): string {
-  if (child.status === 'blocked' && child.blockingReason) {
-    return `${child.name}：${child.statusLabel}（${child.blockingReason}）`;
-  }
-  return `${child.name}：${child.statusLabel}`;
 }
 
 function statusBadgeVariant(status: MockStatus): 'success' | 'info' | 'destructive' | 'secondary' {
@@ -51,8 +52,21 @@ function blockCaptionLines(label: string): string {
   return label.replaceAll('、', '\n');
 }
 
+function childItems(stage: DerivedStage): RecordOverlayItem[] {
+  return stage.children.map((child) => ({
+    id: child.id,
+    name: child.name,
+    status: child.status,
+    demoStatus: child.demoStatus,
+    statusLabel: child.statusLabel,
+    blockingReason: child.blockingReason,
+    planLabel: child.plannedAt ? formatScheduleLabel(child.plannedAt) : null,
+    actualLabel: child.completedAt ? formatScheduleLabel(child.completedAt) : null,
+  }));
+}
+
 function PointMark({ point }: { point: DerivedPoint }) {
-  const color = STATUS_COLOR[point.demoStatus];
+  const color = DEMO_STATUS_COLOR[point.demoStatus];
   return (
     <span
       className="size-4 rounded-full border-2"
@@ -63,25 +77,6 @@ function PointMark({ point }: { point: DerivedPoint }) {
       }}
       aria-hidden
     />
-  );
-}
-
-function StageTooltipBody({ stage }: { stage: DerivedStage }) {
-  return (
-    <>
-      <p className="mb-1 font-medium">{stage.label}</p>
-      {stage.children.length === 0 ? (
-        <p>这个阶段还没有子节点。</p>
-      ) : (
-        <ul className="space-y-1">
-          {stage.children.map((child) => (
-            <li key={child.id} data-status={child.demoStatus} data-workflow-status={child.status}>
-              {childLine(child)}
-            </li>
-          ))}
-        </ul>
-      )}
-    </>
   );
 }
 
@@ -96,6 +91,7 @@ function StageHit({
   onHoverEnd,
   onFocus,
   onBlur,
+  onRegister,
 }: {
   stage: DerivedStage;
   end: DerivedPoint;
@@ -107,129 +103,193 @@ function StageHit({
   onHoverEnd: (id: string) => void;
   onFocus: (id: string) => void;
   onBlur: (id: string) => void;
+  onRegister: (id: string, node: HTMLButtonElement | null) => void;
 }) {
-  const color = STATUS_COLOR[stage.demoStatus];
+  const color = DEMO_STATUS_COLOR[stage.demoStatus];
   const caption = stageSituationLabel(stage);
-  const tooltipOpen = hovered || focused;
   const maskOn = selected || hovered || focused;
   const fromPointer = useRef(false);
   return (
-    <Tooltip open={tooltipOpen} onOpenChange={() => undefined}>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className="group relative flex min-w-[12rem] flex-1 flex-col rounded-md text-left"
-          data-testid="progress-stage"
-          data-stage-id={stage.id}
-          data-status={stage.demoStatus}
-          data-workflow-status={stage.status}
-          data-current={stage.current ? 'true' : 'false'}
-          data-selected={selected ? 'true' : 'false'}
-          aria-expanded={selected}
-          onClick={onToggle}
-          onPointerDown={() => {
-            fromPointer.current = true;
-          }}
-          onPointerEnter={() => onHover(stage.id)}
-          onPointerMove={() => onHover(stage.id)}
-          onPointerLeave={() => onHoverEnd(stage.id)}
-          onFocus={(event) => {
-            if (fromPointer.current) return;
-            if (event.currentTarget.matches(':focus-visible')) onFocus(stage.id);
-          }}
-          onBlur={() => {
-            fromPointer.current = false;
-            onBlur(stage.id);
-          }}
+    <button
+      type="button"
+      ref={(node) => onRegister(stage.id, node)}
+      className="group relative flex min-w-[12rem] flex-1 flex-col rounded-md text-left"
+      data-testid="progress-stage"
+      data-stage-id={stage.id}
+      data-status={stage.demoStatus}
+      data-workflow-status={stage.status}
+      data-current={stage.current ? 'true' : 'false'}
+      data-selected={selected ? 'true' : 'false'}
+      data-state={hovered || focused ? 'open' : 'closed'}
+      aria-expanded={selected}
+      onClick={onToggle}
+      onPointerDown={() => {
+        fromPointer.current = true;
+      }}
+      onPointerEnter={(event) => {
+        if (event.pointerType === 'touch') return;
+        onHover(stage.id);
+      }}
+      onPointerMove={(event) => {
+        if (event.pointerType === 'touch') return;
+        onHover(stage.id);
+      }}
+      onPointerLeave={(event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Element && next.closest('[data-testid="progress-stage-tooltip"]'))
+          return;
+        onHoverEnd(stage.id);
+      }}
+      onFocus={() => {
+        if (fromPointer.current) return;
+        onFocus(stage.id);
+      }}
+      onBlur={() => {
+        fromPointer.current = false;
+        onBlur(stage.id);
+      }}
+    >
+      <span
+        data-testid="progress-stage-mask"
+        data-visible={maskOn ? 'true' : 'false'}
+        className={cn(
+          'pointer-events-none absolute inset-0 rounded-md bg-foreground/[0.06] ring-1 ring-foreground/15 transition-opacity duration-150 motion-reduce:transition-none',
+          maskOn ? 'opacity-100' : 'opacity-0',
+        )}
+        aria-hidden
+      />
+      <span className="relative z-10 flex items-end">
+        <span className="flex min-w-[8rem] flex-1 flex-col justify-end">
+          {caption ? (
+            <span className="relative mb-1">
+              <span
+                data-testid="progress-stage-gradient"
+                data-highlight="block"
+                data-alpha="0.12"
+                className="pointer-events-none absolute inset-0 rounded-t-md"
+                style={{
+                  backgroundImage: `linear-gradient(to top, ${color}${HIGHLIGHT_ALPHA}, transparent)`,
+                }}
+                aria-hidden
+              />
+              <span
+                data-testid="progress-stage-line-label"
+                className="relative z-10 block px-1 py-2 text-center text-xs leading-snug font-medium whitespace-pre-line"
+                style={{ color }}
+              >
+                {blockCaptionLines(caption)}
+              </span>
+            </span>
+          ) : null}
+          <span className="flex h-6 items-center">
+            <span
+              data-testid="progress-stage-line"
+              className="block w-full rounded-full"
+              style={{ height: stage.current ? 5 : 4, background: color }}
+              aria-hidden
+            />
+          </span>
+        </span>
+        <span
+          className="flex w-16 shrink-0 flex-col justify-end"
+          data-testid="progress-point"
+          data-point-id={end.id}
+          data-status={end.demoStatus}
+          data-workflow-status={end.status}
         >
-          <span
-            data-testid="progress-stage-mask"
-            data-visible={maskOn ? 'true' : 'false'}
-            className={cn(
-              'pointer-events-none absolute inset-0 rounded-md bg-foreground/[0.06] ring-1 ring-foreground/15 transition-opacity duration-150 motion-reduce:transition-none',
-              maskOn ? 'opacity-100' : 'opacity-0',
-            )}
-            aria-hidden
-          />
-          <span className="relative z-10 flex items-end">
-            <span className="flex min-w-[8rem] flex-1 flex-col justify-end">
-              {caption ? (
-                <span className="relative mb-1">
-                  <span
-                    data-testid="progress-stage-gradient"
-                    data-highlight="block"
-                    data-alpha="0.12"
-                    className="pointer-events-none absolute inset-0 rounded-t-md"
-                    style={{
-                      backgroundImage: `linear-gradient(to top, ${color}${HIGHLIGHT_ALPHA}, transparent)`,
-                    }}
-                    aria-hidden
-                  />
-                  <span
-                    data-testid="progress-stage-line-label"
-                    className="relative z-10 block px-1 py-2 text-center text-xs leading-snug font-medium whitespace-pre-line"
-                    style={{ color }}
-                  >
-                    {blockCaptionLines(caption)}
-                  </span>
-                </span>
-              ) : null}
-              <span className="flex h-6 items-center">
-                <span
-                  data-testid="progress-stage-line"
-                  className="block w-full rounded-full"
-                  style={{ height: stage.current ? 5 : 4, background: color }}
-                  aria-hidden
-                />
-              </span>
-            </span>
-            <span
-              className="flex w-16 shrink-0 flex-col justify-end"
-              data-testid="progress-point"
-              data-point-id={end.id}
-              data-status={end.demoStatus}
-              data-workflow-status={end.status}
-            >
-              <span className="flex h-6 items-center justify-center">
-                <PointMark point={end} />
-              </span>
-            </span>
+          <span className="flex h-6 items-center justify-center">
+            <PointMark point={end} />
           </span>
-          <span className="relative z-10 mt-1 flex min-h-8 text-xs leading-snug">
-            <span
-              className={cn(
-                'min-w-0 flex-1 text-center',
-                stage.current ? 'font-medium' : 'text-muted-foreground',
-              )}
-              style={stage.current ? { color } : undefined}
-            >
-              {stage.label}
-              {stage.current ? ' · 当前' : ''}
-            </span>
-            <span
-              className="w-16 shrink-0 text-center font-medium"
-              style={{ color: STATUS_COLOR[end.demoStatus] }}
-            >
-              {end.label}
-            </span>
-          </span>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent
-        side="bottom"
-        sideOffset={8}
-        avoidCollisions={false}
-        className="max-w-64 overflow-visible px-3 py-2 text-left"
-        data-testid="progress-stage-tooltip"
-        data-stage-id={stage.id}
-      >
-        <StageTooltipBody stage={stage} />
-      </TooltipContent>
-    </Tooltip>
+        </span>
+      </span>
+      <span className="relative z-10 mt-1 flex min-h-8 text-xs leading-snug">
+        <span
+          className={cn(
+            'min-w-0 flex-1 text-center',
+            stage.current ? 'font-medium' : 'text-muted-foreground',
+          )}
+          style={stage.current ? { color } : undefined}
+        >
+          {stage.label}
+          {stage.current ? ' · 当前' : ''}
+        </span>
+        <span
+          className="w-16 shrink-0 text-center font-medium"
+          style={{ color: DEMO_STATUS_COLOR[end.demoStatus] }}
+        >
+          {end.label}
+        </span>
+      </span>
+    </button>
   );
 }
 
-function StageDetailBody({ stage }: { stage: DerivedStage }) {
+function PlanFields({ child, editor }: { child: TimelineChild; editor: PlanEditor }) {
+  const initial = child.plannedAt ? (calendarDayKey(child.plannedAt) ?? '') : '';
+  const [draft, setDraft] = useState(initial);
+  const [localError, setLocalError] = useState<string | null>(null);
+  useEffect(() => setDraft(initial), [initial]);
+  const saving = editor.savingId === child.id;
+  const remoteError = editor.error?.nodeId === child.id ? editor.error.message : null;
+  return (
+    <div className="mt-2 space-y-1.5" data-testid="plan-date-editor" data-node-id={child.nodeId}>
+      <label className="block space-y-1 text-xs text-muted-foreground">
+        计划日期
+        <Input
+          type="date"
+          value={draft}
+          disabled={saving}
+          aria-label={`${child.name}计划日期`}
+          data-testid={`plan-date-${child.nodeId}`}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setLocalError(null);
+          }}
+        />
+      </label>
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          size="sm"
+          className="h-7 text-xs"
+          disabled={saving}
+          data-testid={`plan-date-save-${child.nodeId}`}
+          onClick={() => {
+            if (!draft) {
+              setLocalError('请选择日期');
+              return;
+            }
+            setLocalError(null);
+            editor.onSave(child.id, child.updatedAt ?? '', draft);
+          }}
+        >
+          保存
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          disabled={saving || !child.plannedAt}
+          data-testid={`plan-date-clear-${child.nodeId}`}
+          onClick={() => {
+            setLocalError(null);
+            editor.onSave(child.id, child.updatedAt ?? '', null);
+          }}
+        >
+          清空
+        </Button>
+      </div>
+      {localError || remoteError ? (
+        <p className="text-xs text-destructive" role="alert" data-testid="plan-date-error">
+          {localError ?? remoteError}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function StageDetailBody({ stage, planEditor }: { stage: DerivedStage; planEditor?: PlanEditor }) {
   return (
     <div className="pb-1">
       <p className="mb-2 font-medium">{stage.label}</p>
@@ -262,6 +322,18 @@ function StageDetailBody({ stage }: { stage: DerivedStage }) {
                   {child.blockingReason ?? '尚未记录原因'}
                 </p>
               ) : null}
+              {child.completedAt ? (
+                <p className="mt-2 text-xs text-muted-foreground" data-testid="node-completed-at">
+                  实际 {formatScheduleLabel(child.completedAt)}
+                </p>
+              ) : null}
+              {planEditor && !planEditor.disabled ? (
+                <PlanFields child={child} editor={planEditor} />
+              ) : child.plannedAt ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  计划 {formatScheduleLabel(child.plannedAt)}
+                </p>
+              ) : null}
             </article>
           ))}
         </div>
@@ -270,7 +342,13 @@ function StageDetailBody({ stage }: { stage: DerivedStage }) {
   );
 }
 
-function StageDetail({ stage }: { stage: DerivedStage | null }) {
+function StageDetail({
+  stage,
+  planEditor,
+}: {
+  stage: DerivedStage | null;
+  planEditor?: PlanEditor;
+}) {
   const [grown, setGrown] = useState(false);
   const open = Boolean(stage);
 
@@ -296,7 +374,15 @@ function StageDetail({ stage }: { stage: DerivedStage | null }) {
         data-open={open && grown ? 'true' : 'false'}
         className="progress-detail-panel"
       >
-        <div className="overflow-hidden">{stage ? <StageDetailBody stage={stage} /> : null}</div>
+        <div className="overflow-hidden">
+          {stage ? (
+            planEditor ? (
+              <StageDetailBody stage={stage} planEditor={planEditor} />
+            ) : (
+              <StageDetailBody stage={stage} />
+            )
+          ) : null}
+        </div>
       </div>
       {stage ? null : (
         <p className="text-muted-foreground">点击阶段连线或终点，查看这一阶段的子节点。</p>
@@ -305,14 +391,35 @@ function StageDetail({ stage }: { stage: DerivedStage | null }) {
   );
 }
 
-export function ProgressTimeline({ nodes }: { nodes: TimelineSourceNode[] }) {
+export function ProgressTimeline({
+  nodes,
+  planEditor,
+}: {
+  nodes: TimelineSourceNode[];
+  planEditor?: PlanEditor;
+}) {
   const timeline = deriveProgressTimeline(nodes);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const openStage = timeline.stages.find((stage) => stage.id === selectedId) ?? null;
+  const tipId = hoverId ?? focusId;
+  const tipStage = timeline.stages.find((stage) => stage.id === tipId) ?? null;
+  const shownTip = useRef<DerivedStage | null>(null);
+  if (tipStage) shownTip.current = tipStage;
+  const overlayStage = tipStage ?? shownTip.current;
   const start = timeline.points[0];
   const pointById = new Map(timeline.points.map((point) => [point.id, point]));
+  const anchors = useRef(new Map<string, HTMLButtonElement | null>());
+  const anchorRef = useRef<HTMLElement | null>(null);
+  if (tipId) anchorRef.current = anchors.current.get(tipId) ?? anchorRef.current;
+
+  const openHover = (id: string) => {
+    setHoverId((current) => (current === id ? current : id));
+  };
+  const scheduleClose = (id: string) => {
+    setHoverId((current) => (current === id ? null : current));
+  };
 
   useEffect(() => {
     if (!selectedId) return;
@@ -322,6 +429,8 @@ export function ProgressTimeline({ nodes }: { nodes: TimelineSourceNode[] }) {
       if (target.closest('[data-testid="progress-stage"]')) return;
       if (target.closest('[data-testid="progress-stage-tooltip"]')) return;
       if (target.closest('[data-testid="progress-stage-detail"]')) return;
+      if (target.closest('[data-testid="progress-schedule-overlay"]')) return;
+      if (target.closest('[data-testid="progress-summary-schedule"]')) return;
       setSelectedId(null);
     };
     const onKeyDown = (event: KeyboardEvent) => {
@@ -342,64 +451,175 @@ export function ProgressTimeline({ nodes }: { nodes: TimelineSourceNode[] }) {
         <p className="text-sm font-normal text-muted-foreground">悬停查看状态，点击查看详情。</p>
       </CardHeader>
       <CardContent>
-        <TooltipProvider delayDuration={0} disableHoverableContent>
-          <div data-testid="progress-timeline">
-            <div className="overflow-x-auto">
-              <div className="flex min-w-[64rem] items-end">
-                {start ? (
-                  <div className="flex w-16 shrink-0 flex-col">
-                    <span
-                      className="flex h-6 items-center justify-center"
-                      data-testid="progress-point"
-                      data-point-id={start.id}
-                      data-status={start.demoStatus}
-                      data-workflow-status={start.status}
-                    >
-                      <PointMark point={start} />
-                    </span>
-                    <p
-                      className="mt-1 min-h-8 text-center text-xs leading-snug font-medium"
-                      style={{ color: STATUS_COLOR[start.demoStatus] }}
-                    >
-                      {start.label}
-                    </p>
-                  </div>
-                ) : null}
-                {timeline.stages.map((stage) => {
-                  const end = pointById.get(stage.to);
-                  if (!end) return null;
-                  return (
-                    <StageHit
-                      key={stage.id}
-                      stage={stage}
-                      end={end}
-                      selected={selectedId === stage.id}
-                      hovered={hoverId === stage.id}
-                      focused={focusId === stage.id}
-                      onHover={(id) => setHoverId((current) => (current === id ? current : id))}
-                      onHoverEnd={(id) =>
-                        setHoverId((current) => (current === id ? null : current))
-                      }
-                      onFocus={(id) => setFocusId(id)}
-                      onBlur={(id) => setFocusId((current) => (current === id ? null : current))}
-                      onToggle={() =>
-                        setSelectedId((current) => (current === stage.id ? null : stage.id))
-                      }
-                    />
-                  );
-                })}
-              </div>
+        <div data-testid="progress-timeline">
+          <div className="overflow-x-auto">
+            <div className="flex min-w-[64rem] items-end">
+              {start ? (
+                <div className="flex w-16 shrink-0 flex-col">
+                  <span
+                    className="flex h-6 items-center justify-center"
+                    data-testid="progress-point"
+                    data-point-id={start.id}
+                    data-status={start.demoStatus}
+                    data-workflow-status={start.status}
+                  >
+                    <PointMark point={start} />
+                  </span>
+                  <p
+                    className="mt-1 min-h-8 text-center text-xs leading-snug font-medium"
+                    style={{ color: DEMO_STATUS_COLOR[start.demoStatus] }}
+                  >
+                    {start.label}
+                  </p>
+                </div>
+              ) : null}
+              {timeline.stages.map((stage) => {
+                const end = pointById.get(stage.to);
+                if (!end) return null;
+                return (
+                  <StageHit
+                    key={stage.id}
+                    stage={stage}
+                    end={end}
+                    selected={selectedId === stage.id}
+                    hovered={hoverId === stage.id}
+                    focused={focusId === stage.id}
+                    onRegister={(id, node) => {
+                      anchors.current.set(id, node);
+                    }}
+                    onHover={openHover}
+                    onHoverEnd={scheduleClose}
+                    onFocus={(id) => setFocusId(id)}
+                    onBlur={(id) => setFocusId((current) => (current === id ? null : current))}
+                    onToggle={() =>
+                      setSelectedId((current) => (current === stage.id ? null : stage.id))
+                    }
+                  />
+                );
+              })}
             </div>
           </div>
-        </TooltipProvider>
-        <StageDetail stage={openStage} />
+        </div>
+        <AnchoredRecordOverlay
+          open={Boolean(tipStage)}
+          anchorRef={anchorRef}
+          title={overlayStage?.label ?? ''}
+          testId="progress-stage-tooltip"
+          {...(overlayStage ? { stageId: overlayStage.id, layoutKey: overlayStage.id } : {})}
+          onPointerEnter={() => {
+            if (overlayStage) openHover(overlayStage.id);
+          }}
+          onPointerLeave={() => {
+            if (overlayStage) scheduleClose(overlayStage.id);
+          }}
+        >
+          {overlayStage && overlayStage.children.length === 0 ? (
+            <p className="record-overlay-note">这个阶段还没有子节点。</p>
+          ) : overlayStage ? (
+            <RecordOverlayList items={childItems(overlayStage)} />
+          ) : null}
+        </AnchoredRecordOverlay>
+        {planEditor ? (
+          <StageDetail stage={openStage} planEditor={planEditor} />
+        ) : (
+          <StageDetail stage={openStage} />
+        )}
       </CardContent>
     </Card>
   );
 }
 
-export function ProgressSummary({ facts }: { facts: TimelineProjectFacts | null }) {
-  if (!facts) {
+function ScheduleCopy({ schedule }: { schedule: KeySchedule }) {
+  const summary = schedule.summary;
+  if (summary.kind === 'next') {
+    return (
+      <>
+        <p className="text-xs text-muted-foreground">下一次交付</p>
+        <p className="font-medium leading-tight" data-testid="progress-next-name">
+          {summary.name}
+        </p>
+        <p className="font-medium leading-tight">
+          <span data-testid="progress-next-date">{summary.dateLabel}</span>
+          {summary.overdue ? (
+            <span
+              className="ml-1.5 text-xs font-medium text-destructive"
+              data-testid="progress-schedule-overdue"
+            >
+              逾期
+            </span>
+          ) : null}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">整体阶段 {summary.overallStageLabel}</p>
+      </>
+    );
+  }
+  if (summary.kind === 'published') {
+    return (
+      <>
+        <p className="text-xs text-muted-foreground">发布时间</p>
+        <p className="font-medium leading-tight">{summary.dateLabel ?? '已发布'}</p>
+        <p className="mt-1 text-xs text-muted-foreground">已发布</p>
+      </>
+    );
+  }
+  if (summary.kind === 'closed') {
+    return (
+      <>
+        <p className="text-xs text-muted-foreground">商单</p>
+        <p className="font-medium leading-tight">{summary.title}</p>
+        <p className="mt-1 text-xs text-muted-foreground">无下一交付</p>
+      </>
+    );
+  }
+  return (
+    <>
+      <p className="text-xs text-muted-foreground">排期</p>
+      <p className="font-medium leading-tight">排期待确认</p>
+      <p className="mt-1 text-xs text-muted-foreground">整体阶段 {summary.overallStageLabel}</p>
+    </>
+  );
+}
+
+function ScheduleOverlayBody({ schedule }: { schedule: KeySchedule }) {
+  return (
+    <>
+      {schedule.records.length > 0 ? <RecordOverlayList items={schedule.records} /> : null}
+      {schedule.pendingNames.length > 0 ? (
+        <p className="record-overlay-note" data-testid="progress-schedule-pending">
+          待安排：{schedule.pendingNames.join('、')}
+        </p>
+      ) : null}
+      {schedule.records.length === 0 && schedule.pendingNames.length === 0 ? (
+        <p className="record-overlay-note">暂无关键排期</p>
+      ) : null}
+    </>
+  );
+}
+
+function isCoarsePointer(): boolean {
+  return window.matchMedia?.('(pointer: coarse)')?.matches ?? false;
+}
+
+export function ProgressSummary({
+  facts,
+  nodes = [],
+  now,
+}: {
+  facts: TimelineProjectFacts | null;
+  nodes?: TimelineSourceNode[];
+  now?: Date;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const fromPointer = useRef(false);
+  const schedule = facts ? deriveKeySchedule(nodes, facts, now) : null;
+
+  const enter = () => setHover(true);
+  const leave = () => setHover(false);
+
+  if (!facts || !schedule) {
     return (
       <Card data-testid="progress-summary">
         <CardContent className="px-4 py-3 text-sm text-muted-foreground">
@@ -408,6 +628,8 @@ export function ProgressSummary({ facts }: { facts: TimelineProjectFacts | null 
       </Card>
     );
   }
+
+  const overlayOpen = hover || focus || pinned;
 
   return (
     <div
@@ -423,15 +645,72 @@ export function ProgressSummary({ facts }: { facts: TimelineProjectFacts | null 
           </p>
         </CardContent>
       </Card>
-      <Card data-testid="progress-summary-schedule">
+      <Card
+        ref={cardRef}
+        data-testid="progress-summary-schedule"
+        onPointerEnter={(event) => {
+          if (event.pointerType === 'touch' || isCoarsePointer()) return;
+          enter();
+        }}
+        onPointerMove={(event) => {
+          if (event.pointerType === 'touch' || isCoarsePointer()) return;
+          enter();
+        }}
+        onPointerLeave={(event) => {
+          const next = event.relatedTarget;
+          if (
+            next instanceof Element &&
+            next.closest('[data-testid="progress-schedule-overlay"]')
+          ) {
+            return;
+          }
+          leave();
+        }}
+      >
         <CardContent className="px-4 py-3">
-          <p className="text-xs text-muted-foreground">发布时间</p>
-          <p className="font-medium">
-            {facts.publishedAt ? formatFullLocalTime(facts.publishedAt) : '尚未发布'}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">整体阶段 {facts.overallStageLabel}</p>
+          <button
+            type="button"
+            className="block w-full text-left"
+            data-testid="progress-summary-schedule-trigger"
+            aria-expanded={overlayOpen}
+            onPointerDown={() => {
+              fromPointer.current = true;
+            }}
+            onClick={() => {
+              if (!isCoarsePointer()) return;
+              setPinned((current) => !current);
+            }}
+            onFocus={() => {
+              if (fromPointer.current || isCoarsePointer()) return;
+              setFocus(true);
+            }}
+            onBlur={() => {
+              fromPointer.current = false;
+              setFocus(false);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                setPinned(false);
+                setFocus(false);
+                setHover(false);
+              }
+            }}
+          >
+            <ScheduleCopy schedule={schedule} />
+          </button>
         </CardContent>
       </Card>
+      <AnchoredRecordOverlay
+        open={overlayOpen}
+        anchorRef={cardRef}
+        title="关键排期"
+        testId="progress-schedule-overlay"
+        layoutKey="schedule"
+        onPointerEnter={enter}
+        onPointerLeave={leave}
+      >
+        <ScheduleOverlayBody schedule={schedule} />
+      </AnchoredRecordOverlay>
       <Card data-testid="progress-summary-tasks">
         <CardContent className="px-4 py-3">
           <p className="text-xs text-muted-foreground">当前任务</p>

@@ -65,6 +65,8 @@ describe('commercial read contracts', () => {
             kind: 'fan',
             templateSlug: 'merge',
             blockingReason: null,
+            plannedAt: null,
+            completedAt: null,
             updatedAt: '2026-05-20T12:00:00.000000Z',
           },
         ],
@@ -105,6 +107,8 @@ describe('commercial read contracts', () => {
           kind: 'stage',
           templateSlug: 'copy',
           blockingReason: '甲方文案批注未清',
+          plannedAt: '2026-04-02T16:00:00.000Z',
+          completedAt: null,
           updatedAt: '2026-05-20T12:00:00.000000Z',
         },
         {
@@ -114,6 +118,8 @@ describe('commercial read contracts', () => {
           kind: 'merge',
           templateSlug: 'merge',
           blockingReason: null,
+          plannedAt: null,
+          completedAt: null,
           updatedAt: '2026-05-20T12:00:00.100000Z',
         },
       ],
@@ -123,6 +129,29 @@ describe('commercial read contracts', () => {
     expect(graph.nodes.find((node) => node.templateSlug === 'copy')?.blockingReason).toBe(
       '甲方文案批注未清',
     );
+    expect(graph.nodes.find((node) => node.templateSlug === 'copy')?.plannedAt).toBe(
+      '2026-04-02T16:00:00.000Z',
+    );
+    expect(graph.nodes.find((node) => node.templateSlug === 'copy')?.completedAt).toBeNull();
+    expect(() =>
+      parseCommercialProjectWorkflow({
+        projectId: PROJECT_ID,
+        workflowId: 'a2000001-0001-4001-8001-000000000001',
+        templateVersionId: 'ffff1111-1111-4111-8111-111111111111',
+        nodes: [
+          {
+            id: NODE_A,
+            name: '文案',
+            status: 'blocked',
+            kind: 'stage',
+            templateSlug: 'copy',
+            blockingReason: null,
+            updatedAt: '2026-05-20T12:00:00.000000Z',
+          },
+        ],
+        edges: [],
+      }),
+    ).toThrow(/plannedAt/);
   });
 
   test('parses the default template graph', () => {
