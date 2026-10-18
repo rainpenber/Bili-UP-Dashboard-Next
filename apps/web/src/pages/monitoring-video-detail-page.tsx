@@ -1,3 +1,4 @@
+import { newestMetricPoint } from '@studio/contracts';
 import { useParams } from 'react-router-dom';
 import { useVideoDetailQuery, useVideoMetricsDetailQuery } from '@/api/hooks/use-monitor-queries';
 import { coverAssetUrl } from '@/api/monitor-client';
@@ -32,7 +33,7 @@ export function MonitoringVideoDetailPage() {
   }
 
   const v = detailQuery.data;
-  const latest = metricsQuery.data?.items.at(-1);
+  const latest = newestMetricPoint(metricsQuery.data?.items ?? []);
 
   return (
     <MonitoringDetailLayout

@@ -1,3 +1,4 @@
+import { newestMetricPoint } from '@studio/contracts';
 import { useParams } from 'react-router-dom';
 import {
   useCreatorDetailQuery,
@@ -31,7 +32,7 @@ export function MonitoringCreatorDetailPage() {
   }
 
   const c = detailQuery.data;
-  const latest = metricsQuery.data?.items.at(-1);
+  const latest = newestMetricPoint(metricsQuery.data?.items ?? []);
 
   return (
     <MonitoringDetailLayout

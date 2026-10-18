@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
+import type { EChartsOption } from 'echarts';
 import type { VideoMetricPoint, CreatorMetricPoint, DynamicMetricPoint } from '@studio/contracts';
 import { formatFullLocalTime } from '@/lib/format-time';
 import { parseSeriesNumber } from '@/lib/chart-follower-axis';
@@ -15,9 +16,51 @@ import { chartSemanticFromResolved } from '@/lib/chart-colors';
 import { useResolvedChartColors } from '@/features/monitoring/use-resolved-chart-colors';
 
 type Props =
-  | { kind: 'video'; points: VideoMetricPoint[] }
+  | {
+      kind: 'video';
+      points: VideoMetricPoint[];
+      /** 默认上下堆叠。columns 时桌面左右并列，窄屏一列。 */
+      layout?: 'stack' | 'columns';
+      playbackSummary?: ReactNode;
+      engagementSummary?: ReactNode;
+    }
   | { kind: 'creator'; points: CreatorMetricPoint[] }
   | { kind: 'dynamic'; points: DynamicMetricPoint[] };
+
+function hasDrawnPoint(value: number | string | null): boolean {
+  return value !== null && value !== '';
+}
+
+function FittedChart({ option }: { option: EChartsOption }) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<ReactECharts | null>(null);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      try {
+        chartRef.current?.getEchartsInstance()?.resize();
+      } catch {
+        // The instance may not exist yet when the container first reports a size.
+      }
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={hostRef} className="min-w-0">
+      <ReactECharts
+        ref={chartRef}
+        option={option}
+        style={{ height: 300, width: '100%' }}
+        opts={{ renderer: 'canvas' }}
+        notMerge
+      />
+    </div>
+  );
+}
 
 function onlineValue(p: VideoMetricPoint): number | string | null {
   if (p.onlineViewersRaw) return p.onlineViewersRaw;
@@ -77,23 +120,71 @@ export function MetricCharts(props: Props) {
       engagementSeries.push({ name: '评论', data: comments, color: semantic.series1 });
     }
 
+    const viewsOption = buildVideoViewsOption(sampledAtList, online, views, colors, tooltipTimes);
+    const engagementOption = buildVideoEngagementOption(
+      sampledAtList,
+      engagementSeries,
+      colors,
+      tooltipTimes,
+    );
+    const commentNote = !hasAnyNumeric(comments) ? (
+      <p className="text-xs text-muted-foreground">评论数：历史数据暂无，未绘制评论曲线。</p>
+    ) : null;
+
+    if (props.layout === 'columns') {
+      const playbackHasHistory =
+        online.some(hasDrawnPoint) || views.some((value) => value !== null);
+      const engagementHasHistory = engagementSeries.some((series) => hasAnyNumeric(series.data));
+      return (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="metric-charts-columns">
+          <section className="min-w-0 space-y-2" data-testid="metric-chart-playback">
+            <h3 className="text-sm font-medium text-foreground">播放</h3>
+            {props.playbackSummary}
+            {playbackHasHistory ? (
+              <FittedChart option={viewsOption} />
+            ) : (
+              <p
+                className="text-sm text-muted-foreground"
+                data-testid="metric-chart-playback-empty"
+              >
+                没有播放或在线观看的历史数值，未绘制曲线。
+              </p>
+            )}
+          </section>
+          <section className="min-w-0 space-y-2" data-testid="metric-chart-engagement">
+            <h3 className="text-sm font-medium text-foreground">互动</h3>
+            {props.engagementSummary}
+            {engagementHasHistory ? (
+              <FittedChart option={engagementOption} />
+            ) : (
+              <p
+                className="text-sm text-muted-foreground"
+                data-testid="metric-chart-engagement-empty"
+              >
+                没有点赞、投币、收藏、分享、弹幕或评论的历史数值，未绘制曲线。
+              </p>
+            )}
+            {commentNote}
+          </section>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-4">
         <ReactECharts
-          option={buildVideoViewsOption(sampledAtList, online, views, colors, tooltipTimes)}
+          option={viewsOption}
           style={{ height: 300, width: '100%' }}
           opts={{ renderer: 'canvas' }}
           notMerge
         />
         <ReactECharts
-          option={buildVideoEngagementOption(sampledAtList, engagementSeries, colors, tooltipTimes)}
+          option={engagementOption}
           style={{ height: 300, width: '100%' }}
           opts={{ renderer: 'canvas' }}
           notMerge
         />
-        {!hasAnyNumeric(comments) ? (
-          <p className="text-xs text-muted-foreground">评论数：历史数据暂无，未绘制评论曲线。</p>
-        ) : null}
+        {commentNote}
       </div>
     );
   }
