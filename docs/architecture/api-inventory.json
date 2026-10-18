@@ -1,0 +1,654 @@
+{
+  "baseline": "9d9370e0b2c0d3b5b5e6cb92f68d5416f48b641b",
+  "evidenceLevel": "source-confirmed static registration. Not a runtime exercise of each route.",
+  "apiRouteCount": 30,
+  "wiredRouteCount": 17,
+  "unwiredImplementedRouteCount": 13,
+  "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
+  "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes adds a fixed POST list.",
+  "processRegistration": {
+    "productionEntry": "apps/api/src/index.ts uses createApp({ skipDb: true }) and then mounts monitor, assets, imports and commercial once.",
+    "libraryEntry": "apps/api/src/app.ts mounts those four prefixes when skipDb is false. Unit and integration tests use that path. One process does not mount both copies.",
+    "health": "GET /health and GET /api/health are always registered inside createApp."
+  },
+  "mounts": [
+    {
+      "prefix": "/api/v1/monitor",
+      "factory": "createMonitorRoutes",
+      "appTsLine": 44,
+      "indexTsLine": 10
+    },
+    {
+      "prefix": "/api/v1/assets",
+      "factory": "createAssetsRoutes",
+      "appTsLine": 45,
+      "indexTsLine": 13
+    },
+    {
+      "prefix": "/api/v1/imports",
+      "factory": "createImportRoutes",
+      "appTsLine": 46,
+      "indexTsLine": 14
+    },
+    {
+      "prefix": "/api/v1/commercial",
+      "factory": "createCommercialRoutes",
+      "appTsLine": 47,
+      "indexTsLine": 16
+    }
+  ],
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "mountPrefix": "",
+      "sourceFile": "apps/api/src/app.ts",
+      "sourceLine": 23,
+      "registration": "createApp",
+      "readWrite": "read",
+      "area": "health",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/health.ts#HealthResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Same JSON as /api/health. No database."
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "mountPrefix": "",
+      "sourceFile": "apps/api/src/app.ts",
+      "sourceLine": 31,
+      "registration": "createApp",
+      "readWrite": "read",
+      "area": "health",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/health.ts#parseHealthResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/monitoring/offline-environment-badge.tsx",
+          "symbol": "fetchHealth",
+          "evidence": "/api/health"
+        }
+      ],
+      "wired": true,
+      "notes": "Default health URL. VITE_API_HEALTH_URL can replace it."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/projects",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-routes.ts",
+      "sourceLine": 134,
+      "registration": "createCommercialRoutes",
+      "readWrite": "read",
+      "area": "commercial",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialProjectList",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Implemented and parsed. Project list and home still read mock data, so this route has no web caller.",
+      "storedEntity": "commercial_projects plus derived currentStageNames and anyNodeBlocked from wf_nodes"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/projects/:projectId/workflow",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-routes.ts",
+      "sourceLine": 144,
+      "registration": "createCommercialRoutes",
+      "readWrite": "read",
+      "area": "commercial",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialProjectWorkflow",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "fetchLiveProjectWorkflow",
+          "evidence": "/workflow"
+        }
+      ],
+      "wired": true,
+      "notes": "Registered before the project detail route. pos_x and pos_y order the rows but are not in the JSON.",
+      "storedEntity": "project_workflows, wf_nodes, wf_edges, wf_template_nodes.slug, open_items title as blockingReason"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/projects/:projectId",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-routes.ts",
+      "sourceLine": 239,
+      "registration": "createCommercialRoutes",
+      "readWrite": "read",
+      "area": "commercial",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialProjectDetail",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "fetchLiveProjectDetail",
+          "evidence": "parseCommercialProjectDetail"
+        }
+      ],
+      "wired": true,
+      "notes": "Web calls it only when the route param is a UUID.",
+      "storedEntity": "commercial_projects, derived stage names, open_items title, project_publish_records"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/templates/default",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-routes.ts",
+      "sourceLine": 340,
+      "registration": "createCommercialRoutes",
+      "readWrite": "read",
+      "area": "commercial",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialDefaultTemplate",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "fetchLiveDefaultTemplate",
+          "evidence": "/api/v1/commercial/templates/default"
+        }
+      ],
+      "wired": true,
+      "notes": "slug default_sponsorship, is_default and not draft.",
+      "storedEntity": "wf_template_versions, wf_template_nodes, wf_template_edges"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/advance",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1312,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialNodeTokenRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Older per-node engine. No web caller.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/complete",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1326,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialNodeTokenRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Older per-node engine. No web caller.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/skip",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1340,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialNodeTokenRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Older per-node engine. No web caller.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/rollback",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1354,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialNodeTokenRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Older per-node engine. No web caller.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/block",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1368,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialBlockRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Older per-node engine. No web caller.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/unblock",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1382,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialNodeTokenRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Older per-node engine. No web caller.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/plan",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1396,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialPlanRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "saveLiveNodePlan",
+          "evidence": "/plan"
+        }
+      ],
+      "wired": true,
+      "notes": "Accepted timeline sends YYYY-MM-DD or null. Server stores Asia/Shanghai midnight.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/publish",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1410,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialPublishRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialPublishResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Registered. The accepted timeline completes publish through the step route.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/step",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1444,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialNodeStepRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialStepResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "postLiveNodeStep",
+          "evidence": "/step"
+        }
+      ],
+      "wired": true,
+      "notes": "Accepted forward, rollback, block confirmation and publish reuse.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/stages/:stageId/step",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1468,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialStageStepRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialStepResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "postLiveStageStep",
+          "evidence": "/stages/${"
+        }
+      ],
+      "wired": true,
+      "notes": "stageId is write_outline, copy_prep, production, client_review, or distribution_settlement. Not a stored row.",
+      "storedEntity": "same step transaction as the node step route"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId/close",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1494,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialCloseItemRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialOpenItemWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "No list/detail route for open items, and no web caller.",
+      "storedEntity": "open_items"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId/cancel",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1508,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialCancelItemRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialOpenItemWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "No web caller. Timeline confirmation uses force on the step route.",
+      "storedEntity": "open_items"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/videos",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 30,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchVideos",
+          "evidence": "/videos?"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "query": "page, pageSize, category, q, status",
+      "storedEntity": "videos + latest video_metric_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/videos/:bvid",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 114,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchVideo",
+          "evidence": "/videos/${encodeURIComponent(bvid)}"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "storedEntity": "videos"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/videos/:bvid/metrics",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 147,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchVideoMetrics",
+          "evidence": "/metrics?limit=500"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "query": "from, to, limit",
+      "storedEntity": "video_metric_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 205,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchCreators",
+          "evidence": "/creators?"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "query": "page, pageSize, category, q, status",
+      "storedEntity": "creators + latest creator_follower_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 276,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchCreator",
+          "evidence": "/creators/${encodeURIComponent(mid)}"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "storedEntity": "creators"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/metrics",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 307,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchCreatorMetrics",
+          "evidence": "/creators/${encodeURIComponent(mid)}/metrics"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "query": "from, to, limit",
+      "storedEntity": "creator_follower_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/dynamics",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 346,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchDynamics",
+          "evidence": "/dynamics?"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "query": "page, pageSize, status",
+      "storedEntity": "dynamics + latest dynamic_metric_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/dynamics/:id",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 414,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchDynamic",
+          "evidence": "/dynamics/${encodeURIComponent(dynamicId)}"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "storedEntity": "dynamics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/dynamics/:id/metrics",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 443,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchDynamicMetrics",
+          "evidence": "/dynamics/${encodeURIComponent(id)}/metrics"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "query": "from, to, limit",
+      "storedEntity": "dynamic_metric_samples"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/imports/csv",
+      "mountPrefix": "/api/v1/imports",
+      "sourceFile": "apps/api/src/import-routes.ts",
+      "sourceLine": 14,
+      "registration": "createImportRoutes",
+      "readWrite": "write",
+      "area": "import",
+      "requestContract": "packages/contracts/src/imports.ts#parseImportCsvRequest",
+      "responseContract": "batchId, status, report or error",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "One-shot CSV import from the mounted mock tree. No web caller.",
+      "storedEntity": "import_batches and monitoring import tables"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/imports/:batchId",
+      "mountPrefix": "/api/v1/imports",
+      "sourceFile": "apps/api/src/import-routes.ts",
+      "sourceLine": 71,
+      "registration": "createImportRoutes",
+      "readWrite": "read",
+      "area": "import",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/imports.ts#ImportBatchResponse plus evidence counts",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "No web caller.",
+      "storedEntity": "import_batches, source_metric_rows, import_conflicts_or_rejects"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/assets/:assetId",
+      "mountPrefix": "/api/v1/assets",
+      "sourceFile": "apps/api/src/assets-routes.ts",
+      "sourceLine": 18,
+      "registration": "createAssetsRoutes",
+      "readWrite": "read",
+      "area": "assets",
+      "requestContract": null,
+      "responseContract": "image or SVG bytes; header X-Asset-Status",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "coverAssetUrl",
+          "evidence": "/api/v1/assets/"
+        }
+      ],
+      "wired": true,
+      "notes": "Unknown asset id still returns HTTP 200 and a placeholder SVG.",
+      "storedEntity": "static_assets plus file under the assets root"
+    }
+  ],
+  "excludedFromApiCount": [
+    {
+      "method": "USE",
+      "path": "/assets/*",
+      "sourceFile": "apps/api/src/static-spa.ts",
+      "sourceLine": 13,
+      "classification": "static files, not an API route",
+      "conditional": "WEB_STATIC_ROOT contains index.html"
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "sourceFile": "apps/api/src/static-spa.ts",
+      "sourceLine": 14,
+      "classification": "SPA index.html",
+      "conditional": "WEB_STATIC_ROOT contains index.html"
+    },
+    {
+      "method": "GET",
+      "path": "*",
+      "sourceFile": "apps/api/src/static-spa.ts",
+      "sourceLine": 15,
+      "classification": "SPA HTML catch-all. It skips paths starting with /api and the path /health.",
+      "conditional": "WEB_STATIC_ROOT contains index.html"
+    }
+  ]
+}
