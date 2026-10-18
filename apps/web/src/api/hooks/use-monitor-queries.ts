@@ -80,11 +80,11 @@ export function useDynamicDetailQuery(dynamicId: string) {
   });
 }
 
-export function useVideoMetricsDetailQuery(bvid: string) {
+export function useVideoMetricsDetailQuery(bvid: string, enabled = true) {
   return useQuery({
     queryKey: ['monitor', 'video-metrics', bvid] as const,
     queryFn: () => fetchVideoMetrics(bvid),
-    enabled: Boolean(bvid),
+    enabled: Boolean(bvid) && enabled,
   });
 }
 

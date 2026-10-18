@@ -11,6 +11,7 @@ import {
   type LiveGraphNode,
 } from '../workflow-live-graph';
 import { useLiveProjectDetailQuery, useLiveProjectWorkflowQuery } from '../use-live-workflow';
+import { ProjectVideoMetrics } from './project-video-metrics';
 import { ProgressSummary, ProgressTimeline } from './progress-timeline-view';
 import { timelineFactsFromDetail, timelineNodesFromWorkflow } from '../progress-timeline';
 import { WorkflowLiveCanvas } from './workflow-live-canvas';
@@ -58,6 +59,7 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
   const title = detailQuery.data?.name ?? '项目流程';
   const facts = timelineFactsFromDetail(detailQuery.data);
   const timelineNodes = timelineNodesFromWorkflow(workflow.nodes, names);
+  const publishedBvid = detailQuery.data?.publish.published ? detailQuery.data.publish.bvid : null;
 
   return (
     <>
@@ -74,6 +76,7 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
       <div className="space-y-4">
         <ProgressSummary facts={facts} />
         <ProgressTimeline nodes={timelineNodes} />
+        {publishedBvid ? <ProjectVideoMetrics bvid={publishedBvid} /> : null}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">流程</CardTitle>

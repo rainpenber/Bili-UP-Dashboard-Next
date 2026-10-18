@@ -441,6 +441,7 @@ describe('LiveProjectWorkflow timeline placement', () => {
     expect(follows(summary, timeline)).toBe(true);
     expect(follows(timeline, detail)).toBe(true);
     expect(follows(detail, canvas)).toBe(true);
+    expect(screen.queryByTestId('project-video-metrics')).toBeNull();
     expect(summary.className).toContain('grid-cols-1');
     expect(summary.className).toContain('lg:grid-cols-3');
     expect(summary.className).toContain('gap-3');
