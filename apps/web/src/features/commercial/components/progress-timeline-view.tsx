@@ -614,10 +614,31 @@ export function ProgressSummary({
   const [focus, setFocus] = useState(false);
   const [pinned, setPinned] = useState(false);
   const fromPointer = useRef(false);
+  const closeTimer = useRef<number | null>(null);
   const schedule = facts ? deriveKeySchedule(nodes, facts, now) : null;
 
-  const enter = () => setHover(true);
-  const leave = () => setHover(false);
+  const cancelClose = () => {
+    if (closeTimer.current != null) window.clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  };
+  const enter = () => {
+    cancelClose();
+    setHover(true);
+  };
+  /** The card and the overlay are 8px apart. Keep the overlay up while the pointer crosses that gap. */
+  const leave = () => {
+    cancelClose();
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null;
+      setHover(false);
+    }, 140);
+  };
+  const dismissHover = () => {
+    cancelClose();
+    setHover(false);
+  };
+
+  useEffect(() => cancelClose, []);
 
   if (!facts || !schedule) {
     return (
@@ -692,7 +713,7 @@ export function ProgressSummary({
               if (event.key === 'Escape') {
                 setPinned(false);
                 setFocus(false);
-                setHover(false);
+                dismissHover();
               }
             }}
           >
@@ -707,7 +728,16 @@ export function ProgressSummary({
         testId="progress-schedule-overlay"
         layoutKey="schedule"
         onPointerEnter={enter}
-        onPointerLeave={leave}
+        onPointerLeave={(event: React.PointerEvent<HTMLDivElement>) => {
+          const next = event.relatedTarget;
+          if (
+            next instanceof Element &&
+            next.closest('[data-testid="progress-summary-schedule"]')
+          ) {
+            return;
+          }
+          leave();
+        }}
       >
         <ScheduleOverlayBody schedule={schedule} />
       </AnchoredRecordOverlay>

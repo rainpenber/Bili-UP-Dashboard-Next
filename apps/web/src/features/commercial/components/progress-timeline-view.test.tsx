@@ -686,11 +686,33 @@ describe('schedule summary overlay', () => {
     expect(overlay.textContent).not.toContain('待安排');
     fireEvent.pointerLeave(card, { relatedTarget: overlay });
     expect(screen.getByTestId('progress-schedule-overlay')).toBeTruthy();
-    fireEvent.pointerLeave(overlay);
-    await waitFor(() => {
-      expect(screen.queryByTestId('progress-schedule-overlay')).toBeNull();
-    });
-    expect(card.textContent).toContain('下一次交付');
+    fireEvent.pointerLeave(overlay, { pointerType: 'mouse', relatedTarget: document.body });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(screen.queryByTestId('progress-schedule-overlay')).toBeNull();
+  });
+
+  test('stays open while the pointer crosses the gap, then closes after leaving the overlay', async () => {
+    render(
+      <ProgressSummary
+        now={NOW}
+        facts={summaryFacts()}
+        nodes={[node('copy', '文案', 'in_progress')]}
+      />,
+    );
+    const card = screen.getByTestId('progress-summary-schedule');
+    fireEvent.pointerOver(card, { pointerType: 'mouse', relatedTarget: document.body });
+    const overlay = await screen.findByTestId('progress-schedule-overlay');
+    fireEvent.pointerOut(card, { pointerType: 'mouse', relatedTarget: document.body });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(screen.getByTestId('progress-schedule-overlay')).toBe(overlay);
+    fireEvent.pointerOver(overlay, { pointerType: 'mouse', relatedTarget: document.body });
+    await new Promise((resolve) => setTimeout(resolve, 160));
+    expect(screen.getByTestId('progress-schedule-overlay')).toBe(overlay);
+    fireEvent.pointerOut(overlay, { pointerType: 'mouse', relatedTarget: document.body });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(screen.getByTestId('progress-schedule-overlay')).toBe(overlay);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(screen.queryByTestId('progress-schedule-overlay')).toBeNull();
   });
 
   test('keyboard focus opens the schedule and a coarse pointer toggles it', async () => {

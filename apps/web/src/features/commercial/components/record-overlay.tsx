@@ -1,4 +1,10 @@
-import { useEffect, useState, type ReactNode, type RefObject } from 'react';
+import {
+  useEffect,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { DEMO_STATUS_COLOR } from '../workflow-status-map';
 import type { MockStatus } from '../../workflow-mock/flow-nodes';
@@ -98,8 +104,8 @@ export function AnchoredRecordOverlay({
   testId: string;
   stageId?: string;
   layoutKey?: string;
-  onPointerEnter: () => void;
-  onPointerLeave: () => void;
+  onPointerEnter: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerLeave: (event: ReactPointerEvent<HTMLDivElement>) => void;
   children: ReactNode;
 }) {
   const [rendered, setRendered] = useState(open);
