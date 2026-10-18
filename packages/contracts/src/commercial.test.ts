@@ -90,9 +90,11 @@ describe('commercial read contracts', () => {
         bvid: 'BVWP004R01',
         publishedAt: '2026-05-20T12:00:00.000Z',
         publishSource: 'web',
+        idempotencyKey: 'fixture-publish-once',
       },
     });
     expect(detail.publish.published).toBe(true);
+    expect(detail.publish.idempotencyKey).toBe('fixture-publish-once');
     expect(detail.blockingReason).toBeNull();
 
     const graph = parseCommercialProjectWorkflow({

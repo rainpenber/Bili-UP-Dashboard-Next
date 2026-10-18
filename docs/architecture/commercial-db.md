@@ -64,7 +64,7 @@
 
 每次写入一个事务，和 `domain_audit_events` 一起提交。并发令牌是 `updated_at`。违反数据库约束时返回 409，消息来自约束本身。路径见 [WP-004R2-3A](../../work-packages/WP-004R2-3A-commercial-workflow-engine.md)。
 
-`POST .../nodes/:nodeId/step` 和 `POST .../stages/:stageId/step` 在同一个事务里完成上游闭包或阶段前沿、阻塞事项关闭和项目 `overall_stage` 重算。有开放阻塞时返回 409 `confirmation_required` 且不写入；带 `force: true` 才关闭阻塞事项并继续。完成发布节点仍要在这一次请求里带上发布信息，缺了就整单拒绝。阶段 id 是 `write_outline`、`copy_prep`、`production`、`client_review`、`distribution_settlement`。归档或已结案项目拒绝这些写入。见 [WP-004R2-9](../../work-packages/WP-004R2-9-commercial-step-actions.md)。
+`POST .../nodes/:nodeId/step` 和 `POST .../stages/:stageId/step` 在同一个事务里完成上游闭包或阶段前沿、阻塞事项关闭和项目 `overall_stage` 重算。有开放阻塞时返回 409 `confirmation_required` 且不写入，节点即使还不是 `blocked` 也一样；带 `force: true` 才关闭阻塞事项并继续。完成发布节点仍要在这一次请求里带上发布信息，缺了就整单拒绝。项目详情的 `publish.idempotencyKey` 是已有发布记录的幂等键；发布节点回退到进行中后，用同一个键和原来的 BV 号可以再完成，不新增发布记录或监控任务。换一把新键会被拒绝。阶段 id 是 `write_outline`、`copy_prep`、`production`、`client_review`、`distribution_settlement`。归档或已结案项目拒绝这些写入。见 [WP-004R2-9](../../work-packages/WP-004R2-9-commercial-step-actions.md)。
 
 ## 本地核对
 

@@ -55,10 +55,18 @@ export type StepResult =
       successors: StepSuccessorView[];
     };
 
+export type RecordedPublish = {
+  bvid: string;
+  publishedAt: string;
+  idempotencyKey: string;
+};
+
 export type StepEditor = {
   disabled: boolean;
   onStep: (call: StepCall) => Promise<StepResult>;
   onRefresh: () => void;
+  /** Set when this project already has a publish record, including after the publish node was rolled back. */
+  recordedPublish?: RecordedPublish | null;
 };
 
 type PendingCall = StepCall;
@@ -75,7 +83,12 @@ export function useStepController(
     call: PendingCall;
     result: Exclude<StepResult, { ok: true }>;
   } | null>(null);
-  const [publish, setPublish] = useState<{ call: PendingCall; key: string } | null>(null);
+  const [publish, setPublish] = useState<{
+    call: PendingCall;
+    key: string;
+    bvid: string;
+    publishedAt: string;
+  } | null>(null);
 
   const run = async (call: PendingCall) => {
     if (!editor || editor.disabled || lock.current) return;
@@ -97,13 +110,26 @@ export function useStepController(
       }
       if (result.code === 'publish_required') {
         setConfirm(null);
-        setPublish({ call, key: crypto.randomUUID() });
+        const recorded = editor.recordedPublish ?? null;
+        setPublish({
+          call,
+          key: recorded?.idempotencyKey ?? crypto.randomUUID(),
+          bvid: recorded?.bvid ?? '',
+          publishedAt: recorded?.publishedAt ?? '',
+        });
         return;
       }
       setConfirm(null);
       setPublish(null);
       setError(result.message);
       setSuccessors(result.successors);
+    } catch (err) {
+      setConfirm(null);
+      setPublish(null);
+      setSuccessors([]);
+      setError(
+        err instanceof Error && err.message.trim().length > 0 ? err.message : '网络异常，请重试',
+      );
     } finally {
       lock.current = false;
       setPending(false);
@@ -416,6 +442,9 @@ export function StepNotices({ controller }: { controller: StepController }) {
                 void controller.run({ ...controller.publish!.call, force: true, publish })
               }
               idempotencyKey={controller.publish.key}
+              initialBvid={controller.publish.bvid}
+              initialPublishedAt={controller.publish.publishedAt}
+              reusesRecord={controller.publish.bvid.length > 0}
             />,
             document.body,
           )
@@ -424,19 +453,34 @@ export function StepNotices({ controller }: { controller: StepController }) {
   );
 }
 
+function localDateTimeValue(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function PublishDialog({
   pending,
   idempotencyKey,
+  initialBvid,
+  initialPublishedAt,
+  reusesRecord,
   onCancel,
   onSubmit,
 }: {
   pending: boolean;
   idempotencyKey: string;
+  initialBvid: string;
+  initialPublishedAt: string;
+  reusesRecord: boolean;
   onCancel: () => void;
   onSubmit: (publish: CommercialStepPublish) => void;
 }) {
-  const [bvid, setBvid] = useState('');
-  const [publishedAt, setPublishedAt] = useState('');
+  const [bvid, setBvid] = useState(initialBvid);
+  const [publishedAt, setPublishedAt] = useState(
+    initialPublishedAt ? localDateTimeValue(initialPublishedAt) : '',
+  );
   const [localError, setLocalError] = useState<string | null>(null);
   return (
     <div
@@ -472,7 +516,9 @@ function PublishDialog({
       >
         <p className="font-medium">补上发布信息</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          发布节点要在同一次提交里记下 BV 号。取消则这次不会改任何节点，也不会请求外网。
+          {reusesRecord
+            ? '将沿用已记录的发布信息和原来的幂等键，不会新建监控任务。取消则这次不会改任何节点。'
+            : '发布节点要在同一次提交里记下 BV 号。取消则这次不会改任何节点，也不会请求外网。'}
         </p>
         <label className="mt-3 block space-y-1 text-xs text-muted-foreground">
           BV 号

@@ -829,6 +829,106 @@ describe('LiveProjectWorkflow timeline placement', () => {
       .find((item) => item.getAttribute('data-node-id') === 'copy');
     expect(copyCard?.getAttribute('data-status')).toBe('blocked');
   });
+
+  test('a rejected step request stays visible and can be retried', async () => {
+    const outline = {
+      id: NODE_IDS.outline ?? '',
+      name: '大纲',
+      status: 'not_reached',
+      kind: 'stage',
+      templateSlug: 'outline',
+      blockingReason: null,
+      plannedAt: null,
+      completedAt: null,
+      updatedAt: '2026-05-20T12:00:00.000000Z',
+    };
+    let posts = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === 'POST' && url.includes('/step')) {
+        posts += 1;
+        if (posts === 1) throw new TypeError('Failed to fetch');
+        outline.status = 'in_progress';
+        outline.updatedAt = '2026-05-21T12:00:00.000000Z';
+        return new Response(
+          JSON.stringify({
+            projectId: PROJECT_ID,
+            overallStage: 'pre_publish',
+            nodes: [
+              {
+                id: outline.id,
+                name: outline.name,
+                status: outline.status,
+                kind: 'stage',
+                updatedAt: outline.updatedAt,
+                statusBeforeBlock: null,
+                primaryBlockItemId: null,
+                plannedAt: null,
+                completedAt: null,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      const payload = url.endsWith('/workflow')
+        ? {
+            projectId: PROJECT_ID,
+            workflowId: 'a2000001-0001-4001-8001-000000000001',
+            templateVersionId: 'ffff1111-1111-4111-8111-111111111111',
+            nodes: [outline],
+            edges: [],
+          }
+        : {
+            id: PROJECT_ID,
+            name: '网络失败样例',
+            netAmount: null,
+            rebateAmount: null,
+            overallStage: 'pre_publish',
+            currentStageNames: [],
+            anyNodeBlocked: false,
+            blockingReason: null,
+            publish: {
+              published: false,
+              bvid: null,
+              publishedAt: null,
+              publishSource: null,
+              idempotencyKey: null,
+            },
+          };
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <LiveProjectWorkflow projectId={PROJECT_ID} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole('heading', { name: '网络失败样例' });
+    const stage = screen
+      .getAllByTestId('progress-stage')
+      .find((item) => item.getAttribute('data-stage-id') === 'write_outline');
+    if (!stage) throw new Error('missing outline stage');
+    fireEvent.click(stage);
+    const card = () =>
+      screen
+        .getAllByTestId('progress-stage-node')
+        .find((item) => item.getAttribute('data-node-id') === 'outline');
+    fireEvent.click(screen.getByTestId('node-step'));
+    const error = await screen.findByTestId('step-error');
+    expect(error.textContent).toContain('Failed to fetch');
+    expect(card()?.getAttribute('data-status')).toBe('not_reached');
+    expect(screen.getByTestId('node-step').hasAttribute('disabled')).toBe(false);
+    fireEvent.click(screen.getByTestId('node-step'));
+    await waitFor(() => expect(card()?.getAttribute('data-status')).toBe('in_progress'));
+    expect(posts).toBe(2);
+  });
 });
 
 const NOW = new Date('2026-04-10T04:00:00.000Z');

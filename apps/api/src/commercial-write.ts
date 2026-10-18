@@ -856,7 +856,29 @@ async function publishNode(
   const node = requireNode(graph, nodeId);
   if (!isPublishNode(node)) refuse(409, 'invalid_transition', '只有发布节点可以记录发布');
   if (byProject) {
-    const bundle = await loadPublishBundle(tx, projectId, node);
+    if (asStatus(node.status) === 'completed') {
+      const bundle = await loadPublishBundle(tx, projectId, node);
+      return { ...bundle, idempotentReplay: true };
+    }
+    assertToken(node.updated_at, input.expectedUpdatedAt);
+    const status = asStatus(node.status);
+    if (status === 'blocked') refuse(409, 'invalid_transition', '阻塞中的节点要先解除阻塞');
+    if (status !== 'in_progress') {
+      refuse(409, 'invalid_transition', '只能在发布节点进行中时沿用已有发布记录');
+    }
+    const updated = await updateNode(tx, projectId, node, {
+      status: 'completed',
+      statusBeforeBlock: null,
+      primaryBlockItemId: node.primary_block_pinned_item_id,
+      clearCompletedAt: false,
+    });
+    await audit(tx, projectId, 'wf_node', nodeId, 'complete', {
+      from: status,
+      to: 'completed',
+      bvid: input.bvid,
+      idempotentReplay: true,
+    });
+    const bundle = await loadPublishBundle(tx, projectId, updated);
     return { ...bundle, idempotentReplay: true };
   }
   if (input.platform !== 'bilibili') {
@@ -1238,6 +1260,10 @@ async function applyStep(
       publishSource: publish.publishSource ?? 'web',
     });
     graph = await loadGraph(tx, projectId);
+    const published = graph.byId.get(plan.publishNodeId);
+    if (!published || published.status !== 'completed') {
+      refuse(409, 'publish_conflict', '发布节点没有完成');
+    }
   }
   const overallStage = await syncOverallStage(tx, projectId, graph);
   const changed = new Set(effects.map((item) => item.nodeId));

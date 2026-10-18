@@ -197,9 +197,15 @@ describe('commercial read API', () => {
       FROM open_items
     `;
     const publishes = await sql<
-      { project_id: string; bvid: string; published_at: Date; publish_source: string }[]
+      {
+        project_id: string;
+        bvid: string;
+        published_at: Date;
+        publish_source: string;
+        idempotency_key: string;
+      }[]
     >`
-      SELECT project_id, bvid, published_at, publish_source FROM project_publish_records
+      SELECT project_id, bvid, published_at, publish_source, idempotency_key FROM project_publish_records
     `;
     const publishByProject = new Map(publishes.map((row) => [row.project_id, row]));
 
@@ -219,6 +225,7 @@ describe('commercial read API', () => {
           bvid: publish.bvid,
           publishedAt: publish.published_at.toISOString(),
           publishSource: asPublishSource(publish.publish_source),
+          idempotencyKey: publish.idempotency_key,
         });
       } else {
         expect(detail.publish).toEqual({
@@ -226,6 +233,7 @@ describe('commercial read API', () => {
           bvid: null,
           publishedAt: null,
           publishSource: null,
+          idempotencyKey: null,
         });
       }
     }
@@ -276,6 +284,7 @@ describe('commercial read API', () => {
       bvid: 'BVWP004R01',
       publishedAt: '2026-05-20T12:00:00.000Z',
       publishSource: 'web',
+      idempotencyKey: 'fixture-publish-once',
     });
   }, 30_000);
 

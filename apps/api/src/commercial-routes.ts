@@ -246,6 +246,7 @@ export function createCommercialRoutes(db: Sql) {
           bvid: string | null;
           published_at: Date | null;
           publish_source: string | null;
+          idempotency_key: string | null;
         })[]
       >`
         SELECT
@@ -301,7 +302,8 @@ export function createCommercialRoutes(db: Sql) {
           ) AS blocking_reason,
           r.bvid,
           r.published_at,
-          r.publish_source
+          r.publish_source,
+          r.idempotency_key
         FROM commercial_projects p
         LEFT JOIN project_publish_records r ON r.project_id = p.id
         WHERE p.id = ${projectId}
@@ -313,12 +315,19 @@ export function createCommercialRoutes(db: Sql) {
         blockingReason: row.blocking_reason,
         publish:
           row.bvid === null
-            ? { published: false, bvid: null, publishedAt: null, publishSource: null }
+            ? {
+                published: false,
+                bvid: null,
+                publishedAt: null,
+                publishSource: null,
+                idempotencyKey: null,
+              }
             : {
                 published: true,
                 bvid: row.bvid,
                 publishedAt: toIso(row.published_at ?? ''),
                 publishSource: publishSource(row.publish_source ?? ''),
+                idempotencyKey: row.idempotency_key ?? '',
               },
       };
       return c.json(parseCommercialProjectDetail(detail));

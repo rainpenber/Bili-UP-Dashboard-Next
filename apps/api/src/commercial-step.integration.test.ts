@@ -313,6 +313,146 @@ describe('commercial stepwise progress', () => {
       pre_shoot: 'completed',
     });
   }, 30_000);
+
+  test('an in-progress node with an open blocking item confirms before it can be completed', async () => {
+    const ctx = await ready(sql, app);
+    if (!ctx) return;
+    await stepNode(ctx, '文案', 'forward');
+    const graph = await reload(ctx);
+    const copyId = idOf(graph, '文案');
+    const itemId = crypto.randomUUID();
+    await ctx.sql`
+      INSERT INTO open_items (
+        id, project_id, workflow_node_id, blocks_node_id, title, impact, lifecycle, next_actor
+      ) VALUES (
+        ${itemId}, ${ctx.projectId}, ${copyId}, ${copyId}, '文案仍挂着开放阻塞', 'blocking', 'open', 'us'
+      )
+    `;
+    await ctx.sql`
+      UPDATE wf_nodes
+      SET primary_block_pinned_item_id = ${itemId}, updated_at = now()
+      WHERE id = ${copyId}
+    `;
+    const before = await snapshot(ctx.sql, ctx.projectId);
+    const refused = await stepNode(ctx, '文案', 'forward', {}, 409);
+    expect(refused.code).toBe('confirmation_required');
+    expect(refused.blocks?.[0]?.itemId).toBe(itemId);
+    expect(await snapshot(ctx.sql, ctx.projectId)).toEqual(before);
+
+    await stepNode(ctx, '文案', 'forward', { force: true });
+    expect((await statuses(ctx.sql, ctx.projectId)).copy).toBe('completed');
+    expect(await openBlockingTitles(ctx.sql, ctx.projectId)).toEqual([]);
+  }, 30_000);
+
+  test('rolling publish back can complete again with the stored key and not a new one', async () => {
+    const ctx = await ready(sql, app);
+    if (!ctx) return;
+    await markCompleted(ctx.sql, ctx.projectId, [
+      '询单',
+      '大纲',
+      '文案',
+      '预拍摄',
+      '汇合节点',
+      'A-roll 拍摄',
+      'B-roll 素材',
+      'AI 后期',
+      '审核',
+    ]);
+    await markStatus(ctx.sql, ctx.projectId, '发布', 'in_progress');
+    await stepNode(ctx, '发布', 'forward', {
+      publish: publishBody('replay-key', '2026-04-02T03:04:05.000Z'),
+    });
+    expect((await statuses(ctx.sql, ctx.projectId)).publish).toBe('completed');
+    expect(await publishCount(ctx.sql, ctx.projectId)).toBe(1);
+    expect(await jobCount(ctx.sql, ctx.projectId)).toBe(2);
+    const detail = await ctx.app.request(`/api/v1/commercial/projects/${ctx.projectId}`);
+    expect(detail.status).toBe(200);
+    const body = (await detail.json()) as { publish: { idempotencyKey: string; bvid: string } };
+    expect(body.publish.idempotencyKey).toBe('replay-key');
+    expect(body.publish.bvid).toBe('BV1xx411c7mD');
+
+    await stepNode(ctx, '发布', 'rollback');
+    expect((await statuses(ctx.sql, ctx.projectId)).publish).toBe('in_progress');
+    const conflict = await stepNode(
+      ctx,
+      '发布',
+      'forward',
+      { publish: publishBody('replay-key-new') },
+      409,
+    );
+    expect(conflict.code).toBe('publish_conflict');
+    expect((await statuses(ctx.sql, ctx.projectId)).publish).toBe('in_progress');
+    expect(await jobCount(ctx.sql, ctx.projectId)).toBe(2);
+
+    await stepNode(ctx, '发布', 'forward', { publish: publishBody('replay-key') });
+    expect((await statuses(ctx.sql, ctx.projectId)).publish).toBe('completed');
+    expect(await publishCount(ctx.sql, ctx.projectId)).toBe(1);
+    expect(await jobCount(ctx.sql, ctx.projectId)).toBe(2);
+    const repeat = await stepNode(
+      ctx,
+      '发布',
+      'forward',
+      { publish: publishBody('replay-key') },
+      409,
+    );
+    expect(repeat.code).toBe('invalid_transition');
+    expect(await jobCount(ctx.sql, ctx.projectId)).toBe(2);
+  }, 30_000);
+
+  test('rolling the review stage back reuses the same publish record for the stage', async () => {
+    const ctx = await ready(sql, app);
+    if (!ctx) return;
+    await markCompleted(ctx.sql, ctx.projectId, [
+      '询单',
+      '大纲',
+      '文案',
+      '预拍摄',
+      '汇合节点',
+      'A-roll 拍摄',
+      'B-roll 素材',
+      'AI 后期',
+    ]);
+    await markStatus(ctx.sql, ctx.projectId, '审核', 'in_progress');
+    await stepStage(ctx, 'client_review', 'forward', { publish: publishBody('stage-replay-key') });
+    expect(await statuses(ctx.sql, ctx.projectId)).toMatchObject({
+      review: 'completed',
+      publish: 'completed',
+    });
+    expect(await jobCount(ctx.sql, ctx.projectId)).toBe(2);
+
+    await stepStage(ctx, 'client_review', 'rollback');
+    expect(await statuses(ctx.sql, ctx.projectId)).toMatchObject({
+      review: 'completed',
+      publish: 'in_progress',
+    });
+    const conflict = await stepStage(
+      ctx,
+      'client_review',
+      'forward',
+      { publish: publishBody('stage-replay-key-new') },
+      409,
+    );
+    expect(conflict.code).toBe('publish_conflict');
+    expect(await statuses(ctx.sql, ctx.projectId)).toMatchObject({
+      review: 'completed',
+      publish: 'in_progress',
+    });
+    expect(await publishCount(ctx.sql, ctx.projectId)).toBe(1);
+    expect(await jobCount(ctx.sql, ctx.projectId)).toBe(2);
+
+    await stepStage(ctx, 'client_review', 'forward', { publish: publishBody('stage-replay-key') });
+    expect((await statuses(ctx.sql, ctx.projectId)).publish).toBe('completed');
+    expect(await jobCount(ctx.sql, ctx.projectId)).toBe(2);
+    const repeat = await stepStage(
+      ctx,
+      'client_review',
+      'forward',
+      { publish: publishBody('stage-replay-key') },
+      409,
+    );
+    expect(repeat.code).toBe('invalid_transition');
+    expect(await jobCount(ctx.sql, ctx.projectId)).toBe(2);
+  }, 30_000);
 });
 
 function publishBody(idempotencyKey: string, publishedAt?: string) {

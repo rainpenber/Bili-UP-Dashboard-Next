@@ -103,6 +103,7 @@ function detail(published: boolean) {
           bvid: BVID,
           publishedAt: '2026-05-20T12:00:00.000Z',
           publishSource: 'web',
+          idempotencyKey: 'fixture-publish-once',
         }
       : { published: false, bvid: null, publishedAt: null, publishSource: null },
   };

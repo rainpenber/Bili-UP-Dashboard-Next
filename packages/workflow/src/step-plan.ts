@@ -170,14 +170,14 @@ function planNodeForward(graph: Graph, node: PlanNode): StepPlan {
       ...ancestors.map((item) => effect(item, 'completed')),
       effect(node, 'in_progress'),
     ];
-    return accept(graph, 'advance', effects, blocksOf(ancestors));
+    return accept(graph, 'advance', effects, blocksOf([...ancestors, node]));
   }
   if (node.status === 'in_progress') {
     const effects = [
       ...ancestors.map((item) => effect(item, 'completed')),
       effect(node, 'completed'),
     ];
-    return accept(graph, 'complete', effects, blocksOf(ancestors));
+    return accept(graph, 'complete', effects, blocksOf([...ancestors, node]));
   }
   return refusal('invalid_transition', '该节点没有可推进的状态');
 }
@@ -186,20 +186,23 @@ function planStageForward(graph: Graph, applicable: PlanNode[], level: Rollup): 
   if (level === 'completed') return refusal('invalid_transition', '阶段已完成');
   const memberIds = new Set(applicable.map((node) => node.id));
   if (level === 'not_reached') {
+    const entries = applicable.filter((node) =>
+      inStageLinks(graph, node.id, memberIds, 'up').every((predId) => {
+        const pred = graph.byId.get(predId);
+        return pred?.status === 'completed' || pred?.status === 'not_applicable';
+      }),
+    );
     const ancestors = collectUnfinished(
       graph,
-      applicable.map((node) => node.id),
+      entries.map((node) => node.id),
       memberIds,
-    );
-    const entries = applicable.filter(
-      (node) => inStageLinks(graph, node.id, memberIds, 'up').length === 0,
     );
     const effects = [
       ...ancestors.map((node) => effect(node, 'completed')),
       ...entries.map((node) => effect(node, 'in_progress')),
     ];
     if (entries.length === 0) return refusal('invalid_transition', '这个阶段没有可开始的子节点');
-    return accept(graph, 'advance', effects, blocksOf(ancestors));
+    return accept(graph, 'advance', effects, blocksOf([...ancestors, ...entries]));
   }
   const ancestors = collectUnfinished(
     graph,
@@ -212,7 +215,7 @@ function planStageForward(graph: Graph, applicable: PlanNode[], level: Rollup): 
     ...finishing.map((node) => effect(node, 'completed')),
   ];
   if (effects.length === 0) return refusal('invalid_transition', '阶段已完成');
-  return accept(graph, 'complete', effects, blocksOf([...ancestors, ...finishing]));
+  return accept(graph, 'complete', effects, blocksOf([...ancestors, ...applicable]));
 }
 
 function planStageRollback(graph: Graph, applicable: PlanNode[], level: Rollup): StepPlan {
@@ -282,11 +285,14 @@ function accept(
   blocks: StepBlock[],
 ): StepPlan {
   const seen = new Set<string>();
-  const unique = effects.filter((item) => {
-    if (seen.has(item.nodeId)) return false;
-    seen.add(item.nodeId);
-    return item.from !== item.to;
-  });
+  const unique = orderEffects(
+    graph,
+    effects.filter((item) => {
+      if (seen.has(item.nodeId)) return false;
+      seen.add(item.nodeId);
+      return item.from !== item.to;
+    }),
+  );
   const publish = unique.find(
     (item) => item.to === 'completed' && graph.publishIds.has(item.nodeId),
   );
@@ -376,6 +382,11 @@ function collectUnfinished(
   return ordered;
 }
 
+/**
+ * Other stage members reachable through merge, not_applicable, or business
+ * nodes that belong to a different stage. A path A → outside → B is still a
+ * dependency between A and B.
+ */
 function inStageLinks(
   graph: Graph,
   id: string,
@@ -391,15 +402,30 @@ function inStageLinks(
       seen.add(otherId);
       const other = graph.byId.get(otherId);
       if (!other) continue;
-      if (other.kind === 'merge' || other.status === 'not_applicable') {
-        walk(otherId);
+      if (memberIds.has(otherId)) {
+        found.push(otherId);
         continue;
       }
-      if (memberIds.has(otherId)) found.push(otherId);
+      walk(otherId);
     }
   };
   walk(id);
   return found;
+}
+
+function orderEffects(graph: Graph, effects: StepEffect[]): StepEffect[] {
+  const byId = new Map(effects.map((item) => [item.nodeId, item]));
+  const ordered: StepEffect[] = [];
+  const seen = new Set<string>();
+  const walk = (id: string) => {
+    if (seen.has(id) || !byId.has(id)) return;
+    seen.add(id);
+    for (const predId of graph.predecessors.get(id) ?? []) walk(predId);
+    const item = byId.get(id);
+    if (item) ordered.push(item);
+  };
+  for (const item of effects) walk(item.nodeId);
+  return ordered;
 }
 
 function topoMembers(graph: Graph, members: readonly PlanNode[]): PlanNode[] {

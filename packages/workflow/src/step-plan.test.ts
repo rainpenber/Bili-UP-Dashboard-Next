@@ -163,6 +163,33 @@ describe('node step plan', () => {
     if (!plan.ok) expect(plan.error).toBe('节点已完成');
   });
 
+  test('an in-progress node with an open blocking item still requires confirmation', () => {
+    const nodes = [
+      node('copy', '文案', 'in_progress', {
+        blockItemId: 'open-item',
+        blockingReason: '等甲方',
+      }),
+    ];
+    const plan = ok(planNodeStep(nodes, [], 'copy', 'forward'));
+    expect(plan.action).toBe('complete');
+    expect(targets(plan)).toEqual({ copy: 'completed' });
+    expect(plan.blocks).toEqual([
+      { nodeId: 'copy', nodeName: '文案', reason: '等甲方', itemId: 'open-item' },
+    ]);
+  });
+
+  test('first advance of a not_reached node also confirms its open blocking item', () => {
+    const nodes = [
+      node('copy', '文案', 'not_reached', {
+        blockItemId: 'open-item',
+        blockingReason: '等甲方',
+      }),
+    ];
+    const plan = ok(planNodeStep(nodes, [], 'copy', 'forward'));
+    expect(targets(plan)).toEqual({ copy: 'in_progress' });
+    expect(plan.blocks.map((item) => item.itemId)).toEqual(['open-item']);
+  });
+
   test('merge is not a step target', () => {
     const plan = planNodeStep(fresh(), edges, 'merge', 'forward');
     expect(plan.ok).toBe(false);
@@ -296,6 +323,62 @@ describe('stage step plan', () => {
     expect(plan.ok).toBe(false);
     if (plan.ok) return;
     expect(plan.successors.map((item) => item.nodeId)).toEqual(['settlement']);
+  });
+
+  test('first production advance does not complete an outside node that still depends on a member', () => {
+    const nodes = [
+      node('a_roll', 'A-roll 拍摄', 'not_reached'),
+      node('review', '审核', 'not_reached'),
+      node('b_roll', 'B-roll 素材', 'not_reached'),
+    ];
+    const linked: EngineEdge[] = [
+      { fromNodeId: 'a_roll', toNodeId: 'review' },
+      { fromNodeId: 'review', toNodeId: 'b_roll' },
+    ];
+    const plan = ok(planStageStep(nodes, linked, 'production', 'forward'));
+    expect(plan.action).toBe('advance');
+    expect(targets(plan)).toEqual({ a_roll: 'in_progress' });
+    expect(plan.effects.some((item) => item.nodeId === 'review')).toBe(false);
+  });
+
+  test('completing that stage orders the outside node after its member predecessor', () => {
+    const nodes = [
+      node('a_roll', 'A-roll 拍摄', 'in_progress'),
+      node('review', '审核', 'not_reached'),
+      node('b_roll', 'B-roll 素材', 'not_reached'),
+    ];
+    const linked: EngineEdge[] = [
+      { fromNodeId: 'a_roll', toNodeId: 'review' },
+      { fromNodeId: 'review', toNodeId: 'b_roll' },
+    ];
+    const plan = ok(planStageStep(nodes, linked, 'production', 'forward'));
+    expect(plan.action).toBe('complete');
+    expect(plan.effects.map((item) => `${item.nodeId}:${item.to}`)).toEqual([
+      'a_roll:completed',
+      'review:completed',
+      'b_roll:completed',
+    ]);
+  });
+
+  test('rollback of that stage moves only the downstream member and then stops at the outside node', () => {
+    const linked: EngineEdge[] = [
+      { fromNodeId: 'a_roll', toNodeId: 'review' },
+      { fromNodeId: 'review', toNodeId: 'b_roll' },
+    ];
+    const done = [
+      node('a_roll', 'A-roll 拍摄', 'completed'),
+      node('review', '审核', 'completed'),
+      node('b_roll', 'B-roll 素材', 'completed'),
+    ];
+    const once = ok(planStageStep(done, linked, 'production', 'rollback'));
+    expect(targets(once)).toEqual({ b_roll: 'in_progress' });
+    const midway = done.map((item) =>
+      item.id === 'b_roll' ? { ...item, status: 'in_progress' as const } : item,
+    );
+    const twice = planStageStep(midway, linked, 'production', 'rollback');
+    expect(twice.ok).toBe(false);
+    if (twice.ok) return;
+    expect(twice.successors.map((item) => item.nodeId)).toEqual(['review']);
   });
 
   test('a blocked stage complete lists the block and still scopes to that stage', () => {

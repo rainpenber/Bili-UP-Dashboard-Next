@@ -19,26 +19,37 @@ import { ProgressSummary, ProgressTimeline } from './progress-timeline-view';
 import { timelineFactsFromDetail, timelineNodesFromWorkflow } from '../progress-timeline';
 import { WorkflowLiveCanvas } from './workflow-live-canvas';
 
+function stepFailure(message: string, code = 'invalid_body'): StepResult {
+  return { ok: false, message, code, blocks: [], effects: [], successors: [] };
+}
+
 async function runLiveStep(
   projectId: string,
   call: StepCall,
   queryClient: ReturnType<typeof useQueryClient>,
 ): Promise<StepResult> {
   const publish = call.publish ?? null;
-  const result =
-    call.kind === 'node' && call.nodeId && call.expectedUpdatedAt
-      ? await postLiveNodeStep(projectId, call.nodeId, {
-          expectedUpdatedAt: call.expectedUpdatedAt,
-          direction: call.direction,
-          force: call.force,
-          publish,
-        })
-      : await postLiveStageStep(projectId, call.stageId ?? '', {
-          direction: call.direction,
-          tokens: call.tokens,
-          force: call.force,
-          publish,
-        });
+  let result;
+  try {
+    result =
+      call.kind === 'node' && call.nodeId && call.expectedUpdatedAt
+        ? await postLiveNodeStep(projectId, call.nodeId, {
+            expectedUpdatedAt: call.expectedUpdatedAt,
+            direction: call.direction,
+            force: call.force,
+            publish,
+          })
+        : await postLiveStageStep(projectId, call.stageId ?? '', {
+            direction: call.direction,
+            tokens: call.tokens,
+            force: call.force,
+            publish,
+          });
+  } catch (err) {
+    return stepFailure(
+      err instanceof Error && err.message.trim().length > 0 ? err.message : '网络异常，请重试',
+    );
+  }
   if (result.ok) {
     await queryClient.invalidateQueries({ queryKey: ['commercial', 'live-workflow', projectId] });
     await queryClient.invalidateQueries({ queryKey: ['commercial', 'live-project', projectId] });
@@ -137,6 +148,14 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
               void workflowQuery.refetch();
               void detailQuery.refetch();
             },
+            recordedPublish:
+              detailQuery.data?.publish.published && detailQuery.data.publish.idempotencyKey
+                ? {
+                    bvid: detailQuery.data.publish.bvid ?? '',
+                    publishedAt: detailQuery.data.publish.publishedAt ?? '',
+                    idempotencyKey: detailQuery.data.publish.idempotencyKey,
+                  }
+                : null,
             onStep: (call) => runLiveStep(projectId, call, queryClient),
           }}
           planEditor={{

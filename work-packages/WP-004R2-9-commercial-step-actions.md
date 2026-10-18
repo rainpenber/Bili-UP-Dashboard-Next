@@ -19,3 +19,7 @@
 - `POST /api/v1/commercial/projects/:projectId/stages/:stageId/step`
 
 体里有 `direction`（`forward` 或 `rollback`）、节点的 `expectedUpdatedAt`（阶段用 `tokens`）、可选 `force` 和 `publish`。
+
+开放阻塞事项挂在目标上时，即使节点状态还不是 `blocked`，推进也要先确认；确认后关闭事项，完成后不能再挂着开放阻塞。阶段第一次推进按真实边上的最小前沿，跨到阶段外的业务节点不会把还依赖本阶段成员的节点提前标完成。
+
+发布节点回退后，项目详情带回原来的 `idempotencyKey`。再用这把键和原来的 BV 号可以完成节点，不新建发布记录，也不再插监控任务。新键会被 `publish_conflict` 拒绝。网络失败会留在阶段详情里，可以再点一次。

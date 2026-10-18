@@ -75,6 +75,8 @@ export type CommercialPublishStatus = {
   bvid: string | null;
   publishedAt: string | null;
   publishSource: PublishSource | null;
+  /** Stored publish idempotency key. Present only after a record exists, so a later complete can reuse it. */
+  idempotencyKey: string | null;
 };
 
 export type CommercialProjectDetail = {
@@ -208,12 +210,22 @@ function parsePublish(value: unknown): CommercialPublishStatus {
       bvid: record.bvid,
       publishedAt: parseIso(record.publishedAt, 'publish.publishedAt'),
       publishSource: record.publishSource,
+      idempotencyKey: parseName(record.idempotencyKey, 'publish.idempotencyKey'),
     };
   }
   if (record.bvid !== null || record.publishedAt !== null || record.publishSource !== null) {
     throw new Error('unpublished publish status must null bvid, publishedAt, and publishSource');
   }
-  return { published: false, bvid: null, publishedAt: null, publishSource: null };
+  if (record.idempotencyKey !== undefined && record.idempotencyKey !== null) {
+    throw new Error('unpublished publish status must null idempotencyKey');
+  }
+  return {
+    published: false,
+    bvid: null,
+    publishedAt: null,
+    publishSource: null,
+    idempotencyKey: null,
+  };
 }
 
 function parseListItem(value: unknown): CommercialProjectListItem {
