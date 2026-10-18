@@ -156,28 +156,103 @@ export function useStepController(
 
 export type StepController = ReturnType<typeof useStepController>;
 
-function forwardCopy(status: string, stage: boolean): { label: string; hint: string } | null {
+export type StepActionSpec = {
+  direction: 'forward' | 'rollback';
+  label: string;
+  variant: 'default' | 'secondary' | 'ghost' | 'destructive';
+};
+
+/** One policy for node cards, the stage bar, and the stage tooltip. */
+export function stepActionSpecs(status: string, scope: 'node' | 'stage'): StepActionSpec[] {
   if (status === 'not_reached') {
-    return stage
-      ? { label: '推进阶段', hint: '下一步：让本阶段进入进行中' }
-      : { label: '开始', hint: '下一步：进入进行中' };
+    return [{ direction: 'forward', label: '推进', variant: 'default' }];
   }
   if (status === 'in_progress') {
-    return stage
-      ? { label: '完成阶段', hint: '下一步：完成本阶段适用节点' }
-      : { label: '标记完成', hint: '下一步：标记完成' };
+    return [
+      { direction: 'forward', label: '完成', variant: 'default' },
+      { direction: 'rollback', label: '回退', variant: 'secondary' },
+    ];
+  }
+  if (status === 'completed') {
+    return [{ direction: 'rollback', label: '回退', variant: 'destructive' }];
   }
   if (status === 'blocked') {
-    return stage
-      ? { label: '处理阻塞并完成', hint: '下一步：关闭阻塞并完成本阶段' }
-      : { label: '解除阻塞', hint: '下一步：关闭阻塞并恢复为进行中' };
+    return [
+      {
+        direction: 'forward',
+        label: scope === 'stage' ? '处理阻塞并完成' : '解除阻塞',
+        variant: 'default',
+      },
+    ];
   }
-  if (status === 'completed') return { label: '已完成', hint: '已完成' };
-  return null;
+  if (status === 'not_applicable') {
+    return [{ direction: 'rollback', label: '回退', variant: 'ghost' }];
+  }
+  return [];
 }
 
-function canRollBack(status: string): boolean {
-  return status === 'completed' || status === 'in_progress' || status === 'not_applicable';
+function StepActionButtons({
+  specs,
+  status,
+  pending,
+  ready,
+  surface,
+  nodeId,
+  stageId,
+  className,
+  onActivate,
+}: {
+  specs: StepActionSpec[];
+  status: string;
+  pending: boolean;
+  ready: boolean;
+  surface: 'detail' | 'tooltip';
+  nodeId?: string;
+  stageId?: string;
+  className?: string;
+  onActivate: (direction: 'forward' | 'rollback') => void;
+}) {
+  if (specs.length === 0) return null;
+  return (
+    <div
+      className={['flex min-w-0 flex-wrap items-center gap-2', className].filter(Boolean).join(' ')}
+      data-testid={nodeId ? 'node-step-actions' : 'stage-step-actions'}
+      data-surface={surface}
+      data-status={status}
+    >
+      {specs.map((spec) => (
+        <Button
+          key={spec.direction}
+          type="button"
+          size="sm"
+          variant={spec.variant}
+          className="h-7 px-2 text-xs"
+          disabled={pending || !ready}
+          data-testid={
+            nodeId
+              ? spec.direction === 'forward'
+                ? 'node-step'
+                : 'node-rollback'
+              : spec.direction === 'forward'
+                ? 'stage-step'
+                : 'stage-rollback'
+          }
+          data-variant={spec.variant}
+          data-status={status}
+          data-pending={pending ? 'true' : 'false'}
+          {...(nodeId ? { 'data-node-id': nodeId } : {})}
+          {...(stageId ? { 'data-stage-id': stageId } : {})}
+          onClick={(event) => {
+            event.stopPropagation();
+            onActivate(spec.direction);
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {spec.label}
+        </Button>
+      ))}
+    </div>
+  );
 }
 
 export function StageStepBar({
@@ -185,65 +260,39 @@ export function StageStepBar({
   status,
   members,
   controller,
+  surface = 'detail',
 }: {
   stageId: string;
   status: string;
   members: TimelineChild[];
   controller: StepController;
+  surface?: 'detail' | 'tooltip';
 }) {
-  const copy = forwardCopy(status, true);
   const tokens = members.flatMap((child) =>
     child.updatedAt ? [{ nodeId: child.id, expectedUpdatedAt: child.updatedAt }] : [],
   );
   const ready = tokens.length === members.length && members.length > 0;
-  const call = (direction: 'forward' | 'rollback', force = false): StepCall => ({
+  const call = (direction: 'forward' | 'rollback'): StepCall => ({
     kind: 'stage',
     nodeId: null,
     stageId,
     direction,
     expectedUpdatedAt: null,
     tokens,
-    force,
+    force: false,
     publish: null,
   });
   return (
-    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-      {canRollBack(status) ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs text-muted-foreground"
-          disabled={controller.pending || !ready}
-          data-testid="stage-rollback"
-          data-pending={controller.pending ? 'true' : 'false'}
-          onClick={() => void controller.run(call('rollback'))}
-        >
-          回退阶段
-        </Button>
-      ) : null}
-      {copy ? (
-        <Button
-          type="button"
-          size="sm"
-          variant={status === 'completed' ? 'secondary' : 'default'}
-          className="h-7 text-xs"
-          disabled={controller.pending || !ready || status === 'completed'}
-          data-testid="stage-step"
-          data-stage-id={stageId}
-          data-status={status}
-          data-pending={controller.pending ? 'true' : 'false'}
-          onClick={() => void controller.run(call('forward'))}
-        >
-          {copy.label}
-        </Button>
-      ) : null}
-    </div>
+    <StepActionButtons
+      specs={stepActionSpecs(status, 'stage')}
+      status={status}
+      pending={controller.pending}
+      ready={ready}
+      surface={surface}
+      stageId={stageId}
+      onActivate={(direction) => void controller.run(call(direction))}
+    />
   );
-}
-
-export function stageHint(status: string): string | null {
-  return forwardCopy(status, true)?.hint ?? null;
 }
 
 export function NodeStepActions({
@@ -253,7 +302,6 @@ export function NodeStepActions({
   child: TimelineChild;
   controller: StepController;
 }) {
-  const copy = forwardCopy(child.status, false);
   const ready = Boolean(child.updatedAt);
   const call = (direction: 'forward' | 'rollback'): StepCall => ({
     kind: 'node',
@@ -266,46 +314,16 @@ export function NodeStepActions({
     publish: null,
   });
   return (
-    <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-      {canRollBack(child.status) ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs text-muted-foreground"
-          disabled={controller.pending || !ready}
-          data-testid="node-rollback"
-          data-node-id={child.nodeId}
-          data-pending={controller.pending ? 'true' : 'false'}
-          onClick={() => void controller.run(call('rollback'))}
-        >
-          回退一级
-        </Button>
-      ) : (
-        <span />
-      )}
-      {copy ? (
-        <Button
-          type="button"
-          size="sm"
-          variant={child.status === 'completed' ? 'secondary' : 'default'}
-          className="h-7 max-w-full text-xs"
-          disabled={controller.pending || !ready || child.status === 'completed'}
-          data-testid="node-step"
-          data-node-id={child.nodeId}
-          data-status={child.status}
-          data-pending={controller.pending ? 'true' : 'false'}
-          onClick={() => void controller.run(call('forward'))}
-        >
-          {copy.label}
-        </Button>
-      ) : null}
-      {copy ? (
-        <p className="basis-full text-xs text-muted-foreground" data-testid="node-step-hint">
-          {copy.hint}
-        </p>
-      ) : null}
-    </div>
+    <StepActionButtons
+      specs={stepActionSpecs(child.status, 'node')}
+      status={child.status}
+      pending={controller.pending}
+      ready={ready}
+      surface="detail"
+      nodeId={child.nodeId}
+      className="mt-2"
+      onActivate={(direction) => void controller.run(call(direction))}
+    />
   );
 }
 
@@ -323,7 +341,7 @@ export function PlanEditButton({
       type="button"
       variant="ghost"
       size="sm"
-      className="h-7 px-2 text-muted-foreground"
+      className="size-7 shrink-0 p-0 text-muted-foreground"
       aria-label={`${name}编辑计划日期`}
       data-testid={`plan-date-edit-${nodeId}`}
       onClick={onOpen}
@@ -404,7 +422,7 @@ export function StepNotices({ controller }: { controller: StepController }) {
                 <p className="mt-2 text-xs text-muted-foreground">
                   {confirmCompletes
                     ? '确认后关闭这些阻塞事项，并按上面的结果写入。取消则不会改任何数据。'
-                    : '确认后关闭阻塞事项并恢复为进行中，本次不标记完成。之后可以再点一次标记完成。取消则不会改任何数据。'}
+                    : '确认后关闭阻塞事项并恢复为进行中，本次不标记完成。之后可以再点一次完成。取消则不会改任何数据。'}
                 </p>
                 <div className="mt-3 flex justify-end gap-2">
                   <Button

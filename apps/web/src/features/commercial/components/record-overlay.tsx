@@ -1,6 +1,9 @@
 import {
   useEffect,
+  useId,
   useState,
+  type FocusEvent as ReactFocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
@@ -94,8 +97,12 @@ export function AnchoredRecordOverlay({
   testId,
   stageId,
   layoutKey,
+  interactive = false,
   onPointerEnter,
   onPointerLeave,
+  onKeyDown,
+  onFocus,
+  onBlur,
   children,
 }: {
   open: boolean;
@@ -104,10 +111,16 @@ export function AnchoredRecordOverlay({
   testId: string;
   stageId?: string;
   layoutKey?: string;
+  /** Stage quick actions are a non-modal dialog. Summary overlays stay read-only tooltips. */
+  interactive?: boolean;
   onPointerEnter: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onPointerLeave: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onKeyDown?: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
+  onFocus?: (event: ReactFocusEvent<HTMLDivElement>) => void;
+  onBlur?: (event: ReactFocusEvent<HTMLDivElement>) => void;
   children: ReactNode;
 }) {
+  const headingId = useId();
   const [rendered, setRendered] = useState(open);
   const [visible, setVisible] = useState(false);
   const [placement, setPlacement] = useState<Placement | null>(null);
@@ -139,7 +152,7 @@ export function AnchoredRecordOverlay({
     };
   }, [rendered, anchorRef, open, layoutKey]);
 
-  if (!rendered || !placement || typeof document === 'undefined') return null;
+  if (!open || !rendered || !placement || typeof document === 'undefined') return null;
 
   return createPortal(
     <div
@@ -149,7 +162,10 @@ export function AnchoredRecordOverlay({
       data-side={placement.side}
       data-visible={visible ? 'true' : 'false'}
       data-motion="140ms"
-      role="tooltip"
+      data-interactive={interactive ? 'true' : 'false'}
+      role={interactive ? 'dialog' : 'tooltip'}
+      aria-modal={interactive ? false : undefined}
+      aria-labelledby={interactive ? headingId : undefined}
       style={{
         left: placement.left,
         width: placement.width,
@@ -160,9 +176,14 @@ export function AnchoredRecordOverlay({
       }}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
+      onKeyDown={onKeyDown}
+      onFocus={onFocus}
+      onBlur={onBlur}
     >
       <span className="record-overlay-arrow" aria-hidden />
-      <p className="record-overlay-heading">{title}</p>
+      <p id={headingId} className="record-overlay-heading">
+        {title}
+      </p>
       {children}
     </div>,
     document.body,

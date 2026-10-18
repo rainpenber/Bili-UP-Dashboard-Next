@@ -1,13 +1,19 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { MemoryRouter } from 'react-router-dom';
 import { LiveProjectWorkflow } from './live-project-workflow';
 import { ProgressSummary, ProgressTimeline } from './progress-timeline-view';
+import type { StepCall, StepResult } from './stage-step-controls';
 import type { TimelineProjectFacts } from '../progress-timeline';
 import type { TimelineSourceNode } from '../progress-timeline';
 
 const originalFetch = globalThis.fetch;
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 afterEach(() => {
   cleanup();
@@ -173,10 +179,13 @@ describe('ProgressTimeline', () => {
 
     fireEvent.click(stage);
     const nodes = screen.getByTestId('progress-stage-nodes');
-    expect(nodes.className).toContain('grid-cols-1');
-    expect(nodes.className).toContain('md:grid-cols-2');
-    expect(nodes.className).toContain('xl:grid-cols-3');
-    expect(nodes.className).toContain('gap-3');
+    expect(nodes.className).toContain('auto-fill');
+    expect(nodes.className).toContain('minmax');
+    expect(nodes.className).toContain('16rem');
+    expect(nodes.className).toContain('justify-start');
+    expect(nodes.className).toContain('items-start');
+    expect(nodes.className).toContain('gap-2');
+    expect(nodes.className).not.toContain('md:grid-cols-2');
     const cards = screen.getAllByTestId('progress-stage-node');
     const aRoll = cards.find((card) => card.getAttribute('data-node-id') === 'a_roll');
     const bRoll = cards.find((card) => card.getAttribute('data-node-id') === 'b_roll');
@@ -241,10 +250,9 @@ describe('ProgressTimeline', () => {
       .find((item) => item.getAttribute('data-stage-id') === 'write_outline');
     if (!outlineStage) throw new Error('missing outline stage');
     fireEvent.pointerLeave(outlineStage);
-    await waitFor(() => {
-      expect(outlineStage.getAttribute('data-state')).toBe('closed');
-      expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
-    });
+    await wait(200);
+    expect(outlineStage.getAttribute('data-state')).toBe('closed');
+    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
   });
 
   test('click expands the child list inside the progress block without summary fields', async () => {
@@ -305,9 +313,8 @@ describe('ProgressTimeline', () => {
     expect(stage.getAttribute('data-selected')).toBe('true');
     expect(stage.getAttribute('aria-expanded')).toBe('true');
     fireEvent.pointerLeave(stage);
-    await waitFor(() => {
-      expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
-    });
+    await wait(200);
+    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
     expect(stage.getAttribute('data-selected')).toBe('true');
     expect(stage.getAttribute('aria-expanded')).toBe('true');
     const mask = stage.querySelector('[data-testid="progress-stage-mask"]');
@@ -327,9 +334,8 @@ describe('ProgressTimeline', () => {
     expect(screen.getByTestId('progress-stage-detail').textContent).toContain('文案准备');
     expect(screen.getByTestId('progress-stage-detail').textContent).not.toContain('拍摄制作');
     fireEvent.pointerLeave(other);
-    await waitFor(() => {
-      expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
-    });
+    await wait(200);
+    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
     expect(
       other.querySelector('[data-testid="progress-stage-mask"]')?.getAttribute('data-visible'),
     ).toBe('false');
@@ -793,8 +799,13 @@ describe('LiveProjectWorkflow timeline placement', () => {
     fireEvent.click(nodeButton());
     await waitFor(() => {
       expect(card()?.getAttribute('data-status')).toBe('completed');
-      expect(nodeButton().textContent).toBe('已完成');
     });
+    expect(screen.queryByTestId('node-step')).toBeNull();
+    expect(screen.queryByTestId('node-step-hint')).toBeNull();
+    expect(screen.getByTestId('node-rollback').textContent).toBe('回退');
+    expect(screen.getByTestId('node-rollback').getAttribute('data-variant')).toBe('destructive');
+    expect(card()?.textContent).not.toContain('已完成');
+    expect(card()?.textContent).not.toContain('下一步');
     fireEvent.click(screen.getByTestId('node-rollback'));
     await waitFor(() => expect(card()?.getAttribute('data-status')).toBe('in_progress'));
     fireEvent.click(screen.getByTestId('node-rollback'));
@@ -989,6 +1000,9 @@ describe('schedule summary overlay', () => {
     expect(overlay.className).toContain('record-overlay');
     expect(overlay.getAttribute('data-side')).toBe('bottom');
     expect(overlay.getAttribute('data-motion')).toBe('140ms');
+    expect(overlay.getAttribute('role')).toBe('tooltip');
+    expect(overlay.getAttribute('data-interactive')).toBe('false');
+    expect(overlay.querySelector('button')).toBeNull();
     expect(Number.parseFloat(overlay.style.width)).toBeLessThanOrEqual(360);
     const copyRow = [...overlay.querySelectorAll('li')].find((row) =>
       row.textContent?.includes('文案'),
@@ -1127,5 +1141,627 @@ describe('stage tooltip focus and touch', () => {
     expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
     expect(stage.getAttribute('data-selected')).toBe('true');
     expect(screen.getByTestId('progress-stage-detail').textContent).toContain('文案准备');
+    expect(screen.queryByTestId('stage-tooltip-actions')).toBeNull();
+  });
+});
+
+function stamped(
+  slug: string,
+  name: string,
+  status: string,
+  blockingReason: string | null = null,
+  extra: Partial<TimelineSourceNode> = {},
+): TimelineSourceNode {
+  return {
+    ...node(slug, name, status, blockingReason),
+    updatedAt: '2026-05-20T12:00:00.000Z',
+    ...extra,
+  };
+}
+
+function actionLabels(root: ParentNode, testId: string): string[] {
+  return [...root.querySelectorAll(`[data-testid="${testId}"]`)].map(
+    (item) => item.textContent ?? '',
+  );
+}
+
+describe('compact state-exact step actions', () => {
+  test('node cards and the stage bar show only the actions for the current state', () => {
+    const longName = '预拍摄以及一份很长的节点名称用来确认卡片不会把正文截掉';
+    const longReason = '甲方把批注写在第三页边栏，需要逐条改完才能继续，这段原因要完整留在卡片上';
+    render(
+      <ProgressTimeline
+        nodes={[
+          stamped('copy', '文案', 'not_reached'),
+          stamped('pre_shoot', longName, 'in_progress', null, {
+            plannedAt: '2026-04-18T06:30:00.000Z',
+          }),
+          stamped('manual', '手工', 'completed', null, {
+            plannedAt: '2026-04-02T16:00:00.000Z',
+            completedAt: '2026-04-09T02:00:00.000Z',
+          }),
+          stamped('a_roll', 'A-roll 拍摄', 'blocked', longReason),
+          stamped('other', '其他', 'not_applicable'),
+        ]}
+        stepEditor={{
+          disabled: false,
+          onStep: async () => ({ ok: true }),
+          onRefresh: () => undefined,
+        }}
+        planEditor={{ disabled: false, savingId: null, error: null, onSave: () => undefined }}
+      />,
+    );
+
+    fireEvent.click(
+      screen
+        .getAllByTestId('progress-stage')
+        .find((item) => item.getAttribute('data-stage-id') === 'copy_prep')!,
+    );
+    const detail = screen.getByTestId('progress-stage-detail');
+    expect(detail.textContent).not.toContain('下一步');
+    const cards = within(detail).getAllByTestId('progress-stage-node');
+    const byId = (id: string) => {
+      const card = cards.find((item) => item.getAttribute('data-node-id') === id);
+      if (!card) throw new Error(`missing ${id}`);
+      return card;
+    };
+
+    const notReached = byId('copy');
+    expect(notReached.getAttribute('data-status')).toBe('not_reached');
+    expect(actionLabels(notReached, 'node-step')).toEqual(['推进']);
+    expect(
+      notReached.querySelector('[data-testid="node-step"]')?.getAttribute('data-variant'),
+    ).toBe('default');
+    expect(notReached.querySelector('[data-testid="node-rollback"]')).toBeNull();
+    expect(notReached.querySelector('[data-testid="node-step-actions"]')?.childElementCount).toBe(
+      1,
+    );
+    expect(notReached.querySelectorAll('[data-slot="badge"]')).toHaveLength(1);
+
+    const current = byId('pre_shoot');
+    expect(current.getAttribute('data-status')).toBe('in_progress');
+    expect(actionLabels(current, 'node-step')).toEqual(['完成']);
+    expect(current.querySelector('[data-testid="node-step"]')?.getAttribute('data-variant')).toBe(
+      'default',
+    );
+    expect(actionLabels(current, 'node-rollback')).toEqual(['回退']);
+    expect(
+      current.querySelector('[data-testid="node-rollback"]')?.getAttribute('data-variant'),
+    ).toBe('secondary');
+    expect(current.textContent).toContain(longName);
+    expect(current.textContent).toContain('计划');
+    expect(current.querySelector('h4')?.className).not.toContain('truncate');
+    expect(current.querySelector('[data-testid="plan-date-pre_shoot"]')).toBeNull();
+
+    const done = byId('manual');
+    expect(done.getAttribute('data-status')).toBe('completed');
+    expect(done.querySelector('[data-testid="node-step"]')).toBeNull();
+    expect(done.querySelector('[data-testid="node-step-hint"]')).toBeNull();
+    expect(actionLabels(done, 'node-rollback')).toEqual(['回退']);
+    expect(done.querySelector('[data-testid="node-rollback"]')?.getAttribute('data-variant')).toBe(
+      'destructive',
+    );
+    expect(done.querySelector('[data-testid="node-step-actions"]')?.childElementCount).toBe(1);
+    expect(done.textContent).not.toContain('已完成');
+    expect(done.textContent).not.toContain('下一步');
+    expect(done.querySelector('[data-testid="node-completed-at"]')?.textContent).toContain('实际');
+    expect(done.textContent).toContain('计划');
+    expect(done.querySelectorAll('[data-slot="badge"]')).toHaveLength(1);
+
+    const stageActions = within(detail).getByTestId('stage-step-actions');
+    expect(stageActions.getAttribute('data-status')).toBe('in_progress');
+    expect(actionLabels(stageActions, 'stage-step')).toEqual(['完成']);
+    expect(actionLabels(stageActions, 'stage-rollback')).toEqual(['回退']);
+    expect(
+      stageActions.querySelector('[data-testid="stage-rollback"]')?.getAttribute('data-variant'),
+    ).toBe('secondary');
+
+    fireEvent.click(
+      screen
+        .getAllByTestId('progress-stage')
+        .find((item) => item.getAttribute('data-stage-id') === 'production')!,
+    );
+    const blocked = within(screen.getByTestId('progress-stage-detail'))
+      .getAllByTestId('progress-stage-node')
+      .find((item) => item.getAttribute('data-node-id') === 'a_roll');
+    expect(blocked?.querySelector('[data-testid="progress-blocker"]')?.textContent).toBe(
+      longReason,
+    );
+    expect(actionLabels(blocked!, 'node-step')).toEqual(['解除阻塞']);
+    expect(blocked?.querySelector('[data-testid="node-rollback"]')).toBeNull();
+    expect(
+      within(screen.getByTestId('progress-stage-detail')).getByTestId('stage-step').textContent,
+    ).toBe('处理阻塞并完成');
+
+    fireEvent.click(
+      screen
+        .getAllByTestId('progress-stage')
+        .find((item) => item.getAttribute('data-stage-id') === 'distribution_settlement')!,
+    );
+    const other = within(screen.getByTestId('progress-stage-detail'))
+      .getAllByTestId('progress-stage-node')
+      .find((item) => item.getAttribute('data-node-id') === 'other');
+    expect(other?.getAttribute('data-status')).toBe('not_applicable');
+    expect(other?.querySelector('[data-testid="node-step"]')).toBeNull();
+    expect(actionLabels(other!, 'node-rollback')).toEqual(['回退']);
+    expect(
+      other?.querySelector('[data-testid="node-rollback"]')?.getAttribute('data-variant'),
+    ).toBe('ghost');
+  });
+
+  test('stage bars for not reached and completed do not keep a forward slot', () => {
+    const editor = {
+      disabled: false,
+      onStep: async (): Promise<StepResult> => ({ ok: true }),
+      onRefresh: () => undefined,
+    };
+    const { rerender } = render(
+      <ProgressTimeline nodes={[stamped('outline', '大纲', 'not_reached')]} stepEditor={editor} />,
+    );
+    const open = () => {
+      const stage = screen
+        .getAllByTestId('progress-stage')
+        .find((item) => item.getAttribute('data-stage-id') === 'write_outline');
+      if (!stage) throw new Error('missing outline');
+      if (stage.getAttribute('data-selected') !== 'true') fireEvent.click(stage);
+    };
+    open();
+    let actions = within(screen.getByTestId('progress-stage-detail')).getByTestId(
+      'stage-step-actions',
+    );
+    expect(actions.getAttribute('data-status')).toBe('not_reached');
+    expect(actionLabels(actions, 'stage-step')).toEqual(['推进']);
+    expect(actions.querySelector('[data-testid="stage-rollback"]')).toBeNull();
+    expect(actions.childElementCount).toBe(1);
+
+    rerender(
+      <ProgressTimeline nodes={[stamped('outline', '大纲', 'completed')]} stepEditor={editor} />,
+    );
+    open();
+    actions = within(screen.getByTestId('progress-stage-detail')).getByTestId('stage-step-actions');
+    expect(actions.getAttribute('data-status')).toBe('completed');
+    expect(actions.querySelector('[data-testid="stage-step"]')).toBeNull();
+    expect(actionLabels(actions, 'stage-rollback')).toEqual(['回退']);
+    expect(
+      actions.querySelector('[data-testid="stage-rollback"]')?.getAttribute('data-variant'),
+    ).toBe('destructive');
+    expect(screen.getByTestId('progress-stage-detail').textContent).not.toContain('下一步');
+  });
+
+  test('forward twice and reverse twice follow the node and stage attributes', async () => {
+    const calls: StepCall[] = [];
+    function Harness() {
+      const [nodes, setNodes] = useState([stamped('outline', '大纲', 'not_reached')]);
+      return (
+        <ProgressTimeline
+          nodes={nodes}
+          stepEditor={{
+            disabled: false,
+            onRefresh: () => undefined,
+            onStep: async (call) => {
+              calls.push(call);
+              setNodes((current) =>
+                current.map((item) => {
+                  const next =
+                    call.direction === 'forward'
+                      ? item.status === 'not_reached'
+                        ? 'in_progress'
+                        : 'completed'
+                      : item.status === 'completed'
+                        ? 'in_progress'
+                        : 'not_reached';
+                  return { ...item, status: next, updatedAt: '2026-05-21T12:00:00.000Z' };
+                }),
+              );
+              return { ok: true };
+            },
+          }}
+        />
+      );
+    }
+    render(<Harness />);
+    const stage = screen
+      .getAllByTestId('progress-stage')
+      .find((item) => item.getAttribute('data-stage-id') === 'write_outline');
+    if (!stage) throw new Error('missing outline');
+    fireEvent.click(stage);
+    const card = () =>
+      within(screen.getByTestId('progress-stage-detail')).getByTestId('progress-stage-node');
+    const detailActions = () =>
+      within(screen.getByTestId('progress-stage-detail')).getByTestId('node-step-actions');
+
+    fireEvent.click(within(detailActions()).getByTestId('node-step'));
+    await waitFor(() => expect(card().getAttribute('data-status')).toBe('in_progress'));
+    expect(actionLabels(detailActions(), 'node-step')).toEqual(['完成']);
+    expect(actionLabels(detailActions(), 'node-rollback')).toEqual(['回退']);
+    fireEvent.click(within(detailActions()).getByTestId('node-step'));
+    await waitFor(() => expect(card().getAttribute('data-status')).toBe('completed'));
+    expect(card().querySelector('[data-testid="node-step"]')).toBeNull();
+    expect(card().textContent).not.toContain('下一步');
+    fireEvent.click(within(detailActions()).getByTestId('node-rollback'));
+    await waitFor(() => expect(card().getAttribute('data-status')).toBe('in_progress'));
+    fireEvent.click(within(detailActions()).getByTestId('node-rollback'));
+    await waitFor(() => expect(card().getAttribute('data-status')).toBe('not_reached'));
+    expect(actionLabels(detailActions(), 'node-step')).toEqual(['推进']);
+
+    const stageActions = () =>
+      within(screen.getByTestId('progress-stage-detail')).getByTestId('stage-step-actions');
+    fireEvent.click(within(stageActions()).getByTestId('stage-step'));
+    await waitFor(() => expect(card().getAttribute('data-workflow-status')).toBe('in_progress'));
+    fireEvent.click(within(stageActions()).getByTestId('stage-step'));
+    await waitFor(() => expect(card().getAttribute('data-workflow-status')).toBe('completed'));
+    expect(stageActions().querySelector('[data-testid="stage-step"]')).toBeNull();
+    fireEvent.click(within(stageActions()).getByTestId('stage-rollback'));
+    await waitFor(() => expect(card().getAttribute('data-workflow-status')).toBe('in_progress'));
+    fireEvent.click(within(stageActions()).getByTestId('stage-rollback'));
+    await waitFor(() => expect(card().getAttribute('data-workflow-status')).toBe('not_reached'));
+    expect(calls.map((call) => `${call.kind}:${call.direction}`)).toEqual([
+      'node:forward',
+      'node:forward',
+      'node:rollback',
+      'node:rollback',
+      'stage:forward',
+      'stage:forward',
+      'stage:rollback',
+      'stage:rollback',
+    ]);
+  });
+});
+
+describe('stage tooltip quick actions', () => {
+  function stageButton(id: string) {
+    const stage = screen
+      .getAllByTestId('progress-stage')
+      .find((item) => item.getAttribute('data-stage-id') === id);
+    if (!stage) throw new Error(`missing ${id}`);
+    return stage;
+  }
+
+  test('tooltip actions call the stage, survive the gap, and leave another detail selected', async () => {
+    const calls: StepCall[] = [];
+    const gate: { open: (() => void) | null } = { open: null };
+    function Harness() {
+      const [nodes, setNodes] = useState([
+        stamped('outline', '大纲', 'completed'),
+        stamped('copy', '文案', 'not_reached'),
+        stamped('pre_shoot', '预拍摄', 'not_reached'),
+      ]);
+      return (
+        <ProgressTimeline
+          nodes={nodes}
+          stepEditor={{
+            disabled: false,
+            onRefresh: () => undefined,
+            onStep: async (call) => {
+              calls.push(call);
+              if (calls.length === 1) {
+                await new Promise<void>((resolve) => {
+                  gate.open = resolve;
+                });
+              }
+              setNodes((current) =>
+                current.map((item) =>
+                  item.templateSlug === 'copy' || item.templateSlug === 'pre_shoot'
+                    ? {
+                        ...item,
+                        status:
+                          call.direction === 'rollback'
+                            ? 'not_reached'
+                            : item.status === 'not_reached'
+                              ? 'in_progress'
+                              : 'completed',
+                      }
+                    : item,
+                ),
+              );
+              return { ok: true };
+            },
+          }}
+        />
+      );
+    }
+    render(<Harness />);
+    fireEvent.click(stageButton('write_outline'));
+    expect(stageButton('write_outline').getAttribute('data-selected')).toBe('true');
+    fireEvent.pointerMove(stageButton('copy_prep'));
+    const tip = await screen.findByTestId('progress-stage-tooltip');
+    expect(tip.getAttribute('role')).toBe('dialog');
+    expect(tip.getAttribute('data-interactive')).toBe('true');
+    expect(tip.getAttribute('data-stage-id')).toBe('copy_prep');
+    const forward = within(tip).getByTestId('stage-step');
+    expect(forward.textContent).toBe('推进');
+    fireEvent.pointerLeave(stageButton('copy_prep'), { relatedTarget: document.body });
+    await wait(40);
+    expect(screen.getByTestId('progress-stage-tooltip')).toBe(tip);
+    fireEvent.pointerEnter(tip);
+    await wait(180);
+    expect(screen.getByTestId('progress-stage-tooltip')).toBe(tip);
+
+    fireEvent.click(forward);
+    fireEvent.click(forward);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      kind: 'stage',
+      stageId: 'copy_prep',
+      direction: 'forward',
+      force: false,
+    });
+    expect(stageButton('write_outline').getAttribute('data-selected')).toBe('true');
+    expect(stageButton('copy_prep').getAttribute('data-selected')).toBe('false');
+    expect(screen.getByTestId('progress-stage-detail').textContent).toContain('写大纲');
+    expect(screen.getByTestId('progress-stage-detail').textContent).not.toContain('文案准备');
+    expect(forward.getAttribute('data-pending')).toBe('true');
+    if (!gate.open) throw new Error('step did not start');
+    gate.open();
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('progress-stage-tooltip')).getByTestId('stage-step').textContent,
+      ).toBe('完成'),
+    );
+    expect(
+      within(screen.getByTestId('progress-stage-tooltip')).getByTestId('stage-rollback')
+        .textContent,
+    ).toBe('回退');
+    expect(stageButton('write_outline').getAttribute('data-selected')).toBe('true');
+
+    fireEvent.click(
+      within(screen.getByTestId('progress-stage-tooltip')).getByTestId('stage-rollback'),
+    );
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('progress-stage-tooltip')).getByTestId('stage-step').textContent,
+      ).toBe('推进'),
+    );
+    expect(calls.at(-1)).toMatchObject({ direction: 'rollback', stageId: 'copy_prep' });
+    expect(stageButton('write_outline').getAttribute('data-selected')).toBe('true');
+  });
+
+  test('keyboard reaches the tooltip action and escape writes nothing', async () => {
+    const calls: StepCall[] = [];
+    render(
+      <ProgressTimeline
+        nodes={[stamped('outline', '大纲', 'not_reached')]}
+        stepEditor={{
+          disabled: false,
+          onRefresh: () => undefined,
+          onStep: async (call) => {
+            calls.push(call);
+            return { ok: true };
+          },
+        }}
+      />,
+    );
+    const stage = stageButton('write_outline');
+    fireEvent.focus(stage);
+    const tip = await screen.findByTestId('progress-stage-tooltip');
+    expect(tip.getAttribute('role')).toBe('dialog');
+    fireEvent.keyDown(stage, { key: 'Tab' });
+    const button = within(tip).getByTestId('stage-step');
+    expect(document.activeElement).toBe(button);
+    button.click();
+    expect(calls).toHaveLength(1);
+    fireEvent.keyDown(button, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull());
+    expect(calls).toHaveLength(1);
+    expect(stage.getAttribute('data-selected')).toBe('false');
+  });
+
+  test('a blocked tooltip confirmation can be cancelled with no second write, and an error outlives the tooltip', async () => {
+    const calls: StepCall[] = [];
+    let mode: 'confirm' | 'error' | 'ok' = 'confirm';
+    function Harness() {
+      const [nodes, setNodes] = useState([
+        stamped('a_roll', 'A-roll 拍摄', 'blocked', '素材缺失'),
+        stamped('b_roll', 'B-roll 素材', 'not_reached'),
+        stamped('ai_post', 'AI 后期', 'not_reached'),
+      ]);
+      return (
+        <ProgressTimeline
+          nodes={nodes}
+          stepEditor={{
+            disabled: false,
+            onRefresh: () => undefined,
+            onStep: async (call) => {
+              calls.push(call);
+              if (mode === 'confirm' && !call.force) {
+                const result: StepResult = {
+                  ok: false,
+                  message: '有开放阻塞，确认后才会关闭',
+                  code: 'confirmation_required',
+                  blocks: [
+                    { nodeId: NODE_IDS.a_roll ?? '', nodeName: 'A-roll 拍摄', reason: '素材缺失' },
+                  ],
+                  effects: [
+                    {
+                      nodeId: NODE_IDS.a_roll ?? '',
+                      nodeName: 'A-roll 拍摄',
+                      from: 'blocked',
+                      to: 'in_progress',
+                    },
+                  ],
+                  successors: [],
+                };
+                return result;
+              }
+              if (mode === 'error') {
+                throw new Error('网络异常，请重试');
+              }
+              setNodes((current) =>
+                current.map((item) =>
+                  item.templateSlug === 'a_roll'
+                    ? { ...item, status: 'in_progress', blockingReason: null }
+                    : item,
+                ),
+              );
+              return { ok: true };
+            },
+          }}
+        />
+      );
+    }
+    render(<Harness />);
+    fireEvent.click(stageButton('write_outline'));
+    fireEvent.pointerMove(stageButton('production'));
+    const tip = await screen.findByTestId('progress-stage-tooltip');
+    fireEvent.click(within(tip).getByTestId('stage-step'));
+    const dialog = await screen.findByTestId('step-confirm');
+    expect(dialog.textContent).toContain('素材缺失');
+    expect(dialog.textContent).toContain('关闭阻塞并恢复');
+    fireEvent.pointerLeave(stageButton('production'), { relatedTarget: document.body });
+    fireEvent.pointerLeave(tip, { relatedTarget: document.body });
+    await wait(200);
+    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+    expect(screen.getByTestId('step-confirm')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('step-confirm-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('step-confirm')).toBeNull());
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.force).toBe(false);
+    expect(stageButton('write_outline').getAttribute('data-selected')).toBe('true');
+
+    mode = 'error';
+    fireEvent.pointerMove(stageButton('production'));
+    fireEvent.click(
+      within(await screen.findByTestId('progress-stage-tooltip')).getByTestId('stage-step'),
+    );
+    const error = await screen.findByTestId('step-error');
+    expect(error.textContent).toContain('网络异常，请重试');
+    fireEvent.pointerLeave(stageButton('production'), { relatedTarget: document.body });
+    const openTip = screen.queryByTestId('progress-stage-tooltip');
+    if (openTip) fireEvent.pointerLeave(openTip, { relatedTarget: document.body });
+    await wait(200);
+    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+    expect(screen.getByTestId('step-error').textContent).toContain('网络异常，请重试');
+
+    mode = 'ok';
+    fireEvent.pointerMove(stageButton('production'));
+    const retry = within(await screen.findByTestId('progress-stage-tooltip')).getByTestId(
+      'stage-step',
+    );
+    expect(retry.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(retry);
+    await waitFor(() => expect(calls.filter((call) => call.force === false).length).toBe(3));
+    expect(screen.queryByTestId('step-error')).toBeNull();
+  });
+
+  test('native tooltip activation does not pin the overlay after focus and pointer both leave', async () => {
+    const calls: StepCall[] = [];
+    render(
+      <ProgressTimeline
+        nodes={[
+          stamped('outline', '大纲', 'not_reached'),
+          stamped('review', '审核', 'completed'),
+          stamped('publish', '发布', 'not_reached'),
+          stamped('distribution', '全平台分发', 'not_reached'),
+          stamped('settlement', '结算', 'not_reached'),
+        ]}
+        stepEditor={{
+          disabled: false,
+          onRefresh: () => undefined,
+          recordedPublish: {
+            bvid: 'BV1xx411c7mD',
+            publishedAt: '2026-05-20T12:00:00.000Z',
+            idempotencyKey: 'publish-key-1',
+          },
+          onStep: async (call) => {
+            calls.push(call);
+            if (call.stageId === 'distribution_settlement' && call.publish == null) {
+              const refused: StepResult = {
+                ok: false,
+                message: '发布节点要补上已有记录',
+                code: 'publish_required',
+                blocks: [],
+                effects: [],
+                successors: [],
+              };
+              return refused;
+            }
+            return { ok: true };
+          },
+        }}
+      />,
+    );
+    const review = stageButton('client_review');
+    const settlement = stageButton('distribution_settlement');
+    fireEvent.pointerDown(review, { pointerType: 'mouse' });
+    fireEvent.click(review);
+    expect(review.getAttribute('data-selected')).toBe('true');
+
+    fireEvent.pointerMove(settlement);
+    const tip = await screen.findByTestId('progress-stage-tooltip');
+    expect(tip.getAttribute('data-stage-id')).toBe('distribution_settlement');
+    fireEvent.pointerLeave(settlement, { relatedTarget: document.body });
+    await wait(40);
+    expect(screen.getByTestId('progress-stage-tooltip')).toBe(tip);
+    fireEvent.pointerEnter(tip);
+
+    const forward = within(tip).getByTestId('stage-step');
+    expect(forward.textContent).toBe('推进');
+    await act(async () => {
+      forward.focus();
+      forward.click();
+    });
+    expect(document.activeElement).toBe(forward);
+
+    const dialog = await screen.findByTestId('step-publish');
+    expect((within(dialog).getByTestId('step-publish-bvid') as HTMLInputElement).value).toBe(
+      'BV1xx411c7mD',
+    );
+    await act(async () => {
+      screen.getByTestId('step-publish-cancel').click();
+    });
+    await waitFor(() => expect(screen.queryByTestId('step-publish')).toBeNull());
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.publish ?? null).toBeNull();
+    expect(screen.getByTestId('progress-stage-tooltip').getAttribute('data-stage-id')).toBe(
+      'distribution_settlement',
+    );
+    expect(review.getAttribute('data-selected')).toBe('true');
+
+    const openTip = screen.getByTestId('progress-stage-tooltip');
+    fireEvent.pointerLeave(openTip, { relatedTarget: document.body });
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    await wait(450);
+    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+    expect(settlement.getAttribute('data-state')).toBe('closed');
+    expect(review.getAttribute('data-selected')).toBe('true');
+    expect(review.getAttribute('aria-expanded')).toBe('true');
+    expect(document.activeElement).toBe(document.body);
+    expect(screen.getByTestId('progress-stage-detail').textContent).toContain('甲方审核');
+    expect(screen.getByTestId('progress-stage-detail').textContent).not.toContain('分发结算');
+    expect(calls).toHaveLength(1);
+
+    fireEvent.pointerMove(stageButton('write_outline'));
+    const outlineTip = await screen.findByTestId('progress-stage-tooltip');
+    const outlineForward = within(outlineTip).getByTestId('stage-step');
+    outlineForward.focus();
+    outlineForward.click();
+    expect(calls.at(-1)).toMatchObject({
+      kind: 'stage',
+      stageId: 'write_outline',
+      direction: 'forward',
+    });
+    fireEvent.pointerLeave(outlineTip, { relatedTarget: document.body });
+    await wait(40);
+    expect(screen.getByTestId('progress-stage-tooltip').getAttribute('data-stage-id')).toBe(
+      'write_outline',
+    );
+    expect(document.activeElement).toBe(outlineForward);
+    fireEvent.blur(outlineForward, { relatedTarget: document.body });
+    await wait(450);
+    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+    expect(stageButton('write_outline').getAttribute('data-state')).toBe('closed');
+    expect(review.getAttribute('data-selected')).toBe('true');
+
+    const outline = stageButton('write_outline');
+    fireEvent.focus(outline);
+    fireEvent.keyDown(outline, { key: 'Tab' });
+    const keyed = within(screen.getByTestId('progress-stage-tooltip')).getByTestId('stage-step');
+    expect(document.activeElement).toBe(keyed);
+    fireEvent.keyDown(keyed, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(outline);
+    expect(screen.getByTestId('progress-stage-tooltip')).toBeTruthy();
+    fireEvent.blur(outline, { relatedTarget: document.body });
+    expect(screen.queryByTestId('progress-stage-tooltip')).toBeNull();
+    expect(calls.filter((call) => call.stageId === 'write_outline')).toHaveLength(1);
   });
 });
