@@ -164,25 +164,20 @@ type SituationStage = {
   blockers: { name: string; blockingReason: string | null }[];
 };
 
-/** 「节点名：阻塞原因」 for every blocked child, in stage order. */
+/** 「节点名：阻塞」 for every blocked child, in stage order. Reasons stay off this line. */
 export function stageBlockLineLabel(stage: {
   status: TimelineRollup;
   blockers: { name: string; blockingReason: string | null }[];
 }): string | null {
   if (stage.status !== 'blocked') return null;
   if (stage.blockers.length === 0) return '阻塞';
-  return stage.blockers
-    .map((blocker) =>
-      blocker.blockingReason
-        ? `${blocker.name}：${blocker.blockingReason}`
-        : `${blocker.name}：阻塞`,
-    )
-    .join('、');
+  return stage.blockers.map((blocker) => `${blocker.name}：阻塞`).join('、');
 }
 
 /**
  * Phrase above a blocked or in-progress stage, in the same role as 花火's 「待UP主投稿」.
- * Blocked stages use the node name plus the block reason. Null when finished or not started.
+ * Blocked stages name each node and the word 阻塞. The reason stays in the tooltip and detail.
+ * Null when finished or not started.
  */
 export function stageSituationLabel(stage: SituationStage): string | null {
   if (stage.status === 'blocked') return stageBlockLineLabel(stage);
