@@ -19,3 +19,17 @@ export {
   notApplicableBlockRefusal,
   resolvePublishBvid,
 } from './engine';
+export {
+  PROGRESS_STAGE_IDS,
+  PROGRESS_STAGE_SLUGS,
+  type ProgressStageId,
+  type PlanNode,
+  type StepEffect,
+  type StepBlock,
+  type StepSuccessor,
+  type StepAction,
+  type StepPlan,
+  isProgressStageId,
+  planNodeStep,
+  planStageStep,
+} from './step-plan';
