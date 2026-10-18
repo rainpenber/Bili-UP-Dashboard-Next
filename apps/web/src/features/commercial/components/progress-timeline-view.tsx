@@ -4,7 +4,6 @@ import {
   PlanEditButton,
   StageStepBar,
   StepNotices,
-  stageHint,
   useStepController,
   type StepEditor,
 } from './stage-step-controls';
@@ -100,6 +99,7 @@ function StageHit({
   onHoverEnd,
   onFocus,
   onBlur,
+  onDismiss,
   onRegister,
 }: {
   stage: DerivedStage;
@@ -112,6 +112,7 @@ function StageHit({
   onHoverEnd: (id: string) => void;
   onFocus: (id: string) => void;
   onBlur: (id: string) => void;
+  onDismiss: () => void;
   onRegister: (id: string, node: HTMLButtonElement | null) => void;
 }) {
   const color = DEMO_STATUS_COLOR[stage.demoStatus];
@@ -153,9 +154,32 @@ function StageHit({
         if (fromPointer.current) return;
         onFocus(stage.id);
       }}
-      onBlur={() => {
+      onBlur={(event) => {
         fromPointer.current = false;
+        const next = event.relatedTarget;
+        if (
+          next instanceof Element &&
+          (next.closest('[data-testid="progress-stage-tooltip"]') ||
+            next.closest('[data-testid="progress-stage"]'))
+        ) {
+          return;
+        }
         onBlur(stage.id);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && (hovered || focused)) {
+          event.preventDefault();
+          event.stopPropagation();
+          onDismiss();
+          return;
+        }
+        if (event.key !== 'Tab' || event.shiftKey || (!hovered && !focused)) return;
+        const tip = document.querySelector('[data-testid="progress-stage-tooltip"]');
+        if (tip?.getAttribute('data-stage-id') !== stage.id) return;
+        const button = tip.querySelector<HTMLElement>('button:not([disabled])');
+        if (!button) return;
+        event.preventDefault();
+        button.focus();
       }}
     >
       <span
@@ -310,15 +334,11 @@ function StageDetailBody({
   step: ReturnType<typeof useStepController> | null;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const hint = step ? stageHint(stage.status) : null;
   return (
     <div className="pb-1">
-      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="min-w-0">
-          <p className="font-medium">{stage.label}</p>
-          {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
-        </div>
-        {step && stepEditor && !stepEditor.disabled ? (
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <p className="font-medium">{stage.label}</p>
+        {step && stepEditor && !stepEditor.disabled && stage.children.length > 0 ? (
           <StageStepBar
             stageId={stage.id}
             status={stage.status}
@@ -327,66 +347,67 @@ function StageDetailBody({
           />
         ) : null}
       </div>
-      {step ? <StepNotices controller={step} /> : null}
       {stage.children.length === 0 ? (
         <p className="text-muted-foreground">这个阶段还没有子节点。</p>
       ) : (
         <div
           data-testid="progress-stage-nodes"
-          className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"
+          className="grid items-start justify-start gap-2 [grid-template-columns:repeat(auto-fill,minmax(min(100%,16rem),16rem))]"
         >
-          {stage.children.map((child) => (
-            <article
-              key={child.id}
-              className="min-w-0 rounded-lg border bg-background px-3 py-3 shadow-sm"
-              data-testid="progress-stage-node"
-              data-node-id={child.nodeId}
-              data-status={child.status}
-              data-demo-status={child.demoStatus}
-              data-workflow-status={child.status}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <h4 className="min-w-0 font-medium leading-snug">{child.name}</h4>
-                <Badge variant={statusBadgeVariant(child.demoStatus)}>{child.statusLabel}</Badge>
-              </div>
-              {child.status === 'blocked' ? (
-                <p
-                  className="mt-2 text-muted-foreground"
-                  data-testid="progress-blocker"
-                  data-node-id={child.nodeId}
-                >
-                  {child.blockingReason ?? '尚未记录原因'}
-                </p>
-              ) : null}
-              {child.completedAt ? (
-                <p className="mt-2 text-xs text-muted-foreground" data-testid="node-completed-at">
-                  实际 {formatScheduleLabel(child.completedAt)}
-                </p>
-              ) : null}
-              <div className="mt-2 flex items-center justify-between gap-2">
-                {child.plannedAt ? (
-                  <p className="text-xs text-muted-foreground">
-                    计划 {formatScheduleLabel(child.plannedAt)}
+          {stage.children.map((child) => {
+            const planLabel = child.plannedAt ? formatScheduleLabel(child.plannedAt) : null;
+            const actualLabel = child.completedAt ? formatScheduleLabel(child.completedAt) : null;
+            return (
+              <article
+                key={child.id}
+                className="min-w-0 max-w-full rounded-lg border bg-background px-2.5 py-2 shadow-sm"
+                data-testid="progress-stage-node"
+                data-node-id={child.nodeId}
+                data-status={child.status}
+                data-demo-status={child.demoStatus}
+                data-workflow-status={child.status}
+              >
+                <div className="flex items-start gap-1.5">
+                  <h4 className="min-w-0 flex-1 break-words text-sm font-medium leading-snug">
+                    {child.name}
+                  </h4>
+                  <Badge className="shrink-0" variant={statusBadgeVariant(child.demoStatus)}>
+                    {child.statusLabel}
+                  </Badge>
+                  {planEditor && !planEditor.disabled ? (
+                    <PlanEditButton
+                      name={child.name}
+                      nodeId={child.nodeId}
+                      onOpen={() => setEditingId(child.id)}
+                    />
+                  ) : null}
+                </div>
+                {child.status === 'blocked' ? (
+                  <p
+                    className="mt-1.5 text-sm leading-snug break-words text-muted-foreground"
+                    data-testid="progress-blocker"
+                    data-node-id={child.nodeId}
+                  >
+                    {child.blockingReason ?? '尚未记录原因'}
                   </p>
-                ) : (
-                  <span />
-                )}
-                {planEditor && !planEditor.disabled ? (
-                  <PlanEditButton
-                    name={child.name}
-                    nodeId={child.nodeId}
-                    onOpen={() => setEditingId(child.id)}
-                  />
                 ) : null}
-              </div>
-              {planEditor && !planEditor.disabled && editingId === child.id ? (
-                <PlanFields child={child} editor={planEditor} />
-              ) : null}
-              {step && stepEditor && !stepEditor.disabled ? (
-                <NodeStepActions child={child} controller={step} />
-              ) : null}
-            </article>
-          ))}
+                {planLabel || actualLabel ? (
+                  <p className="mt-1 flex flex-wrap gap-x-2 text-xs leading-snug text-muted-foreground">
+                    {planLabel ? <span>计划 {planLabel}</span> : null}
+                    {actualLabel ? (
+                      <span data-testid="node-completed-at">实际 {actualLabel}</span>
+                    ) : null}
+                  </p>
+                ) : null}
+                {planEditor && !planEditor.disabled && editingId === child.id ? (
+                  <PlanFields child={child} editor={planEditor} />
+                ) : null}
+                {step && stepEditor && !stepEditor.disabled ? (
+                  <NodeStepActions child={child} controller={step} />
+                ) : null}
+              </article>
+            );
+          })}
         </div>
       )}
     </div>
@@ -460,6 +481,7 @@ export function ProgressTimeline({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
+  const closeTimer = useRef<number | null>(null);
   const openStage = timeline.stages.find((stage) => stage.id === selectedId) ?? null;
   const step = useStepController(stepEditor, (stageId) => setSelectedId(stageId));
   const tipId = hoverId ?? focusId;
@@ -473,12 +495,29 @@ export function ProgressTimeline({
   const anchorRef = useRef<HTMLElement | null>(null);
   if (tipId) anchorRef.current = anchors.current.get(tipId) ?? anchorRef.current;
 
+  const cancelClose = () => {
+    if (closeTimer.current != null) window.clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  };
   const openHover = (id: string) => {
+    cancelClose();
     setHoverId((current) => (current === id ? current : id));
   };
+  // The stage and its overlay are 8px apart. Keep it open while the pointer crosses.
   const scheduleClose = (id: string) => {
-    setHoverId((current) => (current === id ? null : current));
+    cancelClose();
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null;
+      setHoverId((current) => (current === id ? null : current));
+    }, 140);
   };
+  const dismissTransient = () => {
+    cancelClose();
+    setHoverId(null);
+    setFocusId(null);
+  };
+
+  useEffect(() => cancelClose, []);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -495,25 +534,43 @@ export function ProgressTimeline({
       if (target.closest('[data-testid="progress-summary-schedule"]')) return;
       setSelectedId(null);
     };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [selectedId]);
+
+  const escapeState = useRef({
+    hoverId,
+    focusId,
+    selectedId,
+    step,
+    dismissTransient,
+  });
+  escapeState.current = { hoverId, focusId, selectedId, step, dismissTransient };
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      if (step.confirm) {
-        step.cancelConfirm();
+      const latest = escapeState.current;
+      if (latest.step.confirm) {
+        event.preventDefault();
+        latest.step.cancelConfirm();
         return;
       }
-      if (step.publish) {
-        step.cancelPublish();
+      if (latest.step.publish) {
+        event.preventDefault();
+        latest.step.cancelPublish();
         return;
       }
-      setSelectedId(null);
+      if (latest.hoverId || latest.focusId) {
+        event.preventDefault();
+        latest.dismissTransient();
+        return;
+      }
+      if (latest.selectedId) setSelectedId(null);
     };
-    document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [selectedId, step]);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   return (
     <Card>
@@ -562,6 +619,7 @@ export function ProgressTimeline({
                     onHoverEnd={scheduleClose}
                     onFocus={(id) => setFocusId(id)}
                     onBlur={(id) => setFocusId((current) => (current === id ? null : current))}
+                    onDismiss={dismissTransient}
                     onToggle={() =>
                       setSelectedId((current) => (current === stage.id ? null : stage.id))
                     }
@@ -576,6 +634,9 @@ export function ProgressTimeline({
           anchorRef={anchorRef}
           title={overlayStage?.label ?? ''}
           testId="progress-stage-tooltip"
+          interactive={Boolean(
+            stepEditor && !stepEditor.disabled && overlayStage && overlayStage.children.length > 0,
+          )}
           {...(overlayStage ? { stageId: overlayStage.id, layoutKey: overlayStage.id } : {})}
           onPointerEnter={() => {
             if (overlayStage) openHover(overlayStage.id);
@@ -583,13 +644,47 @@ export function ProgressTimeline({
           onPointerLeave={() => {
             if (overlayStage) scheduleClose(overlayStage.id);
           }}
+          onFocus={(event) => {
+            const id = event.currentTarget.getAttribute('data-stage-id');
+            if (id) setFocusId(id);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Tab' || !event.shiftKey) return;
+            const first = event.currentTarget.querySelector('button:not([disabled])');
+            if (event.target !== first) return;
+            const id = event.currentTarget.getAttribute('data-stage-id');
+            const anchor = id ? anchors.current.get(id) : null;
+            if (!anchor) return;
+            event.preventDefault();
+            anchor.focus();
+          }}
         >
+          {stepEditor &&
+          !stepEditor.disabled &&
+          overlayStage &&
+          overlayStage.children.length > 0 ? (
+            <div
+              className="mb-2"
+              data-testid="stage-tooltip-actions"
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <StageStepBar
+                stageId={overlayStage.id}
+                status={overlayStage.status}
+                members={overlayStage.children}
+                controller={step}
+                surface="tooltip"
+              />
+            </div>
+          ) : null}
           {overlayStage && overlayStage.children.length === 0 ? (
             <p className="record-overlay-note">这个阶段还没有子节点。</p>
           ) : overlayStage ? (
             <RecordOverlayList items={childItems(overlayStage)} />
           ) : null}
         </AnchoredRecordOverlay>
+        {stepEditor ? <StepNotices controller={step} /> : null}
         <StageDetail
           stage={openStage}
           {...(planEditor ? { planEditor } : {})}
