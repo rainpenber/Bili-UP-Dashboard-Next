@@ -81,6 +81,8 @@ function workflowNodes() {
     kind: slug === 'merge' ? 'merge' : 'stage',
     templateSlug: slug,
     blockingReason,
+    plannedAt: null,
+    completedAt: null,
     updatedAt: '2026-05-20T12:00:00.000Z',
   }));
 }

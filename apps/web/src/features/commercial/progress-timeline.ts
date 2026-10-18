@@ -101,6 +101,10 @@ export type TimelineSourceNode = {
   kind?: 'stage' | 'merge' | string;
   templateSlug?: string | null;
   blockingReason?: string | null;
+  /** ISO instant. Shanghai midnight is a calendar date, not an agreed 00:00. */
+  plannedAt?: string | null;
+  completedAt?: string | null;
+  updatedAt?: string;
 };
 
 export type TimelineChild = {
@@ -111,6 +115,9 @@ export type TimelineChild = {
   demoStatus: MockStatus;
   statusLabel: string;
   blockingReason: string | null;
+  plannedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string | null;
 };
 
 export type DerivedStage = {
@@ -140,8 +147,10 @@ export type DerivedTimeline = {
 export type TimelineProjectFacts = {
   netAmount: string | null;
   rebateAmount: string | null;
+  overallStage: string;
   overallStageLabel: string;
   currentTasks: string[];
+  published: boolean;
   publishedAt: string | null;
   blockingReason: string | null;
 };
@@ -258,6 +267,9 @@ export function deriveProgressTimeline(nodes: TimelineSourceNode[]): DerivedTime
       demoStatus: toDemoStatus(node.status),
       statusLabel: timelineStatusLabel(node.status),
       blockingReason: reason,
+      plannedAt: node.plannedAt ?? null,
+      completedAt: node.completedAt ?? null,
+      updatedAt: node.updatedAt ?? null,
     });
   }
 
@@ -308,8 +320,10 @@ export function timelineFactsFromDetail(
   return {
     netAmount: detail.netAmount,
     rebateAmount: detail.rebateAmount,
+    overallStage: detail.overallStage,
     overallStageLabel: OVERALL_STAGE_LABEL[detail.overallStage] ?? detail.overallStage,
     currentTasks: detail.currentStageNames,
+    published: detail.publish.published || detail.overallStage === 'published_winding_down',
     publishedAt: detail.publish.published ? detail.publish.publishedAt : null,
     blockingReason: detail.blockingReason,
   };
@@ -326,5 +340,8 @@ export function timelineNodesFromWorkflow(
     kind: node.kind,
     templateSlug: node.templateSlug,
     blockingReason: node.blockingReason,
+    plannedAt: node.plannedAt,
+    completedAt: node.completedAt,
+    updatedAt: node.updatedAt,
   }));
 }

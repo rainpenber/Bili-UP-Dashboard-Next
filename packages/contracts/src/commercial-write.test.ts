@@ -3,6 +3,7 @@ import {
   parseCommercialBlockRequest,
   parseCommercialCancelItemRequest,
   parseCommercialNodeWriteResponse,
+  parseCommercialPlanRequest,
   parseCommercialPublishRequest,
   parseCommercialPublishResponse,
   parseCommercialWriteError,
@@ -22,6 +23,7 @@ function snapshot() {
     updatedAt: STAMP,
     statusBeforeBlock: 'in_progress',
     primaryBlockItemId: ITEM_ID,
+    plannedAt: null,
     completedAt: null,
   };
 }
@@ -60,6 +62,22 @@ describe('commercial write contracts', () => {
         pinnedItem: null,
       }),
     ).toThrow(/blockingReason/);
+  });
+
+  test('plan request accepts a calendar date or null and rejects a timestamp', () => {
+    expect(
+      parseCommercialPlanRequest({ expectedUpdatedAt: STAMP, plannedAt: '2026-04-02' }),
+    ).toEqual({ expectedUpdatedAt: STAMP, plannedAt: '2026-04-02' });
+    expect(parseCommercialPlanRequest({ expectedUpdatedAt: STAMP, plannedAt: null })).toEqual({
+      expectedUpdatedAt: STAMP,
+      plannedAt: null,
+    });
+    expect(() =>
+      parseCommercialPlanRequest({ expectedUpdatedAt: STAMP, plannedAt: '2026-04-02T00:00:00Z' }),
+    ).toThrow(/plannedAt/);
+    expect(() =>
+      parseCommercialPlanRequest({ expectedUpdatedAt: STAMP, plannedAt: '2026-02-31' }),
+    ).toThrow(/calendar date/);
   });
 
   test('block request keeps an empty reason so the handler can drop it', () => {

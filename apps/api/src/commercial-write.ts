@@ -7,6 +7,7 @@ import {
   parseCommercialNodeTokenRequest,
   parseCommercialNodeWriteResponse,
   parseCommercialOpenItemWriteResponse,
+  parseCommercialPlanRequest,
   parseCommercialPublishRequest,
   parseCommercialPublishResponse,
   parseCommercialWriteError,
@@ -81,6 +82,7 @@ type DbNode = {
   updated_at: string;
   status_before_block: string | null;
   primary_block_pinned_item_id: string | null;
+  planned_at: string | null;
   completed_at: string | null;
   template_slug: string | null;
   workflow_id: string;
@@ -184,6 +186,7 @@ async function loadGraph(tx: Tx, projectId: string): Promise<Graph> {
       to_char(n.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at,
       n.status_before_block,
       n.primary_block_pinned_item_id,
+      to_char(n.planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       to_char(n.completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
       t.slug AS template_slug,
       n.workflow_id
@@ -245,6 +248,7 @@ function toSnapshot(node: DbNode): CommercialNodeSnapshot {
     statusBeforeBlock:
       node.status_before_block === null ? null : asStatus(node.status_before_block),
     primaryBlockItemId: node.primary_block_pinned_item_id,
+    plannedAt: node.planned_at,
     completedAt: node.completed_at,
   };
 }
@@ -281,6 +285,7 @@ async function updateNode(
       to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at,
       status_before_block,
       primary_block_pinned_item_id,
+      to_char(planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       to_char(completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
       workflow_id
   `;
@@ -546,6 +551,50 @@ async function unblockNode(
   return nodeResponse(tx, projectId, updated);
 }
 
+function shanghaiDateInstant(plannedOn: string): Date {
+  return new Date(`${plannedOn}T00:00:00+08:00`);
+}
+
+/** Writes planned_at only. Status, completed_at, and edges stay as they are. */
+async function planNode(
+  tx: Tx,
+  projectId: string,
+  nodeId: string,
+  input: { expectedUpdatedAt: string; plannedAt: string | null },
+): Promise<CommercialNodeWriteResponse> {
+  await requireProject(tx, projectId);
+  const graph = await loadGraph(tx, projectId);
+  const node = requireNode(graph, nodeId);
+  assertToken(node.updated_at, input.expectedUpdatedAt);
+  const plannedAt = input.plannedAt === null ? null : shanghaiDateInstant(input.plannedAt);
+  const rows = await tx<Omit<DbNode, 'template_slug'>[]>`
+    UPDATE wf_nodes SET
+      planned_at = ${plannedAt},
+      updated_at = now()
+    WHERE id = ${node.id} AND project_id = ${projectId}
+    RETURNING
+      id,
+      name,
+      status,
+      kind,
+      is_optional,
+      to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at,
+      status_before_block,
+      primary_block_pinned_item_id,
+      to_char(planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
+      to_char(completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
+      workflow_id
+  `;
+  const row = rows[0];
+  if (!row) refuse(404, 'not_found', '节点不存在');
+  const updated: DbNode = { ...row, template_slug: node.template_slug };
+  if (updated.status !== node.status) {
+    refuse(409, 'constraint_violation', '计划日期不能改变节点状态');
+  }
+  await audit(tx, projectId, 'wf_node', nodeId, 'plan', { plannedAt: input.plannedAt });
+  return nodeResponse(tx, projectId, updated);
+}
+
 async function liftPinnedBlocks(
   tx: Tx,
   projectId: string,
@@ -561,6 +610,7 @@ async function liftPinnedBlocks(
       to_char(n.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at,
       n.status_before_block,
       n.primary_block_pinned_item_id,
+      to_char(n.planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       to_char(n.completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
       t.slug AS template_slug,
       n.workflow_id
@@ -959,6 +1009,20 @@ export function registerCommercialWriteRoutes(app: Hono, db: Sql): void {
     return runWrite(c, () =>
       db
         .begin((tx) => unblockNode(tx, ids.projectId, ids.nodeId, body.expectedUpdatedAt))
+        .then((result) => c.json(parseCommercialNodeWriteResponse(result))),
+    );
+  });
+
+  app.post('/projects/:projectId/nodes/:nodeId/plan', async (c) => {
+    const ids = pathIds(c);
+    if (ids instanceof Response) return ids;
+    const raw = await readBody(c);
+    if (isResponse(raw)) return raw;
+    const body = parseRequest(c, raw, parseCommercialPlanRequest);
+    if (body instanceof Response) return body;
+    return runWrite(c, () =>
+      db
+        .begin((tx) => planNode(tx, ids.projectId, ids.nodeId, body))
         .then((result) => c.json(parseCommercialNodeWriteResponse(result))),
     );
   });

@@ -53,6 +53,8 @@ describe('commercialWorkflowToLive', () => {
           kind: 'stage',
           templateSlug: 'outline',
           blockingReason: null,
+          plannedAt: null,
+          completedAt: null,
           updatedAt: '2026-01-01T00:00:00.000Z',
         },
         {
@@ -62,6 +64,8 @@ describe('commercialWorkflowToLive', () => {
           kind: 'merge',
           templateSlug: 'merge',
           blockingReason: null,
+          plannedAt: null,
+          completedAt: null,
           updatedAt: '2026-01-01T00:00:00.000Z',
         },
       ],

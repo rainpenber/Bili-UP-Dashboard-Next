@@ -99,6 +99,14 @@ export type CommercialWorkflowNode = {
   templateSlug: string | null;
   /** Open blocking item title for this node, or null when it is not blocked or has no reason. */
   blockingReason: string | null;
+  /**
+   * Plan instant. User-entered dates are stored as Asia/Shanghai start-of-day.
+   * That midnight is a calendar date, not an agreed 00:00 appointment.
+   * Null when the node has no plan.
+   */
+  plannedAt: string | null;
+  /** Actual completion instant. Written only by status completion. Null until then. */
+  completedAt: string | null;
   /** Concurrency token. Clients send this value back unchanged as expectedUpdatedAt. */
   updatedAt: string;
 };
@@ -178,6 +186,11 @@ function parseIso(value: unknown, label: string): string {
     throw new Error(`${label} must be an ISO date string`);
   }
   return value;
+}
+
+function parseNullableIso(value: unknown, label: string): string | null {
+  if (value === null) return null;
+  return parseIso(value, label);
 }
 
 function parsePublish(value: unknown): CommercialPublishStatus {
@@ -266,6 +279,8 @@ function parseWorkflowNode(value: unknown): CommercialWorkflowNode {
     kind: record.kind,
     templateSlug: parseOptionalSlug(record.templateSlug),
     blockingReason: parseNodeBlockingReason(record.blockingReason),
+    plannedAt: parseNullableIso(record.plannedAt, 'plannedAt'),
+    completedAt: parseNullableIso(record.completedAt, 'completedAt'),
     updatedAt: parseIso(record.updatedAt, 'updatedAt'),
   };
 }
