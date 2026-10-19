@@ -124,3 +124,5 @@ bun run seed-partitions -- --file partitions.json
 文件可以是数组，或 `{ "partitions": [...] }`。每行 `tid`、可选 `parentTid`、`name`、`source`（`bilibili` / `import` / `manual` / `unknown`，缺省 `manual`）。假名导入后存成 NULL。
 
 运行记录、心跳和请求审计的只读查询在 `/api/v1/ops`。日志级别、脱敏和 `app_logs` 写入策略见 [observability.md](./observability.md)。采集频率、熔断和样本写入仍按本文。
+
+元数据补齐（本地 WebUI 导入、单条/批量 `view/detail`、以及和采集器共用的 `collector_rate_state` 配额）见 [metadata-backfill.md](./metadata-backfill.md)。那条链路不改变上面的采样间隔，也不改 CSV 导入。

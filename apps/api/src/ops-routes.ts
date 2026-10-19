@@ -19,6 +19,7 @@ import {
   type OpsTargetStatus,
 } from '@studio/contracts';
 import { VIDEO_PARTITION_JOINS, VIDEO_PARTITION_NAME_SQL, type Sql } from '@studio/db';
+import { readMetadataRun } from '@studio/monitoring';
 import { scrubString, scrubValue } from '@studio/observability';
 import { Hono } from 'hono';
 
@@ -658,7 +659,7 @@ export function createOpsRoutes(db: Sql) {
         }
       }
       const body: OpsDebugBundle = {
-        schemaVersion: versions[0]?.version ?? '007_metadata_assets_logs',
+        schemaVersion: versions[0]?.version ?? '008_webui_rate_state',
         generatedAt: new Date().toISOString(),
         run,
         target,
@@ -670,6 +671,25 @@ export function createOpsRoutes(db: Sql) {
         circuits,
       };
       return send(c, body);
+    }),
+  );
+
+  app.get(
+    '/metadata/runs/:id',
+    guard(async (c) => {
+      const id = parseUuid(c.req.param('id'), 'id');
+      if (!id) throw new Error('invalid id');
+      const run = await readMetadataRun(db, id);
+      if (!run) return c.json({ error: 'not found' }, 404);
+      return send(c, {
+        id: run.id,
+        status: run.status,
+        requested: run.requested,
+        succeeded: run.succeeded,
+        failed: run.failed,
+        skipped: run.skipped,
+        report: run.report,
+      });
     }),
   );
 
