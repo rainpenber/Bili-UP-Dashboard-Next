@@ -18,7 +18,7 @@ import {
   type OpsSummary,
   type OpsTargetStatus,
 } from '@studio/contracts';
-import type { Sql } from '@studio/db';
+import { VIDEO_PARTITION_JOINS, VIDEO_PARTITION_NAME_SQL, type Sql } from '@studio/db';
 import { scrubString, scrubValue } from '@studio/observability';
 import { Hono } from 'hono';
 
@@ -691,12 +691,17 @@ async function readVideo(db: Sql, bvid: string): Promise<OpsDebugVideo | null> {
       metadata_error: string | null;
       cid: string | null;
       pubdate: Date | null;
+      tid: number | null;
+      tid_v2: number | null;
+      partition_name: string | null;
     }[]
   >`
-    SELECT bvid, title, description, duration_seconds, cover_url, cover_state, metadata_state,
-      metadata_source, metadata_fetched_at, metadata_error, cid::text AS cid, pubdate
-    FROM videos
-    WHERE bvid = ${bvid}
+    SELECT v.bvid, v.title, v.description, v.duration_seconds, v.cover_url, v.cover_state, v.metadata_state,
+      v.metadata_source, v.metadata_fetched_at, v.metadata_error, v.cid::text AS cid, v.pubdate,
+      v.tid, v.tid_v2, ${db.unsafe(VIDEO_PARTITION_NAME_SQL)} AS partition_name
+    FROM videos v
+    ${db.unsafe(VIDEO_PARTITION_JOINS)}
+    WHERE v.bvid = ${bvid}
   `;
   const row = rows[0];
   if (!row) return null;
@@ -713,6 +718,9 @@ async function readVideo(db: Sql, bvid: string): Promise<OpsDebugVideo | null> {
     metadataError: cleanText(row.metadata_error),
     cid: row.cid,
     pubdate: iso(row.pubdate),
+    tid: row.tid,
+    tidV2: row.tid_v2,
+    partitionName: cleanText(row.partition_name),
   };
 }
 

@@ -9,7 +9,10 @@ ALTER TABLE videos
   ADD COLUMN IF NOT EXISTS metadata_state TEXT NOT NULL DEFAULT 'pending',
   ADD COLUMN IF NOT EXISTS metadata_source TEXT,
   ADD COLUMN IF NOT EXISTS metadata_fetched_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS metadata_error TEXT;
+  ADD COLUMN IF NOT EXISTS metadata_error TEXT,
+  ADD COLUMN IF NOT EXISTS tid INTEGER,
+  ADD COLUMN IF NOT EXISTS tid_v2 INTEGER,
+  ADD COLUMN IF NOT EXISTS partition_name TEXT;
 
 ALTER TABLE videos DROP CONSTRAINT IF EXISTS videos_cover_state_check;
 ALTER TABLE videos
@@ -25,6 +28,45 @@ ALTER TABLE videos DROP CONSTRAINT IF EXISTS videos_metadata_source_check;
 ALTER TABLE videos
   ADD CONSTRAINT videos_metadata_source_check
   CHECK (metadata_source IS NULL OR metadata_source IN ('bilibili', 'legacy_csv', 'manual'));
+
+-- Empty, whitespace, and placeholder labels are not partition names.
+ALTER TABLE videos DROP CONSTRAINT IF EXISTS videos_partition_name_check;
+ALTER TABLE videos
+  ADD CONSTRAINT videos_partition_name_check
+  CHECK (
+    partition_name IS NULL
+    OR (
+      btrim(partition_name) <> ''
+      AND partition_name NOT IN ('未知', '其他', '其它')
+    )
+  );
+
+CREATE INDEX IF NOT EXISTS videos_tid_v2_idx ON videos (tid_v2) WHERE tid_v2 IS NOT NULL;
+CREATE INDEX IF NOT EXISTS videos_tid_idx ON videos (tid) WHERE tid IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS bili_partitions (
+  tid INTEGER PRIMARY KEY,
+  parent_tid INTEGER,
+  name TEXT,
+  source TEXT NOT NULL DEFAULT 'unknown',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE bili_partitions DROP CONSTRAINT IF EXISTS bili_partitions_source_check;
+ALTER TABLE bili_partitions
+  ADD CONSTRAINT bili_partitions_source_check
+  CHECK (source IN ('bilibili', 'import', 'manual', 'unknown'));
+
+ALTER TABLE bili_partitions DROP CONSTRAINT IF EXISTS bili_partitions_name_check;
+ALTER TABLE bili_partitions
+  ADD CONSTRAINT bili_partitions_name_check
+  CHECK (
+    name IS NULL
+    OR (
+      btrim(name) <> ''
+      AND name NOT IN ('未知', '其他', '其它')
+    )
+  );
 
 CREATE INDEX IF NOT EXISTS videos_metadata_state_idx
   ON videos (metadata_state)

@@ -121,6 +121,9 @@ export type OpsDebugVideo = {
   metadataError: string | null;
   cid: string | null;
   pubdate: string | null;
+  tid: number | null;
+  tidV2: number | null;
+  partitionName: string | null;
 };
 
 export type OpsDebugCreator = {
@@ -429,7 +432,15 @@ function parseDebugVideo(value: unknown): OpsDebugVideo {
     metadataError: asNullableString(row.metadataError, 'metadataError'),
     cid: asNullableString(row.cid, 'cid'),
     pubdate: asNullableIso(row.pubdate, 'pubdate'),
+    tid: asNullableCount(row.tid, 'tid'),
+    tidV2: asNullableCount(row.tidV2, 'tidV2'),
+    partitionName: asNullableString(row.partitionName, 'partitionName'),
   };
+}
+
+function asNullableCount(value: unknown, name: string): number | null {
+  if (value === null) return null;
+  return asCount(value, name);
 }
 
 function parseDebugCreator(value: unknown): OpsDebugCreator {

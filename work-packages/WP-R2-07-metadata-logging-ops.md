@@ -145,7 +145,15 @@ CREATE TABLE IF NOT EXISTS backfill_runs (
 - 全部门槛：`bun run lint && bun run typecheck && bun test && bun run build && bun run format:check` 通过。
 - 不新增任何真实网络请求；测试不得依赖外网。
 
-## 7. 不做
+## 7. 分区（2026-10-19 实测追加）
+
+`/x/web-interface/view` 与 `/view/detail` 的 `tname`、`tname_v2` 可以是空字符串，同时 `tid`、`tid_v2` 有值。`/x/v2/region/index` 已废弃，本包不联网抓分区。
+
+`videos` 增加可空列 `tid`、`tid_v2`、`partition_name`。分区名允许为空，禁止用空白、`未知`、`其他`、`其它` 填充。原始 `tid` / `tid_v2` / `tname` / `tname_v2` 快照留在 `videos.metadata`。
+
+字典表 `bili_partitions(tid, parent_tid, name, source, updated_at)`。读视频时 `partition_name` 为空则先按 `tid_v2`、再按 `tid` 左连该表；两处都没有真名就返回 null。导入入口：`bun run seed-partitions -- --file <json>`。
+
+## 8. 不做
 
 - 不做回填执行、不下载图片（WP-R2-08）。
 - 不改 006 的采集语义（频率、熔断、样本写入）。

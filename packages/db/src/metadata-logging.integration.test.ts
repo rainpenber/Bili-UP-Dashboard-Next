@@ -40,6 +40,22 @@ describe('metadata logging migration', () => {
       `;
       expect(video?.cover_state).toBe('pending');
       expect(video?.metadata_state).toBe('pending');
+      const [partitionCols] = await sql<
+        { tid: number | null; tid_v2: number | null; partition_name: string | null }[]
+      >`
+        SELECT tid, tid_v2, partition_name FROM videos WHERE bvid = 'BV1xx411c7mD'
+      `;
+      expect(partitionCols?.tid ?? null).toBeNull();
+      expect(partitionCols?.tid_v2 ?? null).toBeNull();
+      expect(partitionCols?.partition_name ?? null).toBeNull();
+      const fakeName = await sql`
+        UPDATE videos SET partition_name = '未知' WHERE bvid = 'BV1xx411c7mD'
+      `.catch((error: unknown) => error);
+      expect(fakeName).toBeInstanceOf(Error);
+      const [dictionary] = await sql<{ present: boolean }[]>`
+        SELECT to_regclass('public.bili_partitions') IS NOT NULL AS present
+      `;
+      expect(dictionary?.present).toBe(true);
       const badCover = await sql`
         UPDATE videos SET cover_state = 'bogus' WHERE bvid = 'BV1xx411c7mD'
       `.catch((error: unknown) => error);

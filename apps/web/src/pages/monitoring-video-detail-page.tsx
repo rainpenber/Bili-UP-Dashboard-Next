@@ -51,6 +51,7 @@ export function MonitoringVideoDetailPage() {
       meta={[
         { label: 'BV 号', value: v.bvid },
         { label: '分类', value: v.category ?? '未分类' },
+        { label: '分区', value: v.partitionName ?? '暂缺' },
         { label: 'UP MID', value: v.mid ?? '—' },
         {
           label: '封面',

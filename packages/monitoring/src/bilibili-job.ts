@@ -169,6 +169,12 @@ export async function runBilibiliJob(options: {
         ownerMid: fetched.view.ownerMid,
         ownerName: fetched.view.ownerName,
         coverUrl: fetched.view.coverUrl,
+        partition: {
+          tid: fetched.view.tid,
+          tidV2: fetched.view.tidV2,
+          tname: fetched.view.tname,
+          tnameV2: fetched.view.tnameV2,
+        },
       };
       const committed = await options.effects.commitVideo({
         jobId: options.job.id,

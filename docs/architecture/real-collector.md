@@ -18,26 +18,28 @@ Cookie 的作用是抬高配额、降低风控概率。公开数据未登录也�
 
 ## 字段映射
 
-| 端点                     | 响应字段                                              | 列                                                          |
-| ------------------------ | ----------------------------------------------------- | ----------------------------------------------------------- |
-| `/x/web-interface/view`  | `data.stat.view`                                      | `video_metric_samples.view_count`                           |
-| 同上                     | `data.stat.danmaku`                                   | `danmaku_count`                                             |
-| 同上                     | `data.stat.reply`                                     | `comment_count`                                             |
-| 同上                     | `data.stat.favorite`                                  | `favorite_count`                                            |
-| 同上                     | `data.stat.coin`                                      | `coin_count`                                                |
-| 同上                     | `data.stat.share`                                     | `share_count`                                               |
-| 同上                     | `data.stat.like`                                      | `like_count`                                                |
-| 同上                     | `data.cid`                                            | `videos.cid`                                                |
-| 同上                     | `data.pubdate`（Unix 秒）                             | `videos.pubdate`                                            |
-| 同上                     | `data.title`                                          | `videos.title`                                              |
-| 同上                     | `data.owner.mid`                                      | `videos.mid`                                                |
-| 同上                     | `data.owner.name`                                     | `creators.uname`                                            |
-| 同上                     | `data.pic`                                            | `videos.metadata.pic`                                       |
-| `/x/player/online/total` | `data.total` 的数字部分；失败或 `code != 0` 时为 NULL | `online_viewers`                                            |
-| 同上                     | `data.total` 原文；没有原文则留空                     | `online_viewers_raw`                                        |
-| `/x/relation/stat`       | `data.follower`                                       | `creator_follower_samples.follower_count`                   |
-| 同上                     | `data.following`                                      | `following_count`                                           |
-| `/x/web-interface/nav`   | `data.mid` / `uname` / `face` / `isLogin`             | `bili_accounts.mid` / `uname` / `avatar_url`，并校验 Cookie |
+| 端点                     | 响应字段                                              | 列                                                              |
+| ------------------------ | ----------------------------------------------------- | --------------------------------------------------------------- |
+| `/x/web-interface/view`  | `data.stat.view`                                      | `video_metric_samples.view_count`                               |
+| 同上                     | `data.stat.danmaku`                                   | `danmaku_count`                                                 |
+| 同上                     | `data.stat.reply`                                     | `comment_count`                                                 |
+| 同上                     | `data.stat.favorite`                                  | `favorite_count`                                                |
+| 同上                     | `data.stat.coin`                                      | `coin_count`                                                    |
+| 同上                     | `data.stat.share`                                     | `share_count`                                                   |
+| 同上                     | `data.stat.like`                                      | `like_count`                                                    |
+| 同上                     | `data.cid`                                            | `videos.cid`                                                    |
+| 同上                     | `data.pubdate`（Unix 秒）                             | `videos.pubdate`                                                |
+| 同上                     | `data.title`                                          | `videos.title`                                                  |
+| 同上                     | `data.owner.mid`                                      | `videos.mid`                                                    |
+| 同上                     | `data.owner.name`                                     | `creators.uname`                                                |
+| 同上                     | `data.pic`                                            | `videos.metadata.pic`                                           |
+| 同上                     | `data.tid` / `data.tid_v2`                            | `videos.tid` / `videos.tid_v2`，并写入 `videos.metadata`        |
+| 同上                     | `data.tname` / `data.tname_v2`                        | 原始快照写入 `videos.metadata`。非空真名才写入 `partition_name` |
+| `/x/player/online/total` | `data.total` 的数字部分；失败或 `code != 0` 时为 NULL | `online_viewers`                                                |
+| 同上                     | `data.total` 原文；没有原文则留空                     | `online_viewers_raw`                                            |
+| `/x/relation/stat`       | `data.follower`                                       | `creator_follower_samples.follower_count`                       |
+| 同上                     | `data.following`                                      | `following_count`                                               |
+| `/x/web-interface/nav`   | `data.mid` / `uname` / `face` / `isLogin`             | `bili_accounts.mid` / `uname` / `avatar_url`，并校验 Cookie     |
 
 `sampled_at` 取 `collector_jobs.scheduled_for`，是幂等键。同一任务重跑命中 `(bvid, sampled_at)` 或 `(mid, sampled_at)` 时 `ON CONFLICT DO NOTHING`，不覆盖已有行。`collected_at` 是这次真正拿到响应的时刻，可以晚于时间桶。历史 CSV 的 `collected_at` 留空，因为旧文件里没有“抓取时刻”，只有分钟级本地时间。
 
@@ -106,5 +108,19 @@ bun run apps/collector/src/cli.ts import-legacy --dir /path/to/csv
 - 不落 CSV，不使用 `schedule`，不实现 WBI、`bili_ticket` 或评论接口。
 
 单元测试和 CI 只使用注入的传输层和录制夹具，不会请求 B 站。
+
+## 分区名
+
+2026-10-19 实测 `BV1jHnn63EEi`：`view` 与 `view/detail` 的 `tname`、`tname_v2` 都是空字符串，但 `tid=95`、`tid_v2=2102` 有值。`/x/v2/region/index` 已返回 `-400`，不能再当分区字典用。
+
+`videos.partition_name` 只存去掉首尾空白后的真名。空串、纯空白、`未知`、`其他`、`其它` 写成 NULL，不拿它们充数。原始四个字段留在 `videos.metadata`，方便以后对照。读视频时若 `partition_name` 为空，先按 `tid_v2` 再按 `tid` 左连 `bili_partitions`；字典也没有名字就返回 null。
+
+字典不联网抓。维护者用本地 JSON 导入：
+
+```bash
+bun run seed-partitions -- --file partitions.json
+```
+
+文件可以是数组，或 `{ "partitions": [...] }`。每行 `tid`、可选 `parentTid`、`name`、`source`（`bilibili` / `import` / `manual` / `unknown`，缺省 `manual`）。假名导入后存成 NULL。
 
 运行记录、心跳和请求审计的只读查询在 `/api/v1/ops`。日志级别、脱敏和 `app_logs` 写入策略见 [observability.md](./observability.md)。采集频率、熔断和样本写入仍按本文。

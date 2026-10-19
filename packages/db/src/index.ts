@@ -1,3 +1,15 @@
+export {
+  parsePartitionSeed,
+  partitionNameFromLabels,
+  realPartitionName,
+  seedPartitions,
+  seedPartitionsFromJson,
+  VIDEO_PARTITION_JOINS,
+  VIDEO_PARTITION_NAME_SQL,
+  type PartitionSeedRow,
+  type PartitionSource,
+} from './partitions';
+export { partitionSeedFileFromArgv } from './seed-partitions';
 export { readDbConfigFromEnv, buildConnectionString, type DbConfig } from './config';
 export { createSql, type Sql } from './client';
 export { runMigrations } from './migrate';
