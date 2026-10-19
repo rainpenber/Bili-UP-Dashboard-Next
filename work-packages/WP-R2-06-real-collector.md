@@ -196,12 +196,12 @@ CREATE INDEX IF NOT EXISTS video_samples_source_at ON video_metric_samples (sour
 
 ## 5. 采集端点与字段映射
 
-| 用途 | 端点 | 关键参数 | 取什么 | 说明 |
-| --- | --- | --- | --- | --- |
-| 视频元数据 + 全部互动指标 | `GET https://api.bilibili.com/x/web-interface/view` | `bvid` | `data.cid`、`data.pubdate`、`data.title`、`data.owner.mid`、`data.stat.{view,danmaku,reply,favorite,coin,share,like}` | **一次请求拿全**，评论数就是 `stat.reply`。旧代码重复调了两次，不要学 |
-| 实时在线观看 | `GET https://api.bilibili.com/x/player/online/total` | `bvid`、`cid` | `data.total`（数字或 `"1234+"` 字符串） | 只对发布 14 天内的视频调用；数字入 `online_viewers`，原文入 `online_viewers_raw` |
-| UP 主粉丝/关注 | `GET https://api.bilibili.com/x/relation/stat` | `vmid` | `data.follower`、`data.following` | 不需要 WBI；逐 mid 串行 |
-| 登录态校验（账号模块） | `GET https://api.bilibili.com/x/web-interface/nav` | — | `data.isLogin`、`data.mid`、`data.uname`、`data.face` | 只用于校验 Cookie 是否仍有效 |
+| 用途                      | 端点                                                 | 关键参数      | 取什么                                                                                                                | 说明                                                                             |
+| ------------------------- | ---------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 视频元数据 + 全部互动指标 | `GET https://api.bilibili.com/x/web-interface/view`  | `bvid`        | `data.cid`、`data.pubdate`、`data.title`、`data.owner.mid`、`data.stat.{view,danmaku,reply,favorite,coin,share,like}` | **一次请求拿全**，评论数就是 `stat.reply`。旧代码重复调了两次，不要学            |
+| 实时在线观看              | `GET https://api.bilibili.com/x/player/online/total` | `bvid`、`cid` | `data.total`（数字或 `"1234+"` 字符串）                                                                               | 只对发布 14 天内的视频调用；数字入 `online_viewers`，原文入 `online_viewers_raw` |
+| UP 主粉丝/关注            | `GET https://api.bilibili.com/x/relation/stat`       | `vmid`        | `data.follower`、`data.following`                                                                                     | 不需要 WBI；逐 mid 串行                                                          |
+| 登录态校验（账号模块）    | `GET https://api.bilibili.com/x/web-interface/nav`   | —             | `data.isLogin`、`data.mid`、`data.uname`、`data.face`                                                                 | 只用于校验 Cookie 是否仍有效                                                     |
 
 **为什么查询逻辑要这么写：**
 
@@ -242,14 +242,14 @@ load target → 取 account（target.account_id ?? 默认账号）
 
 ### 6.4 错误处理（必须按类别，不许无脑重试）
 
-| 情况 | 行为 |
-| --- | --- |
-| 网络超时 / 5xx | 本次 run 失败，`attempts+1`，退避 `min(2^attempts, 30)` 分钟后重排 |
-| `code = -404`（稿件不存在/私密） | 目标置 `enabled=false`，`last_error` 记录，不重试 |
-| `code = -352 / -412`（风控） | 打开 `collector_circuits`，默认冷却 30 分钟；期间该账号所有任务延迟 |
-| `code = -509`（超频） | 冷却 60 分钟 |
-| `code = -101`（未登录） | 账号 `status='expired'`，该账号任务暂停，等重新登录 |
-| 单次 run 连续失败 ≥ 3 | job `failed`，`last_error` 可见；等下一个 `next_run_at` |
+| 情况                             | 行为                                                                |
+| -------------------------------- | ------------------------------------------------------------------- |
+| 网络超时 / 5xx                   | 本次 run 失败，`attempts+1`，退避 `min(2^attempts, 30)` 分钟后重排  |
+| `code = -404`（稿件不存在/私密） | 目标置 `enabled=false`，`last_error` 记录，不重试                   |
+| `code = -352 / -412`（风控）     | 打开 `collector_circuits`，默认冷却 30 分钟；期间该账号所有任务延迟 |
+| `code = -509`（超频）            | 冷却 60 分钟                                                        |
+| `code = -101`（未登录）          | 账号 `status='expired'`，该账号任务暂停，等重新登录                 |
+| 单次 run 连续失败 ≥ 3            | job `failed`，`last_error` 可见；等下一个 `next_run_at`             |
 
 ### 6.5 节流（必须实现，可测试）
 

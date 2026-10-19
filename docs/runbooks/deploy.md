@@ -1,6 +1,6 @@
 # 部署 Runbook（个人 Debian 家服 · 离线 Mock）
 
-生产稳态：**三个 Compose 服务** — `postgres`、`app`（单 Bun 进程同时提供 `/api/*` 与 SPA）、`collector`（独立进程，只消费 `collector_jobs`，采集源是离线适配器，不访问 B 站，不发布宿主机端口）。商单域的 `monitor_jobs` 仍不执行。
+生产稳态：**三个 Compose 服务** — `postgres`、`app`（单 Bun 进程同时提供 `/api/*` 与 SPA）、`collector`（独立进程，只消费 `collector_jobs`，默认 `COLLECTOR_PROVIDER=offline`，不访问 B 站，不发布宿主机端口）。切到真实采集时见 `docs/architecture/real-collector.md`。商单域的 `monitor_jobs` 仍不执行。
 
 **固定项目名（复用，勿按 WP/验收临时起名）：**
 

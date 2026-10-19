@@ -1,7 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readBilibiliRuntimeConfig } from './bilibili-config';
+import { createBilibiliProvider } from './bilibili-provider';
+import type { HttpTransport } from './bilibili-transport';
 import { installOfflineFetchGuard } from './network-guard';
+import type { ThrottleClock } from './throttle';
 
 export type CollectedVideo = {
   bvid: string;
@@ -170,9 +174,14 @@ export function createOfflineProvider(env: NodeJS.ProcessEnv = process.env): Mon
 export function createMonitorProvider(
   kind: string,
   env: NodeJS.ProcessEnv = process.env,
+  overrides: {
+    transport?: HttpTransport;
+    random?: () => number;
+    clock?: ThrottleClock;
+    log?: (line: string) => void;
+  } = {},
 ): MonitorProvider {
   if (kind === 'offline' || kind === 'mock') return createOfflineProvider(env);
-  throw new Error(
-    `采集源 ${kind} 未实现（fail closed）。当前只允许离线适配器 offline，不会访问 Bilibili。`,
-  );
+  if (kind === 'bilibili') return createBilibiliProvider(readBilibiliRuntimeConfig(env), overrides);
+  throw new Error(`采集源 ${kind} 未实现（fail closed）。不会访问 Bilibili。`);
 }

@@ -54,6 +54,7 @@ export type ClaimedCollectorJob = {
   externalId: string;
   attempts: number;
   scheduledFor: Date;
+  accountId: string | null;
 };
 
 type TargetSqlRow = {
@@ -328,6 +329,7 @@ export async function claimNextCollectorJob(sql: Sql): Promise<ClaimedCollectorJ
       scheduled_for: Date;
       type: MonitorTargetType;
       external_id: string;
+      account_id: string | null;
     }[]
   >`
     WITH candidate AS (
@@ -356,7 +358,8 @@ export async function claimNextCollectorJob(sql: Sql): Promise<ClaimedCollectorJ
       job.attempts,
       job.scheduled_for,
       t."type" AS type,
-      t.external_id
+      t.external_id,
+      t.account_id::text AS account_id
   `;
   const row = rows[0];
   if (!row) return null;
@@ -367,8 +370,11 @@ export async function claimNextCollectorJob(sql: Sql): Promise<ClaimedCollectorJ
     externalId: row.external_id,
     attempts: row.attempts,
     scheduledFor: row.scheduled_for,
+    accountId: row.account_id,
   };
 }
+
+export type SampleSource = 'import' | 'legacy_csv' | 'bilibili';
 
 export type VideoSampleWrite = {
   bvid: string;
@@ -377,53 +383,104 @@ export type VideoSampleWrite = {
   rawTime: string;
   sourceTimezone: string;
   timestampPrecision: 'minute' | 'second';
-  viewCount: bigint;
-  onlineViewers: bigint;
-  onlineViewersRaw: string;
-  likeCount: bigint;
-  coinCount: bigint;
-  favoriteCount: bigint;
-  shareCount: bigint;
-  danmakuCount: bigint;
-  commentCount: bigint;
+  viewCount: bigint | null;
+  onlineViewers: bigint | null;
+  onlineViewersRaw: string | null;
+  likeCount: bigint | null;
+  coinCount: bigint | null;
+  favoriteCount: bigint | null;
+  shareCount: bigint | null;
+  danmakuCount: bigint | null;
+  commentCount: bigint | null;
+  source?: SampleSource;
+  accountId?: string | null;
+  collectorRunId?: string | null;
+  collectedAt?: Date | null;
+  extra?: Record<string, unknown>;
+  cid?: string | null;
+  pubdate?: Date | null;
+  ownerMid?: string | null;
+  ownerName?: string | null;
+  coverUrl?: string | null;
 };
 
-export async function writeVideoSample(sql: Sql, sample: VideoSampleWrite): Promise<boolean> {
-  return sql.begin(async (tx) => {
+function bigintText(value: bigint | null): string | null {
+  return value === null ? null : value.toString();
+}
+
+function jsonValue(value: Record<string, unknown>): postgres.JSONValue {
+  return JSON.parse(JSON.stringify(value)) as postgres.JSONValue;
+}
+
+export async function writeVideoSampleWithin(
+  tx: Queryable,
+  sample: VideoSampleWrite,
+): Promise<boolean> {
+  const metadata = sample.coverUrl ? { pic: sample.coverUrl } : {};
+  if (sample.ownerMid) {
     await tx`
-      INSERT INTO videos (bvid, title, monitoring_enabled)
-      VALUES (${sample.bvid}, ${sample.title}, true)
-      ON CONFLICT (bvid) DO UPDATE SET
-        monitoring_enabled = true,
-        title = COALESCE(videos.title, EXCLUDED.title),
+      INSERT INTO creators (mid, uname)
+      VALUES (${sample.ownerMid}::bigint, ${sample.ownerName ?? null})
+      ON CONFLICT (mid) DO UPDATE SET
+        uname = COALESCE(EXCLUDED.uname, creators.uname),
         updated_at = now()
     `;
-    const rows = await tx<{ id: string }[]>`
-      INSERT INTO video_metric_samples (
-        bvid, sampled_at, source_timezone, raw_time, timestamp_precision,
-        view_count, online_viewers, online_viewers_raw, like_count, coin_count,
-        favorite_count, share_count, danmaku_count, comment_count
-      ) VALUES (
-        ${sample.bvid},
-        ${sample.sampledAt},
-        ${sample.sourceTimezone},
-        ${sample.rawTime},
-        ${sample.timestampPrecision},
-        ${sample.viewCount.toString()}::bigint,
-        ${sample.onlineViewers.toString()}::bigint,
-        ${sample.onlineViewersRaw},
-        ${sample.likeCount.toString()}::bigint,
-        ${sample.coinCount.toString()}::bigint,
-        ${sample.favoriteCount.toString()}::bigint,
-        ${sample.shareCount.toString()}::bigint,
-        ${sample.danmakuCount.toString()}::bigint,
-        ${sample.commentCount.toString()}::bigint
-      )
-      ON CONFLICT (bvid, sampled_at) DO NOTHING
-      RETURNING id::text AS id
-    `;
-    return rows.length > 0;
-  });
+  }
+  await tx`
+    INSERT INTO videos (bvid, title, monitoring_enabled, mid, cid, pubdate, metadata)
+    VALUES (
+      ${sample.bvid},
+      ${sample.title},
+      true,
+      ${sample.ownerMid ?? null}::bigint,
+      ${sample.cid ?? null}::bigint,
+      ${sample.pubdate ?? null},
+      ${tx.json(jsonValue(metadata))}
+    )
+    ON CONFLICT (bvid) DO UPDATE SET
+      monitoring_enabled = true,
+      title = COALESCE(EXCLUDED.title, videos.title),
+      mid = COALESCE(EXCLUDED.mid, videos.mid),
+      cid = COALESCE(EXCLUDED.cid, videos.cid),
+      pubdate = COALESCE(EXCLUDED.pubdate, videos.pubdate),
+      metadata = videos.metadata || EXCLUDED.metadata,
+      updated_at = now()
+  `;
+  const rows = await tx<{ id: string }[]>`
+    INSERT INTO video_metric_samples (
+      bvid, sampled_at, source_timezone, raw_time, timestamp_precision,
+      view_count, online_viewers, online_viewers_raw, like_count, coin_count,
+      favorite_count, share_count, danmaku_count, comment_count,
+      source, account_id, collector_run_id, collected_at, extra
+    ) VALUES (
+      ${sample.bvid},
+      ${sample.sampledAt},
+      ${sample.sourceTimezone},
+      ${sample.rawTime},
+      ${sample.timestampPrecision},
+      ${bigintText(sample.viewCount)}::bigint,
+      ${bigintText(sample.onlineViewers)}::bigint,
+      ${sample.onlineViewersRaw},
+      ${bigintText(sample.likeCount)}::bigint,
+      ${bigintText(sample.coinCount)}::bigint,
+      ${bigintText(sample.favoriteCount)}::bigint,
+      ${bigintText(sample.shareCount)}::bigint,
+      ${bigintText(sample.danmakuCount)}::bigint,
+      ${bigintText(sample.commentCount)}::bigint,
+      ${sample.source ?? 'import'},
+      ${sample.accountId ?? null}::uuid,
+      ${sample.collectorRunId ?? null}::uuid,
+      ${sample.collectedAt ?? null},
+      ${tx.json(jsonValue(sample.extra ?? {}))}
+    )
+    ON CONFLICT (bvid, sampled_at) DO NOTHING
+    RETURNING id::text AS id
+  `;
+  return rows.length > 0;
+}
+
+export async function writeVideoSample(sql: Sql, sample: VideoSampleWrite): Promise<boolean> {
+  return sql.begin(async (tx) => writeVideoSampleWithin(tx, sample));
 }
 
 export type CreatorSampleWrite = {
@@ -434,34 +491,52 @@ export type CreatorSampleWrite = {
   sourceTimezone: string;
   timestampPrecision: 'minute' | 'second';
   followerCount: bigint;
+  followingCount?: bigint | null;
+  source?: SampleSource;
+  accountId?: string | null;
+  collectorRunId?: string | null;
+  collectedAt?: Date | null;
+  extra?: Record<string, unknown>;
 };
 
+export async function writeCreatorSampleWithin(
+  tx: Queryable,
+  sample: CreatorSampleWrite,
+): Promise<boolean> {
+  await tx`
+    INSERT INTO creators (mid, uname, monitoring_enabled)
+    VALUES (${sample.mid}::bigint, ${sample.uname}, true)
+    ON CONFLICT (mid) DO UPDATE SET
+      monitoring_enabled = true,
+      uname = COALESCE(EXCLUDED.uname, creators.uname),
+      updated_at = now()
+  `;
+  const rows = await tx<{ id: string }[]>`
+    INSERT INTO creator_follower_samples (
+      mid, sampled_at, source_timezone, raw_time, timestamp_precision, follower_count,
+      following_count, source, account_id, collector_run_id, collected_at, extra
+    ) VALUES (
+      ${sample.mid}::bigint,
+      ${sample.sampledAt},
+      ${sample.sourceTimezone},
+      ${sample.rawTime},
+      ${sample.timestampPrecision},
+      ${sample.followerCount.toString()}::bigint,
+      ${bigintText(sample.followingCount ?? null)}::bigint,
+      ${sample.source ?? 'import'},
+      ${sample.accountId ?? null}::uuid,
+      ${sample.collectorRunId ?? null}::uuid,
+      ${sample.collectedAt ?? null},
+      ${tx.json(jsonValue(sample.extra ?? {}))}
+    )
+    ON CONFLICT (mid, sampled_at) DO NOTHING
+    RETURNING id::text AS id
+  `;
+  return rows.length > 0;
+}
+
 export async function writeCreatorSample(sql: Sql, sample: CreatorSampleWrite): Promise<boolean> {
-  return sql.begin(async (tx) => {
-    await tx`
-      INSERT INTO creators (mid, uname, monitoring_enabled)
-      VALUES (${sample.mid}::bigint, ${sample.uname}, true)
-      ON CONFLICT (mid) DO UPDATE SET
-        monitoring_enabled = true,
-        uname = COALESCE(creators.uname, EXCLUDED.uname),
-        updated_at = now()
-    `;
-    const rows = await tx<{ id: string }[]>`
-      INSERT INTO creator_follower_samples (
-        mid, sampled_at, source_timezone, raw_time, timestamp_precision, follower_count
-      ) VALUES (
-        ${sample.mid}::bigint,
-        ${sample.sampledAt},
-        ${sample.sourceTimezone},
-        ${sample.rawTime},
-        ${sample.timestampPrecision},
-        ${sample.followerCount.toString()}::bigint
-      )
-      ON CONFLICT (mid, sampled_at) DO NOTHING
-      RETURNING id::text AS id
-    `;
-    return rows.length > 0;
-  });
+  return sql.begin(async (tx) => writeCreatorSampleWithin(tx, sample));
 }
 
 export async function recordCollectorSuccess(
@@ -520,9 +595,10 @@ export async function recordCollectorFailure(
     startedAt: Date;
     retryAt: Date | null;
   },
-): Promise<{ terminal: boolean }> {
+): Promise<{ terminal: boolean; runId: string }> {
   const retryAt = input.retryAt;
   const terminal = input.attempts >= input.maxAttempts || retryAt === null;
+  const runId = crypto.randomUUID();
   await sql.begin(async (tx) => {
     const finished = new Date();
     if (terminal) {
@@ -567,7 +643,7 @@ export async function recordCollectorFailure(
       INSERT INTO collector_runs (
         id, job_id, target_id, status, samples_written, duration_ms, error, started_at, finished_at
       ) VALUES (
-        ${crypto.randomUUID()}::uuid,
+        ${runId}::uuid,
         ${input.jobId}::uuid,
         ${input.targetId}::uuid,
         'failed',
@@ -579,7 +655,7 @@ export async function recordCollectorFailure(
       )
     `;
   });
-  return { terminal };
+  return { terminal, runId };
 }
 
 type JobSqlRow = {
@@ -721,6 +797,14 @@ export async function requestCollectorRun(
   const job = await getCollectorJob(sql, id);
   if (!job) throw new Error('采集任务写入后未能读回');
   return { status: 'queued', job, created: true };
+}
+
+export async function refreshCollectorHeartbeat(sql: Sql, instanceId: string): Promise<void> {
+  await sql`
+    UPDATE collector_heartbeats
+    SET last_seen_at = statement_timestamp(), updated_at = statement_timestamp()
+    WHERE instance_id = ${instanceId}
+  `;
 }
 
 export async function upsertCollectorHeartbeat(

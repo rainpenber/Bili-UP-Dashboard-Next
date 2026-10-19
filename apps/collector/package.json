@@ -13,9 +13,11 @@
   "dependencies": {
     "@studio/db": "workspace:*",
     "@studio/monitoring": "workspace:*",
-    "postgres": "^3.4.5"
+    "postgres": "^3.4.5",
+    "qrcode": "1.5.4"
   },
   "devDependencies": {
+    "@types/qrcode": "1.5.5",
     "typescript": "^5.7.2"
   }
 }
