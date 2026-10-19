@@ -7,6 +7,7 @@ import { DesignSystemPage } from '@/pages/design-system-page';
 import { IntegrationsSettingsPage } from '@/pages/integrations-settings-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { PlaceholderPage } from '@/pages/placeholder-page';
+import { ProjectDemoPage } from '@/pages/project-demo-page';
 import { ProjectDetailPage } from '@/pages/project-detail-page';
 import { ProjectListPage } from '@/pages/project-list-page';
 import { MonitoringPage } from '@/features/monitoring/monitoring-page';
@@ -28,6 +29,7 @@ export const appRouteConfig: RouteObject[] = [
     children: [
       { index: true, element: <CommercialHomePage /> },
       { path: 'projects', element: <ProjectListPage /> },
+      { path: 'projects/demo/:projectId', element: <ProjectDemoPage /> },
       { path: 'projects/:projectId', element: <ProjectDetailPage /> },
       { path: 'monitoring', element: <MonitoringPage /> },
       { path: 'monitoring/videos/:bvid', element: <MonitoringVideoDetailPage /> },

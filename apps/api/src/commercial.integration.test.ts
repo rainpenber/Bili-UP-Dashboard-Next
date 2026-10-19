@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
+  isOpenItemActor,
+  isOpenItemImpact,
+  isOpenItemLifecycle,
   isOverallStage,
   isPublishSource,
   isWfNodeKind,
@@ -41,11 +44,20 @@ type ItemRow = {
   id: string;
   project_id: string;
   title: string;
+  description: string | null;
+  close_criteria: string | null;
+  next_action: string | null;
+  next_actor: string;
   lifecycle: string;
   impact: string;
+  planned_at: string | null;
   sort_rank: number;
-  created_at: Date;
+  blocks_required_for_close: boolean;
+  workflow_node_id: string | null;
   blocks_node_id: string | null;
+  created_at: Date;
+  updated_at: string;
+  created_at_text: string;
 };
 
 function asOverallStage(value: string): OverallStage {
@@ -79,6 +91,27 @@ function stageNames(nodes: NodeRow[]): string[] {
     )
     .map((node) => node.name);
 }
+
+function blockedNames(nodes: NodeRow[]): string[] {
+  return stageNames(nodes.filter((node) => node.status === 'blocked'));
+}
+
+function asActor(value: string) {
+  if (!isOpenItemActor(value)) throw new Error(`unexpected next_actor ${value}`);
+  return value;
+}
+
+function asLifecycle(value: string) {
+  if (!isOpenItemLifecycle(value)) throw new Error(`unexpected lifecycle ${value}`);
+  return value;
+}
+
+function asImpact(value: string) {
+  if (!isOpenItemImpact(value)) throw new Error(`unexpected impact ${value}`);
+  return value;
+}
+
+const STAMP = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"';
 
 function blockingReason(items: ItemRow[], nodes: NodeRow[]): string | null {
   const blocked = nodes.filter((node) => node.status === 'blocked');
@@ -144,9 +177,26 @@ describe('commercial read API', () => {
         net_amount: string | null;
         rebate_amount: string | null;
         overall_stage: string;
+        created_at: string;
+        user_deadline_at: string | null;
+        blocked_since_at: string | null;
+        archived_at: string | null;
+        stage_entered_at: string;
+        business_closed_at: string | null;
       }[]
     >`
-      SELECT id, name, net_amount::text AS net_amount, rebate_amount::text AS rebate_amount, overall_stage
+      SELECT
+        id,
+        name,
+        net_amount::text AS net_amount,
+        rebate_amount::text AS rebate_amount,
+        overall_stage,
+        to_char(created_at AT TIME ZONE 'UTC', ${STAMP}) AS created_at,
+        to_char(user_deadline_at AT TIME ZONE 'UTC', ${STAMP}) AS user_deadline_at,
+        to_char(blocked_since_at AT TIME ZONE 'UTC', ${STAMP}) AS blocked_since_at,
+        to_char(archived_at AT TIME ZONE 'UTC', ${STAMP}) AS archived_at,
+        to_char(stage_entered_at AT TIME ZONE 'UTC', ${STAMP}) AS stage_entered_at,
+        to_char(business_closed_at AT TIME ZONE 'UTC', ${STAMP}) AS business_closed_at
       FROM commercial_projects
       ORDER BY created_at ASC, id ASC
     `;
@@ -154,17 +204,46 @@ describe('commercial read API', () => {
       SELECT id, project_id, name, status, kind, pos_y, pos_x, primary_block_pinned_item_id
       FROM wf_nodes
     `;
+    const items = await sql<ItemRow[]>`
+      SELECT
+        id,
+        project_id,
+        title,
+        description,
+        close_criteria,
+        next_action,
+        next_actor,
+        lifecycle,
+        impact,
+        to_char(planned_at AT TIME ZONE 'UTC', ${STAMP}) AS planned_at,
+        sort_rank,
+        blocks_required_for_close,
+        workflow_node_id,
+        blocks_node_id,
+        created_at,
+        to_char(created_at AT TIME ZONE 'UTC', ${STAMP}) AS created_at_text,
+        to_char(updated_at AT TIME ZONE 'UTC', ${STAMP}) AS updated_at
+      FROM open_items
+      ORDER BY project_id ASC, sort_rank ASC, created_at ASC, id ASC
+    `;
     const nodesByProject = new Map<string, NodeRow[]>();
     for (const node of nodes) {
       const list = nodesByProject.get(node.project_id) ?? [];
       list.push(node);
       nodesByProject.set(node.project_id, list);
     }
+    const itemsByProject = new Map<string, ItemRow[]>();
+    for (const item of items) {
+      const list = itemsByProject.get(item.project_id) ?? [];
+      list.push(item);
+      itemsByProject.set(item.project_id, list);
+    }
 
     expect(body.items.map((item) => item.id)).toEqual(projects.map((project) => project.id));
     for (const [index, project] of projects.entries()) {
       const item = body.items[index];
       const projectNodes = nodesByProject.get(project.id) ?? [];
+      const projectItems = itemsByProject.get(project.id) ?? [];
       expect(item).toEqual({
         id: project.id,
         name: project.name,
@@ -173,7 +252,35 @@ describe('commercial read API', () => {
         overallStage: asOverallStage(project.overall_stage),
         currentStageNames: stageNames(projectNodes),
         anyNodeBlocked: projectNodes.some((node) => node.status === 'blocked'),
+        blockingReason: blockingReason(projectItems, projectNodes),
+        createdAt: project.created_at,
+        userDeadlineAt: project.user_deadline_at,
+        blockedSinceAt: project.blocked_since_at,
+        archivedAt: project.archived_at,
+        stageEnteredAt: project.stage_entered_at,
+        businessClosedAt: project.business_closed_at,
+        blockedNodeNames: blockedNames(projectNodes),
+        openItems: projectItems.map((row) => ({
+          id: row.id,
+          title: row.title,
+          description: row.description,
+          closeCriteria: row.close_criteria,
+          nextAction: row.next_action,
+          nextActor: asActor(row.next_actor),
+          lifecycle: asLifecycle(row.lifecycle),
+          impact: asImpact(row.impact),
+          plannedAt: row.planned_at,
+          sortRank: row.sort_rank,
+          blocksRequiredForClose: row.blocks_required_for_close,
+          workflowNodeId: row.workflow_node_id,
+          blocksNodeId: row.blocks_node_id,
+          createdAt: row.created_at_text,
+          updatedAt: row.updated_at,
+        })),
       });
+      for (const openItem of item?.openItems ?? []) {
+        expect(projectItems.some((row) => row.id === openItem.id)).toBe(true);
+      }
     }
 
     const client = body.items.find((item) => item.id === FIXTURE_PROJECT_IDS.clientBlocking);
@@ -219,6 +326,17 @@ describe('commercial read API', () => {
       expect(detail.currentStageNames).toEqual(stageNames(projectNodes));
       expect(detail.blockingReason).toBe(blockingReason(projectItems, projectNodes));
       expect(detail.anyNodeBlocked).toBe(projectNodes.some((node) => node.status === 'blocked'));
+      expect(detail.blockedNodeNames).toEqual(blockedNames(projectNodes));
+      const orderedItems = [...projectItems].sort((a, b) => {
+        if (a.sort_rank !== b.sort_rank) return a.sort_rank - b.sort_rank;
+        const timeDelta = a.created_at.getTime() - b.created_at.getTime();
+        if (timeDelta !== 0) return timeDelta;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+      expect(detail.openItems.map((item) => item.id)).toEqual(orderedItems.map((item) => item.id));
+      expect(detail.openItems.every((item) => orderedItems.some((row) => row.id === item.id))).toBe(
+        true,
+      );
       if (publish) {
         expect(detail.publish).toEqual({
           published: true,
@@ -483,6 +601,10 @@ describe('commercial read API', () => {
     expect(detail.anyNodeBlocked).toBe(true);
     expect(detail.blockingReason).toBeNull();
     expect(detail.currentStageNames).toEqual(['汇合节点']);
+    expect(detail.blockedNodeNames).toEqual(['汇合节点']);
+    expect(detail.openItems).toEqual([]);
+    expect(detail.userDeadlineAt).toBeNull();
+    expect(detail.blockedSinceAt).toBeNull();
     expect(detail.netAmount).toBe('100.00');
 
     const graphRes = await app.request(`/api/v1/commercial/projects/${projectId}/workflow`);
@@ -511,5 +633,119 @@ describe('commercial read API', () => {
     const bareWorkflow = await app.request(`/api/v1/commercial/projects/${bareId}/workflow`);
     expect(bareWorkflow.status).toBe(404);
     expect(await bareWorkflow.json()).toEqual({ error: 'workflow not found' });
+
+    const bareDetail = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${bareId}`)).json(),
+    );
+    expect(bareDetail.netAmount).toBeNull();
+    expect(bareDetail.rebateAmount).toBeNull();
+    expect(bareDetail.currentStageNames).toEqual([]);
+    expect(bareDetail.blockedNodeNames).toEqual([]);
+    expect(bareDetail.anyNodeBlocked).toBe(false);
+    expect(bareDetail.userDeadlineAt).toBeNull();
+    expect(bareDetail.openItems).toEqual([]);
+  });
+
+  test('open items stay on their project when dates and lifecycle are missing or closed', async () => {
+    if (!sql || !app) return;
+    const archivedId = 'bb100005-0001-4001-8001-000000000005';
+    const otherId = 'bb100006-0001-4001-8001-000000000006';
+    const closedId = 'bb100007-0001-4001-8001-000000000007';
+    const openId = 'bb100008-0001-4001-8001-000000000008';
+    await sql`
+      INSERT INTO commercial_projects (id, name, net_amount, rebate_amount, overall_stage, user_deadline_at, archived_at)
+      VALUES
+        (${archivedId}, '缺日期归档样例', NULL, NULL, 'archived', NULL, ${'2026-02-02T00:00:00.000Z'}),
+        (${otherId}, '另一项目样例', NULL, '12.50', 'pre_publish', NULL, NULL)
+    `;
+    await sql`
+      INSERT INTO open_items (
+        id, project_id, title, description, close_criteria, next_action, next_actor, lifecycle, impact, planned_at, sort_rank
+      )
+      VALUES
+        (
+          ${closedId}, ${archivedId}, '已关闭事项', NULL, NULL, NULL, 'us', 'closed', 'normal', NULL, 0
+        ),
+        (
+          ${openId}, ${otherId}, '对方开放事项', '只属于另一项目', NULL, '催回复', 'client', 'open', 'blocking', NULL, 3
+        )
+    `;
+
+    const archivedRes = await app.request(`/api/v1/commercial/projects/${archivedId}`);
+    const archived = parseCommercialProjectDetail(await archivedRes.json());
+    const [archivedRow] = await sql<
+      {
+        created_at: string;
+        archived_at: string;
+        stage_entered_at: string;
+        item_created_at: string;
+        item_updated_at: string;
+      }[]
+    >`
+      SELECT
+        to_char(p.created_at AT TIME ZONE 'UTC', ${STAMP}) AS created_at,
+        to_char(p.archived_at AT TIME ZONE 'UTC', ${STAMP}) AS archived_at,
+        to_char(p.stage_entered_at AT TIME ZONE 'UTC', ${STAMP}) AS stage_entered_at,
+        to_char(oi.created_at AT TIME ZONE 'UTC', ${STAMP}) AS item_created_at,
+        to_char(oi.updated_at AT TIME ZONE 'UTC', ${STAMP}) AS item_updated_at
+      FROM commercial_projects p
+      JOIN open_items oi ON oi.project_id = p.id AND oi.id = ${closedId}
+      WHERE p.id = ${archivedId}
+    `;
+    if (!archivedRow) throw new Error('archived fixture row missing');
+    expect(archived.netAmount).toBeNull();
+    expect(archived.rebateAmount).toBeNull();
+    expect(archived.overallStage).toBe('archived');
+    expect(archived.userDeadlineAt).toBeNull();
+    expect(archived.blockedSinceAt).toBeNull();
+    expect(archived.archivedAt).toBe(archivedRow.archived_at);
+    expect(archived.createdAt).toBe(archivedRow.created_at);
+    expect(archived.businessClosedAt).toBeNull();
+    expect(archived.currentStageNames).toEqual([]);
+    expect(archived.openItems).toEqual([
+      {
+        id: closedId,
+        title: '已关闭事项',
+        description: null,
+        closeCriteria: null,
+        nextAction: null,
+        nextActor: 'us',
+        lifecycle: 'closed',
+        impact: 'normal',
+        plannedAt: null,
+        sortRank: 0,
+        blocksRequiredForClose: false,
+        workflowNodeId: null,
+        blocksNodeId: null,
+        createdAt: archivedRow.item_created_at,
+        updatedAt: archivedRow.item_updated_at,
+      },
+    ]);
+    expect(archived.openItems.some((item) => item.title === '对方开放事项')).toBe(false);
+
+    const other = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${otherId}`)).json(),
+    );
+    expect(other.rebateAmount).toBe('12.50');
+    expect(other.netAmount).toBeNull();
+    expect(other.openItems.map((item) => item.id)).toEqual([openId]);
+    expect(other.openItems[0]).toMatchObject({
+      title: '对方开放事项',
+      nextAction: '催回复',
+      nextActor: 'client',
+      lifecycle: 'open',
+      impact: 'blocking',
+      plannedAt: null,
+      sortRank: 3,
+    });
+    expect(other.openItems.some((item) => item.id === closedId)).toBe(false);
+
+    const list = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects')).json(),
+    );
+    const listedArchived = list.items.find((item) => item.id === archivedId);
+    const listedOther = list.items.find((item) => item.id === otherId);
+    expect(listedArchived?.openItems.map((item) => item.id)).toEqual([closedId]);
+    expect(listedOther?.openItems.map((item) => item.id)).toEqual([openId]);
   });
 });

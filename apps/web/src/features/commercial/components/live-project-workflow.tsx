@@ -11,8 +11,18 @@ import {
   commercialWorkflowToLive,
   type LiveGraphNode,
 } from '../workflow-live-graph';
-import { useLiveProjectDetailQuery, useLiveProjectWorkflowQuery } from '../use-live-workflow';
-import { postLiveNodeStep, postLiveStageStep, saveLiveNodePlan } from '../commercial-live-api';
+import {
+  CommercialReadError,
+  postLiveNodeStep,
+  postLiveStageStep,
+  saveLiveNodePlan,
+} from '../commercial-live-api';
+import {
+  liveCommercialProjectsKey,
+  useLiveProjectDetailQuery,
+  useLiveProjectWorkflowQuery,
+} from '../use-live-workflow';
+import { OpenItemsReadout } from './open-items-readout';
 import type { StepCall, StepEditor, StepResult } from './stage-step-controls';
 import { useStepController } from './stage-step-controls';
 import { GraphNodeProgress } from './graph-node-progress';
@@ -55,6 +65,7 @@ async function runLiveStep(
   if (result.ok) {
     await queryClient.invalidateQueries({ queryKey: ['commercial', 'live-workflow', projectId] });
     await queryClient.invalidateQueries({ queryKey: ['commercial', 'live-project', projectId] });
+    await queryClient.invalidateQueries({ queryKey: liveCommercialProjectsKey });
     return { ok: true };
   }
   return {
@@ -152,6 +163,7 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
               queryClient.invalidateQueries({
                 queryKey: ['commercial', 'live-project', projectId],
               }),
+              queryClient.invalidateQueries({ queryKey: liveCommercialProjectsKey }),
             ]),
           )
           .then(() => undefined)
@@ -172,12 +184,13 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
   }
 
   const workflow = workflowQuery.data;
-  if (workflowQuery.isError || !live || !workflow) {
+  const readError = detailQuery.error ?? workflowQuery.error;
+  if (detailQuery.isError || workflowQuery.isError || !live || !workflow) {
+    const status = readError instanceof CommercialReadError ? readError.status : 0;
     return (
       <ErrorState
-        message={
-          workflowQuery.error instanceof Error ? workflowQuery.error.message : '流程加载失败'
-        }
+        title={status === 404 ? '找不到这个项目' : '加载失败'}
+        message={readError instanceof Error ? readError.message : '流程加载失败'}
         onRetry={() => {
           void workflowQuery.refetch();
           void detailQuery.refetch();
@@ -205,6 +218,7 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
       />
       <div className="space-y-4">
         <ProgressSummary facts={facts} nodes={timelineNodes} />
+        <OpenItemsReadout items={detailQuery.data?.openItems ?? []} />
         <ProgressTimeline
           nodes={timelineNodes}
           stepEditor={stepEditor}

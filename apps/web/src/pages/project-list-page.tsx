@@ -6,26 +6,30 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ProjectListCard } from '@/features/commercial/components/project-list-card';
-import { filterProjects, sortProjectsForList } from '@/features/commercial/commercial-selectors';
-import { useCommercialProjectsQuery } from '@/features/commercial/use-commercial-queries';
+import {
+  filterLiveProjects,
+  sortLiveProjects,
+} from '@/features/commercial/commercial-live-selectors';
+import { useLiveCommercialProjectsQuery } from '@/features/commercial/use-live-workflow';
 import { cn } from '@/lib/utils';
 
 export function ProjectListPage() {
-  const query = useCommercialProjectsQuery();
+  const query = useLiveCommercialProjectsQuery();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [fromDate, setFromDate] = useState('');
 
   const list = useMemo(() => {
     if (!query.data) return [];
-    return sortProjectsForList(filterProjects(query.data, { keyword, fromDate }));
+    return sortLiveProjects(filterLiveProjects(query.data.items, { keyword, fromDate }));
   }, [query.data, keyword, fromDate]);
+  const unfilteredCount = query.data?.items.length ?? 0;
 
   return (
     <>
       <PageHeader
         title="项目"
-        description="商单列表：先看名字和当前阶段；需要时再展开看卡点和待办。"
+        description="商单列表：先看名字和当前阶段；需要时再展开看卡点和事项。"
         crumbs={[
           { label: '工作室', to: '/' },
           { label: '项目', to: '/projects' },
@@ -51,11 +55,11 @@ export function ProjectListPage() {
                 id="project-keyword"
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
-                placeholder="项目名、品牌、阶段…"
+                placeholder="项目名、阶段、事项"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="project-from-date">时间不早于</Label>
+              <Label htmlFor="project-from-date">创建日不早于</Label>
               <Input
                 id="project-from-date"
                 type="date"
@@ -79,19 +83,25 @@ export function ProjectListPage() {
       {!query.isError && query.isSuccess ? (
         list.length === 0 ? (
           <EmptyState
-            title="没有符合条件的项目"
-            description="试试放宽关键词或日期筛选。"
+            title={unfilteredCount === 0 ? '还没有数据库项目' : '没有符合条件的项目'}
+            description={
+              unfilteredCount === 0
+                ? '列表来自已保存的商单。读取失败时不会改显示演示项目。'
+                : '试试放宽关键词，或去掉创建日筛选。'
+            }
             action={
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setKeyword('');
-                  setFromDate('');
-                }}
-              >
-                清空筛选
-              </Button>
+              unfilteredCount === 0 ? null : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setKeyword('');
+                    setFromDate('');
+                  }}
+                >
+                  清空筛选
+                </Button>
+              )
             }
           />
         ) : (

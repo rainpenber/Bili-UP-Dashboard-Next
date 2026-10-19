@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { MemoryRouter } from 'react-router-dom';
+import { asLiveDetail } from '../live-read-fixture';
 import { LiveProjectWorkflow } from './live-project-workflow';
 import { ProgressSummary, ProgressTimeline } from './progress-timeline-view';
 import type { StepCall, StepResult } from './stage-step-controls';
@@ -425,7 +426,7 @@ describe('LiveProjectWorkflow timeline placement', () => {
             })),
             edges: [],
           }
-        : {
+        : asLiveDetail({
             id: PROJECT_ID,
             name: '甲方卡文案确认样例',
             netAmount: '18000.00',
@@ -435,7 +436,7 @@ describe('LiveProjectWorkflow timeline placement', () => {
             anyNodeBlocked: true,
             blockingReason: '甲方文案批注未清',
             publish: { published: false, bvid: null, publishedAt: null, publishSource: null },
-          };
+          });
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -561,7 +562,7 @@ describe('LiveProjectWorkflow timeline placement', () => {
             nodes: workflowNodes,
             edges: [],
           }
-        : {
+        : asLiveDetail({
             id: PROJECT_ID,
             name: '甲方卡文案确认样例',
             netAmount: '18000.00',
@@ -571,7 +572,7 @@ describe('LiveProjectWorkflow timeline placement', () => {
             anyNodeBlocked: true,
             blockingReason: '甲方文案批注未清',
             publish: { published: false, bvid: null, publishedAt: null, publishSource: null },
-          };
+          });
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -744,7 +745,7 @@ describe('LiveProjectWorkflow timeline placement', () => {
             nodes: rows,
             edges: [],
           }
-        : {
+        : asLiveDetail({
             id: PROJECT_ID,
             name: '逐级推进样例',
             netAmount: '18000.00',
@@ -754,7 +755,7 @@ describe('LiveProjectWorkflow timeline placement', () => {
             anyNodeBlocked: true,
             blockingReason: '等甲方',
             publish: { published: false, bvid: null, publishedAt: null, publishSource: null },
-          };
+          });
       return new Response(JSON.stringify(payload), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -890,7 +891,7 @@ describe('LiveProjectWorkflow timeline placement', () => {
             nodes: [outline],
             edges: [],
           }
-        : {
+        : asLiveDetail({
             id: PROJECT_ID,
             name: '网络失败样例',
             netAmount: null,
@@ -906,7 +907,7 @@ describe('LiveProjectWorkflow timeline placement', () => {
               publishSource: null,
               idempotencyKey: null,
             },
-          };
+          });
       return new Response(JSON.stringify(payload), {
         status: 200,
         headers: { 'content-type': 'application/json' },

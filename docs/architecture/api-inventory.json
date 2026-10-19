@@ -3,8 +3,8 @@
   "evidenceLevel": "source-confirmed static registration. Not a runtime exercise of each route.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
   "apiRouteCount": 30,
-  "wiredRouteCount": 17,
-  "unwiredImplementedRouteCount": 13,
+  "wiredRouteCount": 18,
+  "unwiredImplementedRouteCount": 12,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes adds a fixed POST list.",
   "processRegistration": {
@@ -80,23 +80,29 @@
       "path": "/api/v1/commercial/projects",
       "mountPrefix": "/api/v1/commercial",
       "sourceFile": "apps/api/src/commercial-routes.ts",
-      "sourceLine": 134,
+      "sourceLine": 334,
       "registration": "createCommercialRoutes",
       "readWrite": "read",
       "area": "commercial",
       "requestContract": null,
       "responseContract": "packages/contracts/src/commercial.ts#parseCommercialProjectList",
-      "frontendCallers": [],
-      "wired": false,
-      "notes": "Implemented and parsed. Project list and home still read mock data, so this route has no web caller.",
-      "storedEntity": "commercial_projects plus derived currentStageNames and anyNodeBlocked from wf_nodes"
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "fetchLiveProjectList",
+          "evidence": "getJson('/api/v1/commercial/projects')"
+        }
+      ],
+      "wired": true,
+      "notes": "Home and project list read this route. The payload adds open_items rows and existing project timestamps. There is no separate open-items collection route.",
+      "storedEntity": "commercial_projects (amounts, overall_stage, created_at, user_deadline_at, blocked_since_at, archived_at, stage_entered_at, business_closed_at), wf_nodes names for current and blocked status, open_items rows, and the same blocking-title projection as project detail"
     },
     {
       "method": "GET",
       "path": "/api/v1/commercial/projects/:projectId/workflow",
       "mountPrefix": "/api/v1/commercial",
       "sourceFile": "apps/api/src/commercial-routes.ts",
-      "sourceLine": 144,
+      "sourceLine": 349,
       "registration": "createCommercialRoutes",
       "readWrite": "read",
       "area": "commercial",
@@ -118,7 +124,7 @@
       "path": "/api/v1/commercial/projects/:projectId",
       "mountPrefix": "/api/v1/commercial",
       "sourceFile": "apps/api/src/commercial-routes.ts",
-      "sourceLine": 239,
+      "sourceLine": 444,
       "registration": "createCommercialRoutes",
       "readWrite": "read",
       "area": "commercial",
@@ -132,15 +138,15 @@
         }
       ],
       "wired": true,
-      "notes": "Web calls it only when the route param is a UUID.",
-      "storedEntity": "commercial_projects, derived stage names, open_items title, project_publish_records"
+      "notes": "Normal /projects/:projectId calls this only for a UUID. Non-UUID bookmarks do not call it.",
+      "storedEntity": "Same project core and open_items rows as the list, plus project_publish_records"
     },
     {
       "method": "GET",
       "path": "/api/v1/commercial/templates/default",
       "mountPrefix": "/api/v1/commercial",
       "sourceFile": "apps/api/src/commercial-routes.ts",
-      "sourceLine": 340,
+      "sourceLine": 491,
       "registration": "createCommercialRoutes",
       "readWrite": "read",
       "area": "commercial",

@@ -1,15 +1,19 @@
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/layout/page-header';
 import { EmptyState, ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
+import { Badge } from '@/components/ui/badge';
 import { ActionItemRow } from '@/features/commercial/components/action-item-row';
 import {
-  getBlockedProjectSummaries,
-  getClientActionItems,
-  getOurActionItems,
-} from '@/features/commercial/commercial-selectors';
-import { useCommercialProjectsQuery } from '@/features/commercial/use-commercial-queries';
+  getLiveBlockedSummaries,
+  getLiveClientActionItems,
+  getLiveOurActionItems,
+  liveInstantLabel,
+  type LiveActionItem,
+} from '@/features/commercial/commercial-live-selectors';
+import { useLiveCommercialProjectsQuery } from '@/features/commercial/use-live-workflow';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import type { CommercialProjectListItem } from '@studio/contracts';
 
 function Section({
   title,
@@ -33,8 +37,42 @@ function Section({
   );
 }
 
+function ActionColumn({
+  title,
+  emptyTitle,
+  emptyDescription,
+  items,
+  projects,
+}: {
+  title: string;
+  emptyTitle: string;
+  emptyDescription: string;
+  items: LiveActionItem[];
+  projects: CommercialProjectListItem[];
+}) {
+  const byProject = new Map(projects.map((project) => [project.id, project]));
+  if (items.length === 0) {
+    return (
+      <Section title={title}>
+        <EmptyState title={emptyTitle} description={emptyDescription} />
+      </Section>
+    );
+  }
+  return (
+    <Section title={title}>
+      <div className="space-y-2">
+        {items.map((item) => {
+          const project = byProject.get(item.projectId);
+          if (!project) return null;
+          return <ActionItemRow key={item.id} item={item} projectName={project.name} />;
+        })}
+      </div>
+    </Section>
+  );
+}
+
 export function CommercialHomePage() {
-  const query = useCommercialProjectsQuery();
+  const query = useLiveCommercialProjectsQuery();
 
   return (
     <>
@@ -55,66 +93,32 @@ export function CommercialHomePage() {
 
       {!query.isError && query.isSuccess ? (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3 xl:items-start">
-          <Section title="我方要处理的事项">
-            {(() => {
-              const items = getOurActionItems(query.data);
-              const byProject = new Map(query.data.map((p) => [p.id, p]));
-              if (items.length === 0) {
-                return (
-                  <EmptyState
-                    title="这边暂时没有待办"
-                    description="有商单需要你们推进时，会出现在这里。"
-                  />
-                );
-              }
-              return (
-                <div className="space-y-2">
-                  {items.map((item) => {
-                    const project = byProject.get(item.projectId);
-                    if (!project) return null;
-                    return <ActionItemRow key={item.id} item={item} project={project} />;
-                  })}
-                </div>
-              );
-            })()}
-          </Section>
-
-          <Section title="等待甲方处理的事项">
-            {(() => {
-              const items = getClientActionItems(query.data);
-              const byProject = new Map(query.data.map((p) => [p.id, p]));
-              if (items.length === 0) {
-                return (
-                  <EmptyState
-                    title="暂无在等甲方的事"
-                    description="需要品牌或中介回复、确认、开票时，会列在这里。"
-                  />
-                );
-              }
-              return (
-                <div className="space-y-2">
-                  {items.map((item) => {
-                    const project = byProject.get(item.projectId);
-                    if (!project) return null;
-                    return <ActionItemRow key={item.id} item={item} project={project} />;
-                  })}
-                </div>
-              );
-            })()}
-          </Section>
-
+          <ActionColumn
+            title="我方要处理的事项"
+            emptyTitle="这边暂时没有待办"
+            emptyDescription="有商单需要你们推进时，会出现在这里。"
+            items={getLiveOurActionItems(query.data.items)}
+            projects={query.data.items}
+          />
+          <ActionColumn
+            title="等待甲方处理的事项"
+            emptyTitle="没有在等甲方的开放事项"
+            emptyDescription="需要品牌或中介回复、确认、开票时，会列在这里。"
+            items={getLiveClientActionItems(query.data.items)}
+            projects={query.data.items}
+          />
           <Section
             className="lg:col-span-2 xl:col-span-1"
-            title="进行中项目的阻塞节点汇总"
-            description="按项目汇总：卡在哪、主要因为什么、对外承诺时间和已卡天数。"
+            title="阻塞节点"
+            description="按项目列出卡住的节点。没有记录的原因、对外时间或阻塞开始时间会照实标出。"
           >
             {(() => {
-              const rows = getBlockedProjectSummaries(query.data);
+              const rows = getLiveBlockedSummaries(query.data.items);
               if (rows.length === 0) {
                 return (
                   <EmptyState
-                    title="目前没有明确卡住的节点"
-                    description="有具体阻塞原因的项目会出现在这里。"
+                    title="目前没有卡住的节点"
+                    description="节点状态为阻塞时会出现在这里，包括还没有原因或日期的。"
                   />
                 );
               }
@@ -124,26 +128,37 @@ export function CommercialHomePage() {
                     <li key={row.projectId}>
                       <Link
                         to={`/projects/${row.projectId}`}
-                        className="flex flex-col gap-2 px-4 py-3 transition hover:bg-accent/30 sm:grid sm:grid-cols-2 sm:gap-x-4 lg:grid-cols-4"
+                        className="flex flex-col gap-2 px-4 py-3 transition hover:bg-accent/30"
+                        data-testid="home-block"
+                        data-project-id={row.projectId}
                       >
-                        <div>
-                          <p className="text-xs text-muted-foreground">项目</p>
+                        <div className="flex flex-wrap items-center gap-2">
                           <p className="font-medium">{row.projectName}</p>
+                          {row.archived ? <Badge variant="secondary">已归档</Badge> : null}
                         </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">卡住的节点</p>
-                          <p>{row.blockedNode}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">主要阻塞项</p>
-                          <p className="text-sm">{row.mainBlockingItem}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">对外时间 · 已卡天数</p>
-                          <p className="text-sm">
-                            {row.userFacingDeadline} · 已卡 {row.blockedDays} 天
+                        <p className="text-sm">
+                          <span className="text-muted-foreground">卡住的节点：</span>
+                          {row.blockedNodeNames.length > 0
+                            ? row.blockedNodeNames.join('、')
+                            : '无节点名'}
+                        </p>
+                        <p className="text-sm">
+                          <span className="text-muted-foreground">阻塞原因：</span>
+                          {row.blockingReason ?? '未记录'}
+                        </p>
+                        <p className="text-sm">
+                          <span className="text-muted-foreground">对外时间：</span>
+                          {liveInstantLabel(row.userDeadlineAt, '未定')}
+                        </p>
+                        <p className="text-sm">
+                          <span className="text-muted-foreground">阻塞开始：</span>
+                          {liveInstantLabel(row.blockedSinceAt, '未记录')}
+                        </p>
+                        {row.closedItemCount > 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            已关闭事项 {row.closedItemCount} 条
                           </p>
-                        </div>
+                        ) : null}
                       </Link>
                     </li>
                   ))}

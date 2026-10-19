@@ -4,6 +4,7 @@ import { afterEach, describe, expect, mock, test } from 'bun:test';
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { VideoMetricPoint } from '@studio/contracts';
+import { asLiveDetail } from '../live-read-fixture';
 import {
   formatOnlineViewersDisplay,
   formatUnknownMetric,
@@ -88,7 +89,7 @@ function workflowNodes() {
 }
 
 function detail(published: boolean) {
-  return {
+  return asLiveDetail({
     id: PROJECT_ID,
     name: `已上线样例 ${OTHER_BVID}`,
     netAmount: '45000.00',
@@ -106,7 +107,7 @@ function detail(published: boolean) {
           idempotencyKey: 'fixture-publish-once',
         }
       : { published: false, bvid: null, publishedAt: null, publishSource: null },
-  };
+  });
 }
 
 function point(overrides: Partial<VideoMetricPoint> & { sampledAt: string }): VideoMetricPoint {
