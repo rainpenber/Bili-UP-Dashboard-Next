@@ -2,6 +2,30 @@ export { readDbConfigFromEnv, buildConnectionString, type DbConfig } from './con
 export { createSql, type Sql } from './client';
 export { runMigrations } from './migrate';
 export {
+  claimNextCollectorJob,
+  countSamplesAt,
+  enqueueDueCollectorJobs,
+  getCollectorJob,
+  getMonitorTarget,
+  insertMonitorTarget,
+  listCollectorJobs,
+  listMonitorTargets,
+  recordCollectorFailure,
+  recordCollectorSuccess,
+  requestCollectorRun,
+  softDeleteMonitorTarget,
+  updateMonitorTarget,
+  upsertCollectorHeartbeat,
+  writeCreatorSample,
+  writeVideoSample,
+  type ClaimedCollectorJob,
+  type CollectorJobRow,
+  type CollectorRunRow,
+  type CreatorSampleWrite,
+  type MonitorTargetRow,
+  type VideoSampleWrite,
+} from './monitor-targets';
+export {
   FIXTURE_PROJECT_IDS,
   countCommercialFixtureRows,
   expectedCommercialFixtureCounts,

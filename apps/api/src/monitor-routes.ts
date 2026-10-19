@@ -15,6 +15,7 @@ import {
 } from '@studio/contracts';
 import type { Sql } from '@studio/db';
 import { Hono } from 'hono';
+import { registerMonitorTargetRoutes } from './monitor-target-routes';
 
 type MonitorStatusFilter = 'all' | 'active' | 'archived' | 'deleted';
 
@@ -26,6 +27,7 @@ function parseStatus(raw: string | undefined): MonitorStatusFilter {
 
 export function createMonitorRoutes(db: Sql) {
   const app = new Hono();
+  registerMonitorTargetRoutes(app, db);
 
   app.get('/videos', async (c) => {
     try {

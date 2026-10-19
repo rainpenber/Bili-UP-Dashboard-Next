@@ -1,4 +1,4 @@
-export type MonitorTab = 'videos' | 'creators' | 'dynamics';
+export type MonitorTab = 'targets' | 'videos' | 'creators' | 'dynamics';
 
 export type MonitorUrlState = {
   tab: MonitorTab;
@@ -8,7 +8,7 @@ export type MonitorUrlState = {
   selected: string | null;
 };
 
-const TAB_VALUES: MonitorTab[] = ['videos', 'creators', 'dynamics'];
+const TAB_VALUES: MonitorTab[] = ['targets', 'videos', 'creators', 'dynamics'];
 
 export function parseMonitorSearchParams(params: URLSearchParams): MonitorUrlState {
   const rawTab = params.get('tab');

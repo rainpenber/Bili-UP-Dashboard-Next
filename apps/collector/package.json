@@ -1,0 +1,21 @@
+{
+  "name": "@studio/collector",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@studio/db": "workspace:*",
+    "@studio/monitoring": "workspace:*",
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

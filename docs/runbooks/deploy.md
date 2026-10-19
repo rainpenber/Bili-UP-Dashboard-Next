@@ -1,6 +1,6 @@
 # 部署 Runbook（个人 Debian 家服 · 离线 Mock）
 
-生产稳态：**仅两个 Compose 服务** — `postgres` + `app`（单 Bun 进程同时提供 `/api/*` 与 SPA）。未来 `collector` 为**独立 Compose 服务**，与本 runbook 分开部署；本阶段不启用采集器。
+生产稳态：**三个 Compose 服务** — `postgres`、`app`（单 Bun 进程同时提供 `/api/*` 与 SPA）、`collector`（独立进程，只消费 `collector_jobs`，采集源是离线适配器，不访问 B 站，不发布宿主机端口）。商单域的 `monitor_jobs` 仍不执行。
 
 **固定项目名（复用，勿按 WP/验收临时起名）：**
 
@@ -27,6 +27,17 @@ docker compose -p bili-prod up -d --build
 
 - PostgreSQL：**无**宿主机端口，数据在卷 `bili-prod_postgres_data`（Compose 项目名前缀 + `postgres_data`）。
 - 应用：单端口 `${APP_PORT:-8080}` → 容器内 `3000`。
+- 采集器：无宿主机端口。日志用 `docker compose -p bili-prod logs -f collector`。
+
+只启动或停止采集器：
+
+```bash
+docker compose -p bili-prod up -d --build collector
+docker compose -p bili-prod stop collector
+docker compose -p bili-prod start collector
+```
+
+`collector` 收到 SIGTERM 后会写完当前任务再退出。
 
 ## 3. 健康检查
 
@@ -73,10 +84,11 @@ git pull
 docker compose -p bili-prod up -d --build
 ```
 
-仅重建 `app` 时：
+仅重建 `app` 或 `collector` 时：
 
 ```bash
 docker compose -p bili-prod up -d --build app
+docker compose -p bili-prod up -d --build collector
 ```
 
 ## 7. 回滚
@@ -86,7 +98,7 @@ git checkout <previous-tag-or-sha>
 docker compose -p bili-prod up -d --build
 ```
 
-数据库 schema 由应用内迁移向前兼容；回滚代码前请确认迁移兼容性。
+数据库 schema 由应用内迁移向前兼容；回滚代码前请确认迁移兼容性。`005_monitor_targets_collector` 只新增监控项、采集任务、运行记录和心跳表。回滚到没有 Collector 的版本时，先 `docker compose -p bili-prod stop collector`，已写入的视频/粉丝样本保留，商单表不变。不要手动删除这些表，除非明确要丢弃监控项。
 
 ## 8. 项目级 teardown（**保留** PostgreSQL 卷）
 

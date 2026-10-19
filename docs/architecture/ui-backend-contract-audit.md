@@ -123,6 +123,10 @@ UUID 项目页的摘要、时间线和画布从同一次详情查询和同一次
 
 尚未满足、留到实现阶段的缺口：画布四格仍是 `TODO(I-2)` 空操作；改名被源码明确写成会话内，`TODO(I-2)` 与「commercial API has no rename route yet」独立存在于 `live-project-workflow.tsx` 和 `workflow-live-graph.ts`；画布丢掉 `blockingReason`；不使用库内坐标；不提供计划日。演示图 `/workflow-mock` 和设置页内存模板编辑器不是这条数据库流程。
 
+## 2026-10-19 补充
+
+WP-R2-05 在本审计基线之后增加了监控项与离线 Collector。上文把「可配置的持续监控」记为 missing，描述的是审计基线，不是当前代码。当前行为见 [monitor-collector.md](./monitor-collector.md)。商单 `monitor_jobs` 仍然不执行。
+
 ## Phase 3：视频与粉丝采集
 
 已有：离线导入、视频与粉丝历史表、监控中心图表、项目发布后的只读视频卡、发布时写下的未执行监控任务。
