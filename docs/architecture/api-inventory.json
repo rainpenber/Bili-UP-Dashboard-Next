@@ -1,6 +1,7 @@
 {
   "baseline": "9d9370e0b2c0d3b5b5e6cb92f68d5416f48b641b",
   "evidenceLevel": "source-confirmed static registration. Not a runtime exercise of each route.",
+  "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
   "apiRouteCount": 30,
   "wiredRouteCount": 17,
   "unwiredImplementedRouteCount": 13,
