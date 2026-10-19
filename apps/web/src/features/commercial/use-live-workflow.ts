@@ -2,8 +2,21 @@ import { useQuery } from '@tanstack/react-query';
 import {
   fetchLiveDefaultTemplate,
   fetchLiveProjectDetail,
+  fetchLiveProjectList,
   fetchLiveProjectWorkflow,
+  retryCommercialRead,
 } from './commercial-live-api';
+
+export const liveCommercialProjectsKey = ['commercial', 'projects'] as const;
+
+export function useLiveCommercialProjectsQuery() {
+  return useQuery({
+    queryKey: liveCommercialProjectsKey,
+    queryFn: fetchLiveProjectList,
+    retry: retryCommercialRead,
+    retryDelay: 0,
+  });
+}
 
 export function useLiveProjectDetailQuery(projectId: string) {
   return useQuery({

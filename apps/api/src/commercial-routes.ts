@@ -1,4 +1,7 @@
 import {
+  isOpenItemActor,
+  isOpenItemImpact,
+  isOpenItemLifecycle,
   isOverallStage,
   isPublishSource,
   isUuidString,
@@ -8,6 +11,7 @@ import {
   parseCommercialProjectDetail,
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
+  type CommercialOpenItemRead,
   type CommercialProjectDetail,
   type CommercialProjectListItem,
   type OverallStage,
@@ -29,7 +33,34 @@ type ProjectCoreRow = {
   rebate_amount: string | null;
   overall_stage: string;
   current_stage_names: string[] | null;
+  blocked_node_names: string[] | null;
   any_node_blocked: boolean;
+  blocking_reason: string | null;
+  created_at: string;
+  user_deadline_at: string | null;
+  blocked_since_at: string | null;
+  archived_at: string | null;
+  stage_entered_at: string;
+  business_closed_at: string | null;
+};
+
+type OpenItemRow = {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string | null;
+  close_criteria: string | null;
+  next_action: string | null;
+  next_actor: string;
+  lifecycle: string;
+  impact: string;
+  planned_at: string | null;
+  sort_rank: number;
+  blocks_required_for_close: boolean;
+  workflow_node_id: string | null;
+  blocks_node_id: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 function moneyText(value: string | null): string | null {
@@ -69,7 +100,45 @@ function stageNames(value: string[] | null): string[] {
   return value;
 }
 
-function toListItem(row: ProjectCoreRow): CommercialProjectListItem {
+function openItemActor(value: string) {
+  if (!isOpenItemActor(value)) throw new Error(`unexpected next_actor ${value}`);
+  return value;
+}
+
+function openItemLifecycle(value: string) {
+  if (!isOpenItemLifecycle(value)) throw new Error(`unexpected lifecycle ${value}`);
+  return value;
+}
+
+function openItemImpact(value: string) {
+  if (!isOpenItemImpact(value)) throw new Error(`unexpected impact ${value}`);
+  return value;
+}
+
+function toOpenItem(row: OpenItemRow): CommercialOpenItemRead {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    closeCriteria: row.close_criteria,
+    nextAction: row.next_action,
+    nextActor: openItemActor(row.next_actor),
+    lifecycle: openItemLifecycle(row.lifecycle),
+    impact: openItemImpact(row.impact),
+    plannedAt: row.planned_at,
+    sortRank: row.sort_rank,
+    blocksRequiredForClose: row.blocks_required_for_close,
+    workflowNodeId: row.workflow_node_id,
+    blocksNodeId: row.blocks_node_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function toListItem(
+  row: ProjectCoreRow,
+  openItems: CommercialOpenItemRead[],
+): CommercialProjectListItem {
   return {
     id: row.id,
     name: row.name,
@@ -78,7 +147,110 @@ function toListItem(row: ProjectCoreRow): CommercialProjectListItem {
     overallStage: overallStage(row.overall_stage),
     currentStageNames: stageNames(row.current_stage_names),
     anyNodeBlocked: row.any_node_blocked,
+    blockingReason: row.blocking_reason,
+    createdAt: row.created_at,
+    userDeadlineAt: row.user_deadline_at,
+    blockedSinceAt: row.blocked_since_at,
+    archivedAt: row.archived_at,
+    stageEnteredAt: row.stage_entered_at,
+    businessClosedAt: row.business_closed_at,
+    blockedNodeNames: stageNames(row.blocked_node_names),
+    openItems,
   };
+}
+
+const BLOCKING_REASON_SQL = `
+          (
+            SELECT oi.title
+            FROM open_items oi
+            WHERE oi.project_id = p.id
+              AND oi.lifecycle = 'open'
+              AND oi.impact = 'blocking'
+              AND (
+                EXISTS (
+                  SELECT 1 FROM wf_nodes n
+                  WHERE n.project_id = p.id
+                    AND n.status = 'blocked'
+                    AND n.primary_block_pinned_item_id = oi.id
+                )
+                OR EXISTS (
+                  SELECT 1 FROM wf_nodes n
+                  WHERE n.id = oi.blocks_node_id
+                    AND n.project_id = p.id
+                    AND n.status = 'blocked'
+                )
+              )
+            ORDER BY
+              (
+                EXISTS (
+                  SELECT 1 FROM wf_nodes n
+                  WHERE n.project_id = p.id
+                    AND n.status = 'blocked'
+                    AND n.primary_block_pinned_item_id = oi.id
+                )
+              ) DESC,
+              oi.sort_rank ASC,
+              oi.created_at ASC,
+              oi.id ASC
+            LIMIT 1
+          )`;
+
+async function readOpenItems(db: Sql, projectId: string | null): Promise<OpenItemRow[]> {
+  if (projectId === null) {
+    return db<OpenItemRow[]>`
+      SELECT
+        oi.id,
+        oi.project_id,
+        oi.title,
+        oi.description,
+        oi.close_criteria,
+        oi.next_action,
+        oi.next_actor,
+        oi.lifecycle,
+        oi.impact,
+        to_char(oi.planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
+        oi.sort_rank,
+        oi.blocks_required_for_close,
+        oi.workflow_node_id,
+        oi.blocks_node_id,
+        to_char(oi.created_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS created_at,
+        to_char(oi.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
+      FROM open_items oi
+      ORDER BY oi.project_id ASC, oi.sort_rank ASC, oi.created_at ASC, oi.id ASC
+    `;
+  }
+  return db<OpenItemRow[]>`
+    SELECT
+      oi.id,
+      oi.project_id,
+      oi.title,
+      oi.description,
+      oi.close_criteria,
+      oi.next_action,
+      oi.next_actor,
+      oi.lifecycle,
+      oi.impact,
+      to_char(oi.planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
+      oi.sort_rank,
+      oi.blocks_required_for_close,
+      oi.workflow_node_id,
+      oi.blocks_node_id,
+      to_char(oi.created_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS created_at,
+      to_char(oi.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
+    FROM open_items oi
+    WHERE oi.project_id = ${projectId}
+    ORDER BY oi.sort_rank ASC, oi.created_at ASC, oi.id ASC
+  `;
+}
+
+function itemsByProject(rows: OpenItemRow[]): Map<string, CommercialOpenItemRead[]> {
+  const grouped = new Map<string, CommercialOpenItemRead[]>();
+  for (const row of rows) {
+    const list = grouped.get(row.project_id) ?? [];
+    list.push(toOpenItem(row));
+    grouped.set(row.project_id, list);
+  }
+  return grouped;
 }
 
 async function readProjectCores(db: Sql, projectId: string | null): Promise<ProjectCoreRow[]> {
@@ -97,10 +269,24 @@ async function readProjectCores(db: Sql, projectId: string | null): Promise<Proj
             AND n.status IN ('in_progress', 'blocked')
           ORDER BY n.pos_y, n.pos_x, n.id
         ) AS current_stage_names,
+        ARRAY(
+          SELECT n.name
+          FROM wf_nodes n
+          WHERE n.project_id = p.id
+            AND n.status = 'blocked'
+          ORDER BY n.pos_y, n.pos_x, n.id
+        ) AS blocked_node_names,
         EXISTS (
           SELECT 1 FROM wf_nodes n
           WHERE n.project_id = p.id AND n.status = 'blocked'
-        ) AS any_node_blocked
+        ) AS any_node_blocked,
+        ${db.unsafe(BLOCKING_REASON_SQL)} AS blocking_reason,
+        to_char(p.created_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS created_at,
+        to_char(p.user_deadline_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS user_deadline_at,
+        to_char(p.blocked_since_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS blocked_since_at,
+        to_char(p.archived_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS archived_at,
+        to_char(p.stage_entered_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS stage_entered_at,
+        to_char(p.business_closed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS business_closed_at
       FROM commercial_projects p
       ORDER BY p.created_at ASC, p.id ASC
     `;
@@ -119,10 +305,24 @@ async function readProjectCores(db: Sql, projectId: string | null): Promise<Proj
           AND n.status IN ('in_progress', 'blocked')
         ORDER BY n.pos_y, n.pos_x, n.id
       ) AS current_stage_names,
+      ARRAY(
+        SELECT n.name
+        FROM wf_nodes n
+        WHERE n.project_id = p.id
+          AND n.status = 'blocked'
+        ORDER BY n.pos_y, n.pos_x, n.id
+      ) AS blocked_node_names,
       EXISTS (
         SELECT 1 FROM wf_nodes n
         WHERE n.project_id = p.id AND n.status = 'blocked'
-      ) AS any_node_blocked
+      ) AS any_node_blocked,
+      ${db.unsafe(BLOCKING_REASON_SQL)} AS blocking_reason,
+      to_char(p.created_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS created_at,
+      to_char(p.user_deadline_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS user_deadline_at,
+      to_char(p.blocked_since_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS blocked_since_at,
+      to_char(p.archived_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS archived_at,
+      to_char(p.stage_entered_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS stage_entered_at,
+      to_char(p.business_closed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS business_closed_at
     FROM commercial_projects p
     WHERE p.id = ${projectId}
   `;
@@ -134,7 +334,12 @@ export function createCommercialRoutes(db: Sql) {
   app.get('/projects', async (c) => {
     try {
       const rows = await readProjectCores(db, null);
-      return c.json(parseCommercialProjectList({ items: rows.map((row) => toListItem(row)) }));
+      const grouped = itemsByProject(await readOpenItems(db, null));
+      return c.json(
+        parseCommercialProjectList({
+          items: rows.map((row) => toListItem(row, grouped.get(row.id) ?? [])),
+        }),
+      );
     } catch (err) {
       console.error(err);
       return c.json({ error: 'internal error' }, 500);
@@ -240,81 +445,27 @@ export function createCommercialRoutes(db: Sql) {
     const projectId = c.req.param('projectId');
     if (!isUuidString(projectId)) return c.json({ error: 'invalid project id' }, 400);
     try {
-      const rows = await db<
-        (ProjectCoreRow & {
-          blocking_reason: string | null;
+      const rows = await readProjectCores(db, projectId);
+      const row = rows[0];
+      if (!row) return c.json({ error: 'project not found' }, 404);
+      const publishes = await db<
+        {
           bvid: string | null;
           published_at: Date | null;
           publish_source: string | null;
           idempotency_key: string | null;
-        })[]
+        }[]
       >`
-        SELECT
-          p.id,
-          p.name,
-          p.net_amount::text AS net_amount,
-          p.rebate_amount::text AS rebate_amount,
-          p.overall_stage,
-          ARRAY(
-            SELECT n.name
-            FROM wf_nodes n
-            WHERE n.project_id = p.id
-              AND n.status IN ('in_progress', 'blocked')
-            ORDER BY n.pos_y, n.pos_x, n.id
-          ) AS current_stage_names,
-          EXISTS (
-            SELECT 1 FROM wf_nodes n
-            WHERE n.project_id = p.id AND n.status = 'blocked'
-          ) AS any_node_blocked,
-          (
-            SELECT oi.title
-            FROM open_items oi
-            WHERE oi.project_id = p.id
-              AND oi.lifecycle = 'open'
-              AND oi.impact = 'blocking'
-              AND (
-                EXISTS (
-                  SELECT 1 FROM wf_nodes n
-                  WHERE n.project_id = p.id
-                    AND n.status = 'blocked'
-                    AND n.primary_block_pinned_item_id = oi.id
-                )
-                OR EXISTS (
-                  SELECT 1 FROM wf_nodes n
-                  WHERE n.id = oi.blocks_node_id
-                    AND n.project_id = p.id
-                    AND n.status = 'blocked'
-                )
-              )
-            ORDER BY
-              (
-                EXISTS (
-                  SELECT 1 FROM wf_nodes n
-                  WHERE n.project_id = p.id
-                    AND n.status = 'blocked'
-                    AND n.primary_block_pinned_item_id = oi.id
-                )
-              ) DESC,
-              oi.sort_rank ASC,
-              oi.created_at ASC,
-              oi.id ASC
-            LIMIT 1
-          ) AS blocking_reason,
-          r.bvid,
-          r.published_at,
-          r.publish_source,
-          r.idempotency_key
-        FROM commercial_projects p
-        LEFT JOIN project_publish_records r ON r.project_id = p.id
-        WHERE p.id = ${projectId}
+        SELECT bvid, published_at, publish_source, idempotency_key
+        FROM project_publish_records
+        WHERE project_id = ${projectId}
       `;
-      const row = rows[0];
-      if (!row) return c.json({ error: 'project not found' }, 404);
+      const publishRow = publishes[0];
+      const grouped = itemsByProject(await readOpenItems(db, projectId));
       const detail: CommercialProjectDetail = {
-        ...toListItem(row),
-        blockingReason: row.blocking_reason,
+        ...toListItem(row, grouped.get(projectId) ?? []),
         publish:
-          row.bvid === null
+          publishRow === undefined
             ? {
                 published: false,
                 bvid: null,
@@ -324,10 +475,10 @@ export function createCommercialRoutes(db: Sql) {
               }
             : {
                 published: true,
-                bvid: row.bvid,
-                publishedAt: toIso(row.published_at ?? ''),
-                publishSource: publishSource(row.publish_source ?? ''),
-                idempotencyKey: row.idempotency_key ?? '',
+                bvid: publishRow.bvid ?? '',
+                publishedAt: toIso(publishRow.published_at ?? ''),
+                publishSource: publishSource(publishRow.publish_source ?? ''),
+                idempotencyKey: publishRow.idempotency_key ?? '',
               },
       };
       return c.json(parseCommercialProjectDetail(detail));

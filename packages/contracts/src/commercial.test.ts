@@ -11,6 +11,23 @@ const PROJECT_ID = 'f0010001-0001-4001-8001-000000000004';
 const NODE_A = 'dddddddd-dddd-4ddd-8ddd-ddddddddd003';
 const NODE_B = 'dddddddd-dddd-4ddd-8ddd-ddddddddd014';
 const EDGE_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee04';
+const ITEM_ID = 'f0a10001-0001-4001-8001-0000000000a4';
+
+const READ_FIELDS = {
+  createdAt: '2026-05-01T00:00:00.000000Z',
+  userDeadlineAt: null,
+  blockedSinceAt: null,
+  archivedAt: null,
+  stageEnteredAt: '2026-05-01T00:00:00.000000Z',
+  businessClosedAt: null,
+  blockedNodeNames: [] as string[],
+  openItems: [] as unknown[],
+  blockingReason: null as string | null,
+};
+
+function listItem(overrides: Record<string, unknown>) {
+  return { ...READ_FIELDS, ...overrides };
+}
 
 describe('commercial read contracts', () => {
   test('node kinds are only stage and merge', () => {
@@ -20,7 +37,7 @@ describe('commercial read contracts', () => {
   test('parses a project list item', () => {
     const parsed = parseCommercialProjectList({
       items: [
-        {
+        listItem({
           id: PROJECT_ID,
           name: '甲方卡文案确认样例',
           netAmount: '18000.00',
@@ -28,18 +45,66 @@ describe('commercial read contracts', () => {
           overallStage: 'pre_publish',
           currentStageNames: ['文案', '预拍摄'],
           anyNodeBlocked: true,
-        },
+          blockingReason: '甲方文案批注未清',
+          userDeadlineAt: '2026-08-01T00:00:00.000000Z',
+          blockedNodeNames: ['文案'],
+          openItems: [
+            {
+              id: ITEM_ID,
+              title: '甲方文案批注未清',
+              description: null,
+              closeCriteria: null,
+              nextAction: null,
+              nextActor: 'client',
+              lifecycle: 'open',
+              impact: 'blocking',
+              plannedAt: null,
+              sortRank: 0,
+              blocksRequiredForClose: false,
+              workflowNodeId: NODE_A,
+              blocksNodeId: NODE_A,
+              createdAt: '2026-05-02T00:00:00.000000Z',
+              updatedAt: '2026-05-02T00:00:00.000000Z',
+            },
+          ],
+        }),
       ],
     });
     expect(parsed.items[0]?.netAmount).toBe('18000.00');
     expect(parsed.items[0]?.currentStageNames).toEqual(['文案', '预拍摄']);
+    expect(parsed.items[0]?.openItems[0]?.plannedAt).toBeNull();
+    expect(parsed.items[0]?.openItems[0]?.nextActor).toBe('client');
+    expect(parsed.items[0]?.userDeadlineAt).toBe('2026-08-01T00:00:00.000000Z');
+  });
+
+  test('rejects a list item that omits open items or a stored timestamp', () => {
+    const base = listItem({
+      id: PROJECT_ID,
+      name: '样例',
+      netAmount: null,
+      rebateAmount: null,
+      overallStage: 'pre_publish',
+      currentStageNames: [],
+      anyNodeBlocked: false,
+    });
+    const withoutItems = { ...base } as Record<string, unknown>;
+    delete withoutItems.openItems;
+    expect(() => parseCommercialProjectList({ items: [withoutItems] })).toThrow(/openItems/);
+    const withoutCreated = { ...base } as Record<string, unknown>;
+    delete withoutCreated.createdAt;
+    expect(() => parseCommercialProjectList({ items: [withoutCreated] })).toThrow(/createdAt/);
+    expect(() =>
+      parseCommercialProjectList({
+        items: [listItem({ ...base, openItems: [{ id: ITEM_ID }] })],
+      }),
+    ).toThrow(/nextActor|title|open item/);
   });
 
   test('rejects a numeric amount and an unknown node kind', () => {
     expect(() =>
       parseCommercialProjectList({
         items: [
-          {
+          listItem({
             id: PROJECT_ID,
             name: '样例',
             netAmount: 18000,
@@ -47,7 +112,7 @@ describe('commercial read contracts', () => {
             overallStage: 'pre_publish',
             currentStageNames: [],
             anyNodeBlocked: false,
-          },
+          }),
         ],
       }),
     ).toThrow(/netAmount/);
@@ -76,23 +141,25 @@ describe('commercial read contracts', () => {
   });
 
   test('parses detail publish status and a merge node', () => {
-    const detail = parseCommercialProjectDetail({
-      id: PROJECT_ID,
-      name: '已上线未收尾样例',
-      netAmount: '45000.00',
-      rebateAmount: '3500.00',
-      overallStage: 'published_winding_down',
-      currentStageNames: ['结算'],
-      anyNodeBlocked: false,
-      blockingReason: null,
-      publish: {
-        published: true,
-        bvid: 'BVWP004R01',
-        publishedAt: '2026-05-20T12:00:00.000Z',
-        publishSource: 'web',
-        idempotencyKey: 'fixture-publish-once',
-      },
-    });
+    const detail = parseCommercialProjectDetail(
+      listItem({
+        id: PROJECT_ID,
+        name: '已上线未收尾样例',
+        netAmount: '45000.00',
+        rebateAmount: '3500.00',
+        overallStage: 'published_winding_down',
+        currentStageNames: ['结算'],
+        anyNodeBlocked: false,
+        blockingReason: null,
+        publish: {
+          published: true,
+          bvid: 'BVWP004R01',
+          publishedAt: '2026-05-20T12:00:00.000Z',
+          publishSource: 'web',
+          idempotencyKey: 'fixture-publish-once',
+        },
+      }),
+    );
     expect(detail.publish.published).toBe(true);
     expect(detail.publish.idempotencyKey).toBe('fixture-publish-once');
     expect(detail.blockingReason).toBeNull();
@@ -179,22 +246,24 @@ describe('commercial read contracts', () => {
 
   test('rejects an unpublished payload that still carries a bvid', () => {
     expect(() =>
-      parseCommercialProjectDetail({
-        id: PROJECT_ID,
-        name: '样例',
-        netAmount: null,
-        rebateAmount: null,
-        overallStage: 'pre_publish',
-        currentStageNames: [],
-        anyNodeBlocked: false,
-        blockingReason: null,
-        publish: {
-          published: false,
-          bvid: 'BV1',
-          publishedAt: null,
-          publishSource: null,
-        },
-      }),
+      parseCommercialProjectDetail(
+        listItem({
+          id: PROJECT_ID,
+          name: '样例',
+          netAmount: null,
+          rebateAmount: null,
+          overallStage: 'pre_publish',
+          currentStageNames: [],
+          anyNodeBlocked: false,
+          blockingReason: null,
+          publish: {
+            published: false,
+            bvid: 'BV1',
+            publishedAt: null,
+            publishSource: null,
+          },
+        }),
+      ),
     ).toThrow(/unpublished/);
   });
 });

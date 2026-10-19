@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { asLiveDetail } from './live-read-fixture';
 import {
   ACHIEVEMENT_POINTS,
   PROGRESS_STAGES,
@@ -170,17 +171,19 @@ describe('progress timeline mapping', () => {
   });
 
   test('reuses project detail fields for the summary facts', () => {
-    const facts = timelineFactsFromDetail({
-      id: 'f0010001-0001-4001-8001-000000000004',
-      name: '甲方卡文案确认样例',
-      netAmount: '18000.00',
-      rebateAmount: '600.00',
-      overallStage: 'pre_publish',
-      currentStageNames: ['文案', '预拍摄'],
-      anyNodeBlocked: true,
-      blockingReason: '甲方文案批注未清',
-      publish: { published: false, bvid: null, publishedAt: null, publishSource: null },
-    });
+    const facts = timelineFactsFromDetail(
+      asLiveDetail({
+        id: 'f0010001-0001-4001-8001-000000000004',
+        name: '甲方卡文案确认样例',
+        netAmount: '18000.00',
+        rebateAmount: '600.00',
+        overallStage: 'pre_publish',
+        currentStageNames: ['文案', '预拍摄'],
+        anyNodeBlocked: true,
+        blockingReason: '甲方文案批注未清',
+        publish: { published: false, bvid: null, publishedAt: null, publishSource: null },
+      }),
+    );
     expect(facts).toEqual({
       netAmount: '18000.00',
       rebateAmount: '600.00',

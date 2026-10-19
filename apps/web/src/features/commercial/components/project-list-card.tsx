@@ -1,26 +1,45 @@
+import type { CommercialProjectListItem } from '@studio/contracts';
 import { ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { CommercialProject } from '../types';
+import {
+  isArchivedLiveProject,
+  liveInstantLabel,
+  liveStageLabel,
+} from '../commercial-live-selectors';
 
-export function ProjectListCard({ project }: { project: CommercialProject }) {
+const LIFECYCLE_LABEL = { open: '开放', closed: '已关闭', cancelled: '已取消' } as const;
+const ACTOR_LABEL = { us: '我方', client: '甲方' } as const;
+
+export function ProjectListCard({ project }: { project: CommercialProjectListItem }) {
   const [open, setOpen] = useState(false);
-  const hasExpandable = Boolean(project.blockedNodeName) || project.openItems.length > 0;
+  const archived = isArchivedLiveProject(project);
+  const hasBlock = project.anyNodeBlocked || project.blockedNodeNames.length > 0;
+  const hasExpandable = hasBlock || project.openItems.length > 0;
 
   return (
-    <article className={cn('rounded-lg border bg-card', project.archived && 'opacity-70')}>
+    <article
+      className={cn('rounded-lg border bg-card', archived && 'opacity-70')}
+      data-testid="project-list-card"
+      data-project-id={project.id}
+      data-archived={archived ? 'true' : 'false'}
+    >
       <div className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1">
-          <Link
-            to={`/projects/${project.id}`}
-            className="font-medium text-foreground hover:underline"
-          >
-            {project.name}
-          </Link>
-          <p className="mt-1 text-sm text-muted-foreground">当前阶段：{project.stageLabel}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to={`/projects/${project.id}`}
+              className="font-medium text-foreground hover:underline"
+            >
+              {project.name}
+            </Link>
+            {archived ? <Badge variant="secondary">已归档</Badge> : null}
+            {project.overallStage === 'closed' ? <Badge variant="outline">已结案</Badge> : null}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">当前阶段：{liveStageLabel(project)}</p>
         </div>
         {hasExpandable ? (
           <Button
@@ -37,21 +56,47 @@ export function ProjectListCard({ project }: { project: CommercialProject }) {
         ) : null}
       </div>
       {open && hasExpandable ? (
-        <div className="space-y-3 border-t px-4 py-3 text-sm">
-          {project.blockedNodeName ? (
-            <p>
-              <span className="text-muted-foreground">卡住的节点：</span>
-              {project.blockedNodeName}
-              {project.blockingReason ? `（${project.blockingReason}）` : null}
-            </p>
+        <div className="space-y-3 border-t px-4 py-3 text-sm" data-testid="project-list-detail">
+          {hasBlock ? (
+            <div className="space-y-1">
+              <p>
+                <span className="text-muted-foreground">卡住的节点：</span>
+                {project.blockedNodeNames.length > 0
+                  ? project.blockedNodeNames.join('、')
+                  : '无节点名'}
+              </p>
+              <p>
+                <span className="text-muted-foreground">阻塞原因：</span>
+                {project.blockingReason ?? '未记录'}
+              </p>
+              <p>
+                <span className="text-muted-foreground">对外时间：</span>
+                {liveInstantLabel(project.userDeadlineAt, '未定')}
+              </p>
+              <p>
+                <span className="text-muted-foreground">阻塞开始：</span>
+                {liveInstantLabel(project.blockedSinceAt, '未记录')}
+              </p>
+            </div>
           ) : null}
           {project.openItems.length > 0 ? (
             <ul className="space-y-2">
               {project.openItems.map((item) => (
-                <li key={item.id} className="rounded-md bg-muted/40 px-3 py-2">
+                <li
+                  key={item.id}
+                  className="rounded-md bg-muted/40 px-3 py-2"
+                  data-testid="project-list-item"
+                  data-lifecycle={item.lifecycle}
+                >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{item.title}</span>
-                    {item.isBlocking ? (
+                    <Badge variant="outline" className="text-[10px]">
+                      {ACTOR_LABEL[item.nextActor]}
+                    </Badge>
+                    <Badge variant="secondary" className="text-[10px]">
+                      {LIFECYCLE_LABEL[item.lifecycle]}
+                    </Badge>
+                    {item.impact === 'blocking' ? (
                       <Badge variant="destructive" className="text-[10px]">
                         卡流程
                       </Badge>
@@ -61,12 +106,17 @@ export function ProjectListCard({ project }: { project: CommercialProject }) {
                       </Badge>
                     )}
                   </div>
-                  <p className="mt-1 text-muted-foreground">下一步：{item.nextAction}</p>
+                  <p className="mt-1 text-muted-foreground">
+                    下一步：{item.nextAction ?? '未填写'}
+                  </p>
+                  <p className="text-muted-foreground">
+                    计划时间：{liveInstantLabel(item.plannedAt, '未定')}
+                  </p>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-muted-foreground">暂无开放待办。</p>
+            <p className="text-muted-foreground">没有事项记录。</p>
           )}
         </div>
       ) : null}

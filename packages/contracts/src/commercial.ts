@@ -30,6 +30,12 @@ export type WfNodePhase = (typeof WF_NODE_PHASES)[number];
 export const PUBLISH_SOURCES = ['web', 'hermes', 'manual'] as const;
 export type PublishSource = (typeof PUBLISH_SOURCES)[number];
 
+export const OPEN_ITEM_ACTORS = ['us', 'client'] as const;
+export type OpenItemActor = (typeof OPEN_ITEM_ACTORS)[number];
+
+const OPEN_ITEM_LIFECYCLES = ['open', 'closed', 'cancelled'] as const;
+const OPEN_ITEM_IMPACTS = ['normal', 'blocking'] as const;
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DECIMAL_RE = /^-?\d+(\.\d+)?$/;
 
@@ -53,6 +59,40 @@ export function isPublishSource(value: unknown): value is PublishSource {
   return typeof value === 'string' && (PUBLISH_SOURCES as readonly string[]).includes(value);
 }
 
+export function isOpenItemActor(value: unknown): value is OpenItemActor {
+  return typeof value === 'string' && (OPEN_ITEM_ACTORS as readonly string[]).includes(value);
+}
+
+export function isOpenItemLifecycle(
+  value: unknown,
+): value is (typeof OPEN_ITEM_LIFECYCLES)[number] {
+  return typeof value === 'string' && (OPEN_ITEM_LIFECYCLES as readonly string[]).includes(value);
+}
+
+export function isOpenItemImpact(value: unknown): value is (typeof OPEN_ITEM_IMPACTS)[number] {
+  return typeof value === 'string' && (OPEN_ITEM_IMPACTS as readonly string[]).includes(value);
+}
+
+/** One open_items row. Nested under the owning project; project_id is the parent id. */
+export type CommercialOpenItemRead = {
+  id: string;
+  title: string;
+  description: string | null;
+  closeCriteria: string | null;
+  nextAction: string | null;
+  nextActor: OpenItemActor;
+  lifecycle: (typeof OPEN_ITEM_LIFECYCLES)[number];
+  impact: (typeof OPEN_ITEM_IMPACTS)[number];
+  /** open_items.planned_at. Null means no planned time was stored. */
+  plannedAt: string | null;
+  sortRank: number;
+  blocksRequiredForClose: boolean;
+  workflowNodeId: string | null;
+  blocksNodeId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type CommercialProjectListItem = {
   id: string;
   name: string;
@@ -64,6 +104,24 @@ export type CommercialProjectListItem = {
   /** Names of in-progress and blocked nodes, layout order. Empty when none are active. */
   currentStageNames: string[];
   anyNodeBlocked: boolean;
+  /** Chosen open blocking-item title, or null when a block has no stored reason. */
+  blockingReason: string | null;
+  /** commercial_projects.created_at. Always stored. */
+  createdAt: string;
+  /** commercial_projects.user_deadline_at. Null when no external deadline was stored. */
+  userDeadlineAt: string | null;
+  /** commercial_projects.blocked_since_at. Null when no block start was stored. */
+  blockedSinceAt: string | null;
+  /** commercial_projects.archived_at. Null when the row has no archive timestamp. */
+  archivedAt: string | null;
+  /** commercial_projects.stage_entered_at. */
+  stageEnteredAt: string;
+  /** commercial_projects.business_closed_at. */
+  businessClosedAt: string | null;
+  /** Names of blocked nodes only, same layout order as currentStageNames. */
+  blockedNodeNames: string[];
+  /** Every open_items row for this project, including closed and cancelled. */
+  openItems: CommercialOpenItemRead[];
 };
 
 export type CommercialProjectListResponse = {
@@ -79,16 +137,7 @@ export type CommercialPublishStatus = {
   idempotencyKey: string | null;
 };
 
-export type CommercialProjectDetail = {
-  id: string;
-  name: string;
-  netAmount: string | null;
-  rebateAmount: string | null;
-  overallStage: OverallStage;
-  currentStageNames: string[];
-  anyNodeBlocked: boolean;
-  /** Title of the chosen open blocking item, or null when the block has no reason. */
-  blockingReason: string | null;
+export type CommercialProjectDetail = CommercialProjectListItem & {
   publish: CommercialPublishStatus;
 };
 
@@ -178,9 +227,67 @@ function parseMoney(value: unknown, label: string): string | null {
   return value;
 }
 
-function parseStageNames(value: unknown): string[] {
-  if (!Array.isArray(value)) throw new Error('currentStageNames must be an array');
-  return value.map((item, index) => parseName(item, `currentStageNames[${index}]`));
+function parseStageNames(value: unknown, label: string): string[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value.map((item, index) => parseName(item, `${label}[${index}]`));
+}
+
+function parseNullableText(value: unknown, label: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') throw new Error(`${label} must be a string or null`);
+  return value;
+}
+
+function parseNullableUuid(value: unknown, label: string): string | null {
+  if (value === null) return null;
+  return parseUuid(value, label);
+}
+
+function parseBlockingReason(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error('blockingReason must be a non-empty string or null');
+  }
+  return value;
+}
+
+function parseSortRank(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw new Error('sortRank must be an integer');
+  }
+  return value;
+}
+
+function parseOpenItem(value: unknown): CommercialOpenItemRead {
+  const record = asRecord(value, 'open item');
+  if (!isOpenItemActor(record.nextActor)) throw new Error('open item nextActor is invalid');
+  if (!isOpenItemLifecycle(record.lifecycle)) throw new Error('open item lifecycle is invalid');
+  if (!isOpenItemImpact(record.impact)) throw new Error('open item impact is invalid');
+  if (typeof record.blocksRequiredForClose !== 'boolean') {
+    throw new Error('blocksRequiredForClose must be a boolean');
+  }
+  return {
+    id: parseUuid(record.id, 'open item id'),
+    title: parseName(record.title, 'open item title'),
+    description: parseNullableText(record.description, 'description'),
+    closeCriteria: parseNullableText(record.closeCriteria, 'closeCriteria'),
+    nextAction: parseNullableText(record.nextAction, 'nextAction'),
+    nextActor: record.nextActor,
+    lifecycle: record.lifecycle,
+    impact: record.impact,
+    plannedAt: parseNullableIso(record.plannedAt, 'plannedAt'),
+    sortRank: parseSortRank(record.sortRank),
+    blocksRequiredForClose: record.blocksRequiredForClose,
+    workflowNodeId: parseNullableUuid(record.workflowNodeId, 'workflowNodeId'),
+    blocksNodeId: parseNullableUuid(record.blocksNodeId, 'blocksNodeId'),
+    createdAt: parseIso(record.createdAt, 'createdAt'),
+    updatedAt: parseIso(record.updatedAt, 'updatedAt'),
+  };
+}
+
+function parseOpenItems(value: unknown): CommercialOpenItemRead[] {
+  if (!Array.isArray(value)) throw new Error('openItems must be an array');
+  return value.map((item) => parseOpenItem(item));
 }
 
 function parseIso(value: unknown, label: string): string {
@@ -240,8 +347,17 @@ function parseListItem(value: unknown): CommercialProjectListItem {
     netAmount: parseMoney(record.netAmount, 'netAmount'),
     rebateAmount: parseMoney(record.rebateAmount, 'rebateAmount'),
     overallStage: record.overallStage,
-    currentStageNames: parseStageNames(record.currentStageNames),
+    currentStageNames: parseStageNames(record.currentStageNames, 'currentStageNames'),
     anyNodeBlocked: record.anyNodeBlocked,
+    blockingReason: parseBlockingReason(record.blockingReason),
+    createdAt: parseIso(record.createdAt, 'createdAt'),
+    userDeadlineAt: parseNullableIso(record.userDeadlineAt, 'userDeadlineAt'),
+    blockedSinceAt: parseNullableIso(record.blockedSinceAt, 'blockedSinceAt'),
+    archivedAt: parseNullableIso(record.archivedAt, 'archivedAt'),
+    stageEnteredAt: parseIso(record.stageEnteredAt, 'stageEnteredAt'),
+    businessClosedAt: parseNullableIso(record.businessClosedAt, 'businessClosedAt'),
+    blockedNodeNames: parseStageNames(record.blockedNodeNames, 'blockedNodeNames'),
+    openItems: parseOpenItems(record.openItems),
   };
 }
 
@@ -253,16 +369,8 @@ export function parseCommercialProjectList(value: unknown): CommercialProjectLis
 
 export function parseCommercialProjectDetail(value: unknown): CommercialProjectDetail {
   const record = asRecord(value, 'project detail');
-  const item = parseListItem(record);
-  if (record.blockingReason !== null && typeof record.blockingReason !== 'string') {
-    throw new Error('blockingReason must be a string or null');
-  }
-  if (typeof record.blockingReason === 'string' && record.blockingReason.trim().length === 0) {
-    throw new Error('blockingReason must be non-empty when present');
-  }
   return {
-    ...item,
-    blockingReason: record.blockingReason,
+    ...parseListItem(record),
     publish: parsePublish(record.publish),
   };
 }

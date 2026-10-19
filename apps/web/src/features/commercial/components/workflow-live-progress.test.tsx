@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { MemoryRouter } from 'react-router-dom';
+import { asLiveDetail } from '../live-read-fixture';
 import { LiveProjectWorkflow } from './live-project-workflow';
 
 setDefaultTimeout(30_000);
@@ -158,7 +159,7 @@ function installApi(options: {
             { id: EDGE_COPY_MERGE, fromNodeId: ID.copy, toNodeId: ID.merge },
           ],
         }
-      : detailPayload(options.overallStage, options.published);
+      : asLiveDetail(detailPayload(options.overallStage, options.published));
     return new Response(JSON.stringify(payload), {
       status: 200,
       headers: { 'content-type': 'application/json' },
