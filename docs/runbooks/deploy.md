@@ -121,3 +121,7 @@ docker compose -p bili-test -f docker-compose.dev.yml up -d
 ```
 
 Vite `5173` + API `3000`；导入同样用 `docker compose -p bili-test ... run --rm api bun packages/monitoring/...`（服务名为 `api`）。
+
+## 13. 2026-10-18 测试环境只读观察
+
+脱敏运行时证据的基线是 `9d9370e0b2c0d3b5b5e6cb92f68d5416f48b641b`。当时 Compose 项目名 `bili-test` 上实际在跑的是服务 `app`（合并镜像），容器 `3000` 映射到宿主机 `18492`，PostgreSQL `5432` 未向宿主机发布。随后的只读环境允许名单确认该进程为 `MONITOR_DATA_SOURCE=mock`、`API_PORT=3000`、`WEB_STATIC_ROOT=/app/web-dist`、`MOCK_DATA_ROOT=/mock-data`，且 `/mock-data` 挂载 `RW=false`。这与本节第 12 条的热重载拆分不是同一拓扑，也不能据此推断生产项目 `bili-prod`。端口和路由对照见 [ui-backend-contract-audit.md](../architecture/ui-backend-contract-audit.md)。

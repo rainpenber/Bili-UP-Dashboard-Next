@@ -6,7 +6,9 @@
 
 模板节点 `wf_template_nodes.kind` 与实例节点 `wf_nodes.kind` 只有两个值：`stage`（默认）和 `merge`。未知值由 CHECK 拒绝。已有行靠默认值落到 `stage`，不需要数据迁移。
 
-汇合节点是普通步骤，不是制作包，也不按入度/出度推断。它有自己的状态（含进行中）、可以阻塞、可选节点可以标成不适用，并可以写入 `domain_audit_events`。阻塞原因不是节点列：原因来自开放事项；没有对应事项时，阻塞可以没有原因。
+汇合节点存在 `wf_nodes` 上，不是制作包，也不按入度/出度推断。表允许它带状态，阻塞原因仍然来自开放事项；没有对应事项时，阻塞可以没有原因。
+
+已接受的逐步路径不把汇合节点当作操作目标。`packages/workflow/src/step-plan.ts` 对 `kind === 'merge'` 返回 `invalid_transition`，时间线跳过汇合行，画布只把它画成金色圆点。`packages/workflow/src/engine.ts` 仍不按种类分叉，对应的是已注册但当前页面不调用的 `advance` / `complete` 等旧路由。对照见 [ui-backend-contract-audit.md](./ui-backend-contract-audit.md)。
 
 ## 制作包删除
 

@@ -14,26 +14,30 @@ flowchart TB
     Contracts[contracts]
     Workflow[workflow]
   end
-  subgraph data [Data - future]
+  subgraph data [Data]
     PG[(PostgreSQL)]
   end
-  subgraph external [External - not in WP-000]
+  subgraph external [External]
     Hermes[Hermes 智能层]
-    Collectors[采集器]
+    Collectors[采集器，当前未运行]
   end
   React -->|HTTP /api proxy| Hono
   Hono --> Contracts
   Workflow --> Contracts
-  Hono -.->|future| PG
+  Hono --> PG
   Collectors -.-> Hono
   Hermes -.->|interpretation only| Hono
 ```
 
-## WP-000 运行时
+## 当前运行时
 
-- **Web**：静态构建 + 开发时代理 `/api/*` 到 `localhost:3000`。
-- **API**：`GET /health` 返回 `@studio/contracts` 定义的 JSON。
-- **PostgreSQL**：Compose 服务已定义。监控迁移为 `packages/db/migrations/001`–`003`；商单域、只读 API 与流程写入见 [commercial-db.md](./commercial-db.md)。
+- **Web**：静态构建由合并进程提供；开发时代理 `/api/*`。端口、测试环境映射和路由清单见 [ui-backend-contract-audit.md](./ui-backend-contract-audit.md)。
+- **API**：`GET /health` 与 `GET /api/health` 返回 `@studio/contracts` 定义的 JSON。商单、监控、导入和静态资源路由以该审计的清单为准。
+- **PostgreSQL**：Compose 中的 `postgres` 服务已接入 API。监控迁移为 `packages/db/migrations/001`–`003`；商单域见 [commercial-db.md](./commercial-db.md)。采集器仍未作为运行中的服务实现。
+
+## WP-000 当时的范围
+
+WP-000 只交付健康检查和仓库骨架。上图描述的是当前仓库，不再把数据库画成未来依赖。
 
 ## 仓库约定
 
