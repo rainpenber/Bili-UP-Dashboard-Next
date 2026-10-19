@@ -153,7 +153,16 @@ CREATE TABLE collector_circuits (        -- 风控熔断状态，重启后仍然
 ALTER TABLE monitor_targets
   DROP CONSTRAINT IF EXISTS monitor_targets_source_check,
   ADD CONSTRAINT monitor_targets_source_check CHECK (source IN ('offline','bilibili')),
-  ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES bili_accounts (id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES bili_accounts (id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS interval_mode TEXT NOT NULL DEFAULT 'auto'
+    CHECK (interval_mode IN ('auto','fixed'));
+
+-- 1) 旧约束只允许 5/15/30/60/180/360/720/1440，而自动分级需要 120（2 小时）；
+-- 2) 以后调整分级不该再改表，因此放宽为区间约束。
+ALTER TABLE monitor_targets DROP CONSTRAINT IF EXISTS monitor_targets_interval_minutes_check;
+ALTER TABLE monitor_targets
+  ADD CONSTRAINT monitor_targets_interval_minutes_check
+  CHECK (interval_minutes BETWEEN 5 AND 10080);
 
 ALTER TABLE videos
   ADD COLUMN IF NOT EXISTS cid BIGINT,
@@ -222,7 +231,23 @@ CREATE INDEX IF NOT EXISTS video_samples_source_at ON video_metric_samples (sour
 4. 收尾：写 `collector_runs`（`samples_written`、`duration_ms`、`error`），更新 job 状态与 `monitor_targets.last_run_at/last_success_at/last_error/next_run_at`。
 5. 空闲：没有到期任务时 sleep 1s，不要让数据库空转。
 
-**目标到期建模**：`monitor_targets.next_run_at` 到点后由 worker 生成一条 job（`UNIQUE(target_id, scheduled_for)` 天然去重），然后 `next_run_at = next_run_at + interval_minutes`。不要在 API 侧预生成一堆任务。
+**目标到期建模**：`monitor_targets.next_run_at` 到点后由 worker 生成一条 job（`UNIQUE(target_id, scheduled_for)` 天然去重），然后计算下一次 `next_run_at`。不要在 API 侧预生成一堆任务。
+
+### 6.1.1 采集频率（按视频年龄自动分级）
+
+视频的数据密度应该随年龄衰减——刚发布时变化快，越老越平。因此视频目标默认 `interval_mode='auto'`，按 `videos.pubdate` 距今的时长决定间隔（**这是业务规则，不要改成固定间隔**）：
+
+| 视频年龄 | 采集间隔 | 理由 |
+| --- | --- | --- |
+| 发布 ≤ 3 天 | **15 分钟** | 起量期，播放/在线人数分钟级变化，是判断是否投流的关键窗口 |
+| 3 天 < 年龄 ≤ 14 天 | **2 小时** | 长尾爬坡期，2 小时足够画出曲线 |
+| 年龄 > 14 天 | **6 小时** | 基本平稳，只为持续留档 |
+
+- 分级在每次生成下一次任务时按"当前年龄"重新计算，所以视频跨过 3 天/14 天边界后会自动降频，不需要人工改配置。
+- `interval_mode='fixed'` 时用 `interval_minutes`（人工覆盖，立即采集不受影响）。
+- UP 主（粉丝）目标：没有年龄概念，默认**固定 4 小时**（与旧脚本 `schedule.every(4).hours` 一致），可用 `interval_minutes` 覆盖。
+- 阈值与间隔放进 `packages/monitoring/src/frequency.ts` 常量，并允许环境变量覆盖（见第 9 节），不要在业务代码里散落魔法数字。
+- 间隔是"计划频率"；**请求节流**（6.5）是另一层风控保护，两者不要混为一谈。
 
 ### 6.2 视频流程
 
@@ -291,12 +316,22 @@ GET  https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=.
 COLLECTOR_PROVIDER=offline|bilibili        # 默认 offline，部署时才切
 COLLECTOR_INSTANCE_ID=collector-1
 COLLECTOR_SECRET_KEY=<base64 32B>          # 缺省时仅 offline 模式可启动
+# 请求节流（风控保护，与采集频率无关）
 COLLECTOR_MIN_INTERVAL_MS=1500
 COLLECTOR_MAX_JITTER_MS=800
 COLLECTOR_MAX_REQUESTS_PER_MINUTE=20
 COLLECTOR_DRY_RUN=0|1
 COLLECTOR_HTTP_TIMEOUT_MS=10000
-COLLECTOR_ONLINE_WINDOW_DAYS=14
+# 在线观看只在发布初期有意义，默认与高频窗口一致
+COLLECTOR_ONLINE_WINDOW_DAYS=3
+# 视频年龄分级（分钟）
+COLLECTOR_TIER1_MAX_DAYS=3
+COLLECTOR_TIER1_MINUTES=15
+COLLECTOR_TIER2_MAX_DAYS=14
+COLLECTOR_TIER2_MINUTES=120
+COLLECTOR_TIER3_MINUTES=360
+# UP 主默认间隔（分钟）
+COLLECTOR_CREATOR_INTERVAL_MINUTES=240
 ```
 
 `offline` 模式下保持现有行为（现有离线 provider 与测试不能坏）。
@@ -308,13 +343,14 @@ COLLECTOR_ONLINE_WINDOW_DAYS=14
 1. 视频样本解析：`view/stat` 夹具 → 七个指标 + `comment_count` 正确；
 2. `online.total` 为 `"1234+"` 字符串时，`online_viewers=1234`、`online_viewers_raw="1234+"`；
 3. 时间桶幂等：同一 job 重跑两次只落一行；
-4. 限频：注入假时钟，断言两次请求间隔 ≥ 最小值、每分钟不超过上限；
-5. 熔断：`-352` 后同账号后续任务被推迟，冷却结束恢复；
-6. `-404` 目标自动停用；
-7. Cookie 加解密 round-trip；缺密钥时启动报错；
-8. 历史 CSV：BOM + CRLF + 东八区解析 + 幂等 + 评论数留 NULL；
-9. 网络守卫只放行 `api.bilibili.com` / `passport.bilibili.com`；其他域名直接抛错；
-10. 现有离线 collector 测试全部保持通过。
+4. 频率分级：假时钟下断言 ≤3 天按 15 分钟、3–14 天按 120 分钟、>14 天按 360 分钟排下一次任务，且跨边界自动切换；固定模式与 UP 主 4 小时默认值也要覆盖；
+5. 限频：注入假时钟，断言两次请求间隔 ≥ 最小值、每分钟不超过上限；
+6. 熔断：`-352` 后同账号后续任务被推迟，冷却结束恢复；
+7. `-404` 目标自动停用；
+8. Cookie 加解密 round-trip；缺密钥时启动报错；
+9. 历史 CSV：BOM + CRLF + 东八区解析 + 幂等 + 评论数留 NULL；
+10. 网络守卫只放行 `api.bilibili.com` / `passport.bilibili.com`；其他域名直接抛错；
+11. 现有离线 collector 测试全部保持通过。
 
 ## 11. 验收标准（Hermes 会独立验证，不看你自述）
 
