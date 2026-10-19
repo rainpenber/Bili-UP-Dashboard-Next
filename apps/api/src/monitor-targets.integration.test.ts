@@ -114,7 +114,7 @@ describe('monitor targets and offline collector', () => {
     expect(videoRow?.lastError).toBeNull();
     expect(videoRow?.nextRunAt).toBeTruthy();
     expect(creatorRow?.lastSuccessAt).toBeTruthy();
-    expect(creatorRow?.intervalMinutes).toBe(15);
+    expect(creatorRow?.intervalMinutes).toBe(240);
 
     const metrics = await app.request('/api/v1/monitor/videos/BV1xx411c7mD/metrics?limit=10');
     expect(metrics.status).toBe(200);

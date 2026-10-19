@@ -62,6 +62,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       MONITOR_DATA_SOURCE: collector
       MONITOR_PROVIDER: offline
+      COLLECTOR_PROVIDER: offline
       SOURCE_TIMEZONE: ${SOURCE_TIMEZONE:-Asia/Shanghai}
       MOCK_DATA_ROOT: /mock-data
       COLLECTOR_INSTANCE_ID: collector-1

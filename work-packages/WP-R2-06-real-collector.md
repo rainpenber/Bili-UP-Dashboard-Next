@@ -195,7 +195,7 @@ CREATE INDEX IF NOT EXISTS creator_samples_run ON creator_follower_samples (coll
 CREATE INDEX IF NOT EXISTS video_samples_source_at ON video_metric_samples (source, sampled_at DESC);
 ```
 
-`monitor_targets.interval_minutes` 已有枚举（5/15/30/60/180/360/720/1440），沿用，不改。
+`interval_minutes` 不再使用旧枚举。自动分级要写入 120，约束改为 `BETWEEN 5 AND 10080`。`interval_mode='auto'` 时这一列只是上次排期写回的结果；`fixed` 时它才是人工间隔。
 
 ### 4.3 时间语义（重要）
 
@@ -205,12 +205,12 @@ CREATE INDEX IF NOT EXISTS video_samples_source_at ON video_metric_samples (sour
 
 ## 5. 采集端点与字段映射
 
-| 用途 | 端点 | 关键参数 | 取什么 | 说明 |
-| --- | --- | --- | --- | --- |
-| 视频元数据 + 全部互动指标 | `GET https://api.bilibili.com/x/web-interface/view` | `bvid` | `data.cid`、`data.pubdate`、`data.title`、`data.owner.mid`、`data.stat.{view,danmaku,reply,favorite,coin,share,like}` | **一次请求拿全**，评论数就是 `stat.reply`。旧代码重复调了两次，不要学 |
-| 实时在线观看 | `GET https://api.bilibili.com/x/player/online/total` | `bvid`、`cid` | `data.total`（数字或 `"1234+"` 字符串） | **每轮都采**（不按发布时长截断，老视频可能突然爆火）；数字入 `online_viewers`，原文入 `online_viewers_raw` |
-| UP 主粉丝/关注 | `GET https://api.bilibili.com/x/relation/stat` | `vmid` | `data.follower`、`data.following` | 不需要 WBI；逐 mid 串行 |
-| 登录态校验（账号模块） | `GET https://api.bilibili.com/x/web-interface/nav` | — | `data.isLogin`、`data.mid`、`data.uname`、`data.face` | 只用于校验 Cookie 是否仍有效 |
+| 用途                      | 端点                                                 | 关键参数      | 取什么                                                                                                                | 说明                                                                                                                                                               |
+| ------------------------- | ---------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 视频元数据 + 全部互动指标 | `GET https://api.bilibili.com/x/web-interface/view`  | `bvid`        | `data.cid`、`data.pubdate`、`data.title`、`data.owner.mid`、`data.stat.{view,danmaku,reply,favorite,coin,share,like}` | **一次请求拿全**，评论数就是 `stat.reply`。旧代码重复调了两次，不要学                                                                                              |
+| 实时在线观看              | `GET https://api.bilibili.com/x/player/online/total` | `bvid`、`cid` | `data.total`（数字或 `"1234+"` 字符串）                                                                               | **每轮都采**（不按发布时长截断，老视频可能突然爆火）；数字入 `online_viewers`，原文入 `online_viewers_raw`。失败或 `code != 0` 时 `online_viewers` 为 NULL，不写 0 |
+| UP 主粉丝/关注            | `GET https://api.bilibili.com/x/relation/stat`       | `vmid`        | `data.follower`、`data.following`                                                                                     | 不需要 WBI；逐 mid 串行                                                                                                                                            |
+| 登录态校验（账号模块）    | `GET https://api.bilibili.com/x/web-interface/nav`   | —             | `data.isLogin`、`data.mid`、`data.uname`、`data.face`                                                                 | 只用于校验 Cookie 是否仍有效                                                                                                                                       |
 
 **为什么查询逻辑要这么写：**
 
@@ -237,15 +237,15 @@ CREATE INDEX IF NOT EXISTS video_samples_source_at ON video_metric_samples (sour
 
 视频的数据密度应该随年龄衰减——刚发布时变化快，越老越平。因此视频目标默认 `interval_mode='auto'`，按 `videos.pubdate` 距今的时长决定间隔（**这是业务规则，不要改成固定间隔**）：
 
-| 视频年龄 | 采集间隔 | 理由 |
-| --- | --- | --- |
-| 发布 ≤ 3 天 | **15 分钟** | 起量期，播放/在线人数分钟级变化，是判断是否投流的关键窗口 |
-| 3 天 < 年龄 ≤ 14 天 | **2 小时** | 长尾爬坡期，2 小时足够画出曲线 |
-| 年龄 > 14 天 | **6 小时** | 基本平稳，只为持续留档 |
+| 视频年龄            | 采集间隔    | 理由                                                      |
+| ------------------- | ----------- | --------------------------------------------------------- |
+| 发布 ≤ 3 天         | **15 分钟** | 起量期，播放/在线人数分钟级变化，是判断是否投流的关键窗口 |
+| 3 天 < 年龄 ≤ 14 天 | **2 小时**  | 长尾爬坡期，2 小时足够画出曲线                            |
+| 年龄 > 14 天        | **6 小时**  | 基本平稳，只为持续留档                                    |
 
 - 分级在每次生成下一次任务时按"当前年龄"重新计算，所以视频跨过 3 天/14 天边界后会自动降频，不需要人工改配置。
 - `interval_mode='fixed'` 时用 `interval_minutes`（人工覆盖，立即采集不受影响）。
-- UP 主（粉丝）目标：没有年龄概念，默认**固定 4 小时**（与旧脚本 `schedule.every(4).hours` 一致），可用 `interval_minutes` 覆盖。
+- UP 主没有年龄。`auto` 模式固定 **240 分钟**（旧脚本 `schedule.every(4).hours`）。要改这个间隔，把 `interval_mode` 设为 `fixed`，再用 `interval_minutes`。
 - 阈值与间隔放进 `packages/monitoring/src/frequency.ts` 常量，并允许环境变量覆盖（见第 9 节），不要在业务代码里散落魔法数字。
 - 间隔是"计划频率"；**请求节流**（6.5）是另一层风控保护，两者不要混为一谈。
 
@@ -267,14 +267,14 @@ load target → 取 account（target.account_id ?? 默认账号）
 
 ### 6.4 错误处理（必须按类别，不许无脑重试）
 
-| 情况 | 行为 |
-| --- | --- |
-| 网络超时 / 5xx | 本次 run 失败，`attempts+1`，退避 `min(2^attempts, 30)` 分钟后重排 |
-| `code = -404`（稿件不存在/私密） | 目标置 `enabled=false`，`last_error` 记录，不重试 |
-| `code = -352 / -412`（风控） | 打开 `collector_circuits`，默认冷却 30 分钟；期间该账号所有任务延迟 |
-| `code = -509`（超频） | 冷却 60 分钟 |
-| `code = -101`（未登录） | 账号 `status='expired'`，该账号任务暂停，等重新登录 |
-| 单次 run 连续失败 ≥ 3 | job `failed`，`last_error` 可见；等下一个 `next_run_at` |
+| 情况                             | 行为                                                                |
+| -------------------------------- | ------------------------------------------------------------------- |
+| 网络超时 / 5xx                   | 本次 run 失败，`attempts+1`，退避 `min(2^attempts, 30)` 分钟后重排  |
+| `code = -404`（稿件不存在/私密） | 目标置 `enabled=false`，`last_error` 记录，不重试                   |
+| `code = -352 / -412`（风控）     | 打开 `collector_circuits`，默认冷却 30 分钟；期间该账号所有任务延迟 |
+| `code = -509`（超频）            | 冷却 60 分钟                                                        |
+| `code = -101`（未登录）          | 账号 `status='expired'`，该账号任务暂停，等重新登录                 |
+| 单次 run 连续失败 ≥ 3            | job `failed`，`last_error` 可见；等下一个 `next_run_at`             |
 
 ### 6.5 节流（必须实现，可测试）
 

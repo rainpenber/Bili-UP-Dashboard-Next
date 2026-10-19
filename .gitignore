@@ -7,3 +7,4 @@ dist/
 coverage/
 .turbo/
 *.tsbuildinfo
+bilibili-login-qr.png

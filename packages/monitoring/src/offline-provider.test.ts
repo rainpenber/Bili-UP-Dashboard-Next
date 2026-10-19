@@ -42,8 +42,8 @@ describe('offline provider', () => {
     await expect(provider.collectVideo('BV1xx411c7mD', new Date())).rejects.toThrow(/离线夹具缺失/);
   });
 
-  test('unimplemented upstream provider fails closed', () => {
-    expect(() => createMonitorProvider('bilibili')).toThrow(/fail closed/);
+  test('unknown upstream provider fails closed', () => {
+    expect(() => createMonitorProvider('upstream')).toThrow(/fail closed/);
   });
 });
 

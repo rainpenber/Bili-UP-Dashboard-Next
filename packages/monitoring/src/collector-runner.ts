@@ -1,18 +1,27 @@
 import {
   claimNextCollectorJob,
   enqueueDueCollectorJobs,
+  readTargetSchedule,
   recordCollectorFailure,
   recordCollectorSuccess,
+  refreshCollectorHeartbeat,
   upsertCollectorHeartbeat,
   writeCreatorSample,
   writeVideoSample,
   type Sql,
 } from '@studio/db';
+import { createSqlBilibiliEffects } from './bilibili-effects';
+import { runBilibiliJob, type BilibiliEffects } from './bilibili-job';
+import { decideSchedule, readFrequencyPolicy } from './frequency';
+import { isBilibiliProvider } from './bilibili-provider';
+import { loadCollectorSecretKey, scrubCollectorError } from './credentials';
 import {
   createOfflineProvider,
   truncateToUtcMinute,
   type MonitorProvider,
 } from './offline-provider';
+
+export const COLLECTOR_HEARTBEAT_MS = 10_000;
 
 export type CollectorConfig = {
   pollMs: number;
@@ -22,8 +31,6 @@ export type CollectorConfig = {
   rateLimitMs: number;
   instanceId: string;
 };
-
-export type CollectorRunOutcome = 'idle' | 'succeeded' | 'failed';
 
 function readInt(raw: string | undefined, fallback: number, min: number, max: number): number {
   if (raw === undefined || raw.trim() === '') return fallback;
@@ -52,8 +59,7 @@ export function backoffDelayMs(attempts: number, baseMs: number, capMs: number):
 }
 
 export function clipCollectorError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.slice(0, 500);
+  return scrubCollectorError(error);
 }
 
 async function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -71,6 +77,8 @@ async function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+export type CollectorRunOutcome = 'idle' | 'succeeded' | 'failed' | 'deferred';
+
 export async function runCollectorOnce(options: {
   sql: Sql;
   provider: MonitorProvider;
@@ -78,6 +86,8 @@ export async function runCollectorOnce(options: {
   now?: Date;
   log?: (line: string) => void;
   instanceId?: string;
+  env?: NodeJS.ProcessEnv;
+  effects?: BilibiliEffects;
 }): Promise<CollectorRunOutcome> {
   const log = options.log ?? (() => undefined);
   await enqueueDueCollectorJobs(options.sql);
@@ -96,6 +106,25 @@ export async function runCollectorOnce(options: {
     `[collector] 开始执行任务 ${job.id} ${job.targetType} ${job.externalId} 第 ${job.attempts} 次`,
   );
   try {
+    if (isBilibiliProvider(options.provider)) {
+      const env = options.env ?? process.env;
+      const forced = env.COLLECTOR_ACCOUNT_ID?.trim() ?? '';
+      const effects =
+        options.effects ??
+        createSqlBilibiliEffects(options.sql, {
+          secretKey: loadCollectorSecretKey(env.COLLECTOR_SECRET_KEY),
+        });
+      return await runBilibiliJob({
+        job,
+        provider: options.provider,
+        effects,
+        forcedAccountId: forced.length > 0 ? forced : null,
+        maxAttempts: options.config.maxAttempts,
+        now: startedAt,
+        env,
+        log,
+      });
+    }
     const sampledAt = truncateToUtcMinute(startedAt);
     if (job.targetType === 'video') {
       const sample = await options.provider.collectVideo(job.externalId, sampledAt);
@@ -106,6 +135,7 @@ export async function runCollectorOnce(options: {
         samplesWritten: inserted ? 1 : 0,
         durationMs: Date.now() - startedMs,
         startedAt,
+        ...(await offlineSchedule(options.sql, job.targetId, startedAt, options.env)),
       });
     } else {
       const sample = await options.provider.collectCreator(job.externalId, sampledAt);
@@ -116,6 +146,7 @@ export async function runCollectorOnce(options: {
         samplesWritten: inserted ? 1 : 0,
         durationMs: Date.now() - startedMs,
         startedAt,
+        ...(await offlineSchedule(options.sql, job.targetId, startedAt, options.env)),
       });
     }
     log(`[collector] 任务成功 ${job.id}`);
@@ -138,10 +169,33 @@ export async function runCollectorOnce(options: {
       durationMs: Math.max(0, Date.now() - startedMs),
       startedAt,
       retryAt,
+      ...(await offlineSchedule(options.sql, job.targetId, startedAt, options.env)),
     });
     log(`[collector] 任务失败 ${job.id} attempts=${job.attempts} error=${message}`);
     return 'failed';
   }
+}
+
+async function offlineSchedule(
+  sql: Sql,
+  targetId: string,
+  now: Date,
+  env: NodeJS.ProcessEnv | undefined,
+): Promise<{ schedule: ReturnType<typeof decideSchedule> } | Record<string, never>> {
+  const context = await readTargetSchedule(sql, targetId);
+  if (!context) return {};
+  return {
+    schedule: decideSchedule(
+      {
+        type: context.type,
+        mode: context.intervalMode,
+        fixedMinutes: context.intervalMinutes,
+        pubdate: context.pubdate,
+      },
+      now,
+      readFrequencyPolicy(env ?? process.env),
+    ),
+  };
 }
 
 export async function runCollectorLoop(options: {
@@ -155,38 +209,56 @@ export async function runCollectorLoop(options: {
   const provider = options.provider ?? createOfflineProvider();
   let lastFinished = 0;
   log(`[collector] 开始轮询 instance=${options.config.instanceId}`);
+  let heartbeatChain = Promise.resolve();
+  const beat = (
+    status: 'starting' | 'idle' | 'running' | 'stopped',
+    currentJobId: string | null,
+  ) => {
+    heartbeatChain = heartbeatChain
+      .then(() =>
+        upsertCollectorHeartbeat(options.sql, {
+          instanceId: options.config.instanceId,
+          status,
+          currentJobId,
+        }),
+      )
+      .then(
+        () => undefined,
+        () => undefined,
+      );
+    return heartbeatChain;
+  };
+  const timer = setInterval(() => {
+    heartbeatChain = heartbeatChain
+      .then(() => refreshCollectorHeartbeat(options.sql, options.config.instanceId))
+      .then(
+        () => undefined,
+        () => undefined,
+      );
+  }, COLLECTOR_HEARTBEAT_MS);
+  if (typeof timer.unref === 'function') timer.unref();
   try {
-    await upsertCollectorHeartbeat(options.sql, {
-      instanceId: options.config.instanceId,
-      status: 'starting',
-      currentJobId: null,
-    });
+    await beat('starting', null);
     while (!options.signal.aborted) {
       const wait = options.config.rateLimitMs - (Date.now() - lastFinished);
       if (lastFinished > 0 && wait > 0) await sleep(wait, options.signal);
       if (options.signal.aborted) break;
-      await upsertCollectorHeartbeat(options.sql, {
-        instanceId: options.config.instanceId,
-        status: 'idle',
-        currentJobId: null,
-      });
+      await beat('idle', null);
       const outcome = await runCollectorOnce({
         sql: options.sql,
         provider,
         config: options.config,
         log,
         instanceId: options.config.instanceId,
+        env: process.env,
       });
       if (outcome !== 'idle') lastFinished = Date.now();
       if (options.signal.aborted) break;
       if (outcome === 'idle') await sleep(options.config.pollMs, options.signal);
     }
   } finally {
-    await upsertCollectorHeartbeat(options.sql, {
-      instanceId: options.config.instanceId,
-      status: 'stopped',
-      currentJobId: null,
-    }).catch(() => undefined);
+    clearInterval(timer);
+    await beat('stopped', null);
     log(`[collector] 已退出 instance=${options.config.instanceId}`);
   }
 }

@@ -1,25 +1,27 @@
-import { createSql, runMigrations } from '@studio/db';
+import { collectorSchemaReady, createSql } from '@studio/db';
 import {
+  assertProviderCanStart,
   createMonitorProvider,
   installOfflineFetchGuard,
   readCollectorConfig,
+  readCollectorProviderKind,
   runCollectorLoop,
 } from '@studio/monitoring';
-
-installOfflineFetchGuard();
+import { waitForReady } from './wait-for-schema';
 
 const source = process.env.MONITOR_DATA_SOURCE ?? 'collector';
 if (source !== 'mock' && source !== 'collector') {
-  throw new Error(
-    `Invalid MONITOR_DATA_SOURCE=${source}. collector 只运行离线适配器，不会访问 Bilibili。`,
-  );
+  throw new Error(`Invalid MONITOR_DATA_SOURCE=${source}. collector 只接受 mock 或 collector。`);
 }
 
-const providerKind = process.env.MONITOR_PROVIDER ?? 'offline';
+const providerKind = readCollectorProviderKind(process.env);
+assertProviderCanStart(providerKind, process.env);
+if (providerKind === 'offline') installOfflineFetchGuard();
+
 const provider = createMonitorProvider(providerKind, process.env);
 const config = readCollectorConfig(process.env);
 const sql = createSql();
-await runMigrations(sql);
+await waitForReady(() => collectorSchemaReady(sql), { attempts: 30, delayMs: 2_000 });
 const abort = new AbortController();
 
 const stop = () => {

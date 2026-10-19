@@ -1,6 +1,6 @@
 # 离线监控项与 Collector
 
-WP-R2-05。采集源是仓库内的离线适配器。`mock` 与 `collector` 两种 `MONITOR_DATA_SOURCE` 都可以启动，都不会请求 `bilibili.com` 或 `bilibili.tv`。未实现的 `MONITOR_PROVIDER` 在 Collector 启动时失败退出。
+WP-R2-05 的离线采集器仍然是默认路径。`COLLECTOR_PROVIDER=offline`（或未设置时沿用 `MONITOR_PROVIDER=offline`）不会请求 B 站。真实采集见 [real-collector.md](./real-collector.md)。未实现的采集源在启动时失败退出。
 
 商单发布写下的 `monitor_jobs` 仍是项目域的待执行记录，本采集器不读取、不更新它。
 
@@ -19,7 +19,7 @@ WP-R2-05。采集源是仓库内的离线适配器。`mock` 与 `collector` 两�
 
 `docker-compose.yml` 的 `collector` 服务使用与 `app` 相同的镜像，命令为 `bun run apps/collector/src/index.ts`。它只连接 Compose 网络里的 `postgres`，不发布端口。轮询待执行任务时用 `FOR UPDATE SKIP LOCKED`，失败按次数退避，达到 `COLLECTOR_MAX_ATTEMPTS`（默认 3）后把任务记为 `failed`。SIGTERM / SIGINT 会等当前任务结束后退出。
 
-Collector 启动时会先执行同一套迁移，因此可以先于 API 启动。本地单次进程：
+迁移只由 API 在启动时执行。Collector 发现表还没建好时会有界等待，不会自己跑迁移。本地单次进程：
 
 ```bash
 MONITOR_DATA_SOURCE=collector MONITOR_PROVIDER=offline bun run apps/collector/src/index.ts
