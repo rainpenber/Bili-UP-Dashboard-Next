@@ -28,6 +28,18 @@
         "typescript": "^5.7.2",
       },
     },
+    "apps/collector": {
+      "name": "@studio/collector",
+      "version": "0.0.0",
+      "dependencies": {
+        "@studio/db": "workspace:*",
+        "@studio/monitoring": "workspace:*",
+        "postgres": "^3.4.5",
+      },
+      "devDependencies": {
+        "typescript": "^5.7.2",
+      },
+    },
     "apps/web": {
       "name": "@studio/web",
       "version": "0.0.0",
@@ -376,6 +388,8 @@
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.64.5", "", { "os": "win32", "cpu": "x64" }, "sha512-IhV6ew/DuzUWwHaYmlh7MrPCV3lKFUq/amTEwysi4r/mwNPAEfAMh5dYWeTSPTeMy2pFHGMEWYtPkHzfX3tG5A=="],
 
     "@studio/api": ["@studio/api@workspace:apps/api"],
+
+    "@studio/collector": ["@studio/collector@workspace:apps/collector"],
 
     "@studio/contracts": ["@studio/contracts@workspace:packages/contracts"],
 

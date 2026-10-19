@@ -2,8 +2,8 @@
   "baseline": "9d9370e0b2c0d3b5b5e6cb92f68d5416f48b641b",
   "evidenceLevel": "source-confirmed static registration. Not a runtime exercise of each route.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 30,
-  "wiredRouteCount": 18,
+  "apiRouteCount": 36,
+  "wiredRouteCount": 24,
   "unwiredImplementedRouteCount": 12,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes adds a fixed POST list.",
@@ -372,6 +372,140 @@
       "wired": false,
       "notes": "No web caller. Timeline confirmation uses force on the step route.",
       "storedEntity": "open_items"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/targets",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 90,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseMonitorTargetList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "fetchMonitorTargets",
+          "evidence": "/targets?"
+        }
+      ],
+      "wired": true,
+      "notes": "Active monitor targets. Deleted rows stay out unless includeDeleted=1.",
+      "query": "page, pageSize, includeDeleted",
+      "storedEntity": "monitor_targets"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/targets",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 109,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-targets.ts#parseCreateMonitorTargetRequest",
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseMonitorTargetCreateResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "createMonitorTarget",
+          "evidence": "method: 'POST'"
+        }
+      ],
+      "wired": true,
+      "notes": "Duplicate active (type, external id) returns the existing row with code target_exists.",
+      "storedEntity": "monitor_targets, collector_jobs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/monitor/targets/:id",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 137,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-targets.ts#parsePatchMonitorTargetRequest",
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseMonitorTarget",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "patchMonitorTarget",
+          "evidence": "method: 'PATCH'"
+        }
+      ],
+      "wired": true,
+      "notes": "Pause, resume, interval, tags, and label. Deleted targets return 409.",
+      "storedEntity": "monitor_targets, collector_jobs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/monitor/targets/:id",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 158,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseMonitorTarget",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "deleteMonitorTarget",
+          "evidence": "method: 'DELETE'"
+        }
+      ],
+      "wired": true,
+      "notes": "Soft delete. Historical metric samples stay.",
+      "storedEntity": "monitor_targets.deleted_at"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/targets/:id/run",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 175,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseMonitorTargetRunResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "runMonitorTarget",
+          "evidence": "/run"
+        }
+      ],
+      "wired": true,
+      "notes": "Queue one immediate offline collection. Deleted targets return 409.",
+      "storedEntity": "collector_jobs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/jobs",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 198,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseCollectorJobList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "fetchMonitorJobs",
+          "evidence": "/jobs?"
+        }
+      ],
+      "wired": true,
+      "notes": "Collector jobs with the latest run summary. Does not read commercial monitor_jobs.",
+      "query": "page, pageSize",
+      "storedEntity": "collector_jobs, collector_runs, monitor_targets"
     },
     {
       "method": "GET",

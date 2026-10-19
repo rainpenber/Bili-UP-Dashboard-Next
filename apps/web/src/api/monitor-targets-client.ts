@@ -1,0 +1,92 @@
+import {
+  parseCollectorJobList,
+  parseMonitorTarget,
+  parseMonitorTargetCreateResponse,
+  parseMonitorTargetList,
+  parseMonitorTargetRunResponse,
+  type CollectorJob,
+  type MonitorIntervalMinutes,
+  type MonitorTarget,
+  type MonitorTargetCreateResponse,
+  type MonitorTargetPatchRequest,
+  type MonitorTargetType,
+  type Paginated,
+} from '@studio/contracts';
+
+const API_BASE = import.meta.env.VITE_MONITOR_API_BASE ?? '/api/v1/monitor';
+
+export class MonitorRequestError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+
+  constructor(message: string, status: number, code: string | null) {
+    super(message);
+    this.name = 'MonitorRequestError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
+  const res = await fetch(`${API_BASE}${path}`, init);
+  const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+  if (!res.ok) {
+    throw new MonitorRequestError(
+      body.error ?? `HTTP ${res.status}`,
+      res.status,
+      body.code ?? null,
+    );
+  }
+  return body;
+}
+
+export function fetchMonitorTargets(page = 1): Promise<Paginated<MonitorTarget>> {
+  return requestJson(`/targets?page=${page}&pageSize=8`).then(parseMonitorTargetList);
+}
+
+export function fetchMonitorJobs(page = 1): Promise<Paginated<CollectorJob>> {
+  return requestJson(`/jobs?page=${page}&pageSize=8`).then(parseCollectorJobList);
+}
+
+export function createMonitorTarget(input: {
+  type: MonitorTargetType;
+  externalId: string;
+  label?: string;
+  tags?: string[];
+  intervalMinutes: MonitorIntervalMinutes;
+}): Promise<MonitorTargetCreateResponse> {
+  return requestJson('/targets', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then(parseMonitorTargetCreateResponse);
+}
+
+export function patchMonitorTarget(
+  id: string,
+  patch: MonitorTargetPatchRequest,
+): Promise<{ target: MonitorTarget }> {
+  return requestJson(`/targets/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  }).then((body) => {
+    if (typeof body !== 'object' || body === null || !('target' in body)) {
+      throw new MonitorRequestError('监控项响应不完整', 500, null);
+    }
+    return { target: parseMonitorTarget(body.target) };
+  });
+}
+
+export function deleteMonitorTarget(id: string): Promise<void> {
+  return requestJson(`/targets/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(
+    () => undefined,
+  );
+}
+
+export function runMonitorTarget(id: string): Promise<{ job: CollectorJob; message: string }> {
+  return requestJson(`/targets/${encodeURIComponent(id)}/run`, { method: 'POST' }).then((body) => {
+    const parsed = parseMonitorTargetRunResponse(body);
+    return { job: parsed.job, message: parsed.message };
+  });
+}

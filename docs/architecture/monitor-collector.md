@@ -1,0 +1,39 @@
+# 离线监控项与 Collector
+
+WP-R2-05。采集源是仓库内的离线适配器。`mock` 与 `collector` 两种 `MONITOR_DATA_SOURCE` 都可以启动，都不会请求 `bilibili.com` 或 `bilibili.tv`。未实现的 `MONITOR_PROVIDER` 在 Collector 启动时失败退出。
+
+商单发布写下的 `monitor_jobs` 仍是项目域的待执行记录，本采集器不读取、不更新它。
+
+## 表
+
+| 表                     | 作用                                                                                |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `monitor_targets`      | 视频 BV 或 UP 主 UID。未删除的 `(type, external_id)` 唯一                           |
+| `collector_jobs`       | `pending` / `running` / `succeeded` / `failed`。同一目标的同一 `scheduled_for` 唯一 |
+| `collector_runs`       | 一次执行的样本数、耗时、成功或失败                                                  |
+| `collector_heartbeats` | Collector 实例心跳                                                                  |
+
+样本仍写入既有的 `video_metric_samples` 与 `creator_follower_samples`。冲突键是目标加采样时刻，重复执行不覆盖、不删除历史点。
+
+## 进程
+
+`docker-compose.yml` 的 `collector` 服务使用与 `app` 相同的镜像，命令为 `bun run apps/collector/src/index.ts`。它只连接 Compose 网络里的 `postgres`，不发布端口。轮询待执行任务时用 `FOR UPDATE SKIP LOCKED`，失败按次数退避，达到 `COLLECTOR_MAX_ATTEMPTS`（默认 3）后把任务记为 `failed`。SIGTERM / SIGINT 会等当前任务结束后退出。
+
+Collector 启动时会先执行同一套迁移，因此可以先于 API 启动。本地单次进程：
+
+```bash
+MONITOR_DATA_SOURCE=collector MONITOR_PROVIDER=offline bun run apps/collector/src/index.ts
+```
+
+夹具目录默认是 `packages/monitoring/fixtures/mock-data`。设置 `MOCK_DATA_ROOT` 时该目录必须存在；`OFFLINE_REQUIRE_FIXTURE=1` 时，目标缺少对应夹具文件会让该次任务失败。
+
+## API
+
+- `POST /api/v1/monitor/targets`
+- `GET /api/v1/monitor/targets`
+- `PATCH /api/v1/monitor/targets/:id`
+- `DELETE /api/v1/monitor/targets/:id`
+- `POST /api/v1/monitor/targets/:id/run`
+- `GET /api/v1/monitor/jobs`
+
+错误体为 `{ "error": "中文说明", "code": "机器可读码" }`。重复添加返回既有记录，并带 `code: "target_exists"`。

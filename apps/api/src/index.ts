@@ -21,5 +21,7 @@ export default {
 };
 
 if (import.meta.main) {
-  console.log(`Studio API listening on http://localhost:${port} (MONITOR_DATA_SOURCE=mock)`);
+  console.log(
+    `Studio API listening on http://localhost:${port} (MONITOR_DATA_SOURCE=${process.env.MONITOR_DATA_SOURCE ?? 'mock'})`,
+  );
 }

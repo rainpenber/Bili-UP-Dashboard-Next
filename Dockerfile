@@ -10,6 +10,7 @@ COPY packages/contracts/package.json packages/contracts/
 COPY packages/db/package.json packages/db/
 COPY packages/monitoring/package.json packages/monitoring/
 COPY packages/workflow/package.json packages/workflow/
+COPY apps/collector/package.json apps/collector/
 RUN bun install --frozen-lockfile
 
 FROM deps AS build-web
@@ -23,6 +24,7 @@ FROM deps AS runtime
 COPY tsconfig.base.json ./
 COPY packages packages
 COPY apps/api apps/api
+COPY apps/collector apps/collector
 COPY --from=build-web /app/apps/web/dist /app/web-dist
 ENV API_PORT=3000
 ENV WEB_STATIC_ROOT=/app/web-dist

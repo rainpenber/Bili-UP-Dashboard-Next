@@ -38,8 +38,8 @@ function topLevelServices(yaml: string): string[] {
 }
 
 describe('deploy docker-compose isolation', () => {
-  test('production compose defines exactly postgres and app', () => {
-    expect(topLevelServices(deployCompose).sort()).toEqual(['app', 'postgres']);
+  test('production compose defines postgres, app, and collector', () => {
+    expect(topLevelServices(deployCompose).sort()).toEqual(['app', 'collector', 'postgres']);
     expect(deployCompose).not.toMatch(/^\s+api:/m);
     expect(deployCompose).not.toMatch(/^\s+web:/m);
     expect(deployCompose).not.toMatch(/^\s+mock-import:/m);
@@ -67,6 +67,18 @@ describe('deploy docker-compose isolation', () => {
     expect(app).not.toContain('./:/app');
     expect(app).not.toContain('node_modules');
     expect(deployCompose).not.toContain('nginx');
+  });
+
+  test('collector is an internal offline worker without a host port', () => {
+    const collector = serviceBlock(deployCompose, 'collector');
+    expect(collector).toContain('POSTGRES_HOST: postgres');
+    expect(collector).toContain('MONITOR_DATA_SOURCE: collector');
+    expect(collector).toContain('MONITOR_PROVIDER: offline');
+    expect(collector).toContain('apps/collector/src/index.ts');
+    expect(collector).toContain('/mock-data:ro');
+    expect(collector).not.toMatch(/^\s+ports:/m);
+    expect(collector).not.toContain('bilibili.com');
+    expect(collector).toContain('disable: true');
   });
 
   test('app depends on healthy postgres', () => {

@@ -50,5 +50,30 @@ services:
       retries: 5
       start_period: 25s
 
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      MONITOR_DATA_SOURCE: collector
+      MONITOR_PROVIDER: offline
+      SOURCE_TIMEZONE: ${SOURCE_TIMEZONE:-Asia/Shanghai}
+      MOCK_DATA_ROOT: /mock-data
+      COLLECTOR_INSTANCE_ID: collector-1
+    volumes:
+      - ${MOCK_DATA_ROOT:-./packages/monitoring/fixtures/mock-data}:/mock-data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ['bun', 'run', 'apps/collector/src/index.ts']
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+
 volumes:
   postgres_data:

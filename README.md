@@ -4,13 +4,14 @@
 
 ## 架构摘要
 
-| 组件   | 路径                 | 说明                                   |
-| ------ | -------------------- | -------------------------------------- |
-| Web    | `apps/web`           | React + Vite + TypeScript              |
-| API    | `apps/api`           | Bun + Hono，`GET /health`              |
-| 契约   | `packages/contracts` | 共享 Health JSON 类型与校验            |
-| 工作流 | `packages/workflow`  | 纯函数规则（示例：商单阶段）           |
-| 数据库 | Docker Compose       | PostgreSQL 16（开发用，WP-000 未接线） |
+| 组件   | 路径                 | 说明                             |
+| ------ | -------------------- | -------------------------------- |
+| Web    | `apps/web`           | React + Vite + TypeScript        |
+| API    | `apps/api`           | Bun + Hono，`GET /health`        |
+| 契约   | `packages/contracts` | 共享 Health JSON 类型与校验      |
+| 工作流 | `packages/workflow`  | 纯函数规则（示例：商单阶段）     |
+| 数据库 | Docker Compose       | PostgreSQL 16                    |
+| 采集器 | `apps/collector`     | 独立进程，离线写入视频与粉丝样本 |
 
 详见 [docs/architecture/system-overview.md](docs/architecture/system-overview.md)。
 
