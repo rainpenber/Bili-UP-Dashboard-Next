@@ -208,14 +208,14 @@ CREATE INDEX IF NOT EXISTS video_samples_source_at ON video_metric_samples (sour
 | 用途 | 端点 | 关键参数 | 取什么 | 说明 |
 | --- | --- | --- | --- | --- |
 | 视频元数据 + 全部互动指标 | `GET https://api.bilibili.com/x/web-interface/view` | `bvid` | `data.cid`、`data.pubdate`、`data.title`、`data.owner.mid`、`data.stat.{view,danmaku,reply,favorite,coin,share,like}` | **一次请求拿全**，评论数就是 `stat.reply`。旧代码重复调了两次，不要学 |
-| 实时在线观看 | `GET https://api.bilibili.com/x/player/online/total` | `bvid`、`cid` | `data.total`（数字或 `"1234+"` 字符串） | 只对发布 14 天内的视频调用；数字入 `online_viewers`，原文入 `online_viewers_raw` |
+| 实时在线观看 | `GET https://api.bilibili.com/x/player/online/total` | `bvid`、`cid` | `data.total`（数字或 `"1234+"` 字符串） | **每轮都采**（不按发布时长截断，老视频可能突然爆火）；数字入 `online_viewers`，原文入 `online_viewers_raw` |
 | UP 主粉丝/关注 | `GET https://api.bilibili.com/x/relation/stat` | `vmid` | `data.follower`、`data.following` | 不需要 WBI；逐 mid 串行 |
 | 登录态校验（账号模块） | `GET https://api.bilibili.com/x/web-interface/nav` | — | `data.isLogin`、`data.mid`、`data.uname`、`data.face` | 只用于校验 Cookie 是否仍有效 |
 
 **为什么查询逻辑要这么写：**
 
 1. `/x/web-interface/view` 已经把视频所有公开统计一次返回，**每个视频每轮只需 1 次请求**。频率预算要花在时间密度上，不是重复请求上。
-2. `/x/player/online/total` 依赖 `cid`，是额外的一次请求，且它只是"当前在线人数下界"，对老视频几乎没有信息量。所以只在 `pubdate` 距今 ≤ 14 天（或目标显式开启）时采。
+2. `/x/player/online/total` 依赖 `cid`，是额外的一次请求，返回值是"当前在线人数下界"。**每一轮都要采**：老视频也可能突然爆火，按发布时长截断会正好漏掉最有价值的时刻。代价只是每轮多一次请求，在 15 分钟/2 小时/6 小时的分级节奏下可以忽略。如果接口返回 `code != 0`，`online_viewers` 记 `NULL`（不是 0），并保留 `raw`。
 3. `relation/stat` 很轻，但**必须慢**：旧脚本在两个 mid 之间 `sleep(30)`，这就是它能活一年的原因。新实现按账号做全局节流，不要因为"内部服务"就并发打。
 4. 这三个接口**都不需要 WBI 签名**。不要顺手给它们加 `w_rid`（多余参数会被风控注意）。WBI 只在 `reply/wbi/main` 这类接口才需要，本包用不到。
 5. 所有请求必须带 `User-Agent`（移动端或桌面 Chrome UA）与 `Referer: https://www.bilibili.com/`，否则 `-352`。
@@ -255,7 +255,7 @@ CREATE INDEX IF NOT EXISTS video_samples_source_at ON video_metric_samples (sour
 load target → 取 account（target.account_id ?? 默认账号）
   ├─ 无 videos 行或 cid 为空 → 调 view 拿元数据（同时已有 stat）
   ├─ 正常一轮 → 调 view 拿 stat
-  ├─ 若 pubdate 在 14 天内 → 再调 online/total
+  ├─ 每轮都调 online/total（爆火可能发生在任何时候，不能按发布时长跳过）
   └─ upsert videos（title/mid/cid/pubdate/封面）→ insert sample
 ```
 
@@ -322,8 +322,6 @@ COLLECTOR_MAX_JITTER_MS=800
 COLLECTOR_MAX_REQUESTS_PER_MINUTE=20
 COLLECTOR_DRY_RUN=0|1
 COLLECTOR_HTTP_TIMEOUT_MS=10000
-# 在线观看只在发布初期有意义，默认与高频窗口一致
-COLLECTOR_ONLINE_WINDOW_DAYS=3
 # 视频年龄分级（分钟）
 COLLECTOR_TIER1_MAX_DAYS=3
 COLLECTOR_TIER1_MINUTES=15
