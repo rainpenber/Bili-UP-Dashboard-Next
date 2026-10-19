@@ -13,6 +13,7 @@
   "dependencies": {
     "@studio/db": "workspace:*",
     "@studio/monitoring": "workspace:*",
+    "@studio/observability": "workspace:*",
     "postgres": "^3.4.5",
     "qrcode": "1.5.4"
   },

@@ -23,6 +23,7 @@
 - `packages/workflow` — 纯函数工作流规则
 - `packages/db` — PostgreSQL 迁移与客户端
 - `packages/monitoring` — 离线 CSV inventory / 导入 CLI
+- `packages/observability` — Pino 日志、脱敏，以及 `app_logs` 写入
 
 ## 常用命令（在仓库根目录）
 

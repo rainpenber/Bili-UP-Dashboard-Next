@@ -106,3 +106,5 @@ bun run apps/collector/src/cli.ts import-legacy --dir /path/to/csv
 - 不落 CSV，不使用 `schedule`，不实现 WBI、`bili_ticket` 或评论接口。
 
 单元测试和 CI 只使用注入的传输层和录制夹具，不会请求 B 站。
+
+运行记录、心跳和请求审计的只读查询在 `/api/v1/ops`。日志级别、脱敏和 `app_logs` 写入策略见 [observability.md](./observability.md)。采集频率、熔断和样本写入仍按本文。

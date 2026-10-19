@@ -16,6 +16,7 @@ import {
 import type { UpstreamCall } from './bilibili-failure';
 import type { BilibiliProvider } from './bilibili-provider';
 import { scrubCollectorError } from './credentials';
+import type { CollectorLogger } from './collector-log';
 import { decideSchedule, readFrequencyPolicy } from './frequency';
 import { formatSourceMinute } from './offline-provider';
 
@@ -84,6 +85,7 @@ export async function runBilibiliJob(options: {
   now: Date;
   env?: NodeJS.ProcessEnv;
   log?: (line: string) => void;
+  logger?: CollectorLogger;
 }): Promise<'succeeded' | 'failed' | 'deferred'> {
   const log = options.log ?? (() => undefined);
   const startedAt = options.now;
@@ -109,7 +111,13 @@ export async function runBilibiliJob(options: {
       log(`[collector] 熔断未结束，推迟任务 ${options.job.id}`);
       return 'deferred';
     }
-    if (circuit) await options.effects.clearCircuit(account.id);
+    if (circuit) {
+      await options.effects.clearCircuit(account.id);
+      options.logger?.info('熔断关闭', {
+        event: 'circuit.close',
+        context: { accountId: account.id },
+      });
+    }
   }
 
   let cookie: string | null = null;
@@ -177,6 +185,10 @@ export async function runBilibiliJob(options: {
       });
       if (account) await options.effects.markUsed(account.id);
       await applyOnlineAccountEffect(options, account, fetched.onlineFailure);
+      options.logger?.child({ runId: committed.runId })?.info('任务成功', {
+        event: 'job.succeeded',
+        context: { inserted: committed.inserted },
+      });
       log(`[collector] 任务成功 ${options.job.id} inserted=${committed.inserted}`);
       return 'succeeded';
     }
@@ -216,6 +228,10 @@ export async function runBilibiliJob(options: {
       calls: fetched.calls,
     });
     if (account) await options.effects.markUsed(account.id);
+    options.logger?.child({ runId: committed.runId })?.info('任务成功', {
+      event: 'job.succeeded',
+      context: { inserted: committed.inserted },
+    });
     log(`[collector] 任务成功 ${options.job.id} inserted=${committed.inserted}`);
     return 'succeeded';
   } catch (error) {
@@ -255,6 +271,7 @@ async function applyOnlineAccountEffect(
     effects: BilibiliEffects;
     now: Date;
     log?: (line: string) => void;
+    logger?: CollectorLogger;
   },
   account: ResolvedBiliAccount | null,
   onlineFailure: { kind: string; message: string } | null,
@@ -266,10 +283,15 @@ async function applyOnlineAccountEffect(
       : 'retryable',
   );
   if (cooldown !== null) {
+    const resumeAt = new Date(options.now.getTime() + cooldown);
     await options.effects.openCircuit({
       accountId: account.id,
-      resumeAt: new Date(options.now.getTime() + cooldown),
+      resumeAt,
       reason: onlineFailure.message,
+    });
+    options.logger?.warn('熔断打开', {
+      event: 'circuit.open',
+      context: { accountId: account.id, resumeAt: resumeAt.toISOString() },
     });
     return;
   }
@@ -284,6 +306,7 @@ async function handleFailure(
     effects: BilibiliEffects;
     maxAttempts: number;
     now: Date;
+    logger?: CollectorLogger;
   },
   account: ResolvedBiliAccount | null,
   error: unknown,
@@ -343,6 +366,10 @@ async function handleFailure(
       resumeAt: plan.resumeAt,
       reason: message,
     });
+    options.logger?.warn('熔断打开', {
+      event: 'circuit.open',
+      context: { accountId: account.id, resumeAt: plan.resumeAt.toISOString() },
+    });
   }
   const retryAt = plan.action === 'retry' || plan.action === 'circuit' ? plan.retryAt : null;
   const failed = await options.effects.failJob({
@@ -360,6 +387,11 @@ async function handleFailure(
     accountId: account?.id ?? null,
     runId: failed.runId,
     calls: failure.calls,
+  });
+  options.logger?.child({ runId: failed.runId })?.error('任务失败', {
+    event: 'job.failed',
+    err: new Error(message),
+    context: { attempts: options.job.attempts },
   });
   log(`[collector] 任务失败 ${options.job.id} ${message}`);
   return 'failed';

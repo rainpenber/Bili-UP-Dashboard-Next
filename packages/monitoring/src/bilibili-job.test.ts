@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { ClaimedCollectorJob, VideoSampleWrite } from '@studio/db';
 import { BilibiliFailure, planBilibiliFailure, retryDelayMinutes } from './bilibili-failure';
+import type { CollectorLogger } from './collector-log';
 import type { BilibiliEffects } from './bilibili-job';
 import { runBilibiliJob } from './bilibili-job';
 import type { BilibiliProvider, VideoFetchResult } from './bilibili-provider';
@@ -81,6 +82,50 @@ function effects(patch: Partial<BilibiliEffects> = {}): BilibiliEffects & {
     markUsed: async () => undefined,
   };
   return { videos, disabled, circuits, deferred, expired, ...base, ...patch };
+}
+
+function capturingLogger() {
+  const events: {
+    level: string;
+    event?: string;
+    runId?: string;
+    jobId?: string;
+    targetId?: string;
+  }[] = [];
+  function make(bindings: { jobId?: string; runId?: string; targetId?: string }): CollectorLogger {
+    const record = (level: string, fields?: { event?: string }) => {
+      const entry: {
+        level: string;
+        event?: string;
+        runId?: string;
+        jobId?: string;
+        targetId?: string;
+      } = { level };
+      if (fields?.event) entry.event = fields.event;
+      if (bindings.jobId) entry.jobId = bindings.jobId;
+      if (bindings.runId) entry.runId = bindings.runId;
+      if (bindings.targetId) entry.targetId = bindings.targetId;
+      events.push(entry);
+    };
+    return {
+      child(extra) {
+        return make({ ...bindings, ...extra });
+      },
+      debug(_message, fields) {
+        record('debug', fields);
+      },
+      info(_message, fields) {
+        record('info', fields);
+      },
+      warn(_message, fields) {
+        record('warn', fields);
+      },
+      error(_message, fields) {
+        record('error', fields);
+      },
+    };
+  }
+  return { logger: make({}), events };
 }
 
 const view: VideoFetchResult = {
@@ -241,6 +286,7 @@ describe('bilibili job orchestration', () => {
       }
       return view;
     });
+    const logs = capturingLogger();
     const first = await runBilibiliJob({
       job: job({ accountId: 'acc-1' }),
       provider: current,
@@ -248,6 +294,7 @@ describe('bilibili job orchestration', () => {
       forcedAccountId: null,
       maxAttempts: 3,
       now,
+      logger: logs.logger.child({ jobId: 'job-1', targetId: 'target-1' }),
     });
     expect(first).toBe('failed');
     expect(circuit.current?.resumeAt.toISOString()).toBe('2026-10-19T00:30:00.000Z');
@@ -258,6 +305,7 @@ describe('bilibili job orchestration', () => {
       forcedAccountId: null,
       maxAttempts: 3,
       now: new Date('2026-10-19T00:10:00.000Z'),
+      logger: logs.logger,
     });
     expect(during).toBe('deferred');
     expect(fetches).toBe(1);
@@ -268,10 +316,19 @@ describe('bilibili job orchestration', () => {
       forcedAccountId: null,
       maxAttempts: 3,
       now: new Date('2026-10-19T00:30:00.000Z'),
+      logger: logs.logger,
     });
     expect(after).toBe('succeeded');
     expect(fetches).toBe(2);
     expect(circuit.current).toBeNull();
+    expect(logs.events.map((entry) => entry.event)).toEqual([
+      'circuit.open',
+      'job.failed',
+      'circuit.close',
+      'job.succeeded',
+    ]);
+    expect(logs.events[1]?.runId).toBe('run-fail');
+    expect(logs.events[3]?.runId).toBe('run-1');
   });
 
   test('-101 marks the account expired and does not keep calling', async () => {

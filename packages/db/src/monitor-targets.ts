@@ -634,7 +634,8 @@ export async function recordCollectorSuccess(
     startedAt: Date;
     schedule?: CollectorScheduleWrite;
   },
-): Promise<void> {
+): Promise<{ runId: string }> {
+  const runId = crypto.randomUUID();
   await sql.begin(async (tx) => {
     const finished = new Date();
     await tx`
@@ -646,7 +647,7 @@ export async function recordCollectorSuccess(
       INSERT INTO collector_runs (
         id, job_id, target_id, status, samples_written, duration_ms, error, started_at, finished_at
       ) VALUES (
-        ${crypto.randomUUID()}::uuid,
+        ${runId}::uuid,
         ${input.jobId}::uuid,
         ${input.targetId}::uuid,
         'succeeded',
@@ -665,6 +666,7 @@ export async function recordCollectorSuccess(
       schedule: input.schedule ?? null,
     });
   });
+  return { runId };
 }
 
 export async function recordCollectorFailure(

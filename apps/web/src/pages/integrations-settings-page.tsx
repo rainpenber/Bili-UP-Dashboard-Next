@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DefaultFlowEditor } from '@/features/commercial/components/default-flow-editor';
@@ -17,8 +18,17 @@ export function IntegrationsSettingsPage() {
           <CardHeader>
             <CardTitle className="text-base">通知与集成（规划中）</CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            微信、飞书、OneNote 等接入在本里程碑不做真实配置；上线后在这里统一管理。
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <p>微信、飞书、OneNote 等接入在本里程碑不做真实配置；上线后在这里统一管理。</p>
+            <p>
+              <Link
+                to="/ops"
+                className="font-medium text-foreground underline-offset-4 hover:underline"
+              >
+                打开运维诊断
+              </Link>
+              ，查看采集心跳、运行记录和日志。
+            </p>
           </CardContent>
         </Card>
 

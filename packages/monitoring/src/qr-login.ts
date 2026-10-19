@@ -6,6 +6,7 @@ import {
   bilibiliHeaders,
   type HttpTransport,
 } from './bilibili-transport';
+import type { CollectorLogger } from './collector-log';
 import { scrubSensitive } from './sensitive';
 
 const GENERATE_URL = 'https://passport.bilibili.com/x/passport-login/web/qrcode/generate';
@@ -113,6 +114,7 @@ export async function runQrLogin(options: {
   sleep: (ms: number) => Promise<void>;
   save: (profile: LoginProfile) => Promise<{ accountId: string }>;
   log?: (line: string) => void;
+  logger?: CollectorLogger;
   pollIntervalMs?: number;
   maxPolls?: number;
 }): Promise<{ accountId: string; mid: string; uname: string }> {
@@ -153,6 +155,10 @@ export async function runQrLogin(options: {
       face: profile.face,
       jar: cookies.jar,
       cookieExpiresAt: cookies.expiresAt,
+    });
+    options.logger?.info('登录成功', {
+      event: 'auth.login',
+      context: { accountId: saved.accountId, mid: profile.mid },
     });
     log(`登录成功 mid=${profile.mid} uname=${profile.uname}`);
     return { accountId: saved.accountId, mid: profile.mid, uname: profile.uname };

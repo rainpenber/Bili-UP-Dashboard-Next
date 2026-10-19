@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Palette,
   Plug,
+  ScrollText,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -61,6 +62,16 @@ export const primaryNav: NavItem[] = [
   },
 ];
 
+export const settingsNav: NavItem[] = [
+  {
+    to: '/ops',
+    label: '运维诊断',
+    description: '采集心跳、运行记录、请求审计和日志',
+    icon: ScrollText,
+    implemented: true,
+  },
+];
+
 const workflowMockNav: NavItem = {
   to: '/workflow-mock',
   label: '流程',
@@ -70,6 +81,7 @@ const workflowMockNav: NavItem = {
 };
 
 export function navItemForPath(pathname: string): NavItem | undefined {
+  if (pathname === '/ops' || pathname.startsWith('/ops/')) return settingsNav[0];
   if (pathname === '/workflow-mock' || pathname.startsWith('/workflow-mock/'))
     return workflowMockNav;
   if (pathname === '/') return primaryNav[0];

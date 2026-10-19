@@ -37,6 +37,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    logging:
+      options:
+        max-size: 20m
+        max-file: '5'
     healthcheck:
       test:
         [
@@ -72,6 +76,10 @@ services:
       postgres:
         condition: service_healthy
     command: ['bun', 'run', 'apps/collector/src/index.ts']
+    logging:
+      options:
+        max-size: 20m
+        max-file: '5'
     restart: unless-stopped
     healthcheck:
       disable: true

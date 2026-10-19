@@ -1,4 +1,5 @@
 import { collectorSchemaReady, createSql, saveActiveBiliAccount } from '@studio/db';
+import { createLogger } from '@studio/observability';
 import {
   assertProviderCanStart,
   createLiveBilibiliTransport,
@@ -48,11 +49,17 @@ async function main(): Promise<void> {
     const key = loadCollectorSecretKey(process.env.COLLECTOR_SECRET_KEY);
     if (!key) throw new Error('COLLECTOR_SECRET_KEY 缺失，bilibili 模式拒绝启动');
     const runtime = readBilibiliRuntimeConfig(process.env);
+    const logger = createLogger({
+      service: 'collector',
+      instance: process.env.COLLECTOR_INSTANCE_ID ?? 'collector-cli',
+      sql,
+    });
     const saved = await runQrLogin({
       transport: createLiveBilibiliTransport(runtime.timeoutMs),
       renderQr: (url) => renderLoginQr(url, parsed.pngPath),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       log: (line) => console.log(line),
+      logger,
       save: async (profile) => {
         const secret = encryptCookieJar(profile.jar, key);
         return saveActiveBiliAccount(sql, {
@@ -66,6 +73,7 @@ async function main(): Promise<void> {
       },
     });
     console.log(`账号已保存 ${saved.accountId}`);
+    await logger.flush();
   } finally {
     await sql.end({ timeout: 5 });
   }
