@@ -16,7 +16,6 @@ function config(patch: Partial<BilibiliRuntimeConfig> = {}): BilibiliRuntimeConf
     maxJitterMs: 0,
     maxPerMinute: 20,
     anonymousMinIntervalMs: 0,
-    onlineWindowDays: 14,
     dryRun: false,
     ...patch,
   };
@@ -108,19 +107,43 @@ describe('bilibili provider fixtures', () => {
     expect(cookies).toEqual(['session=fixture', 'session=fixture']);
   });
 
-  test('skips online outside the publication window', async () => {
-    const { transport, urls } = scripted(() => ({ body: viewBody() }));
+  test('fetches online viewers for a 30 day old video', async () => {
+    const { transport, urls } = scripted((request) => {
+      if (new URL(request.url).pathname.endsWith('/online/total')) {
+        return { body: { code: 0, data: { total: 12 } } };
+      }
+      return { body: viewBody() };
+    });
     const provider = createBilibiliProvider(config(), { transport });
     const result = await provider.fetchVideo({
       bvid: 'BV1xx411c7mD',
       sampledAt: new Date(pubdate * 1000),
-      collectedAt: new Date(pubdate * 1000 + 20 * 24 * 60 * 60 * 1000),
+      collectedAt: new Date(pubdate * 1000 + 30 * 24 * 60 * 60 * 1000),
       cookieHeader: null,
       accountKey: 'anonymous',
     });
-    expect(urls).toHaveLength(1);
-    expect(result.online).toBeNull();
-    expect(result.extra.online).toBe('skipped');
+    expect(urls).toHaveLength(2);
+    expect(result.online).toEqual({ viewers: 12n, raw: '12' });
+  });
+
+  test('a failed online call stores null viewers and keeps the raw text', async () => {
+    const { transport } = scripted((request) => {
+      if (new URL(request.url).pathname.endsWith('/online/total')) {
+        return { body: { code: -400, message: '错误', data: { total: '88+' } } };
+      }
+      return { body: viewBody() };
+    });
+    const provider = createBilibiliProvider(config(), { transport });
+    const result = await provider.fetchVideo({
+      bvid: 'BV1xx411c7mD',
+      sampledAt: new Date(),
+      collectedAt: new Date(),
+      cookieHeader: null,
+      accountKey: 'anonymous',
+    });
+    expect(result.online).toEqual({ viewers: null, raw: '88+' });
+    expect(result.view.commentCount).toBe(7n);
+    expect(result.onlineFailure?.kind).toBe('retryable');
   });
 
   test('classifies -404, -352, -509, -101 and HTTP 500 without a live network', async () => {

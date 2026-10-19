@@ -6,7 +6,7 @@ WP-R2-06。Collector 仍是独立进程，只通过 PostgreSQL 与 API 交换目
 
 视频公开指标已经集中在 `GET /x/web-interface/view`。`data.stat` 里同时有播放、弹幕、评论、收藏、投币、分享、点赞，`data` 上还有 `cid`、`pubdate`、`title`、`owner` 和封面 `pic`。每一轮每个 BV 只打这一次，频率预算才能花在采样密度上。旧脚本把同一接口打了两次（一次拿 cid，一次拿 stat），还漏了 `stat.reply`。
 
-`GET /x/player/online/total` 必须带 `bvid` 和 `cid`，所以它只能发生在 `view` 之后，而且它表达的是“当前在线人数的下界”，老稿几乎没有信息量。默认只在 `pubdate` 距今不超过 `COLLECTOR_ONLINE_WINDOW_DAYS`（14 天）时再打这一次。返回值可能是数字，也可能是 `"1234+"`：整数写入 `online_viewers`，原文写入 `online_viewers_raw`。窗口外的样本把这两列留空，不用 0 冒充“没有人在看”。
+`GET /x/player/online/total` 必须带 `bvid` 和 `cid`，所以它发生在 `view` 之后。它给出的是当前在线人数下界。**每一轮都要采**，不按发布年龄截断：老视频也可能突然爆火，那正是不能漏掉的时刻。返回值可能是数字，也可能是 `"1234+"`：整数写入 `online_viewers`，原文写入 `online_viewers_raw`。调用失败或业务码不是 0 时，`online_viewers` 写 NULL，原文能解析就保留，不能解析就留空。不要写成 0，否则图表会显示一次虚假的下跌。
 
 `GET /x/relation/stat?vmid=` 很轻，但旧粉丝脚本能稳定跑一年，靠的是两个 mid 之间 `sleep(30)`。新实现不按脚本写死 30 秒，而是按账号做全局节流：同一账号串行，最小间隔 `COLLECTOR_MIN_INTERVAL_MS`（1500）再加 `0..COLLECTOR_MAX_JITTER_MS`（800）抖动，并且每分钟不超过 `COLLECTOR_MAX_REQUESTS_PER_MINUTE`（20）。没有 Cookie 时最小间隔至少 5 秒，因为未登录配额更低。
 
@@ -18,28 +18,42 @@ Cookie 的作用是抬高配额、降低风控概率。公开数据未登录也�
 
 ## 字段映射
 
-| 端点                     | 响应字段                                  | 列                                                          |
-| ------------------------ | ----------------------------------------- | ----------------------------------------------------------- |
-| `/x/web-interface/view`  | `data.stat.view`                          | `video_metric_samples.view_count`                           |
-| 同上                     | `data.stat.danmaku`                       | `danmaku_count`                                             |
-| 同上                     | `data.stat.reply`                         | `comment_count`                                             |
-| 同上                     | `data.stat.favorite`                      | `favorite_count`                                            |
-| 同上                     | `data.stat.coin`                          | `coin_count`                                                |
-| 同上                     | `data.stat.share`                         | `share_count`                                               |
-| 同上                     | `data.stat.like`                          | `like_count`                                                |
-| 同上                     | `data.cid`                                | `videos.cid`                                                |
-| 同上                     | `data.pubdate`（Unix 秒）                 | `videos.pubdate`                                            |
-| 同上                     | `data.title`                              | `videos.title`                                              |
-| 同上                     | `data.owner.mid`                          | `videos.mid`                                                |
-| 同上                     | `data.owner.name`                         | `creators.uname`                                            |
-| 同上                     | `data.pic`                                | `videos.metadata.pic`                                       |
-| `/x/player/online/total` | `data.total` 的数字部分                   | `online_viewers`                                            |
-| 同上                     | `data.total` 原文                         | `online_viewers_raw`                                        |
-| `/x/relation/stat`       | `data.follower`                           | `creator_follower_samples.follower_count`                   |
-| 同上                     | `data.following`                          | `following_count`                                           |
-| `/x/web-interface/nav`   | `data.mid` / `uname` / `face` / `isLogin` | `bili_accounts.mid` / `uname` / `avatar_url`，并校验 Cookie |
+| 端点                     | 响应字段                                              | 列                                                          |
+| ------------------------ | ----------------------------------------------------- | ----------------------------------------------------------- |
+| `/x/web-interface/view`  | `data.stat.view`                                      | `video_metric_samples.view_count`                           |
+| 同上                     | `data.stat.danmaku`                                   | `danmaku_count`                                             |
+| 同上                     | `data.stat.reply`                                     | `comment_count`                                             |
+| 同上                     | `data.stat.favorite`                                  | `favorite_count`                                            |
+| 同上                     | `data.stat.coin`                                      | `coin_count`                                                |
+| 同上                     | `data.stat.share`                                     | `share_count`                                               |
+| 同上                     | `data.stat.like`                                      | `like_count`                                                |
+| 同上                     | `data.cid`                                            | `videos.cid`                                                |
+| 同上                     | `data.pubdate`（Unix 秒）                             | `videos.pubdate`                                            |
+| 同上                     | `data.title`                                          | `videos.title`                                              |
+| 同上                     | `data.owner.mid`                                      | `videos.mid`                                                |
+| 同上                     | `data.owner.name`                                     | `creators.uname`                                            |
+| 同上                     | `data.pic`                                            | `videos.metadata.pic`                                       |
+| `/x/player/online/total` | `data.total` 的数字部分；失败或 `code != 0` 时为 NULL | `online_viewers`                                            |
+| 同上                     | `data.total` 原文；没有原文则留空                     | `online_viewers_raw`                                        |
+| `/x/relation/stat`       | `data.follower`                                       | `creator_follower_samples.follower_count`                   |
+| 同上                     | `data.following`                                      | `following_count`                                           |
+| `/x/web-interface/nav`   | `data.mid` / `uname` / `face` / `isLogin`             | `bili_accounts.mid` / `uname` / `avatar_url`，并校验 Cookie |
 
 `sampled_at` 取 `collector_jobs.scheduled_for`，是幂等键。同一任务重跑命中 `(bvid, sampled_at)` 或 `(mid, sampled_at)` 时 `ON CONFLICT DO NOTHING`，不覆盖已有行。`collected_at` 是这次真正拿到响应的时刻，可以晚于时间桶。历史 CSV 的 `collected_at` 留空，因为旧文件里没有“抓取时刻”，只有分钟级本地时间。
+
+## 为什么按年龄分级
+
+刚发布的视频播放和在线人数以分钟变化，这是判断要不要投流的窗口。过了起量期，曲线变平，继续 15 分钟打一次只是在消耗配额。所以视频目标默认 `interval_mode='auto'`，下一次 `next_run_at` 在**每次排期时**按当时的 `videos.pubdate` 重算：
+
+| 年龄                       | 间隔     |
+| -------------------------- | -------- |
+| ≤ 3 天，或还没有 `pubdate` | 15 分钟  |
+| 3 天到 14 天（含）         | 120 分钟 |
+| 超过 14 天                 | 360 分钟 |
+
+跨过 3 天或 14 天不需要人工改配置，也不需要后台任务：下一次排期自己变慢。`interval_mode='fixed'` 才使用 `interval_minutes`。立即采集只插一条当前任务，不改这个模式。UP 主没有年龄，`auto` 模式是 240 分钟，对应旧脚本的每 4 小时；要改间隔就切到 `fixed`。
+
+阈值在 `packages/monitoring/src/frequency.ts`，环境变量是 `COLLECTOR_TIER1_MAX_DAYS`、`COLLECTOR_TIER1_MINUTES`、`COLLECTOR_TIER2_MAX_DAYS`、`COLLECTOR_TIER2_MINUTES`、`COLLECTOR_TIER3_MINUTES`、`COLLECTOR_CREATOR_INTERVAL_MINUTES`。005 的间隔枚举装不下 120，006 把检查改成 `interval_minutes BETWEEN 5 AND 10080`。这是计划频率。账号上的 1500ms 间隔和每分钟 20 次上限是另一层风控，两者不要混用。
 
 ## 错误与熔断
 
@@ -84,7 +98,8 @@ bun run apps/collector/src/cli.ts import-legacy --dir /path/to/csv
 
 - 每轮视频只请求一次 `view`。评论数来自 `stat.reply`，写入 `comment_count`。
 - cid 存在 `videos.cid`，不再写回 ini 文件，也不为了 cid 多打一次 `view`。
-- 在线人数只对发布 14 天内的稿件采集；失败时留空，不再用 0 填充。
+- 在线人数每一轮都采。失败或业务码非 0 时 `online_viewers` 为 NULL，不再用 0 填充。
+- 视频采集间隔按发布年龄自动变成 15 分钟、2 小时、6 小时；UP 主自动模式是 4 小时。`fixed` 才沿用手工间隔。
 - Cookie 加密进库，可以有多个账号，并记住是哪一个账号写出的样本。
 - 风控码打开持久化熔断，进程重启后仍然生效。
 - 时间桶用任务的 `scheduled_for`，真正的抓取时刻单独放在 `collected_at`。

@@ -42,9 +42,14 @@ describe('real collector migration', () => {
       expect(video?.cid ?? null).toBeNull();
 
       await sql`
-        INSERT INTO monitor_targets (id, "type", external_id, interval_minutes, source)
-        VALUES (${crypto.randomUUID()}::uuid, 'video', 'BV1xx411c7mE', 60, 'bilibili')
+        INSERT INTO monitor_targets (id, "type", external_id, interval_minutes, interval_mode, source)
+        VALUES (${crypto.randomUUID()}::uuid, 'video', 'BV1xx411c7mE', 120, 'fixed', 'bilibili')
       `;
+      const tooSmall = await sql`
+        INSERT INTO monitor_targets (id, "type", external_id, interval_minutes, source)
+        VALUES (${crypto.randomUUID()}::uuid, 'video', 'BV1xx411c7mG', 4, 'offline')
+      `.catch((error: unknown) => error);
+      expect(tooSmall).toBeInstanceOf(Error);
       const rejectedSource = await sql`
         INSERT INTO monitor_targets (id, "type", external_id, interval_minutes, source)
         VALUES (${crypto.randomUUID()}::uuid, 'video', 'BV1xx411c7mF', 60, 'other')

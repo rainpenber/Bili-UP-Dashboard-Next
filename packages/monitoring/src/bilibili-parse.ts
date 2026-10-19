@@ -95,6 +95,15 @@ export function parseView(payload: unknown): ParsedView {
   };
 }
 
+export function onlineRawFromPayload(payload: unknown): string | null {
+  const data = envelopeData(payload);
+  if (typeof data !== 'object' || data === null) return null;
+  const total = (data as Record<string, unknown>).total;
+  if (typeof total === 'number' && Number.isFinite(total)) return String(Math.trunc(total));
+  if (typeof total === 'string' && total.trim()) return total.trim();
+  return null;
+}
+
 export function parseOnlineTotal(payload: unknown): ParsedOnline {
   const data = envelopeData(payload);
   if (typeof data !== 'object' || data === null) throw new Error('online 缺少 data');
@@ -133,11 +142,6 @@ export function parseNav(payload: unknown): ParsedNav {
     uname: typeof record.uname === 'string' ? record.uname : '',
     face: typeof face === 'string' && face.trim() ? face.trim() : null,
   };
-}
-
-export function shouldFetchOnline(pubdate: Date, now: Date, windowDays: number): boolean {
-  const windowMs = windowDays * 24 * 60 * 60 * 1000;
-  return now.getTime() - pubdate.getTime() <= windowMs;
 }
 
 export type QrGenerate = { url: string; qrcodeKey: string };

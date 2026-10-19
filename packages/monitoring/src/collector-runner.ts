@@ -1,6 +1,7 @@
 import {
   claimNextCollectorJob,
   enqueueDueCollectorJobs,
+  readTargetSchedule,
   recordCollectorFailure,
   recordCollectorSuccess,
   refreshCollectorHeartbeat,
@@ -11,6 +12,7 @@ import {
 } from '@studio/db';
 import { createSqlBilibiliEffects } from './bilibili-effects';
 import { runBilibiliJob, type BilibiliEffects } from './bilibili-job';
+import { decideSchedule, readFrequencyPolicy } from './frequency';
 import { isBilibiliProvider } from './bilibili-provider';
 import { loadCollectorSecretKey, scrubCollectorError } from './credentials';
 import {
@@ -119,6 +121,7 @@ export async function runCollectorOnce(options: {
         forcedAccountId: forced.length > 0 ? forced : null,
         maxAttempts: options.config.maxAttempts,
         now: startedAt,
+        env,
         log,
       });
     }
@@ -132,6 +135,7 @@ export async function runCollectorOnce(options: {
         samplesWritten: inserted ? 1 : 0,
         durationMs: Date.now() - startedMs,
         startedAt,
+        ...(await offlineSchedule(options.sql, job.targetId, startedAt, options.env)),
       });
     } else {
       const sample = await options.provider.collectCreator(job.externalId, sampledAt);
@@ -142,6 +146,7 @@ export async function runCollectorOnce(options: {
         samplesWritten: inserted ? 1 : 0,
         durationMs: Date.now() - startedMs,
         startedAt,
+        ...(await offlineSchedule(options.sql, job.targetId, startedAt, options.env)),
       });
     }
     log(`[collector] 任务成功 ${job.id}`);
@@ -164,10 +169,33 @@ export async function runCollectorOnce(options: {
       durationMs: Math.max(0, Date.now() - startedMs),
       startedAt,
       retryAt,
+      ...(await offlineSchedule(options.sql, job.targetId, startedAt, options.env)),
     });
     log(`[collector] 任务失败 ${job.id} attempts=${job.attempts} error=${message}`);
     return 'failed';
   }
+}
+
+async function offlineSchedule(
+  sql: Sql,
+  targetId: string,
+  now: Date,
+  env: NodeJS.ProcessEnv | undefined,
+): Promise<{ schedule: ReturnType<typeof decideSchedule> } | Record<string, never>> {
+  const context = await readTargetSchedule(sql, targetId);
+  if (!context) return {};
+  return {
+    schedule: decideSchedule(
+      {
+        type: context.type,
+        mode: context.intervalMode,
+        fixedMinutes: context.intervalMinutes,
+        pubdate: context.pubdate,
+      },
+      now,
+      readFrequencyPolicy(env ?? process.env),
+    ),
+  };
 }
 
 export async function runCollectorLoop(options: {

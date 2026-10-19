@@ -18,6 +18,7 @@ export class BilibiliFailure extends Error {
   readonly statusCode: number | null;
   readonly bizCode: number | null;
   readonly calls: UpstreamCall[];
+  readonly payload: unknown;
 
   constructor(input: {
     message: string;
@@ -26,6 +27,7 @@ export class BilibiliFailure extends Error {
     statusCode: number | null;
     bizCode: number | null;
     calls: UpstreamCall[];
+    payload?: unknown;
   }) {
     super(input.message);
     this.name = 'BilibiliFailure';
@@ -34,6 +36,7 @@ export class BilibiliFailure extends Error {
     this.statusCode = input.statusCode;
     this.bizCode = input.bizCode;
     this.calls = input.calls;
+    this.payload = input.payload ?? null;
   }
 }
 

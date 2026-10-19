@@ -63,6 +63,12 @@ function effects(patch: Partial<BilibiliEffects> = {}): BilibiliEffects & {
       deferred.push(until);
     },
     cookieHeaderFor: async () => null,
+    readSchedule: async () => ({
+      type: 'video',
+      intervalMode: 'auto',
+      intervalMinutes: 60,
+      pubdate: null,
+    }),
     commitVideo: async (input) => {
       const key = `${input.sample.bvid}|${input.sample.sampledAt.toISOString()}`;
       if (videos.has(key)) return { inserted: false, runId: 'run-dup' };

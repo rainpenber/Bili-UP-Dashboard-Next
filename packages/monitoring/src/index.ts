@@ -17,6 +17,7 @@ export * from './collector-runner';
 export * from './credentials';
 export * from './sensitive';
 export * from './throttle';
+export * from './frequency';
 export * from './bilibili-config';
 export * from './bilibili-failure';
 export * from './bilibili-parse';

@@ -153,7 +153,16 @@ CREATE TABLE collector_circuits (        -- 风控熔断状态，重启后仍然
 ALTER TABLE monitor_targets
   DROP CONSTRAINT IF EXISTS monitor_targets_source_check,
   ADD CONSTRAINT monitor_targets_source_check CHECK (source IN ('offline','bilibili')),
-  ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES bili_accounts (id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES bili_accounts (id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS interval_mode TEXT NOT NULL DEFAULT 'auto'
+    CHECK (interval_mode IN ('auto','fixed'));
+
+-- 1) 旧约束只允许 5/15/30/60/180/360/720/1440，而自动分级需要 120（2 小时）；
+-- 2) 以后调整分级不该再改表，因此放宽为区间约束。
+ALTER TABLE monitor_targets DROP CONSTRAINT IF EXISTS monitor_targets_interval_minutes_check;
+ALTER TABLE monitor_targets
+  ADD CONSTRAINT monitor_targets_interval_minutes_check
+  CHECK (interval_minutes BETWEEN 5 AND 10080);
 
 ALTER TABLE videos
   ADD COLUMN IF NOT EXISTS cid BIGINT,
@@ -186,7 +195,7 @@ CREATE INDEX IF NOT EXISTS creator_samples_run ON creator_follower_samples (coll
 CREATE INDEX IF NOT EXISTS video_samples_source_at ON video_metric_samples (source, sampled_at DESC);
 ```
 
-`monitor_targets.interval_minutes` 已有枚举（5/15/30/60/180/360/720/1440），沿用，不改。
+`interval_minutes` 不再使用旧枚举。自动分级要写入 120，约束改为 `BETWEEN 5 AND 10080`。`interval_mode='auto'` 时这一列只是上次排期写回的结果；`fixed` 时它才是人工间隔。
 
 ### 4.3 时间语义（重要）
 
@@ -196,17 +205,17 @@ CREATE INDEX IF NOT EXISTS video_samples_source_at ON video_metric_samples (sour
 
 ## 5. 采集端点与字段映射
 
-| 用途                      | 端点                                                 | 关键参数      | 取什么                                                                                                                | 说明                                                                             |
-| ------------------------- | ---------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| 视频元数据 + 全部互动指标 | `GET https://api.bilibili.com/x/web-interface/view`  | `bvid`        | `data.cid`、`data.pubdate`、`data.title`、`data.owner.mid`、`data.stat.{view,danmaku,reply,favorite,coin,share,like}` | **一次请求拿全**，评论数就是 `stat.reply`。旧代码重复调了两次，不要学            |
-| 实时在线观看              | `GET https://api.bilibili.com/x/player/online/total` | `bvid`、`cid` | `data.total`（数字或 `"1234+"` 字符串）                                                                               | 只对发布 14 天内的视频调用；数字入 `online_viewers`，原文入 `online_viewers_raw` |
-| UP 主粉丝/关注            | `GET https://api.bilibili.com/x/relation/stat`       | `vmid`        | `data.follower`、`data.following`                                                                                     | 不需要 WBI；逐 mid 串行                                                          |
-| 登录态校验（账号模块）    | `GET https://api.bilibili.com/x/web-interface/nav`   | —             | `data.isLogin`、`data.mid`、`data.uname`、`data.face`                                                                 | 只用于校验 Cookie 是否仍有效                                                     |
+| 用途                      | 端点                                                 | 关键参数      | 取什么                                                                                                                | 说明                                                                                                                                                               |
+| ------------------------- | ---------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 视频元数据 + 全部互动指标 | `GET https://api.bilibili.com/x/web-interface/view`  | `bvid`        | `data.cid`、`data.pubdate`、`data.title`、`data.owner.mid`、`data.stat.{view,danmaku,reply,favorite,coin,share,like}` | **一次请求拿全**，评论数就是 `stat.reply`。旧代码重复调了两次，不要学                                                                                              |
+| 实时在线观看              | `GET https://api.bilibili.com/x/player/online/total` | `bvid`、`cid` | `data.total`（数字或 `"1234+"` 字符串）                                                                               | **每轮都采**（不按发布时长截断，老视频可能突然爆火）；数字入 `online_viewers`，原文入 `online_viewers_raw`。失败或 `code != 0` 时 `online_viewers` 为 NULL，不写 0 |
+| UP 主粉丝/关注            | `GET https://api.bilibili.com/x/relation/stat`       | `vmid`        | `data.follower`、`data.following`                                                                                     | 不需要 WBI；逐 mid 串行                                                                                                                                            |
+| 登录态校验（账号模块）    | `GET https://api.bilibili.com/x/web-interface/nav`   | —             | `data.isLogin`、`data.mid`、`data.uname`、`data.face`                                                                 | 只用于校验 Cookie 是否仍有效                                                                                                                                       |
 
 **为什么查询逻辑要这么写：**
 
 1. `/x/web-interface/view` 已经把视频所有公开统计一次返回，**每个视频每轮只需 1 次请求**。频率预算要花在时间密度上，不是重复请求上。
-2. `/x/player/online/total` 依赖 `cid`，是额外的一次请求，且它只是"当前在线人数下界"，对老视频几乎没有信息量。所以只在 `pubdate` 距今 ≤ 14 天（或目标显式开启）时采。
+2. `/x/player/online/total` 依赖 `cid`，是额外的一次请求，返回值是"当前在线人数下界"。**每一轮都要采**：老视频也可能突然爆火，按发布时长截断会正好漏掉最有价值的时刻。代价只是每轮多一次请求，在 15 分钟/2 小时/6 小时的分级节奏下可以忽略。如果接口返回 `code != 0`，`online_viewers` 记 `NULL`（不是 0），并保留 `raw`。
 3. `relation/stat` 很轻，但**必须慢**：旧脚本在两个 mid 之间 `sleep(30)`，这就是它能活一年的原因。新实现按账号做全局节流，不要因为"内部服务"就并发打。
 4. 这三个接口**都不需要 WBI 签名**。不要顺手给它们加 `w_rid`（多余参数会被风控注意）。WBI 只在 `reply/wbi/main` 这类接口才需要，本包用不到。
 5. 所有请求必须带 `User-Agent`（移动端或桌面 Chrome UA）与 `Referer: https://www.bilibili.com/`，否则 `-352`。
@@ -222,7 +231,23 @@ CREATE INDEX IF NOT EXISTS video_samples_source_at ON video_metric_samples (sour
 4. 收尾：写 `collector_runs`（`samples_written`、`duration_ms`、`error`），更新 job 状态与 `monitor_targets.last_run_at/last_success_at/last_error/next_run_at`。
 5. 空闲：没有到期任务时 sleep 1s，不要让数据库空转。
 
-**目标到期建模**：`monitor_targets.next_run_at` 到点后由 worker 生成一条 job（`UNIQUE(target_id, scheduled_for)` 天然去重），然后 `next_run_at = next_run_at + interval_minutes`。不要在 API 侧预生成一堆任务。
+**目标到期建模**：`monitor_targets.next_run_at` 到点后由 worker 生成一条 job（`UNIQUE(target_id, scheduled_for)` 天然去重），然后计算下一次 `next_run_at`。不要在 API 侧预生成一堆任务。
+
+### 6.1.1 采集频率（按视频年龄自动分级）
+
+视频的数据密度应该随年龄衰减——刚发布时变化快，越老越平。因此视频目标默认 `interval_mode='auto'`，按 `videos.pubdate` 距今的时长决定间隔（**这是业务规则，不要改成固定间隔**）：
+
+| 视频年龄            | 采集间隔    | 理由                                                      |
+| ------------------- | ----------- | --------------------------------------------------------- |
+| 发布 ≤ 3 天         | **15 分钟** | 起量期，播放/在线人数分钟级变化，是判断是否投流的关键窗口 |
+| 3 天 < 年龄 ≤ 14 天 | **2 小时**  | 长尾爬坡期，2 小时足够画出曲线                            |
+| 年龄 > 14 天        | **6 小时**  | 基本平稳，只为持续留档                                    |
+
+- 分级在每次生成下一次任务时按"当前年龄"重新计算，所以视频跨过 3 天/14 天边界后会自动降频，不需要人工改配置。
+- `interval_mode='fixed'` 时用 `interval_minutes`（人工覆盖，立即采集不受影响）。
+- UP 主没有年龄。`auto` 模式固定 **240 分钟**（旧脚本 `schedule.every(4).hours`）。要改这个间隔，把 `interval_mode` 设为 `fixed`，再用 `interval_minutes`。
+- 阈值与间隔放进 `packages/monitoring/src/frequency.ts` 常量，并允许环境变量覆盖（见第 9 节），不要在业务代码里散落魔法数字。
+- 间隔是"计划频率"；**请求节流**（6.5）是另一层风控保护，两者不要混为一谈。
 
 ### 6.2 视频流程
 
@@ -230,7 +255,7 @@ CREATE INDEX IF NOT EXISTS video_samples_source_at ON video_metric_samples (sour
 load target → 取 account（target.account_id ?? 默认账号）
   ├─ 无 videos 行或 cid 为空 → 调 view 拿元数据（同时已有 stat）
   ├─ 正常一轮 → 调 view 拿 stat
-  ├─ 若 pubdate 在 14 天内 → 再调 online/total
+  ├─ 每轮都调 online/total（爆火可能发生在任何时候，不能按发布时长跳过）
   └─ upsert videos（title/mid/cid/pubdate/封面）→ insert sample
 ```
 
@@ -291,12 +316,20 @@ GET  https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=.
 COLLECTOR_PROVIDER=offline|bilibili        # 默认 offline，部署时才切
 COLLECTOR_INSTANCE_ID=collector-1
 COLLECTOR_SECRET_KEY=<base64 32B>          # 缺省时仅 offline 模式可启动
+# 请求节流（风控保护，与采集频率无关）
 COLLECTOR_MIN_INTERVAL_MS=1500
 COLLECTOR_MAX_JITTER_MS=800
 COLLECTOR_MAX_REQUESTS_PER_MINUTE=20
 COLLECTOR_DRY_RUN=0|1
 COLLECTOR_HTTP_TIMEOUT_MS=10000
-COLLECTOR_ONLINE_WINDOW_DAYS=14
+# 视频年龄分级（分钟）
+COLLECTOR_TIER1_MAX_DAYS=3
+COLLECTOR_TIER1_MINUTES=15
+COLLECTOR_TIER2_MAX_DAYS=14
+COLLECTOR_TIER2_MINUTES=120
+COLLECTOR_TIER3_MINUTES=360
+# UP 主默认间隔（分钟）
+COLLECTOR_CREATOR_INTERVAL_MINUTES=240
 ```
 
 `offline` 模式下保持现有行为（现有离线 provider 与测试不能坏）。
@@ -308,13 +341,14 @@ COLLECTOR_ONLINE_WINDOW_DAYS=14
 1. 视频样本解析：`view/stat` 夹具 → 七个指标 + `comment_count` 正确；
 2. `online.total` 为 `"1234+"` 字符串时，`online_viewers=1234`、`online_viewers_raw="1234+"`；
 3. 时间桶幂等：同一 job 重跑两次只落一行；
-4. 限频：注入假时钟，断言两次请求间隔 ≥ 最小值、每分钟不超过上限；
-5. 熔断：`-352` 后同账号后续任务被推迟，冷却结束恢复；
-6. `-404` 目标自动停用；
-7. Cookie 加解密 round-trip；缺密钥时启动报错；
-8. 历史 CSV：BOM + CRLF + 东八区解析 + 幂等 + 评论数留 NULL；
-9. 网络守卫只放行 `api.bilibili.com` / `passport.bilibili.com`；其他域名直接抛错；
-10. 现有离线 collector 测试全部保持通过。
+4. 频率分级：假时钟下断言 ≤3 天按 15 分钟、3–14 天按 120 分钟、>14 天按 360 分钟排下一次任务，且跨边界自动切换；固定模式与 UP 主 4 小时默认值也要覆盖；
+5. 限频：注入假时钟，断言两次请求间隔 ≥ 最小值、每分钟不超过上限；
+6. 熔断：`-352` 后同账号后续任务被推迟，冷却结束恢复；
+7. `-404` 目标自动停用；
+8. Cookie 加解密 round-trip；缺密钥时启动报错；
+9. 历史 CSV：BOM + CRLF + 东八区解析 + 幂等 + 评论数留 NULL；
+10. 网络守卫只放行 `api.bilibili.com` / `passport.bilibili.com`；其他域名直接抛错；
+11. 现有离线 collector 测试全部保持通过。
 
 ## 11. 验收标准（Hermes 会独立验证，不看你自述）
 

@@ -8,12 +8,11 @@ import {
   type UpstreamEndpoint,
 } from './bilibili-failure';
 import {
+  onlineRawFromPayload,
   parseOnlineTotal,
   parseRelation,
   parseView,
   readBizCode,
-  shouldFetchOnline,
-  type ParsedOnline,
   type ParsedRelation,
   type ParsedView,
 } from './bilibili-parse';
@@ -35,7 +34,7 @@ export type VideoFetchResult = {
   sampledAt: Date;
   collectedAt: Date;
   view: ParsedView;
-  online: ParsedOnline | null;
+  online: { viewers: bigint | null; raw: string | null } | null;
   calls: UpstreamCall[];
   onlineFailure: { kind: FailureKind; message: string } | null;
   extra: Record<string, unknown>;
@@ -176,6 +175,7 @@ export function createBilibiliProvider(
         statusCode: response.status,
         bizCode: biz.code,
         calls: [...calls],
+        payload,
       });
     }
     return payload;
@@ -192,7 +192,7 @@ export function createBilibiliProvider(
     async fetchVideo(input) {
       const viewUrl = endpointUrl(VIEW_URL, { bvid: input.bvid });
       if (config.dryRun) {
-        const message = `dry-run GET ${viewUrl}`;
+        const message = `dry-run GET ${viewUrl}\ndry-run GET ${ONLINE_URL}?bvid=${input.bvid}`;
         log(`[collector] ${message}`);
         throw new BilibiliFailure({
           message,
@@ -218,35 +218,34 @@ export function createBilibiliProvider(
           calls: [...calls],
         });
       }
-      let online: ParsedOnline | null = null;
+      let online: { viewers: bigint | null; raw: string | null } | null = null;
       let onlineFailure: VideoFetchResult['onlineFailure'] = null;
-      const fresh = shouldFetchOnline(view.pubdate, input.collectedAt, config.onlineWindowDays);
-      if (fresh) {
-        const onlineUrl = endpointUrl(ONLINE_URL, { bvid: input.bvid, cid: view.cid });
+      const onlineUrl = endpointUrl(ONLINE_URL, { bvid: input.bvid, cid: view.cid });
+      try {
+        const onlinePayload = await request(
+          'online',
+          onlineUrl,
+          input.cookieHeader,
+          input.accountKey,
+          calls,
+        );
         try {
-          const onlinePayload = await request(
-            'online',
-            onlineUrl,
-            input.cookieHeader,
-            input.accountKey,
-            calls,
-          );
-          try {
-            online = parseOnlineTotal(onlinePayload);
-          } catch (error) {
-            onlineFailure = {
-              kind: 'retryable',
-              message: scrubSensitive(error instanceof Error ? error.message : 'online 解析失败'),
-            };
-          }
+          online = parseOnlineTotal(onlinePayload);
         } catch (error) {
-          if (!(error instanceof BilibiliFailure)) throw error;
-          onlineFailure = { kind: error.kind, message: error.message };
+          online = { viewers: null, raw: onlineRawFromPayload(onlinePayload) };
+          onlineFailure = {
+            kind: 'retryable',
+            message: scrubSensitive(error instanceof Error ? error.message : 'online 解析失败'),
+          };
         }
+      } catch (error) {
+        if (!(error instanceof BilibiliFailure)) throw error;
+        online = { viewers: null, raw: onlineRawFromPayload(error.payload) };
+        onlineFailure = { kind: error.kind, message: error.message };
       }
-      const extra: Record<string, unknown> = fresh
-        ? { online: online ? 'fetched' : 'failed' }
-        : { online: 'skipped', onlineReason: 'outside_window' };
+      const extra: Record<string, unknown> = {
+        online: online !== null && online.viewers !== null ? 'fetched' : 'failed',
+      };
       if (onlineFailure) extra.onlineError = onlineFailure.kind;
       return {
         bvid: input.bvid,

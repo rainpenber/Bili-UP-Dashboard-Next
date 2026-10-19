@@ -4,8 +4,10 @@ import { fileURLToPath } from 'node:url';
 import type postgres from 'postgres';
 import type { Sql } from './client';
 import {
+  applyTargetSchedule,
   writeCreatorSampleWithin,
   writeVideoSampleWithin,
+  type CollectorScheduleWrite,
   type CreatorSampleWrite,
   type VideoSampleWrite,
 } from './monitor-targets';
@@ -349,7 +351,13 @@ async function openSucceededRun(
 
 async function closeSucceededRun(
   tx: Queryable,
-  input: { jobId: string; targetId: string; runId: string; samplesWritten: number },
+  input: {
+    jobId: string;
+    targetId: string;
+    runId: string;
+    samplesWritten: number;
+    schedule: CollectorScheduleWrite | null;
+  },
 ): Promise<void> {
   const finished = new Date();
   await tx`
@@ -362,15 +370,13 @@ async function closeSucceededRun(
     SET status = 'succeeded', finished_at = ${finished}, error = NULL, updated_at = ${finished}
     WHERE id = ${input.jobId}::uuid
   `;
-  await tx`
-    UPDATE monitor_targets
-    SET last_run_at = ${finished},
-        last_success_at = ${finished},
-        last_error = NULL,
-        next_run_at = ${finished} + (interval_minutes * interval '1 minute'),
-        updated_at = ${finished}
-    WHERE id = ${input.targetId}::uuid
-  `;
+  await applyTargetSchedule(tx, {
+    targetId: input.targetId,
+    finished,
+    success: true,
+    error: null,
+    schedule: input.schedule,
+  });
 }
 
 export async function commitBilibiliVideo(
@@ -381,6 +387,7 @@ export async function commitBilibiliVideo(
     startedAt: Date;
     durationMs: number;
     sample: VideoSampleWrite;
+    schedule: CollectorScheduleWrite | null;
   },
 ): Promise<{ inserted: boolean; runId: string }> {
   return sql.begin(async (tx) => {
@@ -402,6 +409,7 @@ export async function commitBilibiliVideo(
       targetId: input.targetId,
       runId,
       samplesWritten: inserted ? 1 : 0,
+      schedule: input.schedule,
     });
     return { inserted, runId };
   });
@@ -415,6 +423,7 @@ export async function commitBilibiliCreator(
     startedAt: Date;
     durationMs: number;
     sample: CreatorSampleWrite;
+    schedule: CollectorScheduleWrite | null;
   },
 ): Promise<{ inserted: boolean; runId: string }> {
   return sql.begin(async (tx) => {
@@ -436,6 +445,7 @@ export async function commitBilibiliCreator(
       targetId: input.targetId,
       runId,
       samplesWritten: inserted ? 1 : 0,
+      schedule: input.schedule,
     });
     return { inserted, runId };
   });

@@ -539,6 +539,91 @@ export async function writeCreatorSample(sql: Sql, sample: CreatorSampleWrite): 
   return sql.begin(async (tx) => writeCreatorSampleWithin(tx, sample));
 }
 
+export type TargetScheduleContext = {
+  type: MonitorTargetType;
+  intervalMode: 'auto' | 'fixed';
+  intervalMinutes: number;
+  pubdate: Date | null;
+};
+
+export type CollectorScheduleWrite = {
+  minutes: number;
+  persistMinutes: boolean;
+};
+
+export async function readTargetSchedule(
+  sql: Queryable,
+  targetId: string,
+): Promise<TargetScheduleContext | null> {
+  const rows = await sql<
+    {
+      type: MonitorTargetType;
+      interval_mode: 'auto' | 'fixed';
+      interval_minutes: number;
+      pubdate: Date | null;
+    }[]
+  >`
+    SELECT t.type, t.interval_mode, t.interval_minutes, v.pubdate
+    FROM monitor_targets t
+    LEFT JOIN videos v ON t.type = 'video' AND v.bvid = t.external_id
+    WHERE t.id = ${targetId}::uuid
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    type: row.type,
+    intervalMode: row.interval_mode,
+    intervalMinutes: row.interval_minutes,
+    pubdate: row.pubdate,
+  };
+}
+
+export async function applyTargetSchedule(
+  tx: Queryable,
+  input: {
+    targetId: string;
+    finished: Date;
+    success: boolean;
+    error: string | null;
+    schedule: CollectorScheduleWrite | null;
+  },
+): Promise<void> {
+  const minutes = input.schedule?.minutes ?? null;
+  const persist = input.schedule?.persistMinutes ?? false;
+  if (input.success) {
+    await tx`
+      UPDATE monitor_targets
+      SET last_run_at = ${input.finished},
+          last_success_at = ${input.finished},
+          last_error = NULL,
+          interval_minutes = CASE
+            WHEN ${persist}::boolean AND ${minutes}::int IS NOT NULL THEN ${minutes}::int
+            ELSE interval_minutes
+          END,
+          next_run_at = ${input.finished} + (
+            COALESCE(${minutes}::int, interval_minutes) * interval '1 minute'
+          ),
+          updated_at = ${input.finished}
+      WHERE id = ${input.targetId}::uuid
+    `;
+    return;
+  }
+  await tx`
+    UPDATE monitor_targets
+    SET last_run_at = ${input.finished},
+        last_error = ${input.error},
+        interval_minutes = CASE
+          WHEN ${persist}::boolean AND ${minutes}::int IS NOT NULL THEN ${minutes}::int
+          ELSE interval_minutes
+        END,
+        next_run_at = ${input.finished} + (
+          COALESCE(${minutes}::int, interval_minutes) * interval '1 minute'
+        ),
+        updated_at = ${input.finished}
+    WHERE id = ${input.targetId}::uuid
+  `;
+}
+
 export async function recordCollectorSuccess(
   sql: Sql,
   input: {
@@ -547,6 +632,7 @@ export async function recordCollectorSuccess(
     samplesWritten: number;
     durationMs: number;
     startedAt: Date;
+    schedule?: CollectorScheduleWrite;
   },
 ): Promise<void> {
   await sql.begin(async (tx) => {
@@ -571,15 +657,13 @@ export async function recordCollectorSuccess(
         ${finished}
       )
     `;
-    await tx`
-      UPDATE monitor_targets
-      SET last_run_at = ${finished},
-          last_success_at = ${finished},
-          last_error = NULL,
-          next_run_at = ${finished} + (interval_minutes * interval '1 minute'),
-          updated_at = ${finished}
-      WHERE id = ${input.targetId}::uuid
-    `;
+    await applyTargetSchedule(tx, {
+      targetId: input.targetId,
+      finished,
+      success: true,
+      error: null,
+      schedule: input.schedule ?? null,
+    });
   });
 }
 
@@ -594,6 +678,7 @@ export async function recordCollectorFailure(
     durationMs: number;
     startedAt: Date;
     retryAt: Date | null;
+    schedule?: CollectorScheduleWrite;
   },
 ): Promise<{ terminal: boolean; runId: string }> {
   const retryAt = input.retryAt;
@@ -610,14 +695,13 @@ export async function recordCollectorFailure(
             updated_at = ${finished}
         WHERE id = ${input.jobId}::uuid
       `;
-      await tx`
-        UPDATE monitor_targets
-        SET last_run_at = ${finished},
-            last_error = ${input.error},
-            next_run_at = ${finished} + (interval_minutes * interval '1 minute'),
-            updated_at = ${finished}
-        WHERE id = ${input.targetId}::uuid
-      `;
+      await applyTargetSchedule(tx, {
+        targetId: input.targetId,
+        finished,
+        success: false,
+        error: input.error,
+        schedule: input.schedule ?? null,
+      });
     } else {
       if (!retryAt) throw new Error('重试时间缺失');
       await tx`

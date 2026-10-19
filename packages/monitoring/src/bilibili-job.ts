@@ -1,8 +1,10 @@
 import type {
   CircuitRow,
   ClaimedCollectorJob,
+  CollectorScheduleWrite,
   CreatorSampleWrite,
   ResolvedBiliAccount,
+  TargetScheduleContext,
   VideoSampleWrite,
 } from '@studio/db';
 import {
@@ -14,6 +16,7 @@ import {
 import type { UpstreamCall } from './bilibili-failure';
 import type { BilibiliProvider } from './bilibili-provider';
 import { scrubCollectorError } from './credentials';
+import { decideSchedule, readFrequencyPolicy } from './frequency';
 import { formatSourceMinute } from './offline-provider';
 
 export type BilibiliEffects = {
@@ -28,12 +31,14 @@ export type BilibiliEffects = {
   disableTarget(targetId: string, error: string): Promise<void>;
   deferJob(jobId: string, until: Date): Promise<void>;
   cookieHeaderFor(accountId: string): Promise<string | null>;
+  readSchedule(targetId: string): Promise<TargetScheduleContext | null>;
   commitVideo(input: {
     jobId: string;
     targetId: string;
     startedAt: Date;
     durationMs: number;
     sample: VideoSampleWrite;
+    schedule: CollectorScheduleWrite | null;
   }): Promise<{ inserted: boolean; runId: string }>;
   commitCreator(input: {
     jobId: string;
@@ -41,6 +46,7 @@ export type BilibiliEffects = {
     startedAt: Date;
     durationMs: number;
     sample: CreatorSampleWrite;
+    schedule: CollectorScheduleWrite | null;
   }): Promise<{ inserted: boolean; runId: string }>;
   failJob(input: {
     jobId: string;
@@ -48,6 +54,7 @@ export type BilibiliEffects = {
     attempts: number;
     maxAttempts: number;
     error: string;
+    schedule?: CollectorScheduleWrite;
     durationMs: number;
     startedAt: Date;
     retryAt: Date | null;
@@ -75,11 +82,14 @@ export async function runBilibiliJob(options: {
   forcedAccountId: string | null;
   maxAttempts: number;
   now: Date;
+  env?: NodeJS.ProcessEnv;
   log?: (line: string) => void;
 }): Promise<'succeeded' | 'failed' | 'deferred'> {
   const log = options.log ?? (() => undefined);
   const startedAt = options.now;
   const startedMs = Date.now();
+  const env = options.env ?? process.env;
+  const scheduleContext = await options.effects.readSchedule(options.job.targetId);
   const account = await options.effects.resolveAccount({
     targetAccountId: options.job.accountId,
     forcedAccountId: options.forcedAccountId,
@@ -158,6 +168,7 @@ export async function runBilibiliJob(options: {
         startedAt,
         durationMs: Math.max(0, Date.now() - startedMs),
         sample,
+        schedule: scheduleFrom(scheduleContext, options.now, fetched.view.pubdate, env),
       });
       await options.effects.audit({
         accountId: account?.id ?? null,
@@ -197,6 +208,7 @@ export async function runBilibiliJob(options: {
       startedAt,
       durationMs: Math.max(0, Date.now() - startedMs),
       sample,
+      schedule: scheduleFrom(scheduleContext, options.now, null, env),
     });
     await options.effects.audit({
       accountId: account?.id ?? null,
@@ -207,8 +219,35 @@ export async function runBilibiliJob(options: {
     log(`[collector] 任务成功 ${options.job.id} inserted=${committed.inserted}`);
     return 'succeeded';
   } catch (error) {
-    return handleFailure(options, account, error, startedAt, startedMs, log);
+    return handleFailure(
+      options,
+      account,
+      error,
+      startedAt,
+      startedMs,
+      log,
+      scheduleFrom(scheduleContext, options.now, scheduleContext?.pubdate ?? null, env),
+    );
   }
+}
+
+function scheduleFrom(
+  context: TargetScheduleContext | null,
+  now: Date,
+  pubdate: Date | null,
+  env: NodeJS.ProcessEnv,
+): CollectorScheduleWrite | null {
+  if (!context) return null;
+  return decideSchedule(
+    {
+      type: context.type,
+      mode: context.intervalMode,
+      fixedMinutes: context.intervalMinutes,
+      pubdate: context.type === 'video' ? pubdate : null,
+    },
+    now,
+    readFrequencyPolicy(env),
+  );
 }
 
 async function applyOnlineAccountEffect(
@@ -251,6 +290,7 @@ async function handleFailure(
   startedAt: Date,
   startedMs: number,
   log: (line: string) => void,
+  schedule: CollectorScheduleWrite | null,
 ): Promise<'succeeded' | 'failed' | 'deferred'> {
   const failure =
     error instanceof BilibiliFailure
@@ -314,6 +354,7 @@ async function handleFailure(
     durationMs: Math.max(0, Date.now() - startedMs),
     startedAt,
     retryAt,
+    ...(schedule ? { schedule } : {}),
   });
   await options.effects.audit({
     accountId: account?.id ?? null,

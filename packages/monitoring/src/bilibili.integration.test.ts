@@ -151,6 +151,14 @@ describe('bilibili collector against postgres', () => {
     expect(row?.collected).toBeInstanceOf(Date);
     expect(row?.cid).toBe('555');
     expect(row?.view_count).toBe('1000');
+    const [cadence] = await db<{ minutes: number; seconds: number }[]>`
+      SELECT t.interval_minutes AS minutes,
+        EXTRACT(EPOCH FROM (t.next_run_at - t.last_success_at))::int AS seconds
+      FROM monitor_targets t
+      WHERE t.id = ${created.target.id}::uuid
+    `;
+    expect(cadence?.minutes).toBe(15);
+    expect(cadence?.seconds).toBe(15 * 60);
 
     await db`
       UPDATE collector_jobs

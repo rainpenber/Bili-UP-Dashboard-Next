@@ -10,6 +10,7 @@ import {
   openCollectorCircuit,
   readBiliAccountSecret,
   readCollectorCircuit,
+  readTargetSchedule,
   recordCollectorFailure,
   resolveCollectorAccount,
   type Sql,
@@ -29,6 +30,7 @@ export function createSqlBilibiliEffects(
     expireAccount: (accountId) => markBiliAccountExpired(sql, accountId),
     disableTarget: (targetId, error) => disableMonitorTarget(sql, targetId, error),
     deferJob: (jobId, until) => deferCollectorJob(sql, jobId, until),
+    readSchedule: (targetId) => readTargetSchedule(sql, targetId),
     async cookieHeaderFor(accountId) {
       const secret = await readBiliAccountSecret(sql, accountId);
       if (!secret) return null;

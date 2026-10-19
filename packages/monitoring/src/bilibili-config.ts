@@ -3,7 +3,6 @@ export type BilibiliRuntimeConfig = {
   maxJitterMs: number;
   maxPerMinute: number;
   timeoutMs: number;
-  onlineWindowDays: number;
   dryRun: boolean;
   forcedAccountId: string | null;
   anonymousMinIntervalMs: number;
@@ -27,7 +26,6 @@ export function readBilibiliRuntimeConfig(
     maxJitterMs: readInt(env.COLLECTOR_MAX_JITTER_MS, 800, 0, 600_000),
     maxPerMinute: readInt(env.COLLECTOR_MAX_REQUESTS_PER_MINUTE, 20, 1, 600),
     timeoutMs: readInt(env.COLLECTOR_HTTP_TIMEOUT_MS, 10_000, 100, 120_000),
-    onlineWindowDays: readInt(env.COLLECTOR_ONLINE_WINDOW_DAYS, 14, 0, 3650),
     dryRun: env.COLLECTOR_DRY_RUN === '1',
     forcedAccountId: forced.length > 0 ? forced : null,
     anonymousMinIntervalMs: 5_000,

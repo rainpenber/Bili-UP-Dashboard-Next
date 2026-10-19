@@ -70,6 +70,20 @@ ALTER TABLE monitor_targets
 ALTER TABLE monitor_targets
   ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES bili_accounts (id) ON DELETE SET NULL;
 
+ALTER TABLE monitor_targets
+  ADD COLUMN IF NOT EXISTS interval_mode TEXT NOT NULL DEFAULT 'auto';
+
+ALTER TABLE monitor_targets DROP CONSTRAINT IF EXISTS monitor_targets_interval_mode_check;
+ALTER TABLE monitor_targets
+  ADD CONSTRAINT monitor_targets_interval_mode_check
+  CHECK (interval_mode IN ('auto', 'fixed'));
+
+-- The 005 enum cannot store the 120-minute tier. A range keeps later tier edits out of DDL.
+ALTER TABLE monitor_targets DROP CONSTRAINT IF EXISTS monitor_targets_interval_minutes_check;
+ALTER TABLE monitor_targets
+  ADD CONSTRAINT monitor_targets_interval_minutes_check
+  CHECK (interval_minutes BETWEEN 5 AND 10080);
+
 ALTER TABLE videos
   ADD COLUMN IF NOT EXISTS cid BIGINT,
   ADD COLUMN IF NOT EXISTS pubdate TIMESTAMPTZ;
