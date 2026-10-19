@@ -79,6 +79,7 @@ export function useStepController(
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successors, setSuccessors] = useState<StepSuccessorView[]>([]);
+  const [subjectNodeId, setSubjectNodeId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{
     call: PendingCall;
     result: Exclude<StepResult, { ok: true }>;
@@ -96,6 +97,7 @@ export function useStepController(
     setPending(true);
     setError(null);
     setSuccessors([]);
+    setSubjectNodeId(call.kind === 'node' ? call.nodeId : null);
     try {
       const result = await editor.onStep(call);
       if (result.ok) {
@@ -140,6 +142,7 @@ export function useStepController(
     pending,
     error,
     successors,
+    subjectNodeId,
     confirm,
     publish,
     run,

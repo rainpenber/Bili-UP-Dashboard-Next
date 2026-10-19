@@ -12,7 +12,19 @@ export type LiveGraphNode = {
   kind: 'stage' | 'merge';
   /** Raw workflow status. Omitted on template rows, which have no instance status. */
   status?: string;
-  blockingReason?: string;
+  /**
+   * Instance rows keep null when the workflow response has no reason.
+   * Template and demo rows omit the field.
+   */
+  blockingReason?: string | null;
+  /** Instance plan instant, or null when the node has no plan. Omitted on templates. */
+  plannedAt?: string | null;
+  /** Instance completion instant, or null until completion. Omitted on templates. */
+  completedAt?: string | null;
+  /** Instance concurrency token. Omitted on templates. */
+  updatedAt?: string | null;
+  /** Template slug for an instance row. Null for ad-hoc nodes. Omitted on templates. */
+  templateSlug?: string | null;
 };
 
 export type LiveGraphEdge = {
@@ -144,7 +156,17 @@ export function workflowGraphToLive(graph: WorkflowGraph): LiveGraph {
 /** Persisted project workflow. Merge rows stay gold dots; no second junction is inserted. */
 export function commercialWorkflowToLive(workflow: CommercialProjectWorkflow): LiveGraph {
   return {
-    nodes: workflow.nodes.map((node) => liveNode(node.id, node.name, node.kind, node.status)),
+    nodes: workflow.nodes.map((node) => ({
+      id: node.id,
+      name: node.name,
+      kind: node.kind,
+      status: node.status,
+      blockingReason: node.blockingReason,
+      plannedAt: node.plannedAt,
+      completedAt: node.completedAt,
+      updatedAt: node.updatedAt,
+      templateSlug: node.templateSlug,
+    })),
     edges: workflow.edges.map((edge) => ({
       id: edge.id,
       source: edge.fromNodeId,

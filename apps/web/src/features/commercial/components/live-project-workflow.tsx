@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/page-header';
 import { ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
@@ -13,9 +13,11 @@ import {
 } from '../workflow-live-graph';
 import { useLiveProjectDetailQuery, useLiveProjectWorkflowQuery } from '../use-live-workflow';
 import { postLiveNodeStep, postLiveStageStep, saveLiveNodePlan } from '../commercial-live-api';
-import type { StepCall, StepResult } from './stage-step-controls';
+import type { StepCall, StepEditor, StepResult } from './stage-step-controls';
+import { useStepController } from './stage-step-controls';
+import { GraphNodeProgress } from './graph-node-progress';
 import { ProjectVideoMetrics } from './project-video-metrics';
-import { ProgressSummary, ProgressTimeline } from './progress-timeline-view';
+import { ProgressSummary, ProgressTimeline, type PlanEditor } from './progress-timeline-view';
 import { timelineFactsFromDetail, timelineNodesFromWorkflow } from '../progress-timeline';
 import { WorkflowLiveCanvas } from './workflow-live-canvas';
 
@@ -94,12 +96,76 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [savingPlanId, setSavingPlanId] = useState<string | null>(null);
   const [planError, setPlanError] = useState<{ nodeId: string; message: string } | null>(null);
+  const locateRef = useRef<(stageId: string) => void>(() => undefined);
+  const bindLocate = useCallback((locate: ((stageId: string) => void) | null) => {
+    locateRef.current = locate ?? (() => undefined);
+  }, []);
+  const onRefresh = useCallback(() => {
+    void workflowQuery.refetch();
+    void detailQuery.refetch();
+  }, [workflowQuery.refetch, detailQuery.refetch]);
+  const onStep = useCallback(
+    (call: StepCall) => runLiveStep(projectId, call, queryClient),
+    [projectId, queryClient],
+  );
+  const recordedPublish = useMemo(() => {
+    const publish = detailQuery.data?.publish;
+    if (!publish?.published || !publish.idempotencyKey) return null;
+    return {
+      bvid: publish.bvid ?? '',
+      publishedAt: publish.publishedAt ?? '',
+      idempotencyKey: publish.idempotencyKey,
+    };
+  }, [detailQuery.data?.publish]);
+  const archived = detailQuery.data?.overallStage === 'archived';
+  const stepEditor = useMemo<StepEditor>(
+    () => ({
+      disabled: Boolean(archived),
+      onRefresh,
+      onStep,
+      recordedPublish,
+    }),
+    [archived, onRefresh, onStep, recordedPublish],
+  );
+  const step = useStepController(stepEditor, (stageId) => locateRef.current(stageId));
 
   const live = useMemo(() => {
     if (!workflowQuery.data) return null;
     const base = commercialWorkflowToLive(workflowQuery.data);
     return { nodes: withNames(base.nodes, names), edges: base.edges };
   }, [workflowQuery.data, names]);
+
+  const planEditor = useMemo<PlanEditor>(
+    () => ({
+      disabled: Boolean(archived),
+      savingId: savingPlanId,
+      error: planError,
+      onSave: (nodeId, updatedAt, plannedAt) => {
+        setSavingPlanId(nodeId);
+        setPlanError(null);
+        void saveLiveNodePlan(projectId, nodeId, { expectedUpdatedAt: updatedAt, plannedAt })
+          .then(() =>
+            Promise.all([
+              queryClient.invalidateQueries({
+                queryKey: ['commercial', 'live-workflow', projectId],
+              }),
+              queryClient.invalidateQueries({
+                queryKey: ['commercial', 'live-project', projectId],
+              }),
+            ]),
+          )
+          .then(() => undefined)
+          .catch((err: unknown) => {
+            setPlanError({
+              nodeId,
+              message: err instanceof Error ? err.message : '计划日期保存失败',
+            });
+          })
+          .finally(() => setSavingPlanId(null));
+      },
+    }),
+    [archived, planError, projectId, queryClient, savingPlanId],
+  );
 
   if (workflowQuery.isLoading || detailQuery.isLoading) {
     return <LoadingListSkeleton rows={4} />;
@@ -120,7 +186,6 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
     );
   }
 
-  const archived = detailQuery.data?.overallStage === 'archived';
   const title = detailQuery.data?.name ?? '项目流程';
   const facts = timelineFactsFromDetail(detailQuery.data);
   const timelineNodes = timelineNodesFromWorkflow(workflow.nodes, names);
@@ -142,45 +207,10 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
         <ProgressSummary facts={facts} nodes={timelineNodes} />
         <ProgressTimeline
           nodes={timelineNodes}
-          stepEditor={{
-            disabled: Boolean(archived),
-            onRefresh: () => {
-              void workflowQuery.refetch();
-              void detailQuery.refetch();
-            },
-            recordedPublish:
-              detailQuery.data?.publish.published && detailQuery.data.publish.idempotencyKey
-                ? {
-                    bvid: detailQuery.data.publish.bvid ?? '',
-                    publishedAt: detailQuery.data.publish.publishedAt ?? '',
-                    idempotencyKey: detailQuery.data.publish.idempotencyKey,
-                  }
-                : null,
-            onStep: (call) => runLiveStep(projectId, call, queryClient),
-          }}
-          planEditor={{
-            disabled: Boolean(archived),
-            savingId: savingPlanId,
-            error: planError,
-            onSave: (nodeId, updatedAt, plannedAt) => {
-              setSavingPlanId(nodeId);
-              setPlanError(null);
-              void saveLiveNodePlan(projectId, nodeId, { expectedUpdatedAt: updatedAt, plannedAt })
-                .then(() =>
-                  queryClient.invalidateQueries({
-                    queryKey: ['commercial', 'live-workflow', projectId],
-                  }),
-                )
-                .then(() => undefined)
-                .catch((err: unknown) => {
-                  setPlanError({
-                    nodeId,
-                    message: err instanceof Error ? err.message : '计划日期保存失败',
-                  });
-                })
-                .finally(() => setSavingPlanId(null));
-            },
-          }}
+          stepEditor={stepEditor}
+          stepController={step}
+          bindLocate={bindLocate}
+          planEditor={planEditor}
         />
         {publishedBvid ? <ProjectVideoMetrics bvid={publishedBvid} /> : null}
         <Card>
@@ -209,6 +239,14 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
               edges={live.edges}
               label="流程"
               readOnly={archived}
+              renderDetail={(node) => (
+                <GraphNodeProgress
+                  node={node}
+                  interactive={!archived}
+                  step={step}
+                  planEditor={planEditor}
+                />
+              )}
               onRename={(id, name) => {
                 // TODO(I-2): persist rename. The commercial API has no rename route yet.
                 const result = applySessionRename(live.nodes, id, name);

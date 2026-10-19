@@ -12,7 +12,15 @@ import {
   type NodeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { Button } from '@/components/ui/button';
 import {
   ContextMenu,
@@ -241,18 +249,30 @@ function metaKey(nodes: LiveGraphNode[]): string {
     .join('|');
 }
 
+function editingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.tagName === 'INPUT' ||
+    target.tagName === 'TEXTAREA' ||
+    target.isContentEditable ||
+    Boolean(target.closest('[data-step-layer], [role="dialog"], [data-testid="plan-date-editor"]'))
+  );
+}
+
 function LiveCanvasInner({
   nodes: sourceNodes,
   edges: sourceEdges,
   label,
   readOnly = false,
   onRename,
+  renderDetail,
 }: {
   nodes: LiveGraphNode[];
   edges: LiveGraphEdge[];
   label: string;
   readOnly?: boolean;
   onRename?: (id: string, name: string) => string | null;
+  renderDetail?: (node: LiveGraphNode) => ReactNode;
 }) {
   const meta = useMemo(() => {
     const map = new Map<string, Meta>();
@@ -442,15 +462,34 @@ function LiveCanvasInner({
         };
       },
       setStatus: () => {
-        // TODO(I-2): wire the four cells to start / complete / block.
+        // Template and demo graphs keep the four cells as a display.
       },
       setReason: () => {
-        // TODO(I-2): block reasons stay read-only until status writes land.
+        // Instance reasons come from the workflow response, not this input.
       },
       direction,
       statusReadOnly: true,
+      ...(renderDetail
+        ? {
+            renderDetail: (id: string) => {
+              const node = sourceNodes.find((item) => item.id === id);
+              return node ? renderDetail(node) : null;
+            },
+          }
+        : {}),
     }),
-    [editingId, startEdit, commitEdit, cancelEdit, toggleDetail, meta, openIds, direction],
+    [
+      editingId,
+      startEdit,
+      commitEdit,
+      cancelEdit,
+      toggleDetail,
+      meta,
+      openIds,
+      direction,
+      renderDetail,
+      sourceNodes,
+    ],
   );
 
   useEffect(() => {
@@ -537,9 +576,7 @@ function LiveCanvasInner({
   const onShellKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       const target = event.target instanceof HTMLElement ? event.target : null;
-      const typing =
-        !!target &&
-        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      const typing = editingTarget(target) || editingTarget(document.activeElement);
       const meta = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
       if (meta && (key === 'z' || key === 'y')) return;
@@ -768,6 +805,8 @@ export function WorkflowLiveCanvas(props: {
   readOnly?: boolean;
   /** Returns an error message, or null when the name was accepted. */
   onRename?: (id: string, name: string) => string | null;
+  /** Instance graphs render shared step controls here. Templates leave this unset. */
+  renderDetail?: (node: LiveGraphNode) => ReactNode;
 }) {
   return (
     <ReactFlowProvider>
