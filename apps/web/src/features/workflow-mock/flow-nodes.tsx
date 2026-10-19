@@ -1,6 +1,6 @@
-import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
+import { Handle, Position, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { ChevronDown } from 'lucide-react';
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FlowDirection } from './layout';
 import { STAGE_H, STAGE_W } from './model';
 
@@ -33,8 +33,10 @@ export type NodeUi = {
   setStatus: (id: string, status: MockStatus) => void;
   setReason: (id: string, reason: string) => void;
   direction: FlowDirection;
-  /** Real graphs display status but do not write it until a later integration step. */
+  /** Demo and template graphs show the four cells without writing them. */
   statusReadOnly?: boolean;
+  /** Instance graphs replace the four cells with the shared step controls. */
+  renderDetail?: (id: string) => ReactNode;
 };
 
 export const NodeUiContext = createContext<NodeUi | null>(null);
@@ -47,6 +49,11 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
   const detail = ui?.detail(id) ?? emptyDetail;
   const [value, setValue] = useState(data.name);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const updateNodeInternals = useUpdateNodeInternals();
+
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, detail.open, data.name, data.workflowStatus, updateNodeInternals]);
 
   useEffect(() => {
     if (!editing) return;
@@ -136,51 +143,57 @@ export function StageNode({ id, data, selected }: NodeProps<Node<StageNodeData>>
         {detail.open ? (
           <div
             data-testid="workflow-node-detail"
-            className="nodrag nowheel workflow-edit-in mt-2 border-t border-white/15 pt-2 text-[11px] text-[#d8d8d8]"
+            className="nodrag nowheel workflow-edit-in mt-2 border-t border-white/15 pt-2 text-[11px] break-words text-[#d8d8d8]"
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
           >
-            <div
-              role="radiogroup"
-              aria-label="状态"
-              data-testid="workflow-node-status"
-              className="grid grid-cols-4 overflow-hidden rounded border border-white/20"
-            >
-              {STATUS_CHOICES.map((choice) => {
-                const on = detail.status === choice.id;
-                return (
-                  <button
-                    key={choice.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    data-status-choice={choice.id}
-                    className="workflow-status-choice nodrag px-0.5 py-1 whitespace-nowrap"
-                    onClick={() => {
-                      if (ui?.statusReadOnly) return;
-                      ui?.setStatus(id, choice.id);
-                    }}
-                  >
-                    {choice.label}
-                  </button>
-                );
-              })}
-            </div>
-            {detail.status === 'blocked' ? (
-              <label className="mt-2 block text-[#9a9a9a]">
-                阻塞原因
-                <input
-                  value={detail.reason}
-                  aria-label="阻塞原因"
-                  readOnly={ui?.statusReadOnly}
-                  className="nodrag nowheel mt-1 h-7 w-full rounded border border-white/20 bg-[#1b1b1b] px-1 text-[#f4f4f4]"
-                  onChange={(event) => {
-                    if (ui?.statusReadOnly) return;
-                    ui?.setReason(id, event.target.value);
-                  }}
-                />
-              </label>
-            ) : null}
+            {ui?.renderDetail ? (
+              ui.renderDetail(id)
+            ) : (
+              <>
+                <div
+                  role="radiogroup"
+                  aria-label="状态"
+                  data-testid="workflow-node-status"
+                  className="grid grid-cols-4 overflow-hidden rounded border border-white/20"
+                >
+                  {STATUS_CHOICES.map((choice) => {
+                    const on = detail.status === choice.id;
+                    return (
+                      <button
+                        key={choice.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        data-status-choice={choice.id}
+                        className="workflow-status-choice nodrag px-0.5 py-1 whitespace-nowrap"
+                        onClick={() => {
+                          if (ui?.statusReadOnly) return;
+                          ui?.setStatus(id, choice.id);
+                        }}
+                      >
+                        {choice.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {detail.status === 'blocked' ? (
+                  <label className="mt-2 block text-[#9a9a9a]">
+                    阻塞原因
+                    <input
+                      value={detail.reason}
+                      aria-label="阻塞原因"
+                      readOnly={ui?.statusReadOnly}
+                      className="nodrag nowheel mt-1 h-7 w-full rounded border border-white/20 bg-[#1b1b1b] px-1 text-[#f4f4f4]"
+                      onChange={(event) => {
+                        if (ui?.statusReadOnly) return;
+                        ui?.setReason(id, event.target.value);
+                      }}
+                    />
+                  </label>
+                ) : null}
+              </>
+            )}
           </div>
         ) : null}
         <Handle

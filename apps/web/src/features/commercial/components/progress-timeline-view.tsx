@@ -5,6 +5,7 @@ import {
   StageStepBar,
   StepNotices,
   useStepController,
+  type StepController,
   type StepEditor,
 } from './stage-step-controls';
 import { Badge } from '@/components/ui/badge';
@@ -277,7 +278,7 @@ function StageHit({
   );
 }
 
-function PlanFields({ child, editor }: { child: TimelineChild; editor: PlanEditor }) {
+export function PlanFields({ child, editor }: { child: TimelineChild; editor: PlanEditor }) {
   const initial = child.plannedAt ? (calendarDayKey(child.plannedAt) ?? '') : '';
   const [draft, setDraft] = useState(initial);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -492,10 +493,16 @@ export function ProgressTimeline({
   nodes,
   planEditor,
   stepEditor,
+  stepController,
+  bindLocate,
 }: {
   nodes: TimelineSourceNode[];
   planEditor?: PlanEditor;
   stepEditor?: StepEditor;
+  /** Shared with the live graph so both surfaces use one pending/confirm/error state. */
+  stepController?: StepController;
+  /** Registers the timeline's stage selection so a shared controller can locate a blocker. */
+  bindLocate?: (locate: ((stageId: string) => void) | null) => void;
 }) {
   const timeline = deriveProgressTimeline(nodes);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -503,7 +510,15 @@ export function ProgressTimeline({
   const [focusId, setFocusId] = useState<string | null>(null);
   const closeTimer = useRef<number | null>(null);
   const openStage = timeline.stages.find((stage) => stage.id === selectedId) ?? null;
-  const step = useStepController(stepEditor, (stageId) => setSelectedId(stageId));
+  const internalStep = useStepController(stepController ? undefined : stepEditor, (stageId) =>
+    setSelectedId(stageId),
+  );
+  const step = stepController ?? internalStep;
+  useEffect(() => {
+    if (!bindLocate) return;
+    bindLocate((stageId) => setSelectedId(stageId));
+    return () => bindLocate(null);
+  }, [bindLocate]);
   const tipId = hoverId ?? focusId;
   const tipStage = timeline.stages.find((stage) => stage.id === tipId) ?? null;
   const shownTip = useRef<DerivedStage | null>(null);

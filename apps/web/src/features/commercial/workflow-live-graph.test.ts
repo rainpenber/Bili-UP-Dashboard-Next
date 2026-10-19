@@ -4,6 +4,7 @@ import { collapseRoutingEdges } from './workflow-graph-flow-layout';
 import {
   applySessionRename,
   commercialWorkflowToLive,
+  templateToLive,
   workflowGraphToLive,
 } from './workflow-live-graph';
 import { listWorkflowConnections } from './workflow-structure-logic';
@@ -27,6 +28,8 @@ describe('workflowGraphToLive', () => {
     const live = workflowGraphToLive(graph);
     expect(live.nodes.filter((node) => node.kind === 'merge')).toHaveLength(2);
     expect(live.nodes.find((node) => node.id === 'outline')?.status).toBe('not_reached');
+    expect(live.nodes.find((node) => node.id === 'outline')?.plannedAt).toBeUndefined();
+    expect(live.nodes.find((node) => node.id === 'outline')?.updatedAt).toBeUndefined();
     const collapsed = collapseRoutingEdges(
       live.edges.map((edge) => ({ from: edge.source, to: edge.target })),
     );
@@ -78,6 +81,44 @@ describe('commercialWorkflowToLive', () => {
     expect(live.edges).toEqual([{ id: edgeId, source: stageId, target: mergeId }]);
     expect(toDemoStatus(live.nodes[0]!.status ?? '')).toBe('active');
     expect(toDemoStatus(live.nodes[1]!.status ?? '')).toBe('idle');
+    expect(live.nodes[0]).toMatchObject({
+      blockingReason: null,
+      plannedAt: null,
+      completedAt: null,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      templateSlug: 'outline',
+    });
+    expect('plannedAt' in live.nodes[0]!).toBe(true);
+    expect(live.nodes[1]?.templateSlug).toBe('merge');
+  });
+});
+
+describe('templateToLive', () => {
+  test('omits instance status and schedule fields', () => {
+    const live = templateToLive({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+      slug: 'default',
+      name: '默认',
+      version: 1,
+      publishedAt: '2026-01-01T00:00:00.000Z',
+      nodes: [
+        {
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+          slug: 'outline',
+          name: '大纲',
+          kind: 'stage',
+          isOptional: false,
+        },
+      ],
+      edges: [],
+    });
+    const node = live.nodes[0]!;
+    expect(node.status).toBeUndefined();
+    expect('blockingReason' in node).toBe(false);
+    expect('plannedAt' in node).toBe(false);
+    expect('completedAt' in node).toBe(false);
+    expect('updatedAt' in node).toBe(false);
+    expect('templateSlug' in node).toBe(false);
   });
 });
 
