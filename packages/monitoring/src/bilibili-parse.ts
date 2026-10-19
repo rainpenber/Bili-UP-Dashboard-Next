@@ -7,6 +7,10 @@ export type ParsedView = {
   ownerMid: string;
   ownerName: string | null;
   coverUrl: string | null;
+  tid: number | null;
+  tidV2: number | null;
+  tname: string;
+  tnameV2: string;
   viewCount: bigint;
   danmakuCount: bigint;
   commentCount: bigint;
@@ -54,6 +58,16 @@ function asCount(value: unknown, field: string): bigint {
   throw new Error(`字段 ${field} 不是整数`);
 }
 
+function asOptionalInt(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isInteger(value)) return value;
+  if (typeof value === 'string' && /^-?\d+$/.test(value)) return Number(value);
+  return null;
+}
+
+function rawLabel(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
 function asId(value: unknown, field: string): string {
   if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value).toString();
   if (typeof value === 'string' && /^\d+$/.test(value)) return value;
@@ -85,6 +99,10 @@ export function parseView(payload: unknown): ParsedView {
     ownerMid: asId(ownerRecord.mid, 'owner.mid'),
     ownerName: typeof ownerName === 'string' && ownerName.trim() ? ownerName.trim() : null,
     coverUrl: typeof pic === 'string' && pic.trim() ? pic.trim() : null,
+    tid: asOptionalInt(record.tid),
+    tidV2: asOptionalInt(record.tid_v2),
+    tname: rawLabel(record.tname),
+    tnameV2: rawLabel(record.tname_v2),
     viewCount: asCount(metrics.view, 'stat.view'),
     danmakuCount: asCount(metrics.danmaku, 'stat.danmaku'),
     commentCount: asCount(metrics.reply, 'stat.reply'),

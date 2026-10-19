@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun run --filter '*' test",
-    "build": "bun run --filter '*' build"
+    "build": "bun run --filter '*' build",
+    "seed-partitions": "bun run packages/db/src/seed-partitions.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

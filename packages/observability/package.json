@@ -1,0 +1,22 @@
+{
+  "name": "@studio/observability",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./redact": "./src/redact.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@studio/db": "workspace:*",
+    "pino": "^9.14.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

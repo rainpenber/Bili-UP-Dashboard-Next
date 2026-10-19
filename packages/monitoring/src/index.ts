@@ -13,6 +13,7 @@ export * from './importer-version';
 export * from './metric-parse';
 export * from './network-guard';
 export * from './offline-provider';
+export * from './collector-log';
 export * from './collector-runner';
 export * from './credentials';
 export * from './sensitive';

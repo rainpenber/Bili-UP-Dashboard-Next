@@ -15,6 +15,7 @@ import { runBilibiliJob, type BilibiliEffects } from './bilibili-job';
 import { decideSchedule, readFrequencyPolicy } from './frequency';
 import { isBilibiliProvider } from './bilibili-provider';
 import { loadCollectorSecretKey, scrubCollectorError } from './credentials';
+import type { CollectorLogger } from './collector-log';
 import {
   createOfflineProvider,
   truncateToUtcMinute,
@@ -85,6 +86,7 @@ export async function runCollectorOnce(options: {
   config: CollectorConfig;
   now?: Date;
   log?: (line: string) => void;
+  logger?: CollectorLogger;
   instanceId?: string;
   env?: NodeJS.ProcessEnv;
   effects?: BilibiliEffects;
@@ -93,6 +95,11 @@ export async function runCollectorOnce(options: {
   await enqueueDueCollectorJobs(options.sql);
   const job = await claimNextCollectorJob(options.sql);
   if (!job) return 'idle';
+  const jobLog = options.logger?.child({ jobId: job.id, targetId: job.targetId });
+  jobLog?.info('任务已领取', {
+    event: 'job.claimed',
+    context: { targetType: job.targetType, attempts: job.attempts },
+  });
   if (options.instanceId) {
     await upsertCollectorHeartbeat(options.sql, {
       instanceId: options.instanceId,
@@ -123,13 +130,14 @@ export async function runCollectorOnce(options: {
         now: startedAt,
         env,
         log,
+        ...(jobLog ? { logger: jobLog } : {}),
       });
     }
     const sampledAt = truncateToUtcMinute(startedAt);
     if (job.targetType === 'video') {
       const sample = await options.provider.collectVideo(job.externalId, sampledAt);
       const inserted = await writeVideoSample(options.sql, sample);
-      await recordCollectorSuccess(options.sql, {
+      const committed = await recordCollectorSuccess(options.sql, {
         jobId: job.id,
         targetId: job.targetId,
         samplesWritten: inserted ? 1 : 0,
@@ -137,16 +145,24 @@ export async function runCollectorOnce(options: {
         startedAt,
         ...(await offlineSchedule(options.sql, job.targetId, startedAt, options.env)),
       });
+      jobLog?.child({ runId: committed.runId })?.info('任务成功', {
+        event: 'job.succeeded',
+        context: { samplesWritten: inserted ? 1 : 0 },
+      });
     } else {
       const sample = await options.provider.collectCreator(job.externalId, sampledAt);
       const inserted = await writeCreatorSample(options.sql, sample);
-      await recordCollectorSuccess(options.sql, {
+      const committed = await recordCollectorSuccess(options.sql, {
         jobId: job.id,
         targetId: job.targetId,
         samplesWritten: inserted ? 1 : 0,
         durationMs: Date.now() - startedMs,
         startedAt,
         ...(await offlineSchedule(options.sql, job.targetId, startedAt, options.env)),
+      });
+      jobLog?.child({ runId: committed.runId })?.info('任务成功', {
+        event: 'job.succeeded',
+        context: { samplesWritten: inserted ? 1 : 0 },
       });
     }
     log(`[collector] 任务成功 ${job.id}`);
@@ -160,7 +176,7 @@ export async function runCollectorOnce(options: {
     );
     const retryAt =
       job.attempts >= options.config.maxAttempts ? null : new Date(startedAt.getTime() + delay);
-    await recordCollectorFailure(options.sql, {
+    const failed = await recordCollectorFailure(options.sql, {
       jobId: job.id,
       targetId: job.targetId,
       attempts: job.attempts,
@@ -170,6 +186,11 @@ export async function runCollectorOnce(options: {
       startedAt,
       retryAt,
       ...(await offlineSchedule(options.sql, job.targetId, startedAt, options.env)),
+    });
+    jobLog?.child({ runId: failed.runId })?.error('任务失败', {
+      event: 'job.failed',
+      err: new Error(message),
+      context: { attempts: job.attempts },
     });
     log(`[collector] 任务失败 ${job.id} attempts=${job.attempts} error=${message}`);
     return 'failed';
@@ -204,6 +225,7 @@ export async function runCollectorLoop(options: {
   config: CollectorConfig;
   signal: AbortSignal;
   log?: (line: string) => void;
+  logger?: CollectorLogger;
 }): Promise<void> {
   const log = options.log ?? (() => undefined);
   const provider = options.provider ?? createOfflineProvider();
@@ -249,6 +271,7 @@ export async function runCollectorLoop(options: {
         provider,
         config: options.config,
         log,
+        ...(options.logger ? { logger: options.logger } : {}),
         instanceId: options.config.instanceId,
         env: process.env,
       });

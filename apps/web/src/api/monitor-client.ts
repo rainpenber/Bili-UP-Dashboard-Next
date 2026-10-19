@@ -65,6 +65,9 @@ export type VideoDetail = {
   archivedAt: string | null;
   deletedAt: string | null;
   coverAssetId: string | null;
+  tid: number | null;
+  tidV2: number | null;
+  partitionName: string | null;
   metadata: Record<string, unknown>;
 };
 

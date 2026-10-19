@@ -6,6 +6,7 @@ import { createAssetsRoutes } from './assets-routes';
 import { createCommercialRoutes } from './commercial-routes';
 import { createImportRoutes } from './import-routes';
 import { createMonitorRoutes } from './monitor-routes';
+import { createOpsRoutes } from './ops-routes';
 
 type InventoryRoute = {
   method: string;
@@ -34,6 +35,7 @@ function registeredKeys(): string[] {
   app.route('/api/v1/assets', createAssetsRoutes(sql));
   app.route('/api/v1/imports', createImportRoutes(sql));
   app.route('/api/v1/commercial', createCommercialRoutes(sql));
+  app.route('/api/v1/ops', createOpsRoutes(sql));
   const keys = app.routes
     .filter((route) => METHODS.has(route.method))
     .map((route) => `${route.method} ${route.path}`);

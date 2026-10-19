@@ -17,16 +17,16 @@
 
 ### 2.1 `videos` 增列
 
-| 列 | 类型 | 说明 |
-| --- | --- | --- |
-| `description` | text | 简介（`View.desc`） |
-| `duration_seconds` | integer | 时长（`View.duration`，秒） |
-| `cover_url` | text | 原始封面 URL（https 化后保存），作为本地资产缺失时的兜底 |
-| `cover_state` | text NOT NULL DEFAULT `'pending'` | `pending`/`ok`/`failed`/`none`，CHECK 约束 |
-| `metadata_state` | text NOT NULL DEFAULT `'pending'` | `pending`/`ok`/`failed`/`partial`，CHECK 约束 |
-| `metadata_source` | text | `bilibili`/`legacy_csv`/`manual` |
-| `metadata_fetched_at` | timestamptz | 最近一次成功拉取时间 |
-| `metadata_error` | text | 最近一次失败原因（截断 500 字符，禁止写入 Cookie/URL 里的敏感参数） |
+| 列                    | 类型                              | 说明                                                                |
+| --------------------- | --------------------------------- | ------------------------------------------------------------------- |
+| `description`         | text                              | 简介（`View.desc`）                                                 |
+| `duration_seconds`    | integer                           | 时长（`View.duration`，秒）                                         |
+| `cover_url`           | text                              | 原始封面 URL（https 化后保存），作为本地资产缺失时的兜底            |
+| `cover_state`         | text NOT NULL DEFAULT `'pending'` | `pending`/`ok`/`failed`/`none`，CHECK 约束                          |
+| `metadata_state`      | text NOT NULL DEFAULT `'pending'` | `pending`/`ok`/`failed`/`partial`，CHECK 约束                       |
+| `metadata_source`     | text                              | `bilibili`/`legacy_csv`/`manual`                                    |
+| `metadata_fetched_at` | timestamptz                       | 最近一次成功拉取时间                                                |
+| `metadata_error`      | text                              | 最近一次失败原因（截断 500 字符，禁止写入 Cookie/URL 里的敏感参数） |
 
 索引：`(metadata_state) WHERE metadata_state <> 'ok'`（回填队列扫描）、`(cover_state) WHERE cover_state <> 'ok'`。
 
@@ -114,15 +114,15 @@ CREATE TABLE IF NOT EXISTS backfill_runs (
 
 全部只读，禁止写操作。分页统一 `limit`（默认 50，最大 200）+ `cursor`（`id` 或 `ts` 下降游标）。
 
-| 端点 | 返回 |
-| --- | --- |
-| `GET /ops/summary` | collector 心跳（instance/status/lastSeenAt/currentJobId）、队列（due/running/failed 24h）、熔断（活跃 circuit 列表）、每个目标最后一次成功与错误、样本今日增量、`app_logs` 最近 1 小时 error 计数 |
-| `GET /ops/runs` | 运行列表：`id/targetId/targetLabel/status/samplesWritten/durationMs/error/startedAt/finishedAt`，支持 `status/targetId/since/until` |
-| `GET /ops/runs/:id` | 单次运行详情：run + 该 run 的 `collector_requests` 逐条（endpoint/status/bizCode/duration/error）+ 该 `run_id` 的日志尾部（最多 200 行） |
-| `GET /ops/requests` | 请求审计：`endpoint/statusCode/bizCode/durationMs/error/requestedAt/runId`，支持 `endpoint/since` |
-| `GET /ops/logs` | 日志：`ts/level/service/event/message/requestId/runId/context`，支持 `level/service/runId/requestId/q/since/limit` |
-| `GET /ops/debug/bundle?runId=` | 一次性返回排障包（JSON）：run、target、该 run 的 requests、日志切片、相关 video/creator 行、collector 心跳、schema 版本、最近的 circuit；所有敏感字段已脱敏。这是「我要排查」时的唯一入口 |
-| `GET /ops/health` | 采集端存活：最近心跳时间、`stale` 布尔、队列积压数、最近一次成功时间 |
+| 端点                           | 返回                                                                                                                                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /ops/summary`             | collector 心跳（instance/status/lastSeenAt/currentJobId）、队列（due/running/failed 24h）、熔断（活跃 circuit 列表）、每个目标最后一次成功与错误、样本今日增量、`app_logs` 最近 1 小时 error 计数 |
+| `GET /ops/runs`                | 运行列表：`id/targetId/targetLabel/status/samplesWritten/durationMs/error/startedAt/finishedAt`，支持 `status/targetId/since/until`                                                               |
+| `GET /ops/runs/:id`            | 单次运行详情：run + 该 run 的 `collector_requests` 逐条（endpoint/status/bizCode/duration/error）+ 该 `run_id` 的日志尾部（最多 200 行）                                                          |
+| `GET /ops/requests`            | 请求审计：`endpoint/statusCode/bizCode/durationMs/error/requestedAt/runId`，支持 `endpoint/since`                                                                                                 |
+| `GET /ops/logs`                | 日志：`ts/level/service/event/message/requestId/runId/context`，支持 `level/service/runId/requestId/q/since/limit`                                                                                |
+| `GET /ops/debug/bundle?runId=` | 一次性返回排障包（JSON）：run、target、该 run 的 requests、日志切片、相关 video/creator 行、collector 心跳、schema 版本、最近的 circuit；所有敏感字段已脱敏。这是「我要排查」时的唯一入口         |
+| `GET /ops/health`              | 采集端存活：最近心跳时间、`stale` 布尔、队列积压数、最近一次成功时间                                                                                                                              |
 
 实现放在 `apps/api/src/ops-routes.ts`，注册到 `app.ts`；类型定义进 `packages/contracts`；必须补 API 合同测试。
 
@@ -145,7 +145,15 @@ CREATE TABLE IF NOT EXISTS backfill_runs (
 - 全部门槛：`bun run lint && bun run typecheck && bun test && bun run build && bun run format:check` 通过。
 - 不新增任何真实网络请求；测试不得依赖外网。
 
-## 7. 不做
+## 7. 分区（2026-10-19 实测追加）
+
+`/x/web-interface/view` 与 `/view/detail` 的 `tname`、`tname_v2` 可以是空字符串，同时 `tid`、`tid_v2` 有值。`/x/v2/region/index` 已废弃，本包不联网抓分区。
+
+`videos` 增加可空列 `tid`、`tid_v2`、`partition_name`。分区名允许为空，禁止用空白、`未知`、`其他`、`其它` 填充。原始 `tid` / `tid_v2` / `tname` / `tname_v2` 快照留在 `videos.metadata`。
+
+字典表 `bili_partitions(tid, parent_tid, name, source, updated_at)`。读视频时 `partition_name` 为空则先按 `tid_v2`、再按 `tid` 左连该表；两处都没有真名就返回 null。导入入口：`bun run seed-partitions -- --file <json>`。
+
+## 8. 不做
 
 - 不做回填执行、不下载图片（WP-R2-08）。
 - 不改 006 的采集语义（频率、熔断、样本写入）。

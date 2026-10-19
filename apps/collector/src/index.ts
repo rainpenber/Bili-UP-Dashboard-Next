@@ -7,6 +7,7 @@ import {
   readCollectorProviderKind,
   runCollectorLoop,
 } from '@studio/monitoring';
+import { createLogger, startAppLogRetention } from '@studio/observability';
 import { waitForReady } from './wait-for-schema';
 
 const source = process.env.MONITOR_DATA_SOURCE ?? 'collector';
@@ -21,24 +22,41 @@ if (providerKind === 'offline') installOfflineFetchGuard();
 const provider = createMonitorProvider(providerKind, process.env);
 const config = readCollectorConfig(process.env);
 const sql = createSql();
+const logger = createLogger({
+  service: 'collector',
+  instance: config.instanceId,
+  sql,
+});
 await waitForReady(() => collectorSchemaReady(sql), { attempts: 30, delayMs: 2_000 });
+const stopRetention = startAppLogRetention(sql, {
+  onError: (message) => {
+    logger.error('日志清理失败', { event: 'log.retention_failed', context: { error: message } });
+  },
+});
 const abort = new AbortController();
 
 const stop = () => {
-  console.log('[collector] 收到终止信号，完成当前任务后退出');
+  logger.info('收到终止信号', { event: 'service.stopping' });
   abort.abort();
 };
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
 
 try {
+  logger.info('采集器启动', { event: 'service.started' });
   await runCollectorLoop({
     sql,
     provider,
     config,
     signal: abort.signal,
-    log: (line) => console.log(line),
+    log: (line) => {
+      logger.info(line, { event: 'collector.line' });
+    },
+    logger,
   });
 } finally {
+  logger.info('采集器停止', { event: 'service.stopped' });
+  await logger.flush();
+  stopRetention();
   await sql.end({ timeout: 5 });
 }

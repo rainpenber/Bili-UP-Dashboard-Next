@@ -2,14 +2,14 @@
   "baseline": "9d9370e0b2c0d3b5b5e6cb92f68d5416f48b641b",
   "evidenceLevel": "source-confirmed static registration. Not a runtime exercise of each route.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 36,
-  "wiredRouteCount": 24,
-  "unwiredImplementedRouteCount": 12,
+  "apiRouteCount": 43,
+  "wiredRouteCount": 30,
+  "unwiredImplementedRouteCount": 13,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes adds a fixed POST list.",
   "processRegistration": {
-    "productionEntry": "apps/api/src/index.ts uses createApp({ skipDb: true }) and then mounts monitor, assets, imports and commercial once.",
-    "libraryEntry": "apps/api/src/app.ts mounts those four prefixes when skipDb is false. Unit and integration tests use that path. One process does not mount both copies.",
+    "productionEntry": "apps/api/src/index.ts uses createApp({ skipDb: true }) and then mounts monitor, assets, imports, commercial and ops once.",
+    "libraryEntry": "apps/api/src/app.ts mounts those five prefixes when skipDb is false. Unit and integration tests use that path. One process does not mount both copies.",
     "health": "GET /health and GET /api/health are always registered inside createApp."
   },
   "mounts": [
@@ -36,6 +36,12 @@
       "factory": "createCommercialRoutes",
       "appTsLine": 47,
       "indexTsLine": 16
+    },
+    {
+      "prefix": "/api/v1/ops",
+      "factory": "createOpsRoutes",
+      "appTsLine": 86,
+      "indexTsLine": 32
     }
   ],
   "routes": [
@@ -762,8 +768,149 @@
         }
       ],
       "wired": true,
-      "notes": "Unknown asset id still returns HTTP 200 and a placeholder SVG.",
+      "notes": "Unknown asset id still returns HTTP 200 and a placeholder SVG. A stored file is served with an immutable cache, ETag and Content-Length.",
       "storedEntity": "static_assets plus file under the assets root"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/debug/bundle",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": "runId",
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsDebugBundle",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsDebugBundle",
+          "evidence": "/api/v1/ops/debug/bundle?runId="
+        }
+      ],
+      "wired": true,
+      "notes": "Read-only debug bundle. Secrets are scrubbed before the response is returned."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/health",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsHealth",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsHealth",
+          "evidence": "/api/v1/ops/health"
+        }
+      ],
+      "wired": true,
+      "notes": "Collector liveness. stale is true when the newest heartbeat is missing or older than 30 seconds."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/logs",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsLog",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsLogs",
+          "evidence": "/api/v1/ops/logs"
+        }
+      ],
+      "wired": true,
+      "notes": "Cursor page of app_logs. Query: level, service, runId, requestId, q, since, limit."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/requests",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsRequest",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Request audit. Query: endpoint, since, limit, cursor. No web caller; run detail includes the same rows."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/runs",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsRun",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsRuns",
+          "evidence": "/api/v1/ops/runs?"
+        }
+      ],
+      "wired": true,
+      "notes": "Run list. Query: status, targetId, since, until, limit, cursor."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/runs/:id",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsRunDetail",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsRun",
+          "evidence": "/api/v1/ops/runs/${runId}"
+        }
+      ],
+      "wired": true,
+      "notes": "One run, its collector_requests, and up to 200 app_logs rows."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/summary",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsSummary",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsSummary",
+          "evidence": "/api/v1/ops/summary"
+        }
+      ],
+      "wired": true,
+      "notes": "Heartbeats, queue, active circuits, target status, today's samples, and the last hour of error logs."
     }
   ],
   "excludedFromApiCount": [

@@ -15,6 +15,7 @@ describe('app routes', () => {
     expect(demoIndex).toBeGreaterThanOrEqual(0);
     expect(detailIndex).toBeGreaterThan(demoIndex);
     expect(paths).toContain('integrations');
+    expect(paths).toContain('ops');
     expect(paths).toContain('workflow-mock');
   });
 

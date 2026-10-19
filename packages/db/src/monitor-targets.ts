@@ -1,5 +1,6 @@
 import type postgres from 'postgres';
 import type { Sql } from './client';
+import { partitionNameFromLabels } from './partitions';
 
 type Queryable = postgres.Sql | postgres.TransactionSql;
 
@@ -402,6 +403,13 @@ export type VideoSampleWrite = {
   ownerMid?: string | null;
   ownerName?: string | null;
   coverUrl?: string | null;
+  /** Present only when this sample came from a view payload. Empty names stay null. */
+  partition?: {
+    tid: number | null;
+    tidV2: number | null;
+    tname: string;
+    tnameV2: string;
+  };
 };
 
 function bigintText(value: bigint | null): string | null {
@@ -416,7 +424,17 @@ export async function writeVideoSampleWithin(
   tx: Queryable,
   sample: VideoSampleWrite,
 ): Promise<boolean> {
-  const metadata = sample.coverUrl ? { pic: sample.coverUrl } : {};
+  const metadata: Record<string, unknown> = sample.coverUrl ? { pic: sample.coverUrl } : {};
+  const hasPartition = sample.partition !== undefined;
+  const partitionName = hasPartition
+    ? partitionNameFromLabels(sample.partition?.tnameV2, sample.partition?.tname)
+    : null;
+  if (sample.partition) {
+    metadata.tid = sample.partition.tid;
+    metadata.tid_v2 = sample.partition.tidV2;
+    metadata.tname = sample.partition.tname;
+    metadata.tname_v2 = sample.partition.tnameV2;
+  }
   if (sample.ownerMid) {
     await tx`
       INSERT INTO creators (mid, uname)
@@ -427,7 +445,9 @@ export async function writeVideoSampleWithin(
     `;
   }
   await tx`
-    INSERT INTO videos (bvid, title, monitoring_enabled, mid, cid, pubdate, metadata)
+    INSERT INTO videos (
+      bvid, title, monitoring_enabled, mid, cid, pubdate, tid, tid_v2, partition_name, metadata
+    )
     VALUES (
       ${sample.bvid},
       ${sample.title},
@@ -435,6 +455,9 @@ export async function writeVideoSampleWithin(
       ${sample.ownerMid ?? null}::bigint,
       ${sample.cid ?? null}::bigint,
       ${sample.pubdate ?? null},
+      ${hasPartition ? (sample.partition?.tid ?? null) : null},
+      ${hasPartition ? (sample.partition?.tidV2 ?? null) : null},
+      ${partitionName},
       ${tx.json(jsonValue(metadata))}
     )
     ON CONFLICT (bvid) DO UPDATE SET
@@ -443,6 +466,18 @@ export async function writeVideoSampleWithin(
       mid = COALESCE(EXCLUDED.mid, videos.mid),
       cid = COALESCE(EXCLUDED.cid, videos.cid),
       pubdate = COALESCE(EXCLUDED.pubdate, videos.pubdate),
+      tid = CASE
+        WHEN ${hasPartition}::boolean THEN COALESCE(EXCLUDED.tid, videos.tid)
+        ELSE videos.tid
+      END,
+      tid_v2 = CASE
+        WHEN ${hasPartition}::boolean THEN COALESCE(EXCLUDED.tid_v2, videos.tid_v2)
+        ELSE videos.tid_v2
+      END,
+      partition_name = CASE
+        WHEN ${hasPartition}::boolean THEN COALESCE(EXCLUDED.partition_name, videos.partition_name)
+        ELSE videos.partition_name
+      END,
       metadata = videos.metadata || EXCLUDED.metadata,
       updated_at = now()
   `;
@@ -634,7 +669,8 @@ export async function recordCollectorSuccess(
     startedAt: Date;
     schedule?: CollectorScheduleWrite;
   },
-): Promise<void> {
+): Promise<{ runId: string }> {
+  const runId = crypto.randomUUID();
   await sql.begin(async (tx) => {
     const finished = new Date();
     await tx`
@@ -646,7 +682,7 @@ export async function recordCollectorSuccess(
       INSERT INTO collector_runs (
         id, job_id, target_id, status, samples_written, duration_ms, error, started_at, finished_at
       ) VALUES (
-        ${crypto.randomUUID()}::uuid,
+        ${runId}::uuid,
         ${input.jobId}::uuid,
         ${input.targetId}::uuid,
         'succeeded',
@@ -665,6 +701,7 @@ export async function recordCollectorSuccess(
       schedule: input.schedule ?? null,
     });
   });
+  return { runId };
 }
 
 export async function recordCollectorFailure(

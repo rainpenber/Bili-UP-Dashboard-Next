@@ -13,7 +13,7 @@ import {
   type CreatorMetricPoint,
   type DynamicMetricPoint,
 } from '@studio/contracts';
-import type { Sql } from '@studio/db';
+import { VIDEO_PARTITION_JOINS, VIDEO_PARTITION_NAME_SQL, type Sql } from '@studio/db';
 import { Hono } from 'hono';
 import { registerMonitorTargetRoutes } from './monitor-target-routes';
 
@@ -58,6 +58,9 @@ export function createMonitorRoutes(db: Sql) {
           archived_at: Date | null;
           deleted_at: Date | null;
           cover_asset_id: string | null;
+          tid: number | null;
+          tid_v2: number | null;
+          partition_name: string | null;
           sampled_at: Date | null;
           view_count: bigint | null;
           online_viewers: bigint | null;
@@ -66,8 +69,10 @@ export function createMonitorRoutes(db: Sql) {
         }[]
       >`
         SELECT v.bvid, v.title, v.category, v.mid, v.monitoring_enabled, v.archived_at, v.deleted_at, v.cover_asset_id,
+          v.tid, v.tid_v2, ${db.unsafe(VIDEO_PARTITION_NAME_SQL)} AS partition_name,
           m.sampled_at, m.view_count, m.online_viewers, m.online_viewers_raw, m.like_count
         FROM videos v
+        ${db.unsafe(VIDEO_PARTITION_JOINS)}
         LEFT JOIN LATERAL (
           SELECT sampled_at, view_count, online_viewers, online_viewers_raw, like_count
           FROM video_metric_samples s WHERE s.bvid = v.bvid ORDER BY sampled_at DESC LIMIT 1
@@ -91,6 +96,9 @@ export function createMonitorRoutes(db: Sql) {
         archivedAt: r.archived_at?.toISOString() ?? null,
         deletedAt: r.deleted_at?.toISOString() ?? null,
         coverAssetId: r.cover_asset_id,
+        tid: r.tid,
+        tidV2: r.tid_v2,
+        partitionName: r.partition_name,
         latestMetrics: {
           sampledAt: r.sampled_at?.toISOString() ?? null,
           viewCount: bigintToJson(r.view_count),
@@ -125,11 +133,19 @@ export function createMonitorRoutes(db: Sql) {
         archived_at: Date | null;
         deleted_at: Date | null;
         cover_asset_id: string | null;
+        tid: number | null;
+        tid_v2: number | null;
+        partition_name: string | null;
         metadata: Record<string, unknown>;
       }[]
     >`
-      SELECT bvid, title, category, mid, monitoring_enabled, archived_at, deleted_at, cover_asset_id, metadata
-      FROM videos WHERE bvid = ${bvid}
+      SELECT v.bvid, v.title, v.category, v.mid, v.monitoring_enabled, v.archived_at, v.deleted_at,
+        v.cover_asset_id, v.tid, v.tid_v2,
+        ${db.unsafe(VIDEO_PARTITION_NAME_SQL)} AS partition_name,
+        v.metadata
+      FROM videos v
+      ${db.unsafe(VIDEO_PARTITION_JOINS)}
+      WHERE v.bvid = ${bvid}
     `;
     const row = rows[0];
     if (!row) return c.json({ error: 'not found' }, 404);
@@ -142,6 +158,9 @@ export function createMonitorRoutes(db: Sql) {
       archivedAt: row.archived_at?.toISOString() ?? null,
       deletedAt: row.deleted_at?.toISOString() ?? null,
       coverAssetId: row.cover_asset_id,
+      tid: row.tid,
+      tidV2: row.tid_v2,
+      partitionName: row.partition_name,
       metadata: row.metadata,
     });
   });

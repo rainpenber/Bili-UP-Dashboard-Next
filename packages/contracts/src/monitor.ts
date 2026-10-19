@@ -16,6 +16,9 @@ export type VideoListItem = {
   archivedAt: string | null;
   deletedAt: string | null;
   coverAssetId: string | null;
+  tid: number | null;
+  tidV2: number | null;
+  partitionName: string | null;
   latestMetrics: {
     sampledAt: string | null;
     viewCount: BigIntString | null;
