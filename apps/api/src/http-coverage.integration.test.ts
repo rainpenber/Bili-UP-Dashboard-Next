@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -1724,16 +1725,29 @@ function writeCoverageReport(): void {
     '# HTTP API 覆盖',
     '',
     `验收库 \`${databaseName}\` 保留，本文件不执行 DROP DATABASE。`,
+    '',
     `注册 ${report.registeredCount}，清单 ${report.inventoryCount}，已执行 ${report.executedCount}，成功路径 ${report.successCount}。`,
+    '',
     `注入 transport 调用 ${report.injectedTransportCalls} 次，逃逸到上游的 fetch ${report.upstreamFetchCount} 次。`,
     '',
-    '| 方法 | 路径 | 前端 | 成功 | 用例 |',
-    '| --- | --- | --- | --- | --- |',
-    ...routes.map((route) => {
-      const cases = route.cases.map((item) => `${item.test} ${item.status}`).join('<br>');
-      return `| ${route.method} | \`${route.path}\` | ${route.frontendCaller ? '有' : '无'} | ${route.success ? '是' : '否'} | ${cases || '—'} |`;
+    ...routes.flatMap((route) => {
+      const cases =
+        route.cases.length === 0
+          ? '- 没有请求记录'
+          : route.cases.map((item) => `- ${item.test}：${item.status}（${item.kind}）`).join('\n');
+      return [
+        `## ${route.method} \`${route.path}\``,
+        '',
+        `- 前端调用：${route.frontendCaller ? '有' : '无'}`,
+        `- 成功路径：${route.success ? '是' : '否'}`,
+        cases,
+        '',
+      ];
     }),
-    '',
   ];
-  writeFileSync(REPORT_MD, lines.join('\n'));
+  writeFileSync(REPORT_MD, `${lines.join('\n')}\n`);
+  spawnSync('bunx', ['prettier', '--write', REPORT_MD, REPORT_JSON], {
+    cwd: join(import.meta.dir, '../../..'),
+    stdio: 'ignore',
+  });
 }
