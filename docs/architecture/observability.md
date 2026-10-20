@@ -20,7 +20,7 @@ stdout 始终是一行 JSON，字段固定为 `level`、`time`、`service`、`in
 
 等待入库的记录、已经拆出但还没开始写的批次，以及当前正在写的批次共用一个上限。默认 1000 条，序列化后默认 4MiB。`LOG_QUEUE_MAX_RECORDS` 和 `LOG_QUEUE_MAX_BYTES` 只接受范围内的正整数，空值沿用默认；非法值在进程启动时失败，不会变成不设上限。队列满时保留已有记录并拒绝新记录，stdout 最多每秒汇总一次 `log.queue_overflow`，内容只有计数。
 
-API 和 Collector 收到 SIGTERM 或 SIGINT 后停止接收新工作，等当前请求或当前采集任务在预算内结束，写入 `service.stopped`，再限时 flush，停止 retention，关闭数据库和 HTTP。flush 默认 10 秒（`LOG_FLUSH_DEADLINE_MS`），整个退出默认 20 秒（`PROCESS_EXIT_BUDGET_MS`）。Compose 给 `app` 和 `collector` 30 秒 `stop_grace_period`。flush 失败或超时的退出码不是 0。重复信号不会再写一次停止事件。
+API 和 Collector 收到 SIGTERM 或 SIGINT 后停止接收新工作，等当前请求、已接受的元数据回填或当前采集任务在预算内结束，写入 `service.stopped`，再限时 flush，停止 retention，关闭数据库和 HTTP。队列已满时先冲掉已有批次，再尝试把这次停止事件放进腾出的名额；名额仍不够、后台任务未结束、或采集主循环自己失败时，退出码不是 0，并留下停止未完成或循环失败的诊断。flush 默认 10 秒（`LOG_FLUSH_DEADLINE_MS`），整个退出默认 20 秒（`PROCESS_EXIT_BUDGET_MS`）。Compose 给 `app` 和 `collector` 30 秒 `stop_grace_period`。重复信号不会再写一次停止事件。
 
 ## 只读接口
 

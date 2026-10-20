@@ -70,6 +70,8 @@ export type ManagedStudioLogger = Omit<StudioLogger, 'child'> & {
   child(bindings: LogBindings): ManagedStudioLogger;
   stats(): LogQueueStats;
   flushWithin(timeoutMs: number): Promise<LogFlushResult>;
+  /** False only when this call was refused by the bounded queue. */
+  notePersisted(level: LogLevel, message: string, fields?: LogFields): boolean;
 };
 
 export type CreateLoggerOptions = {
@@ -637,6 +639,11 @@ export function createLogger(options: CreateLoggerOptions): ManagedStudioLogger 
       },
       error(message, fields) {
         emit('error', message, fields);
+      },
+      notePersisted(level, message, fields) {
+        const before = rejectedRecords;
+        emit(level, message, fields);
+        return rejectedRecords === before;
       },
       flush,
       flushWithin,

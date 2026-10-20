@@ -8,9 +8,12 @@ import {
   createShutdownController,
   lifecycleTestEnabled,
   readShutdownBudgets,
+  scrubString,
   startAppLogRetention,
+  type CurrentTaskResult,
   type ShutdownDiagnostic,
 } from '@studio/observability';
+import type { MonitorRefreshOptions } from './monitor-routes';
 import { createApp } from './app';
 import { mountApiRoutes } from './mount-api';
 
@@ -59,7 +62,33 @@ const stopRetention = startAppLogRetention(sql, {
   },
 });
 const app = createApp({ skipDb: true, logger });
-mountApiRoutes(app, sql, { logger });
+const backgroundTasks: Promise<void>[] = [];
+let backgroundFailed = false;
+
+function trackBackfill(task: Promise<void>) {
+  const settled = task.then(
+    () => undefined,
+    (error: unknown) => {
+      backgroundFailed = true;
+      writeDiagnostic({
+        level: 'error',
+        event: 'process.background_failed',
+        msg: '后台任务失败',
+        context: {
+          error: scrubString(error instanceof Error ? error.message : 'background failed'),
+        },
+      });
+    },
+  );
+  backgroundTasks.push(settled);
+}
+
+const monitor: MonitorRefreshOptions = { logger, onBackfill: trackBackfill };
+if (lifecycleTestEnabled(process.env)) {
+  const { applyLifecycleBackfillTestDeps } = await import('./lifecycle-backfill');
+  applyLifecycleBackfillTestDeps(monitor, process.env);
+}
+mountApiRoutes(app, sql, monitor);
 
 let draining = false;
 let inflight = 0;
@@ -108,7 +137,7 @@ async function wrappedFetch(request: Request, server?: unknown): Promise<Respons
   }
 }
 
-function finishInFlight(timeoutMs: number): Promise<'finished' | 'timed_out'> {
+function waitForHttp(timeoutMs: number): Promise<'finished' | 'timed_out'> {
   if (inflight === 0) return Promise.resolve('finished');
   return new Promise((resolve) => {
     let settled = false;
@@ -125,6 +154,39 @@ function finishInFlight(timeoutMs: number): Promise<'finished' | 'timed_out'> {
     idleWaiters.push(onIdle);
     if (inflight === 0) onIdle();
   });
+}
+
+function waitForBackground(timeoutMs: number): Promise<'finished' | 'timed_out'> {
+  if (backgroundTasks.length === 0) return Promise.resolve('finished');
+  const pending = Promise.all(backgroundTasks).then(() => 'finished' as const);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve('timed_out'), timeoutMs);
+    pending.then(() => {
+      clearTimeout(timer);
+      resolve('finished');
+    });
+  });
+}
+
+async function finishInFlight(timeoutMs: number): Promise<CurrentTaskResult> {
+  const [http, background] = await Promise.all([
+    waitForHttp(timeoutMs),
+    waitForBackground(timeoutMs),
+  ]);
+  if (backgroundFailed) return 'failed';
+  if (http === 'timed_out' || background === 'timed_out') return 'timed_out';
+  return 'finished';
+}
+
+function readFillCount(env: NodeJS.ProcessEnv): number {
+  if (!lifecycleTestEnabled(env)) return 0;
+  const raw = env.LOG_TEST_FILL_RECORDS;
+  if (raw === undefined || raw.trim() === '') return 0;
+  const value = Number(raw.trim());
+  if (!Number.isInteger(value) || value < 0 || value > 1_000) {
+    throw new Error('LOG_TEST_FILL_RECORDS 超出范围');
+  }
+  return value;
 }
 
 if (import.meta.main) {
@@ -148,7 +210,7 @@ if (import.meta.main) {
         return finishInFlight(timeoutMs);
       },
       recordStopped() {
-        logger.info('API 停止', { event: 'service.stopped' });
+        return logger.notePersisted('info', 'API 停止', { event: 'service.stopped' });
       },
       flush(timeoutMs) {
         return logger.flushWithin(timeoutMs);
@@ -175,6 +237,10 @@ if (import.meta.main) {
   const server = Bun.serve({ port, fetch: wrappedFetch });
   rememberServer(server);
   logger.info('API 启动', { event: 'service.started' });
+  const fill = readFillCount(process.env);
+  for (let index = 0; index < fill; index += 1) {
+    logger.warn(`容量填充 ${index}`, { event: 'lifecycle.fill' });
+  }
   console.log(
     `Studio API listening on http://localhost:${server.port} (MONITOR_DATA_SOURCE=${process.env.MONITOR_DATA_SOURCE ?? 'mock'})`,
   );

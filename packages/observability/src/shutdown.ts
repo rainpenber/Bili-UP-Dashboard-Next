@@ -1,7 +1,7 @@
 import { scrubString } from './redact';
 import type { ShutdownBudgets } from './limits';
 
-export type CurrentTaskResult = 'finished' | 'timed_out';
+export type CurrentTaskResult = 'finished' | 'timed_out' | 'failed';
 
 export type LogFlushResult = {
   ok: boolean;
@@ -13,7 +13,8 @@ export type LogFlushResult = {
 export type ShutdownHooks = {
   stopAccepting: () => void;
   finishCurrent: (timeoutMs: number) => Promise<CurrentTaskResult>;
-  recordStopped: () => void;
+  /** True when this shutdown's stop event was accepted into the bounded queue. */
+  recordStopped: () => boolean;
   flush: (timeoutMs: number) => Promise<LogFlushResult>;
   stopRetention: () => void;
   closeResources: (timeoutMs: number) => Promise<void>;
@@ -144,8 +145,9 @@ export function createShutdownController(options: {
           taskBudget,
           'timed_out' as const,
         );
+        let stopAccepted = false;
         try {
-          options.hooks.recordStopped();
+          stopAccepted = options.hooks.recordStopped();
         } catch (error) {
           diagnose({
             level: 'error',
@@ -157,12 +159,45 @@ export function createShutdownController(options: {
           });
         }
         const flushBudget = Math.min(options.budgets.flushMs, remaining());
-        const flushed = await raceTimeout(options.hooks.flush(flushBudget), flushBudget, {
+        const timeoutResult: LogFlushResult = {
           ok: false,
-          reason: 'timeout' as const,
+          reason: 'timeout',
           pendingRecords: -1,
           pendingBytes: -1,
-        });
+        };
+        let flushed = await raceTimeout(
+          options.hooks.flush(flushBudget),
+          flushBudget,
+          timeoutResult,
+        );
+        if (!stopAccepted) {
+          try {
+            stopAccepted = options.hooks.recordStopped();
+          } catch (error) {
+            diagnose({
+              level: 'error',
+              event: 'process.stop_event_failed',
+              msg: '停止事件写入失败',
+              context: {
+                error: error instanceof Error ? error.message : 'stop event failed',
+              },
+            });
+          }
+          if (stopAccepted) {
+            const againBudget = Math.min(options.budgets.flushMs, remaining());
+            const again = await raceTimeout(
+              options.hooks.flush(againBudget),
+              againBudget,
+              timeoutResult,
+            );
+            flushed = {
+              ok: flushed.ok && again.ok,
+              reason: again.ok ? flushed.reason : again.reason,
+              pendingRecords: again.pendingRecords,
+              pendingBytes: again.pendingBytes,
+            };
+          }
+        }
         try {
           options.hooks.stopRetention();
         } catch (error) {
@@ -177,7 +212,7 @@ export function createShutdownController(options: {
         }
         const closeBudget = remaining();
         await raceTimeout(options.hooks.closeResources(closeBudget), closeBudget, undefined);
-        const complete = task === 'finished' && flushed.ok;
+        const complete = task === 'finished' && flushed.ok && stopAccepted;
         code = complete ? 0 : 1;
         if (!complete) {
           diagnose({
@@ -187,6 +222,7 @@ export function createShutdownController(options: {
             context: {
               signal,
               task,
+              stopEventAccepted: stopAccepted,
               flushOk: flushed.ok,
               flushReason: flushed.reason,
               pendingRecords: flushed.pendingRecords,

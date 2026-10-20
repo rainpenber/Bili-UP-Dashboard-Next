@@ -266,4 +266,40 @@ describe('collector process shutdown', () => {
       child.dispose();
     }
   }, 40_000);
+
+  test('a collector loop rejection is flushed and is not exit 0', async () => {
+    const isolated = await createRetainedTestDatabase('wp_r2_12');
+    open.push(isolated.sql);
+    const instance = `fatal-loop-${crypto.randomUUID()}`;
+    const child = spawnCollector(isolated.databaseName, instance, { COLLECTOR_POLL_MS: '50' });
+    let renamed = false;
+    try {
+      await child.waitForLine((line) => isEvent(line, 'service.started', instance), 15_000);
+      await isolated.sql`ALTER TABLE collector_jobs RENAME TO collector_jobs_hidden`;
+      renamed = true;
+      const exitCode = await child.exited;
+      const stdout = child.lines.join('\n');
+      const rows = await isolated.sql<{ event: string | null }[]>`
+        SELECT event FROM app_logs WHERE instance = ${instance} ORDER BY id
+      `;
+      expect(exitCode).not.toBe(0);
+      expect(stdout).toContain('process.loop_failed');
+      expect(stdout).toContain('collector_jobs');
+      expect(rows.filter((row) => row.event === 'service.started')).toHaveLength(1);
+      expect(rows.filter((row) => row.event === 'service.stopped')).toHaveLength(1);
+      evidence({
+        case: 'collector-loop-reject',
+        database: isolated.databaseName,
+        instance,
+        exitCode,
+        logCount: rows.length,
+        events: rows.map((row) => row.event),
+      });
+    } finally {
+      if (renamed) {
+        await isolated.sql`ALTER TABLE collector_jobs_hidden RENAME TO collector_jobs`;
+      }
+      child.dispose();
+    }
+  }, 40_000);
 });

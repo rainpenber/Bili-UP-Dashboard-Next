@@ -15,7 +15,9 @@ import {
   createShutdownController,
   lifecycleTestEnabled,
   readShutdownBudgets,
+  scrubString,
   startAppLogRetention,
+  type CurrentTaskResult,
   type ShutdownDiagnostic,
 } from '@studio/observability';
 import { applyLifecycleTestProvider } from './lifecycle-test';
@@ -80,6 +82,7 @@ const stopRetention = startAppLogRetention(sql, {
 });
 const abort = new AbortController();
 let loopPromise: Promise<void> = Promise.resolve();
+let loopError: unknown = null;
 
 const shutdown = createShutdownController({
   budgets: readShutdownBudgets(process.env),
@@ -88,11 +91,24 @@ const shutdown = createShutdownController({
     stopAccepting() {
       abort.abort();
     },
-    finishCurrent(timeoutMs) {
-      return raceLoop(loopPromise, timeoutMs);
+    async finishCurrent(timeoutMs) {
+      const result = await raceLoop(loopPromise, timeoutMs);
+      if (result === 'failed') {
+        writeDiagnostic({
+          level: 'error',
+          event: 'process.loop_failed',
+          msg: '采集循环异常退出',
+          context: {
+            error: scrubString(
+              loopError instanceof Error ? loopError.message : 'collector loop failed',
+            ),
+          },
+        });
+      }
+      return result;
     },
     recordStopped() {
-      logger.info('采集器停止', { event: 'service.stopped' });
+      return logger.notePersisted('info', '采集器停止', { event: 'service.stopped' });
     },
     flush(timeoutMs) {
       return logger.flushWithin(timeoutMs);
@@ -134,14 +150,16 @@ try {
     logger,
   });
   await loopPromise;
+} catch (error) {
+  loopError = error;
 } finally {
   await shutdown.join('collector-loop-ended');
 }
 
-function raceLoop(loop: Promise<void>, timeoutMs: number): Promise<'finished' | 'timed_out'> {
+function raceLoop(loop: Promise<void>, timeoutMs: number): Promise<CurrentTaskResult> {
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (result: 'finished' | 'timed_out') => {
+    const finish = (result: CurrentTaskResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -150,7 +168,10 @@ function raceLoop(loop: Promise<void>, timeoutMs: number): Promise<'finished' | 
     const timer = setTimeout(() => finish('timed_out'), timeoutMs);
     loop.then(
       () => finish('finished'),
-      () => finish('finished'),
+      (error: unknown) => {
+        loopError = error;
+        finish('failed');
+      },
     );
   });
 }

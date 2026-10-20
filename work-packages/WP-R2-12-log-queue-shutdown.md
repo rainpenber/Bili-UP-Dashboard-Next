@@ -41,3 +41,7 @@
 | Collector sink 永挂            | `wp_r2_12_479b918fa66c` | `collector-f32f3a30-efc7-484f-a7eb-447aa43bfa4f` | 退出码 1；408ms；heartbeat `idle`                                                                             |
 
 子进程里的 400ms / 1500ms 和 300ms / 1200ms 是同一读取路径上的测试预算。默认值仍是 flush 10 秒、总退出 20 秒，由单测锁定。容量单测断言过 in-flight 20 + staged 20 + queued 10 = 50，且 child logger 共用这一预算。
+
+## 纠正
+
+退出不再把这三种情况当成完整成功：队列满导致本次 `service.stopped` 没能入队；采集主循环自身 reject；API 已返回 202 但后台回填还没结束。满队列时先冲刷已有批次，再把停止事件放进腾出的名额；预算内仍放不进则退出码非 0，并带 `stopEventAccepted: false`。主循环异常会留下脱敏后的 `process.loop_failed`，然后照常 flush，退出码非 0。重复信号不会把失败改回成功。入口通过已有的 `onBackfill` 等待已接受的回填；超时或后台失败同样不是退出码 0。

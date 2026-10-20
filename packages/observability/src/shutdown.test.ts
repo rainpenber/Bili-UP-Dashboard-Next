@@ -14,6 +14,7 @@ function recordingHooks(overrides: Partial<ShutdownHooks> = {}) {
     },
     recordStopped() {
       calls.push('record');
+      return true;
     },
     async flush() {
       calls.push('flush');
@@ -109,5 +110,72 @@ describe('bounded shutdown', () => {
     );
     expect(incomplete?.context.task).toBe('timed_out');
     expect(recorded.calls.indexOf('flush')).toBeGreaterThan(recorded.calls.indexOf('stop'));
+  });
+
+  test('retries a rejected stop event after the queue drains', async () => {
+    const recorded = recordingHooks();
+    let accepted = false;
+    recorded.hooks.recordStopped = () => {
+      recorded.calls.push('record');
+      if (!accepted) return false;
+      return true;
+    };
+    recorded.hooks.flush = async () => {
+      recorded.calls.push('flush');
+      accepted = true;
+      return { ok: true, reason: 'persisted', pendingRecords: 0, pendingBytes: 0 };
+    };
+    const controller = createShutdownController({
+      budgets: { flushMs: 200, exitMs: 800 },
+      hooks: recorded.hooks,
+      writeDiagnostic: (record) => recorded.diagnostics.push(record),
+      exit: (code) => recorded.calls.push(`exit:${code}`),
+    });
+    expect(await controller.start('SIGTERM')).toBe(0);
+    expect(recorded.calls.filter((call) => call === 'record')).toHaveLength(2);
+    expect(recorded.calls.filter((call) => call === 'flush')).toHaveLength(2);
+  });
+
+  test('a stop event that never fits is not a successful exit', async () => {
+    const recorded = recordingHooks();
+    recorded.hooks.recordStopped = () => {
+      recorded.calls.push('record');
+      return false;
+    };
+    const controller = createShutdownController({
+      budgets: { flushMs: 50, exitMs: 400 },
+      hooks: recorded.hooks,
+      writeDiagnostic: (record) => recorded.diagnostics.push(record),
+      exit: (code) => recorded.calls.push(`exit:${code}`),
+    });
+    expect(await controller.start('SIGTERM')).toBe(1);
+    const incomplete = recorded.diagnostics.find(
+      (record) => record.event === 'process.shutdown_incomplete',
+    );
+    expect(incomplete?.context.stopEventAccepted).toBe(false);
+  });
+
+  test('a failed current task stays failed across a duplicate signal', async () => {
+    const recorded = recordingHooks({
+      async finishCurrent() {
+        recorded.calls.push('finish');
+        return 'failed';
+      },
+    });
+    const controller = createShutdownController({
+      budgets: { flushMs: 50, exitMs: 400 },
+      hooks: recorded.hooks,
+      writeDiagnostic: (record) => recorded.diagnostics.push(record),
+      exit: (code) => recorded.calls.push(`exit:${code}`),
+    });
+    const first = controller.start('SIGTERM');
+    const second = controller.start('SIGINT');
+    expect(await first).toBe(1);
+    expect(await second).toBe(1);
+    expect(recorded.calls.filter((call) => call === 'finish')).toHaveLength(1);
+    const incomplete = recorded.diagnostics.find(
+      (record) => record.event === 'process.shutdown_incomplete',
+    );
+    expect(incomplete?.context.task).toBe('failed');
   });
 });
