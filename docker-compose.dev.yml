@@ -39,9 +39,12 @@ services:
       MOCK_DATA_ROOT: /mock-data
       MONITOR_ASSETS_ROOT: /mock-data/assets
       API_PORT: 3000
+      LOG_FLUSH_DEADLINE_MS: ${LOG_FLUSH_DEADLINE_MS:-10000}
+      PROCESS_EXIT_BUDGET_MS: ${PROCESS_EXIT_BUDGET_MS:-20000}
     ports:
       - '${API_PORT:-3000}:3000'
     command: ['bun', 'run', 'apps/api/src/index.ts']
+    stop_grace_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
