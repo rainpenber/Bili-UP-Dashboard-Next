@@ -37,7 +37,7 @@ docker compose -p bili-prod stop collector
 docker compose -p bili-prod start collector
 ```
 
-`collector` 收到 SIGTERM 后会写完当前任务再退出。
+`collector` 收到 SIGTERM 后会写完当前任务再退出。`app` 和 `collector` 的 `stop_grace_period` 是 30 秒。进程自己的退出预算默认 20 秒，其中日志 flush 默认最多 10 秒；超时或写入失败不会伪装成正常退出。
 
 ## 3. 健康检查
 

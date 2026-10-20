@@ -17,7 +17,7 @@ WP-R2-05 的离线采集器仍然是默认路径。`COLLECTOR_PROVIDER=offline`�
 
 ## 进程
 
-`docker-compose.yml` 的 `collector` 服务使用与 `app` 相同的镜像，命令为 `bun run apps/collector/src/index.ts`。它只连接 Compose 网络里的 `postgres`，不发布端口。轮询待执行任务时用 `FOR UPDATE SKIP LOCKED`，失败按次数退避，达到 `COLLECTOR_MAX_ATTEMPTS`（默认 3）后把任务记为 `failed`。SIGTERM / SIGINT 会等当前任务结束后退出。
+`docker-compose.yml` 的 `collector` 服务使用与 `app` 相同的镜像，命令为 `bun run apps/collector/src/index.ts`。它只连接 Compose 网络里的 `postgres`，不发布端口。轮询待执行任务时用 `FOR UPDATE SKIP LOCKED`，失败按次数退避，达到 `COLLECTOR_MAX_ATTEMPTS`（默认 3）后把任务记为 `failed`。SIGTERM / SIGINT 会停止领取新任务，等当前任务在退出预算内结束，刷完日志再退出。`stop_grace_period` 是 30 秒。
 
 迁移只由 API 在启动时执行。Collector 发现表还没建好时会有界等待，不会自己跑迁移。本地单次进程：
 

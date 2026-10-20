@@ -50,6 +50,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Fail closed without PostgreSQL
+        run: bun -e "import { postgresAvailable } from './packages/db/src/postgres-available.ts'; if (!(await postgresAvailable())) { console.error('PostgreSQL required but unavailable'); process.exit(1); } console.log('postgres ok');"
+
       - name: Test
         run: bun run test
 

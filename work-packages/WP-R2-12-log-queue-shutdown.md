@@ -23,3 +23,21 @@
 - 注入当前任务延迟 / 永挂和 sink 延迟 / 永挂。断言停接新工作、当前任务收尾、重复信号幂等，以及 flush 期限和总退出期限真实生效。超时的退出码不是 0。
 - 子进程 provider 明确 offline，并安装网络守卫。缺 PostgreSQL 时失败关闭，不静默跳过。
 - `bun run format:check`、`lint`、`typecheck`、`test`、`build` 实际通过。CI 执行上述真库与子进程用例。
+
+## 本地实跑
+
+命令：`REQUIRE_POSTGRES=1` 下 `bun run format:check`、`bun run lint`、`bun run typecheck`、`bun run test`、`bun run build`。format / lint / typecheck / test / build 均通过。observability 19、collector 10、api 91，失败 0。验收库只关闭连接，没有 DROP DATABASE。子进程证据前缀 `WP-R2-12-EVIDENCE`：
+
+| 场景                           | 保留库                  | 标识                                             | 结果                                                                                                          |
+| ------------------------------ | ----------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| 脱敏 / 溢出 / 超时             | `wp_r2_12_fbf5d289cfaf` | `redact`、`redact-error`                         | 入库 2 条；拒绝 1；flush 超时 1；sink 失败 1；峰值 2 条                                                       |
+| API SIGTERM 尾批               | `wp_r2_12_29df41e62e21` | `api-89c80c33-165c-4992-a13b-090eaee892c9`       | 信号滞后 7ms；退出码 0；`service.started`、`service.stopped` 各 1                                             |
+| API SIGINT 在途 + 重复 SIGTERM | `wp_r2_12_30bf0161ffd2` | `api-d03f9aea-ea3c-431d-aba8-421cda82807e`       | 退出码 0；耗时 628ms；新请求 503；停止事件 1 条                                                               |
+| API sink 永挂                  | `wp_r2_12_a67eadd648ae` | `api-9935b1ce-35f3-4986-a563-716d47707db7`       | 退出码 1；407ms；flush 期限 400ms，总预算 1500ms                                                              |
+| API sink 抛错                  | `wp_r2_12_ac8d19543cdb` | `api-e40c8dcf-d862-4952-9467-3f1c2e31cf29`       | 退出码 1；该 instance 入库 0 条                                                                               |
+| Collector SIGINT 尾批          | `wp_r2_12_37bf4544c112` | `collector-79c28139-071e-4bdb-beca-7d8e3a63cb50` | heartbeat `idle`；滞后 17ms；退出码 0；两条生命周期事件                                                       |
+| Collector 当前任务             | `wp_r2_12_5fc523bb63a9` | `collector-93593a3a-1317-4a63-958e-8b2a40d17615` | 退出码 0；798ms；`BV1xx411c7mD` succeeded，`BV1xx411c7mE` pending；run `e079cf4e-401e-42fb-b7a6-ad4099fde930` |
+| Collector 任务永挂             | `wp_r2_12_ae88bf015718` | `collector-866002f3-279c-4e41-ae9a-bf634b87f0d4` | 退出码 1；857ms；任务仍为 running                                                                             |
+| Collector sink 永挂            | `wp_r2_12_479b918fa66c` | `collector-f32f3a30-efc7-484f-a7eb-447aa43bfa4f` | 退出码 1；408ms；heartbeat `idle`                                                                             |
+
+子进程里的 400ms / 1500ms 和 300ms / 1200ms 是同一读取路径上的测试预算。默认值仍是 flush 10 秒、总退出 20 秒，由单测锁定。容量单测断言过 in-flight 20 + staged 20 + queued 10 = 50，且 child logger 共用这一预算。

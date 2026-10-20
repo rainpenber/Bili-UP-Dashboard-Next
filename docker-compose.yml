@@ -31,6 +31,10 @@ services:
       COLLECTOR_SECRET_KEY: ${COLLECTOR_SECRET_KEY:-}
       API_PORT: 3000
       WEB_STATIC_ROOT: /app/web-dist
+      LOG_QUEUE_MAX_RECORDS: ${LOG_QUEUE_MAX_RECORDS:-1000}
+      LOG_QUEUE_MAX_BYTES: ${LOG_QUEUE_MAX_BYTES:-4194304}
+      LOG_FLUSH_DEADLINE_MS: ${LOG_FLUSH_DEADLINE_MS:-10000}
+      PROCESS_EXIT_BUDGET_MS: ${PROCESS_EXIT_BUDGET_MS:-20000}
     volumes:
       - ${MOCK_DATA_ROOT:-./packages/monitoring/fixtures/mock-data}:/mock-data:ro
       - assets:/assets
@@ -39,6 +43,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    stop_grace_period: 30s
     logging:
       options:
         max-size: 20m
@@ -78,6 +83,10 @@ services:
       MONITOR_ASSETS_ROOT: /assets
       COLLECTOR_SECRET_KEY: ${COLLECTOR_SECRET_KEY:-}
       COLLECTOR_INSTANCE_ID: collector-1
+      LOG_QUEUE_MAX_RECORDS: ${LOG_QUEUE_MAX_RECORDS:-1000}
+      LOG_QUEUE_MAX_BYTES: ${LOG_QUEUE_MAX_BYTES:-4194304}
+      LOG_FLUSH_DEADLINE_MS: ${LOG_FLUSH_DEADLINE_MS:-10000}
+      PROCESS_EXIT_BUDGET_MS: ${PROCESS_EXIT_BUDGET_MS:-20000}
     volumes:
       - ${MOCK_DATA_ROOT:-./packages/monitoring/fixtures/mock-data}:/mock-data:ro
       - assets:/assets
@@ -85,6 +94,7 @@ services:
       postgres:
         condition: service_healthy
     command: ['bun', 'run', 'apps/collector/src/index.ts']
+    stop_grace_period: 30s
     logging:
       options:
         max-size: 20m
