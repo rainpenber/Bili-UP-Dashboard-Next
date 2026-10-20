@@ -15,6 +15,7 @@ export type MonitorTargetRow = {
   tags: string[];
   enabled: boolean;
   intervalMinutes: number;
+  intervalMode: 'auto' | 'fixed';
   nextRunAt: Date | null;
   lastRunAt: Date | null;
   lastSuccessAt: Date | null;
@@ -66,6 +67,7 @@ type TargetSqlRow = {
   tags: string[] | string;
   enabled: boolean;
   interval_minutes: number;
+  interval_mode: 'auto' | 'fixed';
   next_run_at: Date | null;
   last_run_at: Date | null;
   last_success_at: Date | null;
@@ -101,6 +103,7 @@ function mapTarget(row: TargetSqlRow): MonitorTargetRow {
     tags: readTags(row.tags),
     enabled: row.enabled,
     intervalMinutes: row.interval_minutes,
+    intervalMode: row.interval_mode,
     nextRunAt: row.next_run_at,
     lastRunAt: row.last_run_at,
     lastSuccessAt: row.last_success_at,
@@ -113,7 +116,7 @@ function mapTarget(row: TargetSqlRow): MonitorTargetRow {
 }
 
 const targetColumns = `
-  id, "type", external_id, label, tags, enabled, interval_minutes,
+  id, "type", external_id, label, tags, enabled, interval_minutes, interval_mode,
   next_run_at, last_run_at, last_success_at, last_error, source,
   created_at, updated_at, deleted_at
 `;
@@ -140,13 +143,16 @@ export async function insertMonitorTarget(
     label: string;
     tags: string[];
     intervalMinutes: number;
+    intervalMode?: 'auto' | 'fixed';
     now: Date;
   },
 ): Promise<{ target: MonitorTargetRow; created: boolean; jobId: string | null }> {
+  const intervalMode = input.intervalMode ?? 'auto';
   return sql.begin(async (tx) => {
     const inserted = await tx<TargetSqlRow[]>`
       INSERT INTO monitor_targets (
-        id, "type", external_id, label, tags, enabled, interval_minutes, next_run_at, source
+        id, "type", external_id, label, tags, enabled, interval_minutes, interval_mode,
+        next_run_at, source
       ) VALUES (
         ${input.id}::uuid,
         ${input.type},
@@ -155,6 +161,7 @@ export async function insertMonitorTarget(
         ${pgTextArray(input.tags)}::text[],
         true,
         ${input.intervalMinutes},
+        ${intervalMode},
         ${input.now},
         'offline'
       )
@@ -236,6 +243,7 @@ export async function updateMonitorTarget(
   patch: {
     enabled?: boolean;
     intervalMinutes?: number;
+    intervalMode?: 'auto' | 'fixed';
     tags?: string[];
     label?: string;
   },
@@ -251,6 +259,7 @@ export async function updateMonitorTarget(
     if (existing.deletedAt) return { status: 'deleted', target: existing, jobId: null };
     const enabled = patch.enabled ?? null;
     const interval = patch.intervalMinutes ?? null;
+    const intervalMode = patch.intervalMode ?? null;
     const label = patch.label ?? null;
     const tags = patch.tags === undefined ? null : pgTextArray(patch.tags);
     const resume = patch.enabled === true && !existing.enabled;
@@ -258,6 +267,7 @@ export async function updateMonitorTarget(
       UPDATE monitor_targets SET
         enabled = COALESCE(${enabled}::boolean, enabled),
         interval_minutes = COALESCE(${interval}::int, interval_minutes),
+        interval_mode = COALESCE(${intervalMode}::text, interval_mode),
         label = COALESCE(${label}::text, label),
         tags = COALESCE(${tags}::text[], tags),
         next_run_at = CASE WHEN ${resume}::boolean THEN ${now} ELSE next_run_at END,

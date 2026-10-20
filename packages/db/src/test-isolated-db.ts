@@ -10,10 +10,13 @@ export type IsolatedTestDb = {
 };
 
 /** Create a dedicated database for one test file (CI-safe; fails if CREATE DATABASE denied in CI). */
-async function provisionEmptyDatabase(): Promise<IsolatedTestDb> {
+async function provisionEmptyDatabase(prefix = 'studio_test'): Promise<IsolatedTestDb> {
+  if (!/^[a-z][a-z0-9_]{0,30}$/.test(prefix)) {
+    throw new Error(`invalid isolated database prefix: ${prefix}`);
+  }
   const cfg = readDbConfigFromEnv();
   const admin = createSql();
-  const databaseName = `studio_test_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+  const databaseName = `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
   try {
     await admin.unsafe(`CREATE DATABASE "${databaseName}"`);
   } catch (err) {
@@ -62,6 +65,26 @@ export async function createIsolatedTestDatabase(): Promise<IsolatedTestDb | nul
     }
     if (isPostgresRequiredEnv()) throw err;
     return null;
+  }
+}
+
+/**
+ * Migrated database kept after the suite so the run can be re-read.
+ * Closes its own admin connection. Does not DROP DATABASE, including on failure.
+ */
+export async function createRetainedTestDatabase(prefix = 'wp_r2_11'): Promise<IsolatedTestDb> {
+  if (!(await postgresAvailable())) {
+    throw new Error(
+      'PostgreSQL is required for this suite (fail closed). Set CI or POSTGRES_PASSWORD and a reachable server. Refusing to skip.',
+    );
+  }
+  const isolated = await provisionEmptyDatabase(prefix);
+  try {
+    await runMigrations(isolated.sql);
+    return isolated;
+  } catch (err) {
+    await isolated.sql.end({ timeout: 5 }).catch(() => undefined);
+    throw err;
   }
 }
 

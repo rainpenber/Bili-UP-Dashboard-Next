@@ -2,23 +2,42 @@ import { createHealthResponse } from '@studio/contracts';
 import { createSql, runMigrations } from '@studio/db';
 import { createLogger, type StudioLogger } from '@studio/observability';
 import { Hono } from 'hono';
+import { matchedRoutes } from 'hono/route';
 import { readMonitorDataSource } from './data-source';
-import { createAssetsRoutes } from './assets-routes';
-import { createCommercialRoutes } from './commercial-routes';
-import { createImportRoutes } from './import-routes';
-import { createMonitorRoutes } from './monitor-routes';
-import { createOpsRoutes } from './ops-routes';
+import { mountApiRoutes } from './mount-api';
 import { registerWebSpa, resolveWebStaticRoot } from './static-spa';
 
 export const API_VERSION = '0.1.0';
 export const SERVICE_NAME = 'studio-api';
 
+export type ApiEnv = { Variables: { requestId: string; log: StudioLogger } };
+
 const REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+
+export type ApiRequestObservation = {
+  method: string;
+  path: string;
+  status: number;
+};
 
 export type CreateAppOptions = {
   skipDb?: boolean;
   logger?: StudioLogger;
+  /** Test hook. Production does not set it. Records the matched handler, not middleware. */
+  onRequest?: (observation: ApiRequestObservation) => void;
 };
+
+const API_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
+
+function observedRoute(c: { req: { method: string } }): { method: string; path: string } | null {
+  const routes = matchedRoutes(c as Parameters<typeof matchedRoutes>[0]);
+  for (let index = routes.length - 1; index >= 0; index -= 1) {
+    const route = routes[index];
+    if (!route || !API_METHODS.has(route.method)) continue;
+    return { method: route.method, path: route.path };
+  }
+  return null;
+}
 
 function requestIdFrom(header: string | undefined): string {
   const value = header?.trim() ?? '';
@@ -34,7 +53,7 @@ export function createApp(options: CreateAppOptions = {}) {
       instance: process.env.HOSTNAME ?? 'api',
     });
 
-  const app = new Hono<{ Variables: { requestId: string; log: StudioLogger } }>();
+  const app = new Hono<ApiEnv>();
 
   app.use('*', async (c, next) => {
     const requestId = requestIdFrom(c.req.header('x-request-id'));
@@ -48,12 +67,26 @@ export function createApp(options: CreateAppOptions = {}) {
     try {
       await next();
     } catch (error) {
+      const matched = observedRoute(c);
+      options.onRequest?.({
+        method: matched?.method ?? method,
+        path: matched?.path ?? path,
+        status: 500,
+      });
       log.error('http error', {
         event: 'http.error',
         err: error,
         context: { method, path, durationMs: Date.now() - started },
       });
       throw error;
+    }
+    const matched = observedRoute(c);
+    if (matched) {
+      options.onRequest?.({
+        method: matched.method,
+        path: matched.path,
+        status: c.res.status,
+      });
     }
     const durationMs = Date.now() - started;
     if (c.error) {
@@ -97,11 +130,7 @@ export function createApp(options: CreateAppOptions = {}) {
     void runMigrations(sql).catch((err) => {
       console.error('Migration failed', err);
     });
-    app.route('/api/v1/monitor', createMonitorRoutes(sql, { logger }));
-    app.route('/api/v1/assets', createAssetsRoutes(sql));
-    app.route('/api/v1/imports', createImportRoutes(sql));
-    app.route('/api/v1/commercial', createCommercialRoutes(sql));
-    app.route('/api/v1/ops', createOpsRoutes(sql));
+    mountApiRoutes(app, sql, { logger });
   }
 
   const staticRoot = resolveWebStaticRoot();

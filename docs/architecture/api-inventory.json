@@ -1,6 +1,6 @@
 {
-  "baseline": "9d9370e0b2c0d3b5b5e6cb92f68d5416f48b641b",
-  "evidenceLevel": "source-confirmed static registration. Not a runtime exercise of each route.",
+  "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
+  "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
   "apiRouteCount": 49,
   "wiredRouteCount": 31,
@@ -8,40 +8,40 @@
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes adds a fixed POST list.",
   "processRegistration": {
-    "productionEntry": "apps/api/src/index.ts uses createApp({ skipDb: true }) and then mounts monitor, assets, imports, commercial and ops once.",
-    "libraryEntry": "apps/api/src/app.ts mounts those five prefixes when skipDb is false. Unit and integration tests use that path. One process does not mount both copies.",
+    "productionEntry": "apps/api/src/index.ts uses createApp({ skipDb: true }) and then mountApiRoutes once.",
+    "libraryEntry": "apps/api/src/app.ts calls the same mountApiRoutes when skipDb is false. The coverage suite uses skipDb true plus mountApiRoutes, matching the process entry. One process does not mount both copies.",
     "health": "GET /health and GET /api/health are always registered inside createApp."
   },
   "mounts": [
     {
       "prefix": "/api/v1/monitor",
       "factory": "createMonitorRoutes",
-      "appTsLine": 44,
-      "indexTsLine": 10
+      "mountFile": "apps/api/src/mount-api.ts",
+      "mountLine": 16
     },
     {
       "prefix": "/api/v1/assets",
       "factory": "createAssetsRoutes",
-      "appTsLine": 45,
-      "indexTsLine": 13
+      "mountFile": "apps/api/src/mount-api.ts",
+      "mountLine": 17
     },
     {
       "prefix": "/api/v1/imports",
       "factory": "createImportRoutes",
-      "appTsLine": 46,
-      "indexTsLine": 14
+      "mountFile": "apps/api/src/mount-api.ts",
+      "mountLine": 18
     },
     {
       "prefix": "/api/v1/commercial",
       "factory": "createCommercialRoutes",
-      "appTsLine": 47,
-      "indexTsLine": 16
+      "mountFile": "apps/api/src/mount-api.ts",
+      "mountLine": 19
     },
     {
       "prefix": "/api/v1/ops",
       "factory": "createOpsRoutes",
-      "appTsLine": 86,
-      "indexTsLine": 32
+      "mountFile": "apps/api/src/mount-api.ts",
+      "mountLine": 20
     }
   ],
   "routes": [

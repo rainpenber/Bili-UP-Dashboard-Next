@@ -6,6 +6,14 @@ export type MonitorTargetType = (typeof MONITOR_TARGET_TYPES)[number];
 export const MONITOR_INTERVAL_MINUTES = [5, 15, 30, 60, 180, 360, 720, 1440] as const;
 export type MonitorIntervalMinutes = (typeof MONITOR_INTERVAL_MINUTES)[number];
 
+/** Stored frequency. The preset list above stays for existing UI callers. */
+export const MIN_MONITOR_INTERVAL_MINUTES = 5;
+export const MAX_MONITOR_INTERVAL_MINUTES = 10_080;
+export const CREATOR_DEFAULT_INTERVAL_MINUTES = 240;
+
+export const MONITOR_INTERVAL_MODES = ['auto', 'fixed'] as const;
+export type MonitorIntervalMode = (typeof MONITOR_INTERVAL_MODES)[number];
+
 export const COLLECTOR_JOB_STATUSES = ['pending', 'running', 'succeeded', 'failed'] as const;
 export type CollectorJobStatus = (typeof COLLECTOR_JOB_STATUSES)[number];
 
@@ -38,6 +46,7 @@ export type MonitorTarget = {
   tags: string[];
   enabled: boolean;
   intervalMinutes: number;
+  intervalMode: MonitorIntervalMode;
   nextRunAt: string | null;
   lastRunAt: string | null;
   lastSuccessAt: string | null;
@@ -53,12 +62,18 @@ export type MonitorTargetCreateRequest = {
   externalId: string;
   label: string;
   tags: string[];
+  /**
+   * Runtime range is 5–10080. The preset union is kept so the existing web
+   * caller, which annotates this field as MonitorIntervalMinutes, still typechecks.
+   */
   intervalMinutes: MonitorIntervalMinutes;
+  intervalMode: MonitorIntervalMode;
 };
 
 export type MonitorTargetPatchRequest = {
   enabled?: boolean;
-  intervalMinutes?: MonitorIntervalMinutes;
+  intervalMinutes?: number;
+  intervalMode?: MonitorIntervalMode;
   tags?: string[];
   label?: string;
 };
@@ -173,19 +188,44 @@ function parseLabel(value: unknown, fallback: string): string {
   return label.length > 0 ? label : fallback;
 }
 
-function parseInterval(value: unknown, fallback: MonitorIntervalMinutes): MonitorIntervalMinutes {
+function parseIntervalMode(value: unknown, fallback: MonitorIntervalMode): MonitorIntervalMode {
   if (value === undefined || value === null) return fallback;
-  if (typeof value !== 'number' || !Number.isInteger(value) || !isMonitorIntervalMinutes(value)) {
+  if (value !== 'auto' && value !== 'fixed') {
+    throw new MonitorContractError('invalid_interval', '采集模式只能是自动或固定');
+  }
+  return value;
+}
+
+function parseStoredInterval(value: unknown, fallback: number): number {
+  if (value === undefined || value === null) return fallback;
+  if (
+    typeof value !== 'number' ||
+    !Number.isInteger(value) ||
+    value < MIN_MONITOR_INTERVAL_MINUTES ||
+    value > MAX_MONITOR_INTERVAL_MINUTES
+  ) {
     throw new MonitorContractError('invalid_interval', '采集频率不在允许范围内');
   }
   return value;
+}
+
+/** Preset alias for callers that still annotate the create payload with the old union. */
+function asPresetInterval(value: number): MonitorIntervalMinutes {
+  return value as MonitorIntervalMinutes;
 }
 
 export function parseCreateMonitorTargetRequest(value: unknown): MonitorTargetCreateRequest {
   if (!isRecord(value)) {
     throw new MonitorContractError('invalid_body', '请求体不是合法的监控项');
   }
-  rejectUnknownKeys(value, ['type', 'externalId', 'label', 'tags', 'intervalMinutes']);
+  rejectUnknownKeys(value, [
+    'type',
+    'externalId',
+    'label',
+    'tags',
+    'intervalMinutes',
+    'intervalMode',
+  ]);
   if (value.type !== 'video' && value.type !== 'creator') {
     throw new MonitorContractError('invalid_target_type', '监控类型只能是视频或 UP 主');
   }
@@ -203,7 +243,13 @@ export function parseCreateMonitorTargetRequest(value: unknown): MonitorTargetCr
     externalId,
     label: parseLabel(value.label, externalId),
     tags: parseTags(value.tags),
-    intervalMinutes: parseInterval(value.intervalMinutes, 60),
+    intervalMode: parseIntervalMode(value.intervalMode, 'auto'),
+    intervalMinutes: asPresetInterval(
+      parseStoredInterval(
+        value.intervalMinutes,
+        value.type === 'creator' ? CREATOR_DEFAULT_INTERVAL_MINUTES : 60,
+      ),
+    ),
   };
 }
 
@@ -211,7 +257,7 @@ export function parsePatchMonitorTargetRequest(value: unknown): MonitorTargetPat
   if (!isRecord(value)) {
     throw new MonitorContractError('invalid_body', '请求体不是合法的监控项更新');
   }
-  rejectUnknownKeys(value, ['enabled', 'intervalMinutes', 'tags', 'label']);
+  rejectUnknownKeys(value, ['enabled', 'intervalMinutes', 'intervalMode', 'tags', 'label']);
   const patch: MonitorTargetPatchRequest = {};
   if ('enabled' in value) {
     if (typeof value.enabled !== 'boolean') {
@@ -220,14 +266,16 @@ export function parsePatchMonitorTargetRequest(value: unknown): MonitorTargetPat
     patch.enabled = value.enabled;
   }
   if ('intervalMinutes' in value) {
-    if (
-      typeof value.intervalMinutes !== 'number' ||
-      !Number.isInteger(value.intervalMinutes) ||
-      !isMonitorIntervalMinutes(value.intervalMinutes)
-    ) {
+    if (value.intervalMinutes === undefined || value.intervalMinutes === null) {
       throw new MonitorContractError('invalid_interval', '采集频率不在允许范围内');
     }
-    patch.intervalMinutes = value.intervalMinutes;
+    patch.intervalMinutes = parseStoredInterval(value.intervalMinutes, 0);
+  }
+  if ('intervalMode' in value) {
+    if (value.intervalMode === undefined || value.intervalMode === null) {
+      throw new MonitorContractError('invalid_interval', '采集模式只能是自动或固定');
+    }
+    patch.intervalMode = parseIntervalMode(value.intervalMode, 'auto');
   }
   if ('tags' in value) patch.tags = parseTags(value.tags);
   if ('label' in value) {
@@ -243,6 +291,7 @@ export function parsePatchMonitorTargetRequest(value: unknown): MonitorTargetPat
   if (
     patch.enabled === undefined &&
     patch.intervalMinutes === undefined &&
+    patch.intervalMode === undefined &&
     patch.tags === undefined &&
     patch.label === undefined
   ) {
@@ -275,6 +324,10 @@ export function parseMonitorTarget(value: unknown): MonitorTarget {
   if (typeof value.enabled !== 'boolean' || typeof value.intervalMinutes !== 'number') {
     throw new MonitorContractError('invalid_body', '监控项响应不完整');
   }
+  const intervalMode = value.intervalMode === undefined ? 'auto' : value.intervalMode;
+  if (intervalMode !== 'auto' && intervalMode !== 'fixed') {
+    throw new MonitorContractError('invalid_body', '监控项响应不完整');
+  }
   if (
     typeof value.source !== 'string' ||
     typeof value.createdAt !== 'string' ||
@@ -290,6 +343,7 @@ export function parseMonitorTarget(value: unknown): MonitorTarget {
     tags: value.tags,
     enabled: value.enabled,
     intervalMinutes: value.intervalMinutes,
+    intervalMode,
     nextRunAt: parseIso(value.nextRunAt, 'nextRunAt'),
     lastRunAt: parseIso(value.lastRunAt, 'lastRunAt'),
     lastSuccessAt: parseIso(value.lastSuccessAt, 'lastSuccessAt'),

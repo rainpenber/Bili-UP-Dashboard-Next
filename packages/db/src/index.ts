@@ -96,6 +96,7 @@ export {
 export {
   createEmptyIsolatedTestDatabase,
   createIsolatedTestDatabase,
+  createRetainedTestDatabase,
   dropIsolatedTestDatabase,
 } from './test-isolated-db';
 export { assertIntegrationSql, isPostgresRequiredEnv } from './require-postgres';

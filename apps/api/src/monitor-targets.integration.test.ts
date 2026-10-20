@@ -171,7 +171,7 @@ describe('monitor targets and offline collector', () => {
     expect(badBody.code).toBe('invalid_external_id');
     expect(badBody.error).toContain('BV');
 
-    const interval = await postTarget({ type: 'creator', externalId: '88', intervalMinutes: 7 });
+    const interval = await postTarget({ type: 'creator', externalId: '88', intervalMinutes: 4 });
     expect(interval.status).toBe(400);
     expect(((await interval.json()) as { code: string }).code).toBe('invalid_interval');
 
