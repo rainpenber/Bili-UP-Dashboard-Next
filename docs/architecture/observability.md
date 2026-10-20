@@ -18,6 +18,10 @@ stdout 始终是一行 JSON，字段固定为 `level`、`time`、`service`、`in
 
 `app_logs` 保留 14 天。API 和 Collector 进程启动时删一次，之后每 6 小时再删。天数由 `APP_LOG_RETENTION_DAYS` 覆盖。Docker Compose 的 `app` 和 `collector` 使用 `max-size: 20m`、`max-file: 5`。
 
+等待入库的记录、已经拆出但还没开始写的批次，以及当前正在写的批次共用一个上限。默认 1000 条，序列化后默认 4MiB。`LOG_QUEUE_MAX_RECORDS` 和 `LOG_QUEUE_MAX_BYTES` 只接受范围内的正整数，空值沿用默认；非法值在进程启动时失败，不会变成不设上限。队列满时保留已有记录并拒绝新记录。stdout 最多每秒汇总一次 `log.queue_overflow`，内容只有计数。API 与 Collector 共用这一容量。Compose 把这两个变量传给 `app` 和 `collector`。
+
+Collector 收到 SIGTERM 或 SIGINT 后停止领取新任务，等当前任务在预算内结束，写入 `service.stopped`，再限时 flush，停止 retention，关闭数据库。队列已满时先冲掉已有批次，再尝试把这次停止事件放进腾出的名额；名额仍不够、当前任务超时、尾批没有持久化，或采集主循环自己失败时，退出码不是 0。主循环失败会把脱敏后的原因写到 stdout（`process.loop_failed`），后面的 flush 不会把退出码改回 0。flush 默认 10 秒（`LOG_FLUSH_DEADLINE_MS`），整个退出默认 20 秒（`PROCESS_EXIT_BUDGET_MS`）。Compose 只给 `collector` 配置 30 秒 `stop_grace_period`。重复信号不会再写一次停止事件。API 进程的退出协调不在这一层。
+
 ## 只读接口
 
 全部挂在 `/api/v1/ops`，没有写方法。列表用 `limit`（默认 50，最大 200）和下降游标 `cursor`。

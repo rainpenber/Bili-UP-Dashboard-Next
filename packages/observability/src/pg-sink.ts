@@ -17,8 +17,14 @@ export type AppLogInsert = {
   context: Record<string, unknown>;
 };
 
+export type LogSinkFailure = {
+  ok: false;
+  reported: boolean;
+  error?: unknown;
+};
+
 export type LogSink = {
-  write(rows: readonly AppLogInsert[]): Promise<void>;
+  write(rows: readonly AppLogInsert[]): Promise<void | LogSinkFailure>;
 };
 
 function asUuid(value: string | null): string | null {
@@ -103,6 +109,7 @@ export function createPgLogSink(
         } catch {
           // degrade quietly
         }
+        return { ok: false, reported: true, error };
       }
     },
   };
