@@ -88,6 +88,8 @@ CSV 导入为**显式一次性命令**（无自动 `mock-import` 服务），见
 
 导入在**单连接事务**内使用 `pg_advisory_xact_lock`；101+101 规模 dry-run/apply 应在数分钟内完成。
 
+旧 CSV 增量同步默认关闭。宿主先把快照原子发布到本地目录，再执行 `sync-legacy`。命令、检查点和冲突规则见 [旧 CSV 增量同步](../architecture/legacy-csv-sync.md)。
+
 ## 故障排查
 
 | 现象                                     | 处理                                                                                                                                                   |

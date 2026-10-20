@@ -28,6 +28,7 @@ export * from './bilibili-job';
 export * from './bilibili-effects';
 export * from './qr-login';
 export * from './legacy-import';
+export * from './legacy-sync';
 export * from './rate-limiter';
 export * from './image-asset';
 export * from './view-detail';

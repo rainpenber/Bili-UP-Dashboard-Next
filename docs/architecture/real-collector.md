@@ -81,7 +81,9 @@ bun run apps/collector/src/cli.ts import-legacy --dir /path/to/csv
 
 `login --qr` 走 passport 的 `qrcode/generate` 与 `qrcode/poll`（86101 未扫、86090 已扫未确认、86038 过期、0 成功），从 `Set-Cookie` 取凭据，再用 `nav` 填写 mid / 昵称 / 头像，加密后写入 `bili_account_secrets`。二维码打到终端并写成 PNG。登录 URL 里的 `qrcode_key` 不进普通日志。
 
-`import-legacy` 接受 UTF-8 BOM 和 CRLF。`*_views.csv` 与 `*_follower.csv` 的时间按 `Asia/Shanghai`、分钟精度解析。`source='legacy_csv'`，`comment_count` 保持 NULL（旧系统没采，不能填 0）。每个文件一行 `import_batches`（`mode='apply'`）。冲突计数来自 `ON CONFLICT DO NOTHING`，已有的真实样本不会被 CSV 覆盖。
+`import-legacy` 接受 UTF-8 BOM 和 CRLF。`*_views.csv` 与 `*_follower.csv` 的时间按 `Asia/Shanghai`、分钟精度解析。`source='legacy_csv'`，`comment_count` 保持 NULL（旧系统没采，不能填 0）。每个文件一行 `import_batches`（`mode='apply'`）。冲突计数来自 `ON CONFLICT DO NOTHING`，已有的真实样本不会被 CSV 覆盖。它仍是整目录重读，不写同步检查点。
+
+后续新增行用 `sync-legacy`。见 [旧 CSV 增量同步](./legacy-csv-sync.md)。
 
 `COLLECTOR_DRY_RUN=1` 只打印将要请求的 URL，不调用传输层。
 

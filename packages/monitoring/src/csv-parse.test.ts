@@ -28,4 +28,11 @@ describe('parseBoundedCount', () => {
     const r = parseBoundedCount('0');
     expect(r.value).toBe(0n);
   });
+
+  test('rejects a non-numeric lower bound instead of throwing', () => {
+    const r = parseBoundedCount('未知+');
+    expect(r.value).toBeNull();
+    expect(r.raw).toBe('未知+');
+    expect(r.note).toBe('unparseable');
+  });
 });

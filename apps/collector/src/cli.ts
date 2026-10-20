@@ -1,17 +1,29 @@
-import { collectorSchemaReady, createSql, saveActiveBiliAccount } from '@studio/db';
+import {
+  collectorSchemaReady,
+  createSql,
+  legacySyncSchemaReady,
+  readLegacySyncStatus,
+  saveActiveBiliAccount,
+} from '@studio/db';
 import { createLogger } from '@studio/observability';
 import {
   assertProviderCanStart,
   createLiveBilibiliTransport,
   createLiveImageTransport,
+  DEFAULT_LEGACY_SYNC_INTERVAL_MS,
   encryptCookieJar,
   formatLegacyImportReport,
+  formatLegacySyncReport,
+  formatLegacySyncStatus,
   formatWebuiImportReport,
   importLegacyDirectory,
   importWebuiDirectory,
   loadCollectorSecretKey,
+  parseSyncBatchLines,
+  parseSyncInterval,
   readBilibiliRuntimeConfig,
   resolveMetadataIds,
+  runLegacyCsvSync,
   runQrLogin,
   scrubCollectorError,
   startMetadataBackfill,
@@ -23,6 +35,15 @@ import { waitForReady } from './wait-for-schema';
 export type CollectorCli =
   | { command: 'login'; pngPath: string }
   | { command: 'import-legacy'; dir: string }
+  | {
+      command: 'sync-legacy';
+      dir: string;
+      once: boolean;
+      execute: boolean;
+      intervalMs: number;
+      batchLines: number;
+    }
+  | { command: 'sync-legacy-status' }
   | { command: 'import-webui'; root: string; dryRun: boolean }
   | {
       command: 'fetch-metadata';
@@ -48,6 +69,8 @@ const USAGE = [
   '用法:',
   '  login --qr [--png path]',
   '  import-legacy --dir <path>',
+  '  sync-legacy --dir <path> [--once] [--execute | --dry-run] [--interval 15m] [--batch-size 2000]',
+  '  sync-legacy status',
   '  import-webui --root <webui_meta> [--dry-run]',
   '  fetch metadata --kind video|creator (--bvid X | --mid X | --dir <webui_meta> | --all-missing) [--limit N] [--force] [--dry-run | --execute]',
 ].join('\n');
@@ -63,6 +86,41 @@ export function parseCollectorCli(argv: readonly string[]): CollectorCli {
     const dir = flagValue(rest, '--dir');
     if (!dir) throw new Error('import-legacy 需要 --dir <path>');
     return { command: 'import-legacy', dir };
+  }
+  if (command === 'sync-legacy') {
+    if (rest[0] === 'status') {
+      if (rest.length !== 1) throw new Error('sync-legacy status 不接受其他参数');
+      return { command: 'sync-legacy-status' };
+    }
+    const known = new Set([
+      '--dir',
+      '--once',
+      '--execute',
+      '--dry-run',
+      '--interval',
+      '--batch-size',
+    ]);
+    for (let index = 0; index < rest.length; index += 1) {
+      const token = rest[index] ?? '';
+      if (!token.startsWith('--') || !known.has(token)) throw new Error(`无法识别的参数 ${token}`);
+      if (token === '--dir' || token === '--interval' || token === '--batch-size') {
+        const value = rest[index + 1];
+        if (!value || value.startsWith('--')) throw new Error(`${token} 缺少参数`);
+        index += 1;
+      }
+    }
+    const dir = flagValue(rest, '--dir');
+    if (!dir) throw new Error('sync-legacy 需要 --dir <path>');
+    const intervalRaw = flagValue(rest, '--interval');
+    const batchRaw = flagValue(rest, '--batch-size');
+    return {
+      command: 'sync-legacy',
+      dir,
+      once: rest.includes('--once'),
+      execute: rest.includes('--execute') && !rest.includes('--dry-run'),
+      intervalMs: intervalRaw ? parseSyncInterval(intervalRaw) : DEFAULT_LEGACY_SYNC_INTERVAL_MS,
+      batchLines: batchRaw ? parseSyncBatchLines(batchRaw) : 2000,
+    };
   }
   if (command === 'import-webui') {
     const root = flagValue(rest, '--root');
@@ -112,7 +170,47 @@ async function main(): Promise<void> {
   const parsed = parseCollectorCli(process.argv.slice(2));
   const sql = createSql();
   try {
-    await waitForReady(() => collectorSchemaReady(sql), { attempts: 30, delayMs: 2_000 });
+    const schemaReady =
+      parsed.command === 'sync-legacy' || parsed.command === 'sync-legacy-status'
+        ? () => legacySyncSchemaReady(sql)
+        : () => collectorSchemaReady(sql);
+    await waitForReady(schemaReady, { attempts: 30, delayMs: 2_000 });
+    if (parsed.command === 'sync-legacy-status') {
+      console.log(formatLegacySyncStatus(await readLegacySyncStatus(sql)));
+      return;
+    }
+    if (parsed.command === 'sync-legacy') {
+      const controller = new AbortController();
+      const stop = () => controller.abort();
+      process.on('SIGINT', stop);
+      process.on('SIGTERM', stop);
+      const logger = parsed.execute
+        ? createLogger({
+            service: 'collector',
+            instance: process.env.COLLECTOR_INSTANCE_ID ?? 'legacy-sync',
+            sql,
+          })
+        : null;
+      try {
+        const report = await runLegacyCsvSync({
+          sql,
+          dir: parsed.dir,
+          execute: parsed.execute,
+          once: parsed.once,
+          intervalMs: parsed.intervalMs,
+          batchLines: parsed.batchLines,
+          signal: controller.signal,
+          logger,
+        });
+        console.log(formatLegacySyncReport(report));
+        if (report.status === 'failed' || report.status === 'busy') process.exitCode = 1;
+        await logger?.flush();
+      } finally {
+        process.off('SIGINT', stop);
+        process.off('SIGTERM', stop);
+      }
+      return;
+    }
     if (parsed.command === 'import-legacy') {
       const report = await importLegacyDirectory(sql, parsed.dir);
       console.log(formatLegacyImportReport(report));
