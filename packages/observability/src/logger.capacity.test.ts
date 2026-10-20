@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { evidence } from './lifecycle-process';
 import { createLogger, type LogQueueStats } from './logger';
 import type { AppLogInsert, LogSink } from './pg-sink';
 
@@ -65,6 +66,16 @@ describe('bounded log queue', () => {
       expect(stats.rejectedRecords).toBe(10);
       expect(stats.peakPendingRecords).toBe(50);
       expect(stats.queuedRecords).toBeLessThan(stats.pendingRecords);
+      evidence({
+        case: 'logger-capacity-records',
+        queuedRecords: stats.queuedRecords,
+        stagedRecords: stats.stagedRecords,
+        inFlightRecords: stats.inFlightRecords,
+        pendingRecords: stats.pendingRecords,
+        peakPendingRecords: stats.peakPendingRecords,
+        rejectedRecords: stats.rejectedRecords,
+        maxRecords: stats.maxRecords,
+      });
       release();
       await logger.flush();
       expect(batches.flat()).toEqual(Array.from({ length: 50 }, (_, index) => `m${index}`));
@@ -126,6 +137,16 @@ describe('bounded log queue', () => {
       expect(stats.pendingBytes).toBeLessThanOrEqual(64_000);
       expect(stats.rejectedBytes).toBeGreaterThan(64_000);
       expect(stats.peakPendingBytes).toBeLessThanOrEqual(64_000);
+      evidence({
+        case: 'logger-capacity-bytes',
+        queuedBytes: stats.queuedBytes,
+        stagedBytes: stats.stagedBytes,
+        inFlightBytes: stats.inFlightBytes,
+        pendingBytes: stats.pendingBytes,
+        peakPendingBytes: stats.peakPendingBytes,
+        rejectedBytes: stats.rejectedBytes,
+        maxBytes: stats.maxBytes,
+      });
       const overflow = lines.filter((line) => line.includes('log.queue_overflow'));
       expect(overflow.length).toBe(1);
       expect(lines.join('\n')).not.toContain(SECRET_SESS);

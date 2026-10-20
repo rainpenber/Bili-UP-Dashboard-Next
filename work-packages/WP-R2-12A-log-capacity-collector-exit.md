@@ -26,4 +26,26 @@
 
 ## 结果
 
-本地实跑记录写在本文件末尾。容器 30 秒 `stop_grace_period` 由后续在实际镜像上验证，本包只把 Compose 配置成 30 秒。
+`bun run format:check`、`lint`、`typecheck`、`test`、`build` 均通过。observability 22、collector 13、api 87，失败 0。API 清单与执行集合仍是 49。`apps/api` 源文件相对 `b5a0c5c` 无差异。验收库只关闭连接，没有 DROP DATABASE。
+
+容量峰值来自同一次 suite，统计的是 queued + staged + in-flight，不是单独的 `queue.length`：
+
+| 场景           | 峰值                                                                      |
+| -------------- | ------------------------------------------------------------------------- |
+| 条数预算 50    | queued 10，staged 20，in-flight 20，pending 50，拒绝 10                   |
+| 字节预算 64000 | queued 0，staged 35940，in-flight 11970，pending / 峰值 47910，拒绝 80212 |
+
+子进程证据前缀 `WP-R2-12A-EVIDENCE`。下表是全量 suite 的记录；更早的同前缀库也保留。
+
+| 场景                              | 保留库                   | 标识                                              | 结果                                                                                                                         |
+| --------------------------------- | ------------------------ | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 脱敏 / 溢出 / 超时                | `wp_r2_12a_d16ec9e709f1` | `redact`、`redact-error`                          | 入库 2 条；拒绝 1；flush 超时 1；sink 失败 1；峰值 2 条                                                                      |
+| Collector SIGINT 尾批             | `wp_r2_12a_5fe4b8834ac5` | `collector-ca7d1d9f-98af-43ad-9532-d6fe98238c67`  | heartbeat `idle`；滞后 1ms；退出码 0；`service.started`、`service.stopped`                                                   |
+| Collector 当前任务 + 重复 SIGTERM | `wp_r2_12a_4e552ed8fd88` | `collector-cf956b7c-0eb7-4d08-92a1-d0651afc1823`  | 退出码 0；824ms；`BV1xx411c7mE` succeeded，`BV1xx411c7mD` pending；run `536243f2-6be5-499d-92df-dacb62877d80`；停止事件 1 条 |
+| Collector 任务永挂                | `wp_r2_12a_6912d27f80f9` | `collector-903885b2-83f6-4800-bb94-8e74c933240d`  | 退出码 1；859ms；任务仍为 running                                                                                            |
+| Collector sink 永挂               | `wp_r2_12a_70d6f19e8543` | `collector-3d7b27f8-71ca-490b-80dc-2f4e76eb4247`  | 退出码 1；409ms；heartbeat `idle`                                                                                            |
+| 主循环 SQL 错误                   | `wp_r2_12a_751f77898917` | `fatal-loop-c757d2dd-5024-405d-80c3-a73318f3cbd4` | 退出码 1；诊断 `relation "collector_jobs" does not exist`；stderr 空；`app_logs` 仍有 started / stopped 各 1                 |
+| 满预算后停止事件恢复              | `wp_r2_12a_0b1193492af0` | `collector-166b50cf-5bf3-4382-9af6-c1e48beba0fc`  | 退出码 0；834ms；重复 SIGINT；started 与 stopped 各 1                                                                        |
+| 满预算且 sink 永挂                | `wp_r2_12a_717c5a04ead3` | `collector-c3fc8e8a-bff3-4ff2-9b64-b63803ee9aa8`  | 退出码 1；412ms；`stopEventAccepted` 为 false；入库 0 条                                                                     |
+
+容器 30 秒 `stop_grace_period` 只写在 Compose 里，实际镜像未在本包验证。API 进程退出不在本包验收。

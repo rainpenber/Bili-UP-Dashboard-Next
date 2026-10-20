@@ -278,7 +278,6 @@ describe('collector process shutdown', () => {
       await isolated.sql`ALTER TABLE collector_jobs RENAME TO collector_jobs_hidden`;
       renamed = true;
       const exitCode = await child.exited;
-      const stdout = child.lines.join('\n');
       const loopFailed = child.lines
         .map((line) => {
           try {
@@ -399,7 +398,8 @@ describe('collector process shutdown', () => {
         SELECT event FROM app_logs WHERE instance = ${instance} ORDER BY id
       `;
       const stdout = child.lines.join('\n');
-      expect(signaledAt).toBeGreaterThan(seenAt);
+      expect(signaledAt - seenAt).toBeGreaterThanOrEqual(0);
+      expect(signaledAt - seenAt).toBeLessThan(200);
       expect(exitCode).not.toBe(0);
       expect(elapsed).toBeGreaterThanOrEqual(350);
       expect(elapsed).toBeLessThan(2_500);
