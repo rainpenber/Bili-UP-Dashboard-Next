@@ -101,6 +101,8 @@ UUID 项目页的摘要、时间线和画布从同一次详情查询和同一次
 
 视频指标和粉丝样本在本基线都有表、只读路由和图表。`video_metric_samples` 含播放、在线、点赞、投币、收藏、分享、弹幕、评论。`creator_follower_samples` 含 `follower_count`。导入 CLI 和 `POST /api/v1/imports/csv` 能把离线 CSV 写入这些表。`videos.monitoring_enabled` 与 `creators.monitoring_enabled` 会随列表和详情返回，页面没有修改它们的请求。
 
+视频详情在同一次查询里左连 `creators`，并用 `LATERAL` 取该作者最近一条粉丝样本，响应字段为 `creator`（`videos.mid` 为空时是 null）。页面再用已有的 `GET /api/v1/monitor/creators/:mid/metrics` 画粉丝迷你折线；mid 为空时不发这次请求。UP 主详情通过 `GET /api/v1/monitor/creators/:mid/videos` 按 `pubdate DESC NULLS LAST, bvid` 列出未软删除视频，每条再用 `LATERAL` 取最近一条播放样本。作者不存在是 404，作者没有视频是空列表。两条读路径都不改表、不触发采集。
+
 发布节点的已接受写入会插入 `project_monitor_contracts`，以及每个项目各一条 `metadata`、`metrics` 且状态为 `pending` 的 `monitor_jobs`。源码注释和 `commercial-db.md` 都写明这些任务不执行。测试 Compose 没有 Collector 服务。`MONITOR_DATA_SOURCE=collector` 不能启动采集。因此：数据库历史和图表是读路径；可配置的持续监控和正在运行的视频或粉丝采集，在这个基线上 missing。`pending` 任务或粉丝表本身不是采集器在运行的证据。
 
 ## 不一致与最小后续动作

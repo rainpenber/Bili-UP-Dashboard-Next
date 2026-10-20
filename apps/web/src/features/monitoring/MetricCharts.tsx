@@ -24,7 +24,7 @@ type Props =
       playbackSummary?: ReactNode;
       engagementSummary?: ReactNode;
     }
-  | { kind: 'creator'; points: CreatorMetricPoint[] }
+  | { kind: 'creator'; points: CreatorMetricPoint[]; variant?: 'full' | 'sparkline' }
   | { kind: 'dynamic'; points: DynamicMetricPoint[] };
 
 function hasDrawnPoint(value: number | string | null): boolean {
@@ -95,6 +95,13 @@ export function MetricCharts(props: Props) {
   );
 
   if (points.length === 0) {
+    if (props.kind === 'creator' && props.variant === 'sparkline') {
+      return (
+        <p className="text-sm text-muted-foreground" data-testid="follower-sparkline-empty">
+          暂无样本
+        </p>
+      );
+    }
     return <p className="text-sm text-muted-foreground">暂无播放与互动数据</p>;
   }
 
@@ -194,9 +201,29 @@ export function MetricCharts(props: Props) {
     const zoom = followerZoom ?? initialZoom;
     const { start, end } = visibleIndexRange(followers.length, zoom.start, zoom.end);
 
+    const option = buildFollowerOption(sampledAtList, followers, colors, tooltipTimes, start, end);
+    if (props.variant === 'sparkline') {
+      return (
+        <div className="min-w-0 overflow-hidden" data-testid="follower-sparkline">
+          <ReactECharts
+            option={{
+              ...option,
+              legend: { show: false },
+              toolbox: { show: false },
+              dataZoom: [{ type: 'inside', start: zoom.start, end: zoom.end }],
+              grid: { left: 8, right: 8, top: 16, bottom: 24, containLabel: true },
+            }}
+            style={{ height: 140, width: '100%' }}
+            opts={{ renderer: 'canvas' }}
+            notMerge
+          />
+        </div>
+      );
+    }
+
     return (
       <ReactECharts
-        option={buildFollowerOption(sampledAtList, followers, colors, tooltipTimes, start, end)}
+        option={option}
         style={{ height: 320, width: '100%' }}
         opts={{ renderer: 'canvas' }}
         notMerge

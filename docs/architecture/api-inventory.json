@@ -2,8 +2,8 @@
   "baseline": "9d9370e0b2c0d3b5b5e6cb92f68d5416f48b641b",
   "evidenceLevel": "source-confirmed static registration. Not a runtime exercise of each route.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 48,
-  "wiredRouteCount": 30,
+  "apiRouteCount": 49,
+  "wiredRouteCount": 31,
   "unwiredImplementedRouteCount": 18,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes adds a fixed POST list.",
@@ -555,8 +555,31 @@
         }
       ],
       "wired": true,
-      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
-      "storedEntity": "videos"
+      "notes": "Includes creator from one LEFT JOIN to creators plus a LATERAL latest follower sample. creator is null when videos.mid is null. Counts are decimal strings.",
+      "storedEntity": "videos, creators, creator_follower_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/videos",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 403,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor.ts#parseCreatorVideosLimit",
+      "responseContract": "packages/contracts/src/monitor.ts#CreatorVideoList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchCreatorVideos",
+          "evidence": "/creators/${encodeURIComponent(mid)}/videos"
+        }
+      ],
+      "wired": true,
+      "notes": "Unsoft-deleted videos for one creator, pubdate DESC NULLS LAST, bvid. latest is one LATERAL sample per video. Unknown mid is 404. A creator with no videos is 200 and items [].",
+      "query": "limit, offset",
+      "storedEntity": "creators, videos, video_metric_samples"
     },
     {
       "method": "GET",

@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  MONITOR_CREATOR_VIDEOS_DEFAULT_LIMIT,
+  MONITOR_CREATOR_VIDEOS_MAX_LIMIT,
   MONITOR_MAX_METRICS_LIMIT,
   newestMetricPoint,
+  parseCreatorMid,
+  parseCreatorVideosLimit,
+  parseCreatorVideosOffset,
   parseMetricsLimit,
   parseMonitorPage,
   parseMonitorPageSize,
@@ -20,6 +25,34 @@ describe('monitor query parsers', () => {
     expect(parseMetricsLimit(String(MONITOR_MAX_METRICS_LIMIT + 1))).toBe(
       MONITOR_MAX_METRICS_LIMIT,
     );
+  });
+
+  test('creator video limit defaults to 20 and caps at 100', () => {
+    expect(parseCreatorVideosLimit(undefined)).toBe(MONITOR_CREATOR_VIDEOS_DEFAULT_LIMIT);
+    expect(parseCreatorVideosLimit('1')).toBe(1);
+    expect(parseCreatorVideosLimit('100')).toBe(100);
+    expect(parseCreatorVideosLimit('101')).toBe(MONITOR_CREATOR_VIDEOS_MAX_LIMIT);
+    expect(parseCreatorVideosLimit('1000')).toBe(MONITOR_CREATOR_VIDEOS_MAX_LIMIT);
+    expect(() => parseCreatorVideosLimit('0')).toThrow(/invalid limit/);
+    expect(() => parseCreatorVideosLimit('-1')).toThrow(/invalid limit/);
+    expect(() => parseCreatorVideosLimit('nope')).toThrow(/invalid limit/);
+  });
+
+  test('creator video offset rejects negatives', () => {
+    expect(parseCreatorVideosOffset(undefined)).toBe(0);
+    expect(parseCreatorVideosOffset('0')).toBe(0);
+    expect(parseCreatorVideosOffset('20')).toBe(20);
+    expect(parseCreatorVideosOffset('20.9')).toBe(20);
+    expect(() => parseCreatorVideosOffset('-1')).toThrow(/invalid offset/);
+    expect(() => parseCreatorVideosOffset('nope')).toThrow(/invalid offset/);
+  });
+
+  test('creator mid accepts bigint digits only', () => {
+    expect(parseCreatorMid('3493141386627335')).toBe('3493141386627335');
+    expect(parseCreatorMid('0007')).toBe('7');
+    expect(() => parseCreatorMid('')).toThrow(/invalid mid/);
+    expect(() => parseCreatorMid('12a')).toThrow(/invalid mid/);
+    expect(() => parseCreatorMid('9999999999999999999')).toThrow(/invalid mid/);
   });
 });
 
