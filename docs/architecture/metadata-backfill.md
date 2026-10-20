@@ -53,3 +53,9 @@ bun run apps/collector/src/cli.ts fetch metadata --kind creator --mid <mid> --di
 `collector_rate_state(account_id, window_started_at, count, last_request_at)` 加 `acquireRequestSlot`。放行前对 `pg_advisory_lock(hashtext('bili-rate:' || account_id))` 加会话锁，在同一条连接上读状态、按最小间隔和每分钟上限睡眠、再更新计数。采集器在传入 `sql` 时走这个函数，环境变量仍是 `COLLECTOR_MIN_INTERVAL_MS`、`COLLECTOR_MAX_JITTER_MS`、`COLLECTOR_MAX_REQUESTS_PER_MINUTE`；没有 Cookie 时最小间隔仍至少 5 秒。没有账号 UUID 的流量共用 `00000000-0000-0000-0000-000000000000`。回填和刷新使用同一函数。
 
 封面和头像下载只允许 HTTPS 的 `*.hdslb.com`（重定向后再次校验），校验魔数，拒绝 GIF，超过 8 MiB 或 10 秒即失败，请求不带 Cookie。
+
+## 审计
+
+每一次 `view/detail`、`relation/stat`、创作者补资料用的 `card`（仍是一次 `view/detail`）、以及真正发出的图片下载，都写一行 `collector_requests`。`run_id` 在批量刷新时填 `backfill_runs.id`（该列不再外键到 `collector_runs`，采集任务仍按原来的方式写入自己的 run id）。没有登录账号时 `account_id` 留空。错误文本先过 `scrubString`。
+
+API 把进程 logger 传给刷新。批次写 `backfill.started` / `backfill.finished`；单条失败写 `backfill.item_failed`（warn，带 bvid 或 mid 和业务码）。

@@ -27,6 +27,7 @@ import {
   type MetadataKind,
   type MetadataRefreshDeps,
 } from '@studio/monitoring';
+import type { StudioLogger } from '@studio/observability';
 import { Hono } from 'hono';
 import { readAssetsRoot } from './assets-config';
 import { registerMonitorTargetRoutes } from './monitor-target-routes';
@@ -69,10 +70,30 @@ function buildRefreshDeps(db: Sql, refreshDeps: MonitorRefreshOptions): Metadata
   };
 }
 
+function refreshDepsFor(
+  c: { get: (key: string) => unknown },
+  base: MetadataRefreshDeps,
+): MetadataRefreshDeps {
+  const candidate = c.get('log');
+  if (
+    candidate &&
+    typeof candidate === 'object' &&
+    'info' in candidate &&
+    'warn' in candidate &&
+    'flush' in candidate
+  ) {
+    return { ...base, logger: candidate as StudioLogger };
+  }
+  return base;
+}
+
 export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions = {}) {
   const app = new Hono();
   registerMonitorTargetRoutes(app, db);
-  const deps = () => buildRefreshDeps(db, refreshDeps);
+  const deps = (c?: { get: (key: string) => unknown }) => {
+    const base = buildRefreshDeps(db, refreshDeps);
+    return c ? refreshDepsFor(c, base) : base;
+  };
 
   app.get('/videos', async (c) => {
     try {
@@ -554,7 +575,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
     try {
       const body = await readJsonBody(c.req.raw);
       const force = body.force === true || c.req.query('force') === 'true';
-      const result = await refreshVideo(deps(), c.req.param('bvid'), force);
+      const result = await refreshVideo(deps(c), c.req.param('bvid'), force);
       return c.json(result);
     } catch (error) {
       if (error instanceof MetadataRequestError) {
@@ -570,7 +591,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
     try {
       const body = await readJsonBody(c.req.raw);
       const force = body.force === true || c.req.query('force') === 'true';
-      const result = await refreshCreator(deps(), c.req.param('mid'), force);
+      const result = await refreshCreator(deps(c), c.req.param('mid'), force);
       return c.json(result);
     } catch (error) {
       if (error instanceof MetadataRequestError) {
@@ -591,7 +612,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
         : undefined;
       const allMissing = body.allMissing === true;
       const force = body.force === true;
-      const started = await startMetadataBackfill(deps(), {
+      const started = await startMetadataBackfill(deps(c), {
         kind: kind as MetadataKind,
         ...(ids && ids.length > 0 ? { ids } : {}),
         ...(allMissing ? { allMissing: true } : {}),

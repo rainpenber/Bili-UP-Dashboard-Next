@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { parseMetadataRunResponse, parseVideoRefreshResponse } from '@studio/contracts';
 import { createIsolatedTestDatabase, dropIsolatedTestDatabase, type Sql } from '@studio/db';
 import type { HttpTransport } from '@studio/monitoring';
+import { createLogger } from '@studio/observability';
 import { Hono } from 'hono';
 import { createMonitorRoutes } from './monitor-routes';
 import { createOpsRoutes } from './ops-routes';
@@ -131,6 +132,78 @@ describe('metadata refresh API', () => {
         metadataState: 'ok',
       });
       expect(urls.length).toBe(calls);
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
+  });
+
+  test('API refresh persists request audit and backfill logs', async () => {
+    const isolated = await createIsolatedTestDatabase();
+    if (!isolated) return;
+    created.push(isolated.databaseName);
+    const sql: Sql = isolated.sql;
+    try {
+      let pending: Promise<void> | null = null;
+      const logger = createLogger({ service: 'api', sql, instance: 'api-refresh' });
+      const transport: HttpTransport = async (request) => {
+        const bvid = new URL(request.url).searchParams.get('bvid') ?? '';
+        const body =
+          bvid === 'BV1aptest612'
+            ? { code: 62012, message: '稿件不可见 SESSDATA=api-secret; bili_jct=api-jct' }
+            : detail(bvid);
+        return { status: 200, headers: {}, durationMs: 3, body: JSON.stringify(body) };
+      };
+      const app = new Hono();
+      app.route(
+        '/api/v1/monitor',
+        createMonitorRoutes(sql, {
+          logger,
+          transport,
+          download: async (request) => ({
+            status: 200,
+            headers: { 'content-type': 'image/png' },
+            body: PNG,
+            finalUrl: request.url,
+          }),
+          assetsRoot: mkdtempSync(join(tmpdir(), 'api-audit-')),
+          ratePolicy: { minIntervalMs: 0, maxJitterMs: 0, maxPerMinute: 100 },
+          onBackfill: (task) => {
+            pending = task;
+          },
+        }),
+      );
+      app.route('/api/v1/ops', createOpsRoutes(sql));
+      const started = await app.request('/api/v1/monitor/metadata/refresh', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ kind: 'video', ids: ['BV1aptest611', 'BV1aptest612'] }),
+      });
+      expect(started.status).toBe(202);
+      await pending;
+      const listed = (await (await app.request('/api/v1/ops/requests')).json()) as {
+        items: { endpoint: string; bizCode: number | null }[];
+      };
+      expect(listed.items.map((item) => item.endpoint).sort()).toEqual([
+        'image',
+        'view/detail',
+        'view/detail',
+      ]);
+      expect(listed.items.some((item) => item.bizCode === 62012)).toBe(true);
+      const logs = await sql<{ event: string }[]>`
+        SELECT event FROM app_logs WHERE event LIKE 'backfill.%' ORDER BY id
+      `;
+      expect(logs.map((row) => row.event)).toEqual([
+        'backfill.started',
+        'backfill.item_failed',
+        'backfill.finished',
+      ]);
+      const stored = JSON.stringify({ listed, logs });
+      const audit = await sql<{ error: string | null; context: unknown }[]>`
+        SELECT error, NULL::jsonb AS context FROM collector_requests
+        UNION ALL
+        SELECT message, context FROM app_logs
+      `;
+      expect(JSON.stringify(audit) + stored).not.toMatch(/SESSDATA|bili_jct|api-secret|api-jct/);
     } finally {
       await sql.end({ timeout: 5 });
     }

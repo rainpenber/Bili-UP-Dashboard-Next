@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createIsolatedTestDatabase, dropIsolatedTestDatabase } from '@studio/db';
+import { createLogger } from '@studio/observability';
 import type { HttpTransport } from './bilibili-transport';
 import type { BinaryTransport } from './image-asset';
 import {
@@ -276,6 +277,22 @@ describe('metadata refresh', () => {
         SELECT count(*)::int AS n FROM creator_follower_samples WHERE mid = 42
       `;
       expect(samples[0]?.n).toBe(1);
+      const audited = await sql<
+        { endpoint: string; biz_code: number | null; run_id: string | null }[]
+      >`
+        SELECT endpoint, biz_code, run_id::text AS run_id
+        FROM collector_requests ORDER BY id
+      `;
+      expect(audited.map((row) => row.endpoint)).toEqual([
+        'relation/stat',
+        'relation/stat',
+        'card',
+        'image',
+      ]);
+      expect(audited[0]?.biz_code).toBe(0);
+      expect(audited[2]?.biz_code).toBe(0);
+      expect(audited[3]?.biz_code).toBeNull();
+      expect(audited.every((row) => row.run_id === null)).toBe(true);
 
       const staleId = 'dddddddd-dddd-4ddd-8ddd-ddddddddddd4';
       const old = new Date(Date.now() - 11 * 60 * 1000).toISOString();
@@ -294,6 +311,85 @@ describe('metadata refresh', () => {
       expect(await reapStaleBackfillRuns(sql, new Date())).toBe(1);
       const reaped = await readMetadataRun(sql, staleId);
       expect(reaped?.status).toBe('aborted');
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
+  });
+
+  test('batch refresh writes one collector_requests row per call and backfill logs', async () => {
+    const isolated = await createIsolatedTestDatabase();
+    if (!isolated) return;
+    created.push(isolated.databaseName);
+    const sql = isolated.sql;
+    try {
+      const calls: string[] = [];
+      const transport: HttpTransport = async (request) => {
+        calls.push(request.url);
+        const bvid = new URL(request.url).searchParams.get('bvid') ?? '';
+        const body =
+          bvid === 'BV1aptest512'
+            ? { code: -404, message: `稿件不可见 SESSDATA=${SECRET}; bili_jct=jct-token-9f3a` }
+            : detailBody(bvid);
+        return { status: 200, headers: {}, durationMs: 4, body: JSON.stringify(body) };
+      };
+      let images = 0;
+      const logger = createLogger({ service: 'api', sql, instance: 'refresh-audit' });
+      const deps: MetadataRefreshDeps = {
+        sql,
+        transport,
+        download: async (request) => {
+          images += 1;
+          return download()(request);
+        },
+        assetsRoot: mkdtempSync(join(tmpdir(), 'meta-assets-')),
+        ratePolicy: { minIntervalMs: 0, maxJitterMs: 0, maxPerMinute: 100 },
+        random: () => 0,
+        logger,
+      };
+      const started = await startMetadataBackfill(deps, {
+        kind: 'video',
+        ids: ['BV1aptest511', 'BV1aptest512'],
+      });
+      await started.done;
+      const requests = await sql<
+        {
+          endpoint: string;
+          biz_code: number | null;
+          status_code: number | null;
+          error: string | null;
+          run_id: string | null;
+        }[]
+      >`
+        SELECT endpoint, biz_code, status_code, error, run_id::text AS run_id
+        FROM collector_requests ORDER BY id
+      `;
+      expect(requests).toHaveLength(calls.length + images);
+      expect(requests.map((row) => row.endpoint)).toEqual(['view/detail', 'image', 'view/detail']);
+      expect(requests[0]).toMatchObject({
+        biz_code: 0,
+        status_code: 200,
+        run_id: started.backfillRunId,
+      });
+      expect(requests[1]).toMatchObject({ endpoint: 'image', biz_code: null, status_code: 200 });
+      expect(requests[2]).toMatchObject({ biz_code: -404, run_id: started.backfillRunId });
+      expect(JSON.stringify(requests)).not.toMatch(/SESSDATA|bili_jct/);
+      expect(requests[2]?.error ?? '').not.toContain(SECRET);
+
+      const logs = await sql<
+        { event: string; level: string; context: { bvid?: string; code?: number } }[]
+      >`
+        SELECT event, level, context FROM app_logs ORDER BY id
+      `;
+      expect(logs.map((row) => row.event)).toEqual([
+        'backfill.started',
+        'backfill.item_failed',
+        'backfill.finished',
+      ]);
+      const failed = logs.find((row) => row.event === 'backfill.item_failed');
+      expect(failed?.level).toBe('warn');
+      expect(failed?.context.bvid).toBe('BV1aptest512');
+      expect(failed?.context.code).toBe(-404);
+      expect(JSON.stringify(logs)).not.toMatch(/SESSDATA|bili_jct/);
     } finally {
       await sql.end({ timeout: 5 });
     }

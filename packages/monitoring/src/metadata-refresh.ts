@@ -1,5 +1,9 @@
 import type { Sql } from '@studio/db';
-import { partitionNameFromLabels, resolveCollectorAccount } from '@studio/db';
+import {
+  insertCollectorRequests,
+  partitionNameFromLabels,
+  resolveCollectorAccount,
+} from '@studio/db';
 import { scrubString, type StudioLogger } from '@studio/observability';
 import { readBilibiliRuntimeConfig } from './bilibili-config';
 import { classifyBilibiliResponse } from './bilibili-failure';
@@ -105,6 +109,8 @@ export type MetadataRefreshDeps = {
   logger?: StudioLogger | null;
   env?: NodeJS.ProcessEnv;
   accountId?: string;
+  /** Set for the duration of a batch so collector_requests.run_id can point at it. */
+  backfillRunId?: string | null;
   /** Test hook, after the run is marked running and before the first item. */
   gate?: () => Promise<void>;
 };
@@ -165,20 +171,72 @@ async function takeSlot(deps: MetadataRefreshDeps): Promise<void> {
   });
 }
 
-async function getJson(deps: MetadataRefreshDeps, url: string): Promise<unknown> {
+function endpointOf(url: string): string {
+  const path = new URL(url).pathname;
+  if (path.endsWith('/view/detail')) return 'view/detail';
+  if (path.endsWith('/relation/stat')) return 'relation/stat';
+  return path;
+}
+
+async function auditRequest(
+  deps: MetadataRefreshDeps,
+  row: {
+    endpoint: string;
+    statusCode: number | null;
+    bizCode: number | null;
+    durationMs: number;
+    error: string | null;
+  },
+): Promise<void> {
+  const accountId = await rateAccount(deps);
+  await insertCollectorRequests(deps.sql, [
+    {
+      accountId: accountId === ANONYMOUS_RATE_ACCOUNT_ID ? null : accountId,
+      runId: deps.backfillRunId ?? null,
+      endpoint: row.endpoint,
+      statusCode: row.statusCode,
+      bizCode: row.bizCode,
+      durationMs: Math.max(0, Math.round(row.durationMs)),
+      error: row.error === null ? null : scrubMetadataError(row.error),
+    },
+  ]);
+}
+
+async function getJson(
+  deps: MetadataRefreshDeps,
+  url: string,
+  endpoint = endpointOf(url),
+): Promise<unknown> {
   await takeSlot(deps);
+  const started = Date.now();
   const transport = guardTransport(deps.transport);
   let response;
   try {
     response = await transport({ url, method: 'GET', headers: bilibiliHeaders(null) });
   } catch (error) {
-    throw new MetadataRequestError(scrubMetadataError(error), null, false);
+    const message = scrubMetadataError(error);
+    await auditRequest(deps, {
+      endpoint,
+      statusCode: null,
+      bizCode: null,
+      durationMs: Date.now() - started,
+      error: message,
+    });
+    throw new MetadataRequestError(message, null, false);
   }
   let payload: unknown;
   try {
     payload = JSON.parse(response.body) as unknown;
   } catch {
-    throw new MetadataRequestError('响应不是 JSON', null, false);
+    const message = '响应不是 JSON';
+    await auditRequest(deps, {
+      endpoint,
+      statusCode: response.status,
+      bizCode: null,
+      durationMs: response.durationMs,
+      error: message,
+    });
+    throw new MetadataRequestError(message, null, false);
   }
   const biz = readBizCode(payload);
   const kind = classifyBilibiliResponse({
@@ -186,21 +244,68 @@ async function getJson(deps: MetadataRefreshDeps, url: string): Promise<unknown>
     bizCode: biz.code,
     timedOut: false,
   });
+  const failure = kind
+    ? scrubMetadataError(biz.message || `业务码 ${biz.code ?? response.status}`)
+    : null;
+  await auditRequest(deps, {
+    endpoint,
+    statusCode: response.status,
+    bizCode: biz.code,
+    durationMs: response.durationMs,
+    error: failure,
+  });
   if (kind === 'risk_control' || kind === 'rate_limited' || isAbortCode(biz.code)) {
-    throw new MetadataRequestError(
-      scrubMetadataError(biz.message || `业务码 ${biz.code ?? response.status}`),
-      biz.code,
-      true,
-    );
+    throw new MetadataRequestError(failure ?? '上游拒绝', biz.code, true);
   }
   if (kind) {
-    throw new MetadataRequestError(
-      scrubMetadataError(biz.message || `业务码 ${biz.code ?? response.status}`),
-      biz.code,
-      false,
-    );
+    throw new MetadataRequestError(failure ?? '上游拒绝', biz.code, false);
   }
   return payload;
+}
+
+async function fetchImage(deps: MetadataRefreshDeps, url: string) {
+  if (!deps.download) throw new ImageReject('status', '没有图片传输层');
+  const started = Date.now();
+  try {
+    const image = await downloadHdslbImage(url, deps.download);
+    await auditRequest(deps, {
+      endpoint: 'image',
+      statusCode: 200,
+      bizCode: null,
+      durationMs: Date.now() - started,
+      error: null,
+    });
+    return image;
+  } catch (error) {
+    if (error instanceof ImageReject && (error.reason === 'scheme' || error.reason === 'host')) {
+      throw error;
+    }
+    await auditRequest(deps, {
+      endpoint: 'image',
+      statusCode: null,
+      bizCode: null,
+      durationMs: Date.now() - started,
+      error: scrubMetadataError(error),
+    });
+    throw error;
+  }
+}
+
+function logItemFailed(
+  deps: MetadataRefreshDeps,
+  id: { bvid?: string; mid?: string },
+  error: MetadataRequestError,
+): void {
+  deps.logger?.warn('元数据条目失败', {
+    event: 'backfill.item_failed',
+    ...(deps.backfillRunId ? { runId: deps.backfillRunId } : {}),
+    context: {
+      ...(id.bvid ? { bvid: id.bvid } : {}),
+      ...(id.mid ? { mid: id.mid } : {}),
+      code: error.bizCode,
+      error: error.message,
+    },
+  });
 }
 
 export async function resolveMetadataIds(
@@ -320,9 +425,9 @@ async function applyVideoDetail(
   const coverUrl = detail.pic ? httpsUrl(detail.pic) : null;
   let assetId: string | null = null;
   let picFailed = false;
-  if (coverUrl && deps.download && deps.assetsRoot) {
+  if (coverUrl && deps.assetsRoot && deps.download) {
     try {
-      const image = await downloadHdslbImage(coverUrl, deps.download);
+      const image = await fetchImage(deps, coverUrl);
       const stored = await storeImageBytes(sql, {
         assetsRoot: deps.assetsRoot,
         bytes: image.bytes,
@@ -490,7 +595,7 @@ async function applyCreator(
   const faceUrl = card?.face ? httpsUrl(card.face) : null;
   if (faceUrl && deps.download && deps.assetsRoot) {
     try {
-      const image = await downloadHdslbImage(faceUrl, deps.download);
+      const image = await fetchImage(deps, faceUrl);
       const stored = await storeImageBytes(deps.sql, {
         assetsRoot: deps.assetsRoot,
         bytes: image.bytes,
@@ -553,6 +658,8 @@ export async function refreshVideo(
         ? error
         : new MetadataRequestError(scrubMetadataError(error), null, false);
     await markVideoError(deps.sql, bvid, wrapped.message);
+    logItemFailed(deps, { bvid }, wrapped);
+    await deps.logger?.flush();
     throw wrapped;
   }
   const stored = await readVideoResult(deps.sql, bvid);
@@ -577,7 +684,7 @@ export async function refreshCreator(
     const bvid = await creatorVideoBvid(deps.sql, mid);
     if (bvid) {
       try {
-        const detailPayload = await getJson(deps, endpointUrl(VIEW_DETAIL_URL, { bvid }));
+        const detailPayload = await getJson(deps, endpointUrl(VIEW_DETAIL_URL, { bvid }), 'card');
         card = parseViewDetail(detailPayload).card;
       } catch (error) {
         if (error instanceof MetadataRequestError && error.abort) throw error;
@@ -591,6 +698,8 @@ export async function refreshCreator(
         ? error
         : new MetadataRequestError(scrubMetadataError(error), null, false);
     await markCreatorError(deps.sql, mid, wrapped.message);
+    logItemFailed(deps, { mid }, wrapped);
+    await deps.logger?.flush();
     throw wrapped;
   }
   const stored = await readCreatorResult(deps.sql, mid);
@@ -791,11 +900,13 @@ export async function startMetadataBackfill(
     now,
   });
   if ('conflictId' in claimed) throw new BackfillConflict(claimed.conflictId);
+  deps.backfillRunId = claimed.id;
   deps.logger?.info('元数据批次开始', {
     event: 'backfill.started',
     runId: claimed.id,
     context: { kind: input.kind, mode: resolved.mode, requested: resolved.ids.length },
   });
+  await deps.logger?.flush();
   const done = executeRun(deps, {
     id: claimed.id,
     kind: input.kind,

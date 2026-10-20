@@ -659,7 +659,7 @@ export function createOpsRoutes(db: Sql) {
         }
       }
       const body: OpsDebugBundle = {
-        schemaVersion: versions[0]?.version ?? '008_webui_rate_state',
+        schemaVersion: versions[0]?.version ?? '009_refresh_request_audit',
         generatedAt: new Date().toISOString(),
         run,
         target,

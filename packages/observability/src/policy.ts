@@ -14,6 +14,7 @@ export const PERSISTED_INFO_EVENTS = [
   'backfill.started',
   'backfill.finished',
   'backfill.aborted',
+  'backfill.item_failed',
   'import.webui.started',
   'import.webui.finished',
   'auth.login',
