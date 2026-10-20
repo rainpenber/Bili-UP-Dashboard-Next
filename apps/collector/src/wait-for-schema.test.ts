@@ -60,5 +60,20 @@ describe('collector process boundaries', () => {
     });
     expect(() => parseCollectorCli(['login'])).toThrow(/--qr/);
     expect(() => parseCollectorCli(['import-legacy'])).toThrow(/--dir/);
+    expect(parseCollectorCli(['sync-legacy', '--dir', '/legacy-csv', '--once'])).toEqual({
+      command: 'sync-legacy',
+      dir: '/legacy-csv',
+      once: true,
+      execute: false,
+      intervalMs: 15 * 60 * 1000,
+      batchLines: 2000,
+    });
+    expect(
+      parseCollectorCli(['sync-legacy', '--dir', '/legacy-csv', '--execute', '--interval', '15m']),
+    ).toMatchObject({ execute: true, once: false, intervalMs: 15 * 60 * 1000 });
+    expect(parseCollectorCli(['sync-legacy', 'status'])).toEqual({ command: 'sync-legacy-status' });
+    expect(() => parseCollectorCli(['sync-legacy', '--dir', '/legacy-csv', '--push'])).toThrow(
+      /无法识别/,
+    );
   });
 });

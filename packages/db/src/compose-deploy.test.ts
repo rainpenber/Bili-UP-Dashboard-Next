@@ -8,6 +8,7 @@ const devPostgresExample = readFileSync(
   join(repoRoot, 'docker-compose.dev-postgres.example.yml'),
   'utf8',
 );
+const legacySyncOverlay = readFileSync(join(repoRoot, 'docker-compose.legacy-sync.yml'), 'utf8');
 
 function serviceBlock(yaml: string, service: string): string {
   const lines = yaml.split('\n');
@@ -73,7 +74,7 @@ describe('deploy docker-compose isolation', () => {
     const collector = serviceBlock(deployCompose, 'collector');
     expect(collector).toContain('POSTGRES_HOST: postgres');
     expect(collector).toContain('MONITOR_DATA_SOURCE: collector');
-    expect(collector).toContain('MONITOR_PROVIDER: offline');
+    expect(collector).toContain('MONITOR_PROVIDER: ${COLLECTOR_PROVIDER:-offline}');
     expect(collector).toContain('apps/collector/src/index.ts');
     expect(collector).toContain('/mock-data:ro');
     expect(collector).not.toMatch(/^\s+ports:/m);
@@ -89,6 +90,16 @@ describe('deploy docker-compose isolation', () => {
     expect(deployCompose).toMatch(/^\s+postgres_data:/m);
     const postgres = serviceBlock(deployCompose, 'postgres');
     expect(postgres).toContain('postgres_data:/var/lib/postgresql/data');
+  });
+
+  test('legacy csv sync stays out of the default compose file', () => {
+    expect(deployCompose).not.toContain('legacy-sync');
+    expect(deployCompose).not.toContain('sync-legacy');
+    expect(legacySyncOverlay).toContain('sync-legacy');
+    expect(legacySyncOverlay).toContain('/legacy-csv:ro');
+    expect(legacySyncOverlay).toContain('disable: true');
+    expect(legacySyncOverlay).not.toMatch(/ssh|SMB|SESSDATA/i);
+    expect(topLevelServices(legacySyncOverlay)).toEqual(['legacy-sync']);
   });
 
   test('dev postgres example binds loopback only', () => {

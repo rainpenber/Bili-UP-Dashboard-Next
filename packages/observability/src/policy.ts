@@ -20,6 +20,9 @@ export const PERSISTED_INFO_EVENTS = [
   'auth.login',
   'service.started',
   'service.stopped',
+  'legacy.sync.started',
+  'legacy.sync.finished',
+  'legacy.sync.failed',
 ] as const;
 
 export type PersistedInfoEvent = (typeof PERSISTED_INFO_EVENTS)[number];

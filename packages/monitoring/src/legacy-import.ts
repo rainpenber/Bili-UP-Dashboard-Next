@@ -10,9 +10,27 @@ import {
 import { parseBoundedCount, parseCsv, parseIntegerField } from './csv-parse';
 import { parseHistoricalTime } from './time';
 
-const VIDEO_FILE = /^(BV[1-9A-HJ-NP-Za-km-z]{10})_views\.csv$/;
-const FOLLOWER_FILE = /^([1-9][0-9]{0,18})_follower\.csv$/;
+export const LEGACY_VIDEO_FILE = /^(BV[1-9A-HJ-NP-Za-km-z]{10})_views\.csv$/;
+export const LEGACY_FOLLOWER_FILE = /^([1-9][0-9]{0,18})_follower\.csv$/;
+export const LEGACY_VIDEO_HEADER = '时间,播放量,在线观看人数,点赞,投币,收藏,分享,弹幕';
+export const LEGACY_FOLLOWER_HEADER = '时间,粉丝数';
 const ZONE = 'Asia/Shanghai';
+
+export type LegacyFileKind = 'video' | 'follower';
+
+export function classifyLegacyFile(
+  name: string,
+): { kind: LegacyFileKind; entityKey: string } | null {
+  const video = LEGACY_VIDEO_FILE.exec(name);
+  if (video?.[1]) return { kind: 'video', entityKey: video[1] };
+  const follower = LEGACY_FOLLOWER_FILE.exec(name);
+  if (follower?.[1]) return { kind: 'follower', entityKey: follower[1] };
+  return null;
+}
+
+export function expectedLegacyHeader(kind: LegacyFileKind): string {
+  return kind === 'video' ? LEGACY_VIDEO_HEADER : LEGACY_FOLLOWER_HEADER;
+}
 
 export type LegacyFileReport = {
   file: string;
@@ -44,16 +62,20 @@ function cell(row: string[], index: number): string {
   return row[index] ?? '';
 }
 
-export function parseLegacyVideoCsv(text: string): {
-  rows: LegacyVideoRow[];
+export type LegacyParseResult<T> = {
+  rows: T[];
   rejected: number;
+  rejections: string[];
   total: number;
   earliest: Date | null;
   latest: Date | null;
   duplicates: number;
-} {
+};
+
+export function parseLegacyVideoCsv(text: string): LegacyParseResult<LegacyVideoRow> {
   const parsed = parseCsv(text);
   let rejected = 0;
+  const rejections: string[] = [];
   let earliest: Date | null = null;
   let latest: Date | null = null;
   const accepted: Accepted<LegacyVideoRow>[] = [];
@@ -78,6 +100,7 @@ export function parseLegacyVideoCsv(text: string): {
       danmakuCount === null
     ) {
       rejected += 1;
+      rejections.push(row.join(','));
       continue;
     }
     if (!earliest || sampledAt < earliest) earliest = sampledAt;
@@ -102,6 +125,7 @@ export function parseLegacyVideoCsv(text: string): {
   return {
     rows: deduped.unique,
     rejected,
+    rejections,
     total: parsed.rows.length,
     earliest,
     latest,
@@ -109,16 +133,17 @@ export function parseLegacyVideoCsv(text: string): {
   };
 }
 
-export function parseLegacyFollowerCsv(text: string): {
-  rows: LegacyFollowerRow[];
-  rejected: number;
-  total: number;
-  earliest: Date | null;
-  latest: Date | null;
-  duplicates: number;
-} {
+export function parseLegacyVideoChunk(
+  headerLine: string,
+  dataText: string,
+): LegacyParseResult<LegacyVideoRow> {
+  return parseLegacyVideoCsv(`${headerLine}\n${dataText}`);
+}
+
+export function parseLegacyFollowerCsv(text: string): LegacyParseResult<LegacyFollowerRow> {
   const parsed = parseCsv(text);
   let rejected = 0;
+  const rejections: string[] = [];
   let earliest: Date | null = null;
   let latest: Date | null = null;
   const accepted: Accepted<LegacyFollowerRow>[] = [];
@@ -128,6 +153,7 @@ export function parseLegacyFollowerCsv(text: string): {
     const followerCount = parseIntegerField(cell(row, 1));
     if (!sampledAt || followerCount === null) {
       rejected += 1;
+      rejections.push(row.join(','));
       continue;
     }
     if (!earliest || sampledAt < earliest) earliest = sampledAt;
@@ -141,11 +167,19 @@ export function parseLegacyFollowerCsv(text: string): {
   return {
     rows: deduped.unique,
     rejected,
+    rejections,
     total: parsed.rows.length,
     earliest,
     latest,
     duplicates: deduped.duplicates,
   };
+}
+
+export function parseLegacyFollowerChunk(
+  headerLine: string,
+  dataText: string,
+): LegacyParseResult<LegacyFollowerRow> {
+  return parseLegacyFollowerCsv(`${headerLine}\n${dataText}`);
 }
 
 function consider(range: { earliest: Date | null; latest: Date | null }, at: Date | null): void {
@@ -155,15 +189,13 @@ function consider(range: { earliest: Date | null; latest: Date | null }, at: Dat
 }
 
 export async function importLegacyDirectory(sql: Sql, dir: string): Promise<LegacyImportReport> {
-  const names = readdirSync(dir).filter(
-    (name) => VIDEO_FILE.test(name) || FOLLOWER_FILE.test(name),
-  );
+  const names = readdirSync(dir).filter((name) => classifyLegacyFile(name) !== null);
   names.sort();
   const files: LegacyFileReport[] = [];
   const range: { earliest: Date | null; latest: Date | null } = { earliest: null, latest: null };
   for (const name of names) {
     const text = readFileSync(join(dir, name), 'utf8');
-    const video = VIDEO_FILE.exec(basename(name));
+    const video = LEGACY_VIDEO_FILE.exec(basename(name));
     if (video) {
       const bvid = video[1];
       if (!bvid) continue;
@@ -192,7 +224,7 @@ export async function importLegacyDirectory(sql: Sql, dir: string): Promise<Lega
       });
       continue;
     }
-    const follower = FOLLOWER_FILE.exec(basename(name));
+    const follower = LEGACY_FOLLOWER_FILE.exec(basename(name));
     const mid = follower?.[1];
     if (!mid) continue;
     const parsed = parseLegacyFollowerCsv(text);

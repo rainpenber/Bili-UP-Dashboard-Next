@@ -470,12 +470,154 @@ export type LegacyFollowerRow = {
   followerCount: bigint;
 };
 
-function bigintOrNull(value: bigint | null): string | null {
-  return value === null ? null : value.toString();
+function jsonValue(value: unknown): postgres.JSONValue {
+  return JSON.parse(JSON.stringify(value)) as postgres.JSONValue;
 }
 
-function jsonValue(value: Record<string, unknown>): postgres.JSONValue {
-  return JSON.parse(JSON.stringify(value)) as postgres.JSONValue;
+const LEGACY_SAMPLE_CHUNK = 1000;
+
+export async function insertLegacyImportBatch(
+  tx: Queryable,
+  input: { batchId: string; importerVersion: string; report: Record<string, unknown> },
+): Promise<void> {
+  await tx`
+    INSERT INTO import_batches (id, mode, source_timezone, status, importer_version, report_json, completed_at)
+    VALUES (
+      ${input.batchId}::uuid,
+      'apply',
+      'Asia/Shanghai',
+      'completed',
+      ${input.importerVersion},
+      ${tx.json(jsonValue(input.report))},
+      statement_timestamp()
+    )
+  `;
+}
+
+export async function insertLegacyRejects(
+  tx: Queryable,
+  input: {
+    batchId: string;
+    entityType: 'video' | 'creator';
+    entityKey: string;
+    lines: readonly string[];
+  },
+): Promise<void> {
+  const lines = input.lines.map((line) => line.slice(0, 500)).filter((line) => line.length > 0);
+  for (let index = 0; index < lines.length; index += LEGACY_SAMPLE_CHUNK) {
+    const payload = jsonValue({
+      rows: lines.slice(index, index + LEGACY_SAMPLE_CHUNK).map((line) => ({ line })),
+    });
+    await tx`
+      INSERT INTO import_conflicts_or_rejects (batch_id, kind, entity_type, entity_key, message, detail)
+      SELECT
+        ${input.batchId}::uuid,
+        'rejected_row',
+        ${input.entityType},
+        ${input.entityKey},
+        '无法解析的旧 CSV 行',
+        elem
+      FROM jsonb_array_elements(${tx.json(payload)}::jsonb -> 'rows') AS elem
+    `;
+  }
+}
+
+export async function writeLegacyVideoSamplesWithin(
+  tx: Queryable,
+  input: { batchId: string; bvid: string; rows: LegacyVideoRow[] },
+): Promise<number> {
+  await tx`INSERT INTO videos (bvid) VALUES (${input.bvid}) ON CONFLICT (bvid) DO NOTHING`;
+  let inserted = 0;
+  for (let index = 0; index < input.rows.length; index += LEGACY_SAMPLE_CHUNK) {
+    const payload = jsonValue({
+      rows: input.rows.slice(index, index + LEGACY_SAMPLE_CHUNK).map((row) => ({
+        sampledAt: row.sampledAt.toISOString(),
+        rawTime: row.rawTime,
+        viewCount: row.viewCount.toString(),
+        onlineViewers: row.onlineViewers === null ? null : row.onlineViewers.toString(),
+        onlineViewersRaw: row.onlineViewersRaw,
+        likeCount: row.likeCount.toString(),
+        coinCount: row.coinCount.toString(),
+        favoriteCount: row.favoriteCount.toString(),
+        shareCount: row.shareCount.toString(),
+        danmakuCount: row.danmakuCount.toString(),
+      })),
+    });
+    const written = await tx<{ id: string }[]>`
+      INSERT INTO video_metric_samples (
+        bvid, sampled_at, source_timezone, raw_time, timestamp_precision,
+        view_count, online_viewers, online_viewers_raw, like_count, coin_count,
+        favorite_count, share_count, danmaku_count, comment_count,
+        source, collected_at, extra, import_batch_id
+      )
+      SELECT
+        ${input.bvid},
+        (elem->>'sampledAt')::timestamptz,
+        'Asia/Shanghai',
+        elem->>'rawTime',
+        'minute',
+        (elem->>'viewCount')::bigint,
+        (elem->>'onlineViewers')::bigint,
+        elem->>'onlineViewersRaw',
+        (elem->>'likeCount')::bigint,
+        (elem->>'coinCount')::bigint,
+        (elem->>'favoriteCount')::bigint,
+        (elem->>'shareCount')::bigint,
+        (elem->>'danmakuCount')::bigint,
+        NULL,
+        'legacy_csv',
+        NULL,
+        '{}'::jsonb,
+        ${input.batchId}::uuid
+      FROM jsonb_array_elements(${tx.json(payload)}::jsonb -> 'rows') AS elem
+      ON CONFLICT (bvid, sampled_at) DO NOTHING
+      RETURNING id::text AS id
+    `;
+    inserted += written.length;
+  }
+  return inserted;
+}
+
+export async function writeLegacyFollowerSamplesWithin(
+  tx: Queryable,
+  input: { batchId: string; mid: string; rows: LegacyFollowerRow[] },
+): Promise<number> {
+  await tx`
+    INSERT INTO creators (mid) VALUES (${input.mid}::bigint) ON CONFLICT (mid) DO NOTHING
+  `;
+  let inserted = 0;
+  for (let index = 0; index < input.rows.length; index += LEGACY_SAMPLE_CHUNK) {
+    const payload = jsonValue({
+      rows: input.rows.slice(index, index + LEGACY_SAMPLE_CHUNK).map((row) => ({
+        sampledAt: row.sampledAt.toISOString(),
+        rawTime: row.rawTime,
+        followerCount: row.followerCount.toString(),
+      })),
+    });
+    const written = await tx<{ id: string }[]>`
+      INSERT INTO creator_follower_samples (
+        mid, sampled_at, source_timezone, raw_time, timestamp_precision, follower_count,
+        following_count, source, collected_at, extra, import_batch_id
+      )
+      SELECT
+        ${input.mid}::bigint,
+        (elem->>'sampledAt')::timestamptz,
+        'Asia/Shanghai',
+        elem->>'rawTime',
+        'minute',
+        (elem->>'followerCount')::bigint,
+        NULL,
+        'legacy_csv',
+        NULL,
+        '{}'::jsonb,
+        ${input.batchId}::uuid
+      FROM jsonb_array_elements(${tx.json(payload)}::jsonb -> 'rows') AS elem
+      ON CONFLICT (mid, sampled_at) DO NOTHING
+      RETURNING id::text AS id
+    `;
+    inserted += written.length;
+  }
+  return inserted;
 }
 
 export async function applyLegacyVideoImport(
@@ -483,53 +625,16 @@ export async function applyLegacyVideoImport(
   input: { batchId: string; bvid: string; report: Record<string, unknown>; rows: LegacyVideoRow[] },
 ): Promise<number> {
   return sql.begin(async (tx) => {
-    await tx`
-      INSERT INTO import_batches (id, mode, source_timezone, status, importer_version, report_json, completed_at)
-      VALUES (
-        ${input.batchId}::uuid,
-        'apply',
-        'Asia/Shanghai',
-        'completed',
-        'legacy-csv',
-        ${tx.json(jsonValue(input.report))},
-        statement_timestamp()
-      )
-    `;
-    await tx`INSERT INTO videos (bvid) VALUES (${input.bvid}) ON CONFLICT (bvid) DO NOTHING`;
-    let inserted = 0;
-    for (const row of input.rows) {
-      const written = await tx<{ id: string }[]>`
-        INSERT INTO video_metric_samples (
-          bvid, sampled_at, source_timezone, raw_time, timestamp_precision,
-          view_count, online_viewers, online_viewers_raw, like_count, coin_count,
-          favorite_count, share_count, danmaku_count, comment_count,
-          source, collected_at, extra, import_batch_id
-        ) VALUES (
-          ${input.bvid},
-          ${row.sampledAt},
-          'Asia/Shanghai',
-          ${row.rawTime},
-          'minute',
-          ${row.viewCount.toString()}::bigint,
-          ${bigintOrNull(row.onlineViewers)}::bigint,
-          ${row.onlineViewersRaw},
-          ${row.likeCount.toString()}::bigint,
-          ${row.coinCount.toString()}::bigint,
-          ${row.favoriteCount.toString()}::bigint,
-          ${row.shareCount.toString()}::bigint,
-          ${row.danmakuCount.toString()}::bigint,
-          NULL,
-          'legacy_csv',
-          NULL,
-          '{}'::jsonb,
-          ${input.batchId}::uuid
-        )
-        ON CONFLICT (bvid, sampled_at) DO NOTHING
-        RETURNING id::text AS id
-      `;
-      if (written.length > 0) inserted += 1;
-    }
-    return inserted;
+    await insertLegacyImportBatch(tx, {
+      batchId: input.batchId,
+      importerVersion: 'legacy-csv',
+      report: input.report,
+    });
+    return writeLegacyVideoSamplesWithin(tx, {
+      batchId: input.batchId,
+      bvid: input.bvid,
+      rows: input.rows,
+    });
   });
 }
 
@@ -543,46 +648,16 @@ export async function applyLegacyFollowerImport(
   },
 ): Promise<number> {
   return sql.begin(async (tx) => {
-    await tx`
-      INSERT INTO import_batches (id, mode, source_timezone, status, importer_version, report_json, completed_at)
-      VALUES (
-        ${input.batchId}::uuid,
-        'apply',
-        'Asia/Shanghai',
-        'completed',
-        'legacy-csv',
-        ${tx.json(jsonValue(input.report))},
-        statement_timestamp()
-      )
-    `;
-    await tx`
-      INSERT INTO creators (mid) VALUES (${input.mid}::bigint) ON CONFLICT (mid) DO NOTHING
-    `;
-    let inserted = 0;
-    for (const row of input.rows) {
-      const written = await tx<{ id: string }[]>`
-        INSERT INTO creator_follower_samples (
-          mid, sampled_at, source_timezone, raw_time, timestamp_precision, follower_count,
-          following_count, source, collected_at, extra, import_batch_id
-        ) VALUES (
-          ${input.mid}::bigint,
-          ${row.sampledAt},
-          'Asia/Shanghai',
-          ${row.rawTime},
-          'minute',
-          ${row.followerCount.toString()}::bigint,
-          NULL,
-          'legacy_csv',
-          NULL,
-          '{}'::jsonb,
-          ${input.batchId}::uuid
-        )
-        ON CONFLICT (mid, sampled_at) DO NOTHING
-        RETURNING id::text AS id
-      `;
-      if (written.length > 0) inserted += 1;
-    }
-    return inserted;
+    await insertLegacyImportBatch(tx, {
+      batchId: input.batchId,
+      importerVersion: 'legacy-csv',
+      report: input.report,
+    });
+    return writeLegacyFollowerSamplesWithin(tx, {
+      batchId: input.batchId,
+      mid: input.mid,
+      rows: input.rows,
+    });
   });
 }
 

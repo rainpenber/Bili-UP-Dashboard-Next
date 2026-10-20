@@ -46,6 +46,10 @@ export {
 export {
   applyLegacyFollowerImport,
   applyLegacyVideoImport,
+  insertLegacyImportBatch,
+  insertLegacyRejects,
+  writeLegacyFollowerSamplesWithin,
+  writeLegacyVideoSamplesWithin,
   clearCollectorCircuit,
   collectorSchemaReady,
   commitBilibiliCreator,
@@ -73,6 +77,22 @@ export {
   expectedCommercialFixtureCounts,
   seedCommercialFixtures,
 } from './commercial-fixtures';
+export {
+  acquireLegacySyncLock,
+  countExistingFollowerSamples,
+  countExistingVideoSamples,
+  countLegacySyncLocks,
+  insertLegacySyncRound,
+  LEGACY_SYNC_LOCK_KEY,
+  legacySyncSchemaReady,
+  listLegacyCheckpoints,
+  readLegacyCheckpoint,
+  readLegacySyncStatus,
+  writeLegacyCheckpoint,
+  type LegacyCheckpoint,
+  type LegacySyncRoundRow,
+  type LegacySyncStatus,
+} from './legacy-sync-store';
 export {
   createEmptyIsolatedTestDatabase,
   createIsolatedTestDatabase,
