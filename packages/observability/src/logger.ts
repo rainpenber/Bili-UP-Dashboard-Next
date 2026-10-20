@@ -1,8 +1,17 @@
 import pino from 'pino';
 import type { Sql } from '@studio/db';
+import {
+  assertBoundedInt,
+  LOG_BATCH_DELAY_MS,
+  LOG_BATCH_RECORDS,
+  LOG_QUEUE_MAX_BYTES_CEILING,
+  LOG_QUEUE_MAX_RECORDS_CEILING,
+  readLogQueueLimits,
+} from './limits';
 import { shouldPersistLog } from './policy';
 import { REDACT_PATHS, scrubString, scrubValue } from './redact';
-import { createPgLogSink, type AppLogInsert, type LogSink } from './pg-sink';
+import { createPgLogSink, type AppLogInsert, type LogSink, type LogSinkFailure } from './pg-sink';
+import type { LogFlushResult } from './shutdown';
 
 export type { AppLogInsert, LogSink };
 
@@ -25,6 +34,27 @@ export type LogBindings = {
   targetId?: string;
 };
 
+export type LogQueueStats = {
+  queuedRecords: number;
+  stagedRecords: number;
+  inFlightRecords: number;
+  pendingRecords: number;
+  queuedBytes: number;
+  stagedBytes: number;
+  inFlightBytes: number;
+  pendingBytes: number;
+  maxRecords: number;
+  maxBytes: number;
+  rejectedRecords: number;
+  rejectedBytes: number;
+  sinkFailures: number;
+  flushTimeouts: number;
+  peakPendingRecords: number;
+  peakPendingBytes: number;
+  batchesWritten: number;
+  batchesFailed: number;
+};
+
 export type StudioLogger = {
   child(bindings: LogBindings): StudioLogger;
   debug(message: string, fields?: LogFields): void;
@@ -32,6 +62,16 @@ export type StudioLogger = {
   warn(message: string, fields?: LogFields): void;
   error(message: string, fields?: LogFields): void;
   flush(): Promise<void>;
+  stats?(): LogQueueStats;
+  flushWithin?(timeoutMs: number): Promise<LogFlushResult>;
+};
+
+export type ManagedStudioLogger = Omit<StudioLogger, 'child'> & {
+  child(bindings: LogBindings): ManagedStudioLogger;
+  stats(): LogQueueStats;
+  flushWithin(timeoutMs: number): Promise<LogFlushResult>;
+  /** False only when this call was refused by the bounded queue. */
+  notePersisted(level: LogLevel, message: string, fields?: LogFields): boolean;
 };
 
 export type CreateLoggerOptions = {
@@ -42,6 +82,10 @@ export type CreateLoggerOptions = {
   destination?: (line: string) => void;
   sink?: LogSink | null;
   sql?: Sql;
+  maxRecords?: number;
+  maxBytes?: number;
+  limitsEnv?: NodeJS.ProcessEnv;
+  onQueueSample?: (stats: LogQueueStats) => void;
 };
 
 type SerializedErr = {
@@ -161,10 +205,49 @@ function toInsert(row: ShapedLog): AppLogInsert {
   };
 }
 
-export function createLogger(options: CreateLoggerOptions): StudioLogger {
+const textEncoder = new TextEncoder();
+const REPORT_INTERVAL_MS = 1_000;
+
+export function measurePersistedLogBytes(row: AppLogInsert): number {
+  return textEncoder.encode(
+    JSON.stringify({
+      ts: row.ts.toISOString(),
+      level: row.level,
+      service: row.service,
+      instance: row.instance,
+      event: row.event,
+      message: row.message,
+      requestId: row.requestId,
+      jobId: row.jobId,
+      runId: row.runId,
+      targetId: row.targetId,
+      context: row.context,
+    }),
+  ).byteLength;
+}
+
+type PendingBatch = {
+  rows: AppLogInsert[];
+  bytes: number;
+};
+
+export function createLogger(options: CreateLoggerOptions): ManagedStudioLogger {
   const instance = options.instance ?? null;
   const envName = options.envName ?? process.env.NODE_ENV ?? 'development';
   const destination = options.destination ?? ((line: string) => process.stdout.write(line));
+  const envLimits = readLogQueueLimits(options.limitsEnv ?? process.env);
+  const maxRecords = assertBoundedInt(
+    options.maxRecords ?? envLimits.maxRecords,
+    1,
+    LOG_QUEUE_MAX_RECORDS_CEILING,
+    'maxRecords',
+  );
+  const maxBytes = assertBoundedInt(
+    options.maxBytes ?? envLimits.maxBytes,
+    1,
+    LOG_QUEUE_MAX_BYTES_CEILING,
+    'maxBytes',
+  );
   const sink =
     options.sink === undefined
       ? options.sql
@@ -172,48 +255,244 @@ export function createLogger(options: CreateLoggerOptions): StudioLogger {
         : null
       : options.sink;
   const queue: AppLogInsert[] = [];
+  let queueBytes = 0;
+  const staged: PendingBatch[] = [];
+  let inFlight: PendingBatch | null = null;
+  let writing = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let chain = Promise.resolve();
+  let rejectedRecords = 0;
+  let rejectedBytes = 0;
+  let sinkFailures = 0;
+  let flushTimeouts = 0;
+  let peakPendingRecords = 0;
+  let peakPendingBytes = 0;
+  let batchesWritten = 0;
+  let batchesFailed = 0;
+  let sampling = false;
+  const drainWaiters: Array<() => void> = [];
+
+  const stagedRecords = () => staged.reduce((sum, batch) => sum + batch.rows.length, 0);
+  const stagedBytesTotal = () => staged.reduce((sum, batch) => sum + batch.bytes, 0);
+  const pendingRecordCount = () => queue.length + stagedRecords() + (inFlight?.rows.length ?? 0);
+  const pendingByteCount = () => queueBytes + stagedBytesTotal() + (inFlight?.bytes ?? 0);
+  const idle = () => !writing && staged.length === 0 && queue.length === 0;
+
+  const snapshot = (): LogQueueStats => ({
+    queuedRecords: queue.length,
+    stagedRecords: stagedRecords(),
+    inFlightRecords: inFlight?.rows.length ?? 0,
+    pendingRecords: pendingRecordCount(),
+    queuedBytes: queueBytes,
+    stagedBytes: stagedBytesTotal(),
+    inFlightBytes: inFlight?.bytes ?? 0,
+    pendingBytes: pendingByteCount(),
+    maxRecords,
+    maxBytes,
+    rejectedRecords,
+    rejectedBytes,
+    sinkFailures,
+    flushTimeouts,
+    peakPendingRecords,
+    peakPendingBytes,
+    batchesWritten,
+    batchesFailed,
+  });
+
+  const notePending = () => {
+    const records = pendingRecordCount();
+    const bytes = pendingByteCount();
+    if (records > peakPendingRecords) peakPendingRecords = records;
+    if (bytes > peakPendingBytes) peakPendingBytes = bytes;
+    if (sampling || !options.onQueueSample) return;
+    sampling = true;
+    try {
+      options.onQueueSample(snapshot());
+    } catch {
+      // observers must not break the caller
+    } finally {
+      sampling = false;
+    }
+  };
+
+  const notifyDrain = () => {
+    if (!idle()) return;
+    const waiters = drainWaiters.splice(0, drainWaiters.length);
+    for (const waiter of waiters) waiter();
+  };
+
+  const writeDirect = (record: {
+    level: 'warn' | 'error';
+    event: string;
+    msg: string;
+    context: Record<string, unknown>;
+  }) => {
+    try {
+      destination(
+        `${JSON.stringify({
+          level: record.level,
+          time: new Date().toISOString(),
+          service: options.service,
+          instance,
+          env: envName,
+          msg: record.msg,
+          event: record.event,
+          requestId: null,
+          jobId: null,
+          runId: null,
+          targetId: null,
+          context: record.context,
+        })}\n`,
+      );
+    } catch {
+      // stdout must not break the caller
+    }
+  };
+
+  const rateLimited = (emit: (suppressed: number) => void) => {
+    let last = 0;
+    let suppressed = 0;
+    return () => {
+      const now = Date.now();
+      if (last !== 0 && now - last < REPORT_INTERVAL_MS) {
+        suppressed += 1;
+        return;
+      }
+      const skipped = suppressed;
+      suppressed = 0;
+      last = now;
+      emit(skipped);
+    };
+  };
+
+  const reportOverflow = rateLimited((suppressed) => {
+    writeDirect({
+      level: 'warn',
+      event: 'log.queue_overflow',
+      msg: '日志队列已满，已拒绝新记录',
+      context: {
+        rejectedRecords,
+        rejectedBytes,
+        suppressedNotices: suppressed,
+        pendingRecords: pendingRecordCount(),
+        pendingBytes: pendingByteCount(),
+        maxRecords,
+        maxBytes,
+      },
+    });
+  });
+
+  const reportSinkFailure = rateLimited((suppressed) => {
+    writeDirect({
+      level: 'error',
+      event: 'log.sink_failed',
+      msg: 'app_logs 写入失败，已降级到 stdout',
+      context: {
+        error: scrubString(lastSinkErrorText),
+        sinkFailures,
+        suppressedNotices: suppressed,
+      },
+    });
+  });
+
+  const reportFlushTimeout = rateLimited((suppressed) => {
+    writeDirect({
+      level: 'error',
+      event: 'log.flush_timeout',
+      msg: '日志冲刷超时，未确认持久化',
+      context: {
+        flushTimeouts,
+        suppressedNotices: suppressed,
+        pendingRecords: pendingRecordCount(),
+        pendingBytes: pendingByteCount(),
+        inFlightRecords: inFlight?.rows.length ?? 0,
+      },
+    });
+  });
+
+  let lastSinkErrorText = 'app_logs sink failed';
+
+  const pump = () => {
+    if (writing || !sink) return;
+    const next = staged.shift();
+    if (!next) {
+      notePending();
+      notifyDrain();
+      return;
+    }
+    writing = true;
+    inFlight = next;
+    notePending();
+    let pending: Promise<void | LogSinkFailure>;
+    try {
+      pending = sink.write(next.rows);
+    } catch (error) {
+      settleWrite(true, undefined, error);
+      return;
+    }
+    void pending.then(
+      (result) => {
+        settleWrite(false, result ?? undefined);
+      },
+      (error: unknown) => {
+        settleWrite(true, undefined, error);
+      },
+    );
+  };
+
+  const settleWrite = (threw: boolean, result: LogSinkFailure | undefined, error?: unknown) => {
+    const failed = threw || result?.ok === false;
+    if (failed) {
+      batchesFailed += 1;
+      sinkFailures += 1;
+      const reason = threw ? error : result?.error;
+      lastSinkErrorText = reason instanceof Error ? reason.message : 'app_logs sink failed';
+      if (!result?.reported) reportSinkFailure();
+    } else {
+      batchesWritten += 1;
+    }
+    inFlight = null;
+    writing = false;
+    notePending();
+    notifyDrain();
+    queueMicrotask(pump);
+  };
 
   const flushQueue = () => {
     if (timer) {
       clearTimeout(timer);
       timer = null;
     }
-    const batch = queue.splice(0, queue.length);
-    if (!sink || batch.length === 0) return;
-    chain = chain
-      .then(() => sink.write(batch))
-      .catch((error: unknown) => {
-        try {
-          destination(
-            `${JSON.stringify({
-              level: 'error',
-              time: new Date().toISOString(),
-              service: options.service,
-              instance,
-              env: envName,
-              msg: 'app_logs 写入失败，已降级到 stdout',
-              event: 'log.sink_failed',
-              requestId: null,
-              jobId: null,
-              runId: null,
-              targetId: null,
-              context: {
-                error: scrubString(error instanceof Error ? error.message : 'app_logs sink failed'),
-              },
-            })}\n`,
-          );
-        } catch {
-          // stdout must not break the caller
-        }
-      });
+    if (!sink || queue.length === 0) return;
+    const rows = queue.splice(0, queue.length);
+    const bytes = queueBytes;
+    queueBytes = 0;
+    staged.push({ rows, bytes });
+    notePending();
+    pump();
   };
 
   const enqueue = (row: ShapedLog) => {
     if (!sink || !shouldPersistLog(row.level, row.event)) return;
-    queue.push(toInsert(row));
-    if (queue.length >= 20) {
+    const insert = toInsert(row);
+    let bytes: number;
+    try {
+      bytes = measurePersistedLogBytes(insert);
+    } catch {
+      rejectedRecords += 1;
+      rejectedBytes += maxBytes;
+      reportOverflow();
+      return;
+    }
+    if (pendingRecordCount() + 1 > maxRecords || pendingByteCount() + bytes > maxBytes) {
+      rejectedRecords += 1;
+      rejectedBytes += bytes;
+      reportOverflow();
+      return;
+    }
+    queue.push(insert);
+    queueBytes += bytes;
+    notePending();
+    if (queue.length >= LOG_BATCH_RECORDS) {
       flushQueue();
       return;
     }
@@ -221,9 +500,72 @@ export function createLogger(options: CreateLoggerOptions): StudioLogger {
     timer = setTimeout(() => {
       timer = null;
       flushQueue();
-    }, 250);
+    }, LOG_BATCH_DELAY_MS);
     timer.unref?.();
   };
+
+  const armWait = () => {
+    if (idle()) return { promise: Promise.resolve(), cancel: () => undefined };
+    let resolveWait: () => void = () => undefined;
+    const promise = new Promise<void>((resolve) => {
+      resolveWait = () => resolve();
+      drainWaiters.push(resolveWait);
+    });
+    return {
+      promise,
+      cancel: () => {
+        const index = drainWaiters.indexOf(resolveWait);
+        if (index >= 0) drainWaiters.splice(index, 1);
+      },
+    };
+  };
+
+  async function flushWithin(timeoutMs: number): Promise<LogFlushResult> {
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
+      throw new Error('flush 超时必须是非负有限数字');
+    }
+    if (!sink) {
+      return { ok: true, reason: 'no_sink', pendingRecords: 0, pendingBytes: 0 };
+    }
+    const writtenBefore = batchesWritten;
+    const failedBefore = batchesFailed;
+    flushQueue();
+    if (idle() && batchesWritten === writtenBefore && batchesFailed === failedBefore) {
+      return { ok: true, reason: 'empty', pendingRecords: 0, pendingBytes: 0 };
+    }
+    const wait = armWait();
+    let timerHandle: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      wait.promise.then(() => 'drained' as const),
+      new Promise<'timeout'>((resolve) => {
+        timerHandle = setTimeout(() => resolve('timeout'), timeoutMs);
+      }),
+    ]);
+    if (timerHandle) clearTimeout(timerHandle);
+    if (outcome === 'timeout') {
+      wait.cancel();
+      flushTimeouts += 1;
+      reportFlushTimeout();
+      return {
+        ok: false,
+        reason: 'timeout',
+        pendingRecords: pendingRecordCount(),
+        pendingBytes: pendingByteCount(),
+      };
+    }
+    const failed = batchesFailed > failedBefore;
+    return {
+      ok: !failed,
+      reason: failed ? 'sink_failed' : 'persisted',
+      pendingRecords: pendingRecordCount(),
+      pendingBytes: pendingByteCount(),
+    };
+  }
+
+  async function flush(): Promise<void> {
+    flushQueue();
+    await armWait().promise;
+  }
 
   const stream = {
     write(chunk: string) {
@@ -266,7 +608,7 @@ export function createLogger(options: CreateLoggerOptions): StudioLogger {
     stream,
   );
 
-  function wrap(bindings: LogBindings, target: pino.Logger): StudioLogger {
+  function wrap(bindings: LogBindings, target: pino.Logger): ManagedStudioLogger {
     const emit = (level: LogLevel, message: string, fields?: LogFields) => {
       const context = scrubValue(fields?.context ?? {});
       target[level](
@@ -298,9 +640,15 @@ export function createLogger(options: CreateLoggerOptions): StudioLogger {
       error(message, fields) {
         emit('error', message, fields);
       },
-      async flush() {
-        flushQueue();
-        await chain;
+      notePersisted(level, message, fields) {
+        const before = rejectedRecords;
+        emit(level, message, fields);
+        return rejectedRecords === before;
+      },
+      flush,
+      flushWithin,
+      stats() {
+        return snapshot();
       },
     };
   }
