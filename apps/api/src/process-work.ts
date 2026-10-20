@@ -9,6 +9,8 @@ export type ProcessWork = {
   readonly activeHttp: number;
   readonly activeBackground: number;
   failureMessage(): string | null;
+  /** Responses Bun has not finished sending. Zero when no server is listening. */
+  inflightNetwork(): number;
   stopAccepting(): void;
   runHttp<T>(run: () => Promise<T>): Promise<T | typeof httpRejected>;
   trackBackground(task: Promise<unknown>): void;
@@ -16,12 +18,17 @@ export type ProcessWork = {
 };
 
 /**
- * Tracks HTTP calls this process already accepted and the in-process background
- * work those calls register. The set is live: a task registered after shutdown
- * starts is still part of this shutdown. Settled work drops its reference.
- * A rejection that settled before shutdown does not fail a later finish.
+ * Tracks HTTP calls this process already accepted, the in-process background
+ * work those calls register, and responses Bun has not finished sending.
+ * The set is live: a task registered after shutdown starts is still part of
+ * this shutdown. Handler return is not send completion. Settled work drops
+ * its reference. A rejection that settled before shutdown does not fail a
+ * later finish.
  */
-export function createProcessWork(): ProcessWork {
+const SEND_POLL_MS = 15;
+
+export function createProcessWork(options?: { inflightNetwork?: () => number }): ProcessWork {
+  const network = options?.inflightNetwork ?? (() => 0);
   const http = new Set<symbol>();
   const background = new Set<Promise<void>>();
   let closing = false;
@@ -69,6 +76,9 @@ export function createProcessWork(): ProcessWork {
     failureMessage() {
       return failure;
     },
+    inflightNetwork() {
+      return network();
+    },
     stopAccepting() {
       closing = true;
       pulse();
@@ -102,11 +112,13 @@ export function createProcessWork(): ProcessWork {
     async finish(timeoutMs: number): Promise<CurrentTaskResult> {
       const budget = Number.isFinite(timeoutMs) ? Math.max(0, timeoutMs) : 0;
       const deadline = Date.now() + budget;
-      while (http.size > 0 || background.size > 0) {
+      const busy = () => http.size > 0 || background.size > 0 || network() > 0;
+      while (busy()) {
         const left = deadline - Date.now();
         if (left <= 0) return failure ? 'failed' : 'timed_out';
         const seen = generation;
-        await waitForChange(seen, left);
+        const slice = network() > 0 ? Math.min(left, SEND_POLL_MS) : left;
+        await waitForChange(seen, slice);
       }
       return failure ? 'failed' : 'finished';
     },

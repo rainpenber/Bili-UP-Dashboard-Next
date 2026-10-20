@@ -9,9 +9,6 @@ const PNG = Buffer.from(
   'base64',
 );
 
-const REJECTED_BACKFILL =
-  'metadata-backfill-rejected SESSDATA=plain-sess-value-9f3a; bili_jct=plain-jct-value-9f3a Bearer abc.def-GHI_9';
-
 function readDelayMs(raw: string | undefined, name: string): number {
   if (raw === undefined || raw.trim() === '') return 0;
   const value = Number(raw.trim());
@@ -104,23 +101,4 @@ export function lifecycleMetadataOverrides(
     random: () => 0,
     ...(gate ? { gate } : {}),
   };
-}
-
-/**
- * Always track the real backfill promise. In the lifecycle reject mode, also track
- * the same task ending in a rejection so shutdown sees that failure and still waits
- * for the original work.
- */
-export function trackLifecycleBackfill(
-  env: NodeJS.ProcessEnv,
-  task: Promise<void>,
-  track: (task: Promise<unknown>) => void,
-): void {
-  track(task);
-  if (!lifecycleTestEnabled(env) || env.API_LIFECYCLE_BACKFILL !== 'reject') return;
-  track(
-    task.then(() => {
-      throw new Error(REJECTED_BACKFILL);
-    }),
-  );
 }

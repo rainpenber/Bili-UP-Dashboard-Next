@@ -1,5 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync } from 'node:fs';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRetainedTestDatabase, type Sql } from '@studio/db';
@@ -78,6 +80,124 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const ASSET_BYTES = 4 * 1024 * 1024;
+
+const SLOW_ASSET_CLIENT = `
+import socket, sys
+port = int(sys.argv[1])
+asset = sys.argv[2]
+sock = socket.socket()
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+sock.connect(("127.0.0.1", port))
+sock.sendall(
+    f"GET /api/v1/assets/{asset} HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n".encode()
+)
+buf = b""
+while b"\\r\\n\\r\\n" not in buf:
+    piece = sock.recv(1)
+    if not piece:
+        break
+    buf += piece
+head, rest = buf.split(b"\\r\\n\\r\\n", 1)
+text = head.decode("latin1")
+print(f"HEADERS {len(rest)}", flush=True)
+sys.stdout.write(text.replace("\\r", "") + "\\nENDHEAD\\n")
+sys.stdout.flush()
+if sys.stdin.readline().strip() != "RESUME":
+    sys.exit(0)
+total = len(rest)
+target = 0
+for line in text.split("\\r\\n"):
+    if line.lower().startswith("content-length:"):
+        target = int(line.split(":", 1)[1].strip())
+while total < target:
+    piece = sock.recv(65536)
+    if not piece:
+        break
+    total += len(piece)
+print(f"BODY {total}", flush=True)
+`;
+
+function headerValue(raw: string, name: string): string {
+  const line = raw
+    .split('\n')
+    .find((item) => item.toLowerCase().startsWith(`${name.toLowerCase()}:`));
+  return line ? line.slice(line.indexOf(':') + 1).trim() : '';
+}
+
+function startSlowAssetClient(port: number, assetId: string): ChildProcessWithoutNullStreams {
+  return spawn('python3', ['-c', SLOW_ASSET_CLIENT, String(port), assetId], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+}
+
+function clientLines(child: ChildProcessWithoutNullStreams) {
+  let buffer = '';
+  const lines: string[] = [];
+  const waiters: Array<(line: string) => void> = [];
+  const flush = () => {
+    while (lines.length > 0 && waiters.length > 0) {
+      const waiter = waiters.shift();
+      const line = lines.shift();
+      if (waiter && line !== undefined) waiter(line);
+    }
+  };
+  child.stdout.on('data', (chunk: Buffer) => {
+    buffer += chunk.toString('utf8');
+    let split = buffer.indexOf('\n');
+    while (split >= 0) {
+      lines.push(buffer.slice(0, split));
+      buffer = buffer.slice(split + 1);
+      split = buffer.indexOf('\n');
+    }
+    flush();
+  });
+  return {
+    line(timeoutMs: number): Promise<string> {
+      const ready = lines.shift();
+      if (ready !== undefined) return Promise.resolve(ready);
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          const index = waiters.indexOf(finish);
+          if (index >= 0) waiters.splice(index, 1);
+          reject(new Error('资产客户端超时'));
+        }, timeoutMs);
+        const finish = (line: string) => {
+          clearTimeout(timer);
+          resolve(line);
+        };
+        waiters.push(finish);
+        flush();
+      });
+    },
+  };
+}
+
+async function seedLargeAsset(sql: Sql, root: string): Promise<string> {
+  const assetId = `response-send-${crypto.randomUUID()}`;
+  mkdirSync(root, { recursive: true });
+  const bytes = Buffer.alloc(ASSET_BYTES, 0);
+  bytes[0] = 0x89;
+  bytes[1] = 0x50;
+  bytes[2] = 0x4e;
+  bytes[3] = 0x47;
+  writeFileSync(join(root, 'fixture.bin'), bytes);
+  await sql`
+    INSERT INTO static_assets (
+      asset_id, content_sha256, mime_type, relative_path, kind, byte_size, origin
+    ) VALUES (
+      ${assetId},
+      ${'ab'.repeat(32)},
+      'image/png',
+      'fixture.bin',
+      'other',
+      ${ASSET_BYTES},
+      'manual'
+    )
+  `;
+  return assetId;
+}
+
 async function waitForHealth(port: number, child: LifecycleChild) {
   const deadline = Date.now() + 10_000;
   let last = '未连接';
@@ -101,18 +221,6 @@ async function logEvents(sql: Sql, instance: string): Promise<Array<string | nul
     SELECT event FROM app_logs WHERE instance = ${instance} ORDER BY id
   `;
   return rows.map((row) => row.event);
-}
-
-async function waitForLogged(sql: Sql, instance: string, event: string) {
-  const deadline = Date.now() + 8_000;
-  while (Date.now() < deadline) {
-    const rows = await sql<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM app_logs WHERE instance = ${instance} AND event = ${event}
-    `;
-    if ((rows[0]?.n ?? 0) > 0) return;
-    await sleep(20);
-  }
-  throw new Error(`数据库未见 ${event}`);
 }
 
 type RefreshBody = { backfillRunId?: string; error?: string; requested?: number };
@@ -534,40 +642,44 @@ describe('api process shutdown', () => {
     }
   }, 40_000);
 
-  test('an active backfill rejection is scrubbed and is not exit 0', async () => {
+  test('the real backfill promise rejects when progress can no longer be saved', async () => {
     const isolated = await openDb();
     const instance = `api-${crypto.randomUUID()}`;
     const port = await freeTcpPort();
     const child = spawnApi(isolated.databaseName, instance, port, {
-      API_LIFECYCLE_BACKFILL: 'reject',
-      API_LIFECYCLE_BACKFILL_DELAY_MS: '500',
+      API_LIFECYCLE_BACKFILL_DELAY_MS: '800',
       LOG_FLUSH_DEADLINE_MS: '600',
       PROCESS_EXIT_BUDGET_MS: '3000',
     });
+    let renamed = false;
     try {
       await child.waitForLine((line) => isEvent(line, 'service.started', instance), 15_000);
       await waitForHealth(port, child);
       const pending = startRefresh(port, false);
       await pending.done;
       expect(pending.shot.status).toBe(202);
+      expect(child.lines.some((line) => isEvent(line, 'backfill.started', instance))).toBe(true);
+      await isolated.sql`ALTER TABLE backfill_runs RENAME TO backfill_runs_hidden`;
+      renamed = true;
       const signaledAt = Date.now();
       child.kill('SIGTERM');
       const exitCode = await child.exited;
       const elapsedMs = Date.now() - signaledAt;
-      const text = `${child.lines.join('\n')}\n${child.stderr.join('\n')}`;
-      const stored = await isolated.sql<{ message: string; context: string }[]>`
-        SELECT message, context::text AS context FROM app_logs WHERE instance = ${instance}
-      `;
-      const incomplete = record(child.lines, 'process.background_failed');
+      const failed = record(child.lines, 'process.background_failed');
       const shutdown = record(child.lines, 'process.shutdown_incomplete');
-      assertNoSecret(text);
-      assertNoSecret(stored.map((row) => `${row.message} ${row.context}`).join('\n'));
+      const diagnosed = String(failed?.context?.error ?? '');
+      const events = await logEvents(isolated.sql, instance);
       expect(exitCode).not.toBe(0);
-      expect(String(incomplete?.context?.error ?? '')).toContain('metadata-backfill-rejected');
+      expect(diagnosed).toContain('backfill_runs');
+      expect(diagnosed).toContain('does not exist');
       expect(shutdown?.context?.task).toBe('failed');
-      expect(await logEvents(isolated.sql, instance)).toContain('service.stopped');
+      expect(shutdown?.context?.stopEventAccepted).toBe(true);
+      expect(shutdown?.context?.flushOk).toBe(true);
+      expect(events).toContain('service.started');
+      expect(events).toContain('backfill.started');
+      expect(events.filter((event) => event === 'service.stopped')).toHaveLength(1);
       evidence({
-        case: 'api-backfill-reject',
+        case: 'api-backfill-real-reject',
         database: isolated.databaseName,
         instance,
         runId: pending.shot.body.backfillRunId,
@@ -575,45 +687,52 @@ describe('api process shutdown', () => {
         exitCode,
         elapsedMs,
         task: shutdown?.context?.task,
-        error: incomplete?.context?.error,
+        stopEventAccepted: shutdown?.context?.stopEventAccepted,
+        flushOk: shutdown?.context?.flushOk,
+        error: diagnosed,
+        events,
       });
     } finally {
+      if (renamed) {
+        await isolated.sql`ALTER TABLE backfill_runs_hidden RENAME TO backfill_runs`;
+      }
       child.dispose();
     }
   }, 40_000);
 
-  test('a backfill rejection that already settled does not fail the next exit', async () => {
+  test('a real backfill rejection that already settled does not fail the next exit', async () => {
     const isolated = await openDb();
     const instance = `api-${crypto.randomUUID()}`;
     const port = await freeTcpPort();
     const child = spawnApi(isolated.databaseName, instance, port, {
-      API_LIFECYCLE_BACKFILL: 'reject',
+      API_LIFECYCLE_BACKFILL_DELAY_MS: '200',
       LOG_FLUSH_DEADLINE_MS: '800',
       PROCESS_EXIT_BUDGET_MS: '2500',
     });
+    let renamed = false;
     try {
       await child.waitForLine((line) => isEvent(line, 'service.started', instance), 15_000);
       await waitForHealth(port, child);
       const pending = startRefresh(port, false);
       await pending.done;
       expect(pending.shot.status).toBe(202);
-      await waitForLogged(isolated.sql, instance, 'backfill.finished');
-      await sleep(80);
+      await isolated.sql`ALTER TABLE backfill_runs RENAME TO backfill_runs_hidden`;
+      renamed = true;
+      await sleep(1_000);
       const signaledAt = Date.now();
       child.kill('SIGTERM');
       const exitCode = await child.exited;
       const elapsedMs = Date.now() - signaledAt;
       const stdout = child.lines.join('\n');
       const events = await logEvents(isolated.sql, instance);
-      assertNoSecret(`${stdout}\n${child.stderr.join('\n')}`);
       expect(exitCode).toBe(0);
       expect(elapsedMs).toBeLessThan(2_000);
       expect(stdout).not.toContain('process.shutdown_incomplete');
       expect(stdout).not.toContain('process.background_failed');
-      expect(events).toContain('backfill.finished');
+      expect(events).toContain('backfill.started');
       expect(events.filter((event) => event === 'service.stopped')).toHaveLength(1);
       evidence({
-        case: 'api-settled-rejection-then-exit',
+        case: 'api-settled-real-rejection-then-exit',
         database: isolated.databaseName,
         instance,
         runId: pending.shot.body.backfillRunId,
@@ -623,6 +742,9 @@ describe('api process shutdown', () => {
         events,
       });
     } finally {
+      if (renamed) {
+        await isolated.sql`ALTER TABLE backfill_runs_hidden RENAME TO backfill_runs`;
+      }
       child.dispose();
     }
   }, 40_000);
@@ -865,6 +987,135 @@ describe('api process shutdown', () => {
         exitBudgetMs: 1500,
       });
     } finally {
+      child.dispose();
+    }
+  }, 40_000);
+
+  test('a slow client receives the full asset after SIGTERM before exit 0', async () => {
+    const isolated = await openDb();
+    const root = mkdtempSync(join(tmpdir(), 'api-send-asset-'));
+    const assetId = await seedLargeAsset(isolated.sql, root);
+    const instance = `api-${crypto.randomUUID()}`;
+    const port = await freeTcpPort();
+    const child = spawnApi(isolated.databaseName, instance, port, {
+      MONITOR_ASSETS_ROOT: root,
+      LOG_FLUSH_DEADLINE_MS: '400',
+      PROCESS_EXIT_BUDGET_MS: '3000',
+    });
+    let reader: ChildProcessWithoutNullStreams | undefined;
+    try {
+      await child.waitForLine((line) => isEvent(line, 'service.started', instance), 15_000);
+      await waitForHealth(port, child);
+      reader = startSlowAssetClient(port, assetId);
+      const lines = clientLines(reader);
+      const headerCount = await lines.line(5_000);
+      const bufferedBeforeSignal = Number(headerCount.replace('HEADERS ', ''));
+      const headerLines: string[] = [];
+      for (;;) {
+        const line = await lines.line(5_000);
+        if (line === 'ENDHEAD') break;
+        headerLines.push(line);
+      }
+      const header = headerLines.join('\n');
+      expect(header.startsWith('HTTP/1.1 200')).toBe(true);
+      expect(headerValue(header, 'content-length')).toBe(String(ASSET_BYTES));
+      expect(headerValue(header, 'x-asset-status')).toBe('ok');
+      expect(bufferedBeforeSignal).toBeLessThan(ASSET_BYTES);
+      const signaledAt = Date.now();
+      child.kill('SIGTERM');
+      await sleep(400);
+      expect(child.lines.join('\n')).not.toContain('service.stopped');
+      reader.stdin.write('RESUME\n');
+      const bodyLine = await lines.line(5_000);
+      const received = Number(bodyLine.replace('BODY ', ''));
+      const exitCode = await child.exited;
+      const elapsedMs = Date.now() - signaledAt;
+      expect(received).toBe(ASSET_BYTES);
+      expect(exitCode).toBe(0);
+      expect(elapsedMs).toBeGreaterThanOrEqual(350);
+      expect(elapsedMs).toBeLessThan(2_800);
+      evidence({
+        case: 'api-response-send-completes',
+        database: isolated.databaseName,
+        instance,
+        assetId,
+        signal: 'SIGTERM',
+        exitCode,
+        elapsedMs,
+        received,
+        contentLength: ASSET_BYTES,
+        bufferedBeforeSignal,
+      });
+    } finally {
+      reader?.kill('SIGKILL');
+      child.dispose();
+    }
+  }, 40_000);
+
+  test('an unread response that exceeds the exit budget is not success', async () => {
+    const isolated = await openDb();
+    const root = mkdtempSync(join(tmpdir(), 'api-send-hang-'));
+    const assetId = await seedLargeAsset(isolated.sql, root);
+    const instance = `api-${crypto.randomUUID()}`;
+    const port = await freeTcpPort();
+    const child = spawnApi(isolated.databaseName, instance, port, {
+      MONITOR_ASSETS_ROOT: root,
+      LOG_FLUSH_DEADLINE_MS: '300',
+      PROCESS_EXIT_BUDGET_MS: '1400',
+    });
+    let reader: ChildProcessWithoutNullStreams | undefined;
+    try {
+      await child.waitForLine((line) => isEvent(line, 'service.started', instance), 15_000);
+      await waitForHealth(port, child);
+      reader = startSlowAssetClient(port, assetId);
+      const lines = clientLines(reader);
+      const headerCount = await lines.line(5_000);
+      const bufferedBeforeSignal = Number(headerCount.replace('HEADERS ', ''));
+      const headerLines: string[] = [];
+      for (;;) {
+        const line = await lines.line(5_000);
+        if (line === 'ENDHEAD') break;
+        headerLines.push(line);
+      }
+      expect(headerValue(headerLines.join('\n'), 'content-length')).toBe(String(ASSET_BYTES));
+      expect(bufferedBeforeSignal).toBeLessThan(ASSET_BYTES);
+      const signaledAt = Date.now();
+      child.kill('SIGTERM');
+      const exitCode = await child.exited;
+      const elapsedMs = Date.now() - signaledAt;
+      const undrained = record(child.lines, 'process.response_undrained');
+      const incomplete = record(child.lines, 'process.shutdown_incomplete');
+      expect(exitCode).not.toBe(0);
+      expect(elapsedMs).toBeGreaterThanOrEqual(700);
+      expect(elapsedMs).toBeLessThan(3_000);
+      expect(incomplete?.context?.task).toBe('timed_out');
+      expect(undrained?.event).toBe('process.response_undrained');
+      const refused = await new Promise<boolean>((resolve) => {
+        const probe = connect({ host: '127.0.0.1', port });
+        const done = (value: boolean) => {
+          probe.destroy();
+          resolve(value);
+        };
+        probe.once('connect', () => done(false));
+        probe.once('error', () => done(true));
+        setTimeout(() => done(true), 500);
+      });
+      expect(refused).toBe(true);
+      evidence({
+        case: 'api-response-send-budget',
+        database: isolated.databaseName,
+        instance,
+        assetId,
+        signal: 'SIGTERM',
+        exitCode,
+        elapsedMs,
+        task: incomplete?.context?.task,
+        bufferedBeforeSignal,
+        listenerRefused: refused,
+        exitBudgetMs: 1400,
+      });
+    } finally {
+      reader?.kill('SIGKILL');
       child.dispose();
     }
   }, 40_000);

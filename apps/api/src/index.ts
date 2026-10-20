@@ -17,7 +17,6 @@ import {
   LIFECYCLE_HOLD_HEADER,
   lifecycleMetadataOverrides,
   readLifecycleHoldMs,
-  trackLifecycleBackfill,
 } from './lifecycle-metadata';
 import { mountApiRoutes } from './mount-api';
 import { createProcessWork, httpRejected } from './process-work';
@@ -72,13 +71,16 @@ const stopRetention = startAppLogRetention(sql, {
     logger.error('日志清理失败', { event: 'log.retention_failed', context: { error: message } });
   },
 });
-const work = createProcessWork();
+let server: ReturnType<typeof Bun.serve> | undefined;
+let drainIncomplete = false;
+const work = createProcessWork({
+  inflightNetwork: () => (server ? server.pendingRequests + server.pendingWebSockets : 0),
+});
 const holdMs = readLifecycleHoldMs(process.env);
 const app = createApp({ skipDb: true, logger });
 mountApiRoutes(app, sql, {
   logger,
-  onBackfill: (task) =>
-    trackLifecycleBackfill(process.env, task, (item) => work.trackBackground(item)),
+  onBackfill: (task) => work.trackBackground(task),
   ...lifecycleMetadataOverrides(process.env),
 });
 
@@ -91,12 +93,26 @@ const shutdown = createShutdownController({
     },
     async finishCurrent(timeoutMs) {
       const result = await work.finish(timeoutMs);
+      drainIncomplete = result !== 'finished';
       if (result === 'failed') {
         writeDiagnostic({
           level: 'error',
           event: 'process.background_failed',
           msg: '后台工作异常结束',
           context: { error: work.failureMessage() ?? 'background failed' },
+        });
+      }
+      if (
+        result === 'timed_out' &&
+        work.activeHttp === 0 &&
+        work.activeBackground === 0 &&
+        work.inflightNetwork() > 0
+      ) {
+        writeDiagnostic({
+          level: 'error',
+          event: 'process.response_undrained',
+          msg: 'HTTP 响应尚未发送完成',
+          context: { pendingRequests: work.inflightNetwork() },
         });
       }
       return result;
@@ -110,20 +126,25 @@ const shutdown = createShutdownController({
     stopRetention() {
       stopRetention();
     },
-    closeResources(timeoutMs) {
+    async closeResources(timeoutMs) {
+      const closingServer = server;
+      server = undefined;
+      if (closingServer) {
+        await closingServer.stop(drainIncomplete).catch(() => undefined);
+      }
       const closed = closeSqlWithin(sql, timeoutMs);
       if (lifecycleTestEnabled(process.env) && process.env.API_LIFECYCLE_CLOSE_HANG === '1') {
-        return closed.then(() => {
-          writeDiagnostic({
-            level: 'info',
-            event: 'lifecycle.close_started',
-            msg: '测试进程开始挂起资源关闭',
-            context: { timeoutMs },
-          });
-          return new Promise<void>(() => undefined);
+        await closed;
+        writeDiagnostic({
+          level: 'info',
+          event: 'lifecycle.close_started',
+          msg: '测试进程开始挂起资源关闭',
+          context: { timeoutMs },
         });
+        await new Promise<void>(() => undefined);
+        return;
       }
-      return closed;
+      await closed;
     },
   },
 });
@@ -134,20 +155,10 @@ const onSignal = (signal: string) => {
 process.on('SIGTERM', () => onSignal('SIGTERM'));
 process.on('SIGINT', () => onSignal('SIGINT'));
 
-if (lifecycleTestEnabled(process.env)) {
-  writeDiagnostic({
-    level: 'info',
-    event: 'lifecycle.offline_guard',
-    msg: '测试进程已安装离线网络守卫',
-    context: {},
-  });
-}
-logger.info('API 启动', { event: 'service.started' });
-
-// Bun 对入口的 default export 启动唯一 HTTP 服务器。不要再调用 Bun.serve。
-export default {
+// 只启动这一个 Bun server。不要再 default export fetch，否则会再听一个端口。
+server = Bun.serve({
   port,
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request) {
     const outcome = await work.runHttp(async () => {
       if (holdMs > 0 && request.headers.get(LIFECYCLE_HOLD_HEADER) === '1') {
         writeDiagnostic({
@@ -168,7 +179,17 @@ export default {
     }
     return outcome;
   },
-};
+});
+
+if (lifecycleTestEnabled(process.env)) {
+  writeDiagnostic({
+    level: 'info',
+    event: 'lifecycle.offline_guard',
+    msg: '测试进程已安装离线网络守卫',
+    context: {},
+  });
+}
+logger.info('API 启动', { event: 'service.started' });
 
 if (import.meta.main) {
   console.log(

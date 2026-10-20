@@ -127,6 +127,31 @@ describe('process work', () => {
     expect(await work.finish(50)).toBe('finished');
   });
 
+  test('finish waits until Bun is done sending after the handler returns', async () => {
+    let pending = 1;
+    const work = createProcessWork({ inflightNetwork: () => pending });
+    await work.runHttp(async () => 'body');
+    expect(work.activeHttp).toBe(0);
+    work.stopAccepting();
+    const finished = work.finish(1_000);
+    let saw: string | null = null;
+    void finished.then((result) => {
+      saw = result;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(saw).toBeNull();
+    pending = 0;
+    expect(await finished).toBe('finished');
+  });
+
+  test('a send that outlasts the budget is timed out', async () => {
+    const work = createProcessWork({ inflightNetwork: () => 1 });
+    work.stopAccepting();
+    const started = Date.now();
+    expect(await work.finish(40)).toBe('timed_out');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(20);
+  });
+
   test('settled background work drops its references', async () => {
     const work = createProcessWork();
     for (let index = 0; index < 1_000; index += 1) {
