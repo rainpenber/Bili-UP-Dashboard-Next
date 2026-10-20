@@ -415,7 +415,7 @@ describe('creator detail video list', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('狐正正')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '狐正正' })).toBeTruthy();
     const section = screen.getByTestId('creator-videos');
     expect(await within(section).findByLabelText('加载中')).toBeTruthy();
     release();

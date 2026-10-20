@@ -19,14 +19,15 @@
 
 ```jsonc
 {
-  "creator": {                     // mid 为空时为 null
+  "creator": {
+    // mid 为空时为 null
     "mid": "3493141386627335",
     "uname": "狐正正",
-    "faceAssetId": "a_...",        // 无头像时 null
-    "followerLatest": 51733,       // 最近一条粉丝样本，NULL 时 null
+    "faceAssetId": "a_...", // 无头像时 null
+    "followerLatest": 51733, // 最近一条粉丝样本，NULL 时 null
     "followerSampledAt": "2026-10-19T18:59:59Z",
-    "monitoringEnabled": true
-  }
+    "monitoringEnabled": true,
+  },
 }
 ```
 
@@ -40,14 +41,22 @@
 {
   "mid": "3493141386627335",
   "total": 46,
-  "items": [{
-    "bvid": "BV1jHnn63EEi",
-    "title": "…",
-    "coverAssetId": "a_…",
-    "pubdate": "2026-10-19T…Z",
-    "partitionName": null,
-    "latest": { "sampledAt": "…", "viewCount": 623, "likeCount": 34, "commentCount": 8, "onlineViewers": 1 }
-  }]
+  "items": [
+    {
+      "bvid": "BV1jHnn63EEi",
+      "title": "…",
+      "coverAssetId": "a_…",
+      "pubdate": "2026-10-19T…Z",
+      "partitionName": null,
+      "latest": {
+        "sampledAt": "…",
+        "viewCount": 623,
+        "likeCount": 34,
+        "commentCount": 8,
+        "onlineViewers": 1,
+      },
+    },
+  ],
 }
 ```
 
