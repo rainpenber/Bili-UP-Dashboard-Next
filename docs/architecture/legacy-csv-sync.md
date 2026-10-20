@@ -67,6 +67,8 @@ docker compose -f docker-compose.yml -f docker-compose.legacy-sync.yml stop lega
 
 不拿最新的 `sampled_at` 当水位。文件末尾补上的更早时刻会作为新行入库。
 
+校验和读取使用同一次打开的文件。发布路径若在校验之后被原子替换，这个文件本轮不写样本、也不推进检查点，并记成表头变化或快照替换；同一轮里的其他文件继续。`未知+` 这种无法解析的在线人数是一条带原文的拒绝，不会让后面的文件停住。
+
 ## 冲突
 
 样本唯一键仍是视频 `(bvid, sampled_at)`、粉丝 `(mid, sampled_at)`。写入是 `ON CONFLICT DO NOTHING`。

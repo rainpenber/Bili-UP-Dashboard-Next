@@ -1,4 +1,4 @@
-import { open, readdir, stat } from 'node:fs/promises';
+import { open, readdir, stat, type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   acquireLegacySyncLock,
@@ -79,6 +79,8 @@ export type LegacySyncRunOptions = {
       byteOffset: number;
       batchIndex: number;
     }) => Promise<void> | void;
+    beforeRead?: (info: { file: string; filePath: string }) => Promise<void> | void;
+    afterPlan?: (info: { file: string; filePath: string }) => Promise<void> | void;
   };
   onParsed?: (info: { file: string; rows: number }) => void;
 };
@@ -206,6 +208,20 @@ function isEnoent(error: unknown): boolean {
   );
 }
 
+function isFilesystemError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const record = error as { code?: unknown; syscall?: unknown };
+  if (typeof record.syscall === 'string' && record.syscall.length > 0) return true;
+  return typeof record.code === 'string' && /^E[A-Z0-9]+$/.test(record.code);
+}
+
+function sameFileIdentity(
+  left: { dev: number | bigint; ino: number | bigint },
+  right: { dev: number | bigint; ino: number | bigint },
+): boolean {
+  return String(left.dev) === String(right.dev) && String(left.ino) === String(right.ino);
+}
+
 function errorText(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) return error.message;
   return 'legacy sync failed';
@@ -226,51 +242,41 @@ async function sleepInterruptible(ms: number, signal?: AbortSignal): Promise<voi
   });
 }
 
-async function readFirstCompleteLine(filePath: string): Promise<Buffer | null> {
-  const handle = await open(filePath, 'r');
-  try {
-    const parts: Buffer[] = [];
-    let total = 0;
-    let position = 0;
-    const buf = Buffer.alloc(4096);
-    while (total < MAX_LINE_BYTES) {
-      const { bytesRead } = await handle.read(buf, 0, buf.length, position);
-      if (bytesRead === 0) return null;
-      const slice = buf.subarray(0, bytesRead);
-      const newline = slice.indexOf(0x0a);
-      if (newline >= 0) {
-        parts.push(Buffer.from(slice.subarray(0, newline + 1)));
-        return Buffer.concat(parts);
-      }
-      parts.push(Buffer.from(slice));
-      total += bytesRead;
-      position += bytesRead;
+async function readFirstCompleteLine(handle: FileHandle): Promise<Buffer | null> {
+  const parts: Buffer[] = [];
+  let total = 0;
+  let position = 0;
+  const buf = Buffer.alloc(4096);
+  while (total < MAX_LINE_BYTES) {
+    const { bytesRead } = await handle.read(buf, 0, buf.length, position);
+    if (bytesRead === 0) return null;
+    const slice = buf.subarray(0, bytesRead);
+    const newline = slice.indexOf(0x0a);
+    if (newline >= 0) {
+      parts.push(Buffer.from(slice.subarray(0, newline + 1)));
+      return Buffer.concat(parts);
     }
-    return null;
-  } finally {
-    await handle.close();
+    parts.push(Buffer.from(slice));
+    total += bytesRead;
+    position += bytesRead;
   }
+  return null;
 }
 
-async function hashFilePrefix(filePath: string, length: number): Promise<PrefixHasher | null> {
+async function hashFilePrefix(handle: FileHandle, length: number): Promise<PrefixHasher | null> {
   const hasher = new PrefixHasher();
   if (length === 0) return hasher;
-  const handle = await open(filePath, 'r');
-  try {
-    const buf = Buffer.alloc(READ_CHUNK);
-    let position = 0;
-    let left = length;
-    while (left > 0) {
-      const { bytesRead } = await handle.read(buf, 0, Math.min(buf.length, left), position);
-      if (bytesRead === 0) return null;
-      hasher.update(buf.subarray(0, bytesRead));
-      position += bytesRead;
-      left -= bytesRead;
-    }
-    return hasher;
-  } finally {
-    await handle.close();
+  const buf = Buffer.alloc(READ_CHUNK);
+  let position = 0;
+  let left = length;
+  while (left > 0) {
+    const { bytesRead } = await handle.read(buf, 0, Math.min(buf.length, left), position);
+    if (bytesRead === 0) return null;
+    hasher.update(buf.subarray(0, bytesRead));
+    position += bytesRead;
+    left -= bytesRead;
   }
+  return hasher;
 }
 
 type ReadPlan = {
@@ -281,13 +287,13 @@ type ReadPlan = {
 };
 
 async function planFile(
-  filePath: string,
+  handle: FileHandle,
   kind: LegacyFileKind,
   size: number,
   checkpoint: LegacyCheckpoint | null,
 ): Promise<{ fail: string } | { skip: true } | { read: ReadPlan }> {
   const expected = expectedLegacyHeader(kind);
-  const headerBytes = await readFirstCompleteLine(filePath);
+  const headerBytes = await readFirstCompleteLine(handle);
   if (!headerBytes) return { fail: 'header_missing' };
   const headerLine = decodeLegacyHeader(headerBytes);
   if (headerLine !== expected || (checkpoint !== null && checkpoint.headerLine !== headerLine)) {
@@ -299,7 +305,7 @@ async function planFile(
   if (size < checkpoint.byteOffset) {
     return { read: { action: 'rescanned', start: 0, hasher: new PrefixHasher(), headerLine } };
   }
-  const hashed = await hashFilePrefix(filePath, checkpoint.byteOffset);
+  const hashed = await hashFilePrefix(handle, checkpoint.byteOffset);
   const finger = hashed?.snapshot();
   const matches =
     hashed !== null &&
@@ -420,8 +426,8 @@ async function commitBatch(
 
 async function consumeFile(
   options: LegacySyncRunOptions,
+  handle: FileHandle,
   input: {
-    filePath: string;
     file: string;
     kind: LegacyFileKind;
     entityKey: string;
@@ -429,52 +435,52 @@ async function consumeFile(
     batchLines: number;
   },
 ): Promise<FileCounts> {
-  const handle = await open(input.filePath, 'r');
   const counts: FileCounts = { rowsParsed: 0, inserted: 0, conflicts: 0, rejected: 0 };
-  try {
-    let carry = Buffer.alloc(0);
-    let offset = input.plan.start;
-    let position = input.plan.start;
-    let eof = false;
-    let headerPending = input.plan.start === 0;
-    let batchIndex = 0;
-    const seen = new Set<number>();
-    while (!options.signal?.aborted) {
-      const want = headerPending ? input.batchLines + 1 : input.batchLines;
-      while (!eof && takeCompleteLines(carry, want).lines < want) {
-        const buf = Buffer.alloc(READ_CHUNK);
-        const { bytesRead } = await handle.read(buf, 0, buf.length, position);
-        if (bytesRead === 0) {
-          eof = true;
-          break;
-        }
-        position += bytesRead;
-        const piece = Buffer.from(buf.subarray(0, bytesRead));
-        carry = carry.length === 0 ? piece : Buffer.concat([carry, piece]);
-        if (carry.length > MAX_LINE_BYTES && takeCompleteLines(carry, 1).lines === 0) {
-          throw new LegacyFileFailure(`line_too_long: ${input.file} 存在超过上限且没有换行的尾部`);
-        }
+  let carry = Buffer.alloc(0);
+  let offset = input.plan.start;
+  let position = input.plan.start;
+  let eof = false;
+  let headerPending = input.plan.start === 0;
+  let batchIndex = 0;
+  const seen = new Set<number>();
+  while (!options.signal?.aborted) {
+    const want = headerPending ? input.batchLines + 1 : input.batchLines;
+    while (!eof && takeCompleteLines(carry, want).lines < want) {
+      const buf = Buffer.alloc(READ_CHUNK);
+      const { bytesRead } = await handle.read(buf, 0, buf.length, position);
+      if (bytesRead === 0) {
+        eof = true;
+        break;
       }
-      const taken = takeCompleteLines(carry, want);
-      if (taken.lines === 0) break;
-      const committed = taken.done;
-      let dataBytes = committed;
-      if (headerPending) {
-        const newline = committed.indexOf(0x0a);
-        const actual = decodeLegacyHeader(committed.subarray(0, newline + 1));
-        if (actual !== input.plan.headerLine) {
-          throw new LegacyFileFailure(`header_changed: ${input.file} 表头已变化`);
-        }
-        dataBytes = committed.subarray(newline + 1);
-        headerPending = false;
+      position += bytesRead;
+      const piece = Buffer.from(buf.subarray(0, bytesRead));
+      carry = carry.length === 0 ? piece : Buffer.concat([carry, piece]);
+      if (carry.length > MAX_LINE_BYTES && takeCompleteLines(carry, 1).lines === 0) {
+        throw new LegacyFileFailure(`line_too_long: ${input.file} 存在超过上限且没有换行的尾部`);
       }
-      const dataText = dataBytes.toString('utf8');
-      const parsed =
+    }
+    const taken = takeCompleteLines(carry, want);
+    if (taken.lines === 0) break;
+    const committed = taken.done;
+    let dataBytes = committed;
+    if (headerPending) {
+      const newline = committed.indexOf(0x0a);
+      const actual = decodeLegacyHeader(committed.subarray(0, newline + 1));
+      if (actual !== input.plan.headerLine) {
+        throw new LegacyFileFailure(`header_changed: ${input.file} 表头已变化`);
+      }
+      dataBytes = committed.subarray(newline + 1);
+      headerPending = false;
+    }
+    const dataText = dataBytes.toString('utf8');
+    let parsed: LegacyParseResult<LegacyVideoRow | LegacyFollowerRow>;
+    try {
+      parsed =
         dataText.length === 0
           ? {
               rows: [],
               rejected: 0,
-              rejections: [] as string[],
+              rejections: [],
               total: 0,
               earliest: null,
               latest: null,
@@ -483,35 +489,35 @@ async function consumeFile(
           : input.kind === 'video'
             ? parseLegacyVideoChunk(input.plan.headerLine, dataText)
             : parseLegacyFollowerChunk(input.plan.headerLine, dataText);
-      if (parsed.total > 0) options.onParsed?.({ file: input.file, rows: parsed.total });
-      input.plan.hasher.update(committed);
-      const finger = input.plan.hasher.snapshot();
-      const newOffset = offset + committed.length;
-      batchIndex += 1;
-      const written = await commitBatch(options, {
-        file: input.file,
-        kind: input.kind,
-        entityKey: input.entityKey,
-        headerLine: input.plan.headerLine,
-        action: input.plan.action,
-        newOffset,
-        finger,
-        parsed,
-        batchIndex,
-        seen,
-      });
-      counts.rowsParsed += parsed.total;
-      counts.inserted += written.inserted;
-      counts.conflicts += written.conflicts;
-      counts.rejected += parsed.rejected;
-      offset = newOffset;
-      carry = Buffer.from(taken.rest);
+    } catch (error) {
+      throw new LegacyFileFailure(`parse_failed: ${input.file} ${errorText(error)}`);
     }
-    if (options.signal?.aborted) throw new SyncStopped();
-    return counts;
-  } finally {
-    await handle.close();
+    if (parsed.total > 0) options.onParsed?.({ file: input.file, rows: parsed.total });
+    input.plan.hasher.update(committed);
+    const finger = input.plan.hasher.snapshot();
+    const newOffset = offset + committed.length;
+    batchIndex += 1;
+    const written = await commitBatch(options, {
+      file: input.file,
+      kind: input.kind,
+      entityKey: input.entityKey,
+      headerLine: input.plan.headerLine,
+      action: input.plan.action,
+      newOffset,
+      finger,
+      parsed,
+      batchIndex,
+      seen,
+    });
+    counts.rowsParsed += parsed.total;
+    counts.inserted += written.inserted;
+    counts.conflicts += written.conflicts;
+    counts.rejected += parsed.rejected;
+    offset = newOffset;
+    carry = Buffer.from(taken.rest);
   }
+  if (options.signal?.aborted) throw new SyncStopped();
+  return counts;
 }
 
 async function syncOneFile(
@@ -525,35 +531,76 @@ async function syncOneFile(
   }
   const filePath = join(options.dir, file);
   try {
+    await options.hooks?.beforeRead?.({ file, filePath });
     const info = await stat(filePath);
-    const checkpoint = await readLegacyCheckpoint(options.sql, file);
-    const plan = await planFile(filePath, classified.kind, info.size, checkpoint);
-    if ('fail' in plan) {
-      const detail =
-        plan.fail === 'header_missing'
-          ? `${plan.fail}: ${file} 缺少完整表头行`
-          : plan.fail === 'header_changed'
-            ? `${plan.fail}: ${file} 表头已变化`
-            : `${plan.fail}: ${file} 表头无法识别`;
-      return fileReport(file, 'failed', zeroCounts(), detail);
+    const handle = await open(filePath, 'r');
+    try {
+      const opened = await handle.stat();
+      const checkpoint = await readLegacyCheckpoint(options.sql, file);
+      const plan = await planFile(handle, classified.kind, info.size, checkpoint);
+      if ('fail' in plan) return headerFailure(file, plan.fail);
+      if ('skip' in plan) return fileReport(file, 'skipped', zeroCounts(), null);
+      await options.hooks?.afterPlan?.({ file, filePath });
+      const current = await stat(filePath);
+      if (!sameFileIdentity(current, opened)) {
+        return fileReport(file, 'failed', zeroCounts(), await replacementFailure(file, filePath));
+      }
+      const headerNow = await readFirstCompleteLine(handle);
+      const headerText = headerNow ? decodeLegacyHeader(headerNow) : '';
+      if (!headerNow) return headerFailure(file, 'header_missing');
+      if (headerText !== plan.read.headerLine) return headerFailure(file, 'header_changed');
+      const counts = await consumeFile(options, handle, {
+        file,
+        kind: classified.kind,
+        entityKey: classified.entityKey,
+        plan: plan.read,
+        batchLines,
+      });
+      return fileReport(file, plan.read.action, counts, null);
+    } finally {
+      await handle.close();
     }
-    if ('skip' in plan) return fileReport(file, 'skipped', zeroCounts(), null);
-    const counts = await consumeFile(options, {
-      filePath,
-      file,
-      kind: classified.kind,
-      entityKey: classified.entityKey,
-      plan: plan.read,
-      batchLines,
-    });
-    return fileReport(file, plan.read.action, counts, null);
   } catch (error) {
     if (error instanceof SyncStopped) throw error;
     if (error instanceof LegacyFileFailure)
       return fileReport(file, 'failed', zeroCounts(), error.message);
     if (isEnoent(error)) return fileReport(file, 'failed', zeroCounts(), `source_missing: ${file}`);
+    if (isFilesystemError(error)) {
+      return fileReport(file, 'failed', zeroCounts(), `read_failed: ${file} ${errorText(error)}`);
+    }
     throw error;
   }
+}
+
+function headerFailure(file: string, code: string): LegacySyncFileReport {
+  const detail =
+    code === 'header_missing'
+      ? `${code}: ${file} 缺少完整表头行`
+      : code === 'header_changed'
+        ? `${code}: ${file} 表头已变化`
+        : `${code}: ${file} 表头无法识别`;
+  return fileReport(file, 'failed', zeroCounts(), detail);
+}
+
+async function replacementFailure(file: string, filePath: string): Promise<string> {
+  try {
+    const handle = await open(filePath, 'r');
+    try {
+      const header = await readFirstCompleteLine(handle);
+      if (!header) return `header_missing: ${file} 缺少完整表头行`;
+      const text = decodeLegacyHeader(header);
+      const classified = classifyLegacyFile(file);
+      if (!classified || text !== expectedLegacyHeader(classified.kind)) {
+        return `header_changed: ${file} 表头已变化`;
+      }
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (isEnoent(error)) return `source_missing: ${file}`;
+    if (!isFilesystemError(error)) throw error;
+  }
+  return `snapshot_replaced: ${file} 快照在校验后被替换`;
 }
 
 function zeroCounts(): FileCounts {

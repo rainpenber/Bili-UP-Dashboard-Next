@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { createWriteStream } from 'node:fs';
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -664,6 +664,159 @@ describe('legacy csv sync', () => {
       const repeat = await importLegacyDirectory(sql, dir);
       expect(repeat.files[0]?.inserted).toBe(0);
       expect(repeat.files[0]?.conflicts).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('a snapshot replaced after validation writes no swapped sample and keeps the other file', async () => {
+    if (!sql) return;
+    const dir = mkdtempSync(join(tmpdir(), 'legacy-sync-swap-'));
+    const bad = 'BV1aaaaaaaaa_views.csv';
+    const good = 'BV1aaaaaaaab_views.csv';
+    const badPath = join(dir, bad);
+    const originalHeader = '时间,播放量,在线观看人数,点赞,投币,收藏,分享,弹幕';
+    const swappedHeader = '时间,点赞   ,在线观看人数,播放,投币,收藏,分享,弹幕';
+    const first = '2026-04-25 22:01,100,6,5,1,1,1,1\n';
+    const appended = '2026-04-25 22:02,900,6,20,1,1,1,1\n';
+    const swapped = '2026-04-25 22:02,20,6,900,1,1,1,1\n';
+    try {
+      expect(Buffer.byteLength(originalHeader)).toBe(Buffer.byteLength(swappedHeader));
+      expect(Buffer.byteLength(appended)).toBe(Buffer.byteLength(swapped));
+      writeFileSync(badPath, `${originalHeader}\n${first}`);
+      await runLegacyCsvSync({ sql, dir, execute: true, once: true });
+      const checkpoint = await readLegacyCheckpoint(sql, bad);
+      writeFileSync(badPath, `${originalHeader}\n${first}${appended}`);
+      writeFileSync(join(dir, good), `${VIDEO_HEADER}${videoLine('2026-04-25 22:01', 7)}`);
+      const report = await runLegacyCsvSync({
+        sql,
+        dir,
+        execute: true,
+        once: true,
+        hooks: {
+          afterPlan: ({ file, filePath }) => {
+            if (file !== bad) return;
+            const next = `${filePath}.next`;
+            writeFileSync(next, `${swappedHeader}\n${first}${swapped}`);
+            renameSync(next, filePath);
+          },
+        },
+      });
+      const badReport = report.files.find((file) => file.file === bad);
+      const goodReport = report.files.find((file) => file.file === good);
+      expect(badReport?.action).toBe('failed');
+      expect(badReport?.error).toContain('header_changed');
+      expect(badReport?.inserted).toBe(0);
+      expect(goodReport?.action).toBe('imported');
+      expect(goodReport?.inserted).toBe(1);
+      const after = await readLegacyCheckpoint(sql, bad);
+      expect(after?.byteOffset).toBe(checkpoint?.byteOffset);
+      expect(after?.prefixSha256).toBe(checkpoint?.prefixSha256);
+      const rows = await sql<{ view_count: string; like_count: string; bvid: string }[]>`
+        SELECT bvid, view_count::text AS view_count, like_count::text AS like_count
+        FROM video_metric_samples
+        ORDER BY bvid, sampled_at
+      `;
+      expect(
+        rows.map((row) => ({
+          bvid: row.bvid,
+          view_count: row.view_count,
+          like_count: row.like_count,
+        })),
+      ).toEqual([
+        { bvid: 'BV1aaaaaaaaa', view_count: '100', like_count: '5' },
+        { bvid: 'BV1aaaaaaaab', view_count: '7', like_count: '13' },
+      ]);
+      const again = await runLegacyCsvSync({ sql, dir, execute: true, once: true });
+      expect(again.files.find((file) => file.file === bad)?.error).toContain('header_changed');
+      const still = await sql<{ n: number }[]>`
+        SELECT count(*)::int AS n
+        FROM video_metric_samples
+        WHERE bvid = 'BV1aaaaaaaaa' AND view_count = 20 AND like_count = 900
+      `;
+      expect(still[0]?.n).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects 未知+ once and still imports the rest of the directory', async () => {
+    if (!sql) return;
+    const dir = mkdtempSync(join(tmpdir(), 'legacy-sync-bad-online-'));
+    const first = 'BV1aaaaaaaaa_views.csv';
+    const second = 'BV1aaaaaaaab_views.csv';
+    try {
+      writeFileSync(
+        join(dir, first),
+        `${VIDEO_HEADER}${videoLine('2026-04-25 22:01', 10)}${videoLine('2026-04-25 22:02', 11, '未知+')}${videoLine('2026-04-25 22:03', 12)}`,
+      );
+      writeFileSync(join(dir, second), `${VIDEO_HEADER}${videoLine('2026-04-25 22:01', 8)}`);
+      const imported = await runLegacyCsvSync({ sql, dir, execute: true, once: true });
+      expect(imported.status).toBe('succeeded');
+      expect(imported.inserted).toBe(3);
+      expect(imported.rejected).toBe(1);
+      expect(imported.filesSeen).toBe(2);
+      const rejects = await sql<{ n: number; line: string }[]>`
+        SELECT count(*)::int AS n, min(detail->>'line') AS line
+        FROM import_conflicts_or_rejects
+        WHERE kind = 'rejected_row'
+      `;
+      expect(rejects[0]?.n).toBe(1);
+      expect(rejects[0]?.line).toContain('未知+');
+      const views = await sql<{ bvid: string; view_count: string }[]>`
+        SELECT bvid, view_count::text AS view_count
+        FROM video_metric_samples
+        ORDER BY bvid, sampled_at
+      `;
+      expect(views.map((row) => ({ bvid: row.bvid, view_count: row.view_count }))).toEqual([
+        { bvid: 'BV1aaaaaaaaa', view_count: '10' },
+        { bvid: 'BV1aaaaaaaaa', view_count: '12' },
+        { bvid: 'BV1aaaaaaaab', view_count: '8' },
+      ]);
+      const repeat = await runLegacyCsvSync({ sql, dir, execute: true, once: true });
+      expect(repeat.rejected).toBe(0);
+      expect(repeat.rowsParsed).toBe(0);
+      expect(repeat.files.every((file) => file.action === 'skipped')).toBe(true);
+      const rejectsAgain = await sql<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM import_conflicts_or_rejects WHERE kind = 'rejected_row'
+      `;
+      expect(rejectsAgain[0]?.n).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('a file read failure is counted and does not starve the next file', async () => {
+    if (!sql) return;
+    const dir = mkdtempSync(join(tmpdir(), 'legacy-sync-read-'));
+    const blocked = 'BV1aaaaaaaaa_views.csv';
+    const healthy = 'BV1aaaaaaaab_views.csv';
+    try {
+      writeFileSync(join(dir, blocked), `${VIDEO_HEADER}${videoLine('2026-04-25 22:01', 10)}`);
+      writeFileSync(join(dir, healthy), `${VIDEO_HEADER}${videoLine('2026-04-25 22:01', 9)}`);
+      const report = await runLegacyCsvSync({
+        sql,
+        dir,
+        execute: true,
+        once: true,
+        hooks: {
+          beforeRead: ({ file }) => {
+            if (file !== blocked) return;
+            throw Object.assign(new Error('snapshot unreadable'), { code: 'EIO', syscall: 'read' });
+          },
+        },
+      });
+      expect(report.status).toBe('failed');
+      expect(report.filesSeen).toBe(2);
+      expect(report.filesFailed).toBe(1);
+      expect(report.inserted).toBe(1);
+      expect(report.files.find((file) => file.file === blocked)?.error).toContain('read_failed');
+      expect(report.files.find((file) => file.file === healthy)?.inserted).toBe(1);
+      const rows = await sql<{ bvid: string }[]>`
+        SELECT bvid FROM video_metric_samples ORDER BY bvid
+      `;
+      expect(rows.map((row) => row.bvid)).toEqual(['BV1aaaaaaaab']);
+      expect(await readLegacyCheckpoint(sql, blocked)).toBeNull();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

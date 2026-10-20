@@ -80,15 +80,30 @@ export function parseLegacyVideoCsv(text: string): LegacyParseResult<LegacyVideo
   let latest: Date | null = null;
   const accepted: Accepted<LegacyVideoRow>[] = [];
   for (const row of parsed.rows) {
-    const rawTime = cell(row, 0).trim();
-    const sampledAt = parseHistoricalTime(rawTime, ZONE, 'minute');
-    const viewCount = parseIntegerField(cell(row, 1));
-    const online = parseBoundedCount(cell(row, 2));
-    const likeCount = parseIntegerField(cell(row, 3));
-    const coinCount = parseIntegerField(cell(row, 4));
-    const favoriteCount = parseIntegerField(cell(row, 5));
-    const shareCount = parseIntegerField(cell(row, 6));
-    const danmakuCount = parseIntegerField(cell(row, 7));
+    let rawTime = '';
+    let sampledAt: Date | null = null;
+    let viewCount: bigint | null = null;
+    let online: ReturnType<typeof parseBoundedCount> = { value: null, raw: '' };
+    let likeCount: bigint | null = null;
+    let coinCount: bigint | null = null;
+    let favoriteCount: bigint | null = null;
+    let shareCount: bigint | null = null;
+    let danmakuCount: bigint | null = null;
+    try {
+      rawTime = cell(row, 0).trim();
+      sampledAt = parseHistoricalTime(rawTime, ZONE, 'minute');
+      viewCount = parseIntegerField(cell(row, 1));
+      online = parseBoundedCount(cell(row, 2));
+      likeCount = parseIntegerField(cell(row, 3));
+      coinCount = parseIntegerField(cell(row, 4));
+      favoriteCount = parseIntegerField(cell(row, 5));
+      shareCount = parseIntegerField(cell(row, 6));
+      danmakuCount = parseIntegerField(cell(row, 7));
+    } catch {
+      rejected += 1;
+      rejections.push(row.join(','));
+      continue;
+    }
     if (
       !sampledAt ||
       viewCount === null ||
@@ -148,9 +163,18 @@ export function parseLegacyFollowerCsv(text: string): LegacyParseResult<LegacyFo
   let latest: Date | null = null;
   const accepted: Accepted<LegacyFollowerRow>[] = [];
   for (const row of parsed.rows) {
-    const rawTime = cell(row, 0).trim();
-    const sampledAt = parseHistoricalTime(rawTime, ZONE, 'minute');
-    const followerCount = parseIntegerField(cell(row, 1));
+    let rawTime = '';
+    let sampledAt: Date | null = null;
+    let followerCount: bigint | null = null;
+    try {
+      rawTime = cell(row, 0).trim();
+      sampledAt = parseHistoricalTime(rawTime, ZONE, 'minute');
+      followerCount = parseIntegerField(cell(row, 1));
+    } catch {
+      rejected += 1;
+      rejections.push(row.join(','));
+      continue;
+    }
     if (!sampledAt || followerCount === null) {
       rejected += 1;
       rejections.push(row.join(','));

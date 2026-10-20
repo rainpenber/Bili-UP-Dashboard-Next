@@ -41,6 +41,20 @@ describe('legacy csv parser', () => {
     expect(fans.rejected).toBe(0);
   });
 
+  test('a non-numeric online lower bound is one rejection and does not throw', () => {
+    const text = [
+      '时间,播放量,在线观看人数,点赞,投币,收藏,分享,弹幕',
+      '2026-04-25 22:01,10,6,1,1,1,1,1',
+      '2026-04-25 22:02,10,未知+,1,1,1,1,1',
+      '2026-04-25 22:03,12,6,2,1,1,1,1',
+      '',
+    ].join('\n');
+    const parsed = parseLegacyVideoCsv(text);
+    expect(parsed.rejected).toBe(1);
+    expect(parsed.rejections[0]).toContain('未知+');
+    expect(parsed.rows.map((row) => row.viewCount)).toEqual([10n, 12n]);
+  });
+
   test('duplicate minutes in one file count as conflicts, not two rows', () => {
     const text = '时间,粉丝数\n2026-04-25 22:01,10\n2026-04-25 22:01,11\n';
     const parsed = parseLegacyFollowerCsv(text);
