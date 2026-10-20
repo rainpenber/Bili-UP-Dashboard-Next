@@ -136,6 +136,7 @@ export function createBilibiliProvider(
       ? config.minIntervalMs
       : Math.max(config.minIntervalMs, config.anonymousMinIntervalMs);
     await waitTurn(accountKey, interval);
+    const requestedAt = new Date();
     let response;
     try {
       response = await transport({ url, method: 'GET', headers: bilibiliHeaders(cookieHeader) });
@@ -147,6 +148,7 @@ export function createBilibiliProvider(
         bizCode: null,
         durationMs: 0,
         error: message,
+        requestedAt,
       };
       calls.push(call);
       throw new BilibiliFailure({
@@ -191,6 +193,7 @@ export function createBilibiliProvider(
       bizCode: biz.code,
       durationMs: response.durationMs,
       error: kind ? biz.message || kind : null,
+      requestedAt,
     };
     calls.push(call);
     if (kind) {

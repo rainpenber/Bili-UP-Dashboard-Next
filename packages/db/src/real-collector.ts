@@ -308,12 +308,13 @@ export async function insertCollectorRequests(
     bizCode: number | null;
     durationMs: number;
     error: string | null;
+    requestedAt?: Date | null;
   }[],
 ): Promise<void> {
   for (const row of rows) {
     await sql`
       INSERT INTO collector_requests (
-        account_id, run_id, endpoint, status_code, biz_code, duration_ms, error
+        account_id, run_id, endpoint, status_code, biz_code, duration_ms, error, requested_at
       ) VALUES (
         ${row.accountId}::uuid,
         ${row.runId}::uuid,
@@ -321,7 +322,8 @@ export async function insertCollectorRequests(
         ${row.statusCode},
         ${row.bizCode},
         ${row.durationMs},
-        ${scrubStoredError(row.error)}
+        ${scrubStoredError(row.error)},
+        COALESCE(${row.requestedAt ?? null}, now())
       )
     `;
   }

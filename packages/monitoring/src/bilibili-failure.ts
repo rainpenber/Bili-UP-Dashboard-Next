@@ -10,6 +10,8 @@ export type UpstreamCall = {
   bizCode: number | null;
   durationMs: number;
   error: string | null;
+  /** When the limiter released this call. Audit uses it instead of insert time. */
+  requestedAt?: Date;
 };
 
 export class BilibiliFailure extends Error {

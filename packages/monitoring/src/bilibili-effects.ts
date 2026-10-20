@@ -63,6 +63,7 @@ export function createSqlBilibiliEffects(
           bizCode: call.bizCode,
           durationMs: call.durationMs,
           error: call.error,
+          ...(call.requestedAt ? { requestedAt: call.requestedAt } : {}),
         })),
       );
     },
