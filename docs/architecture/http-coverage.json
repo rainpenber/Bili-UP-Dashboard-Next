@@ -1,0 +1,1318 @@
+{
+  "generatedAt": "2026-10-20T16:22:13.113Z",
+  "databaseName": "wp_r2_11_f11fb678fdc5",
+  "retainedDatabase": true,
+  "registeredCount": 49,
+  "inventoryCount": 49,
+  "executedCount": 49,
+  "successCount": 49,
+  "upstreamFetchCount": 0,
+  "injectedTransportCalls": 8,
+  "routes": [
+    {
+      "method": "DELETE",
+      "path": "/api/v1/monitor/targets/:id",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 409,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "health",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/assets/:assetId",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "assets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "assets",
+          "status": 304,
+          "kind": "success"
+        },
+        {
+          "test": "assets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "assets",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/projects",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/projects/:projectId",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 400,
+          "kind": "reject"
+        },
+        {
+          "test": "commercial",
+          "status": 404,
+          "kind": "reject"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/projects/:projectId/workflow",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/templates/default",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/imports/:batchId",
+      "readWrite": "read",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "imports",
+          "status": 404,
+          "kind": "reject"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-read",
+          "status": 404,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/metrics",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/videos",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 400,
+          "kind": "reject"
+        },
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/dynamics",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/dynamics/:id",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-read",
+          "status": 404,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/dynamics/:id/metrics",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/jobs",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/metadata/runs/:id",
+      "readWrite": "read",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 400,
+          "kind": "reject"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 404,
+          "kind": "reject"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/targets",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/videos",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-read",
+          "status": 400,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/videos/:bvid",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-read",
+          "status": 404,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/videos/:bvid/metrics",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-read",
+          "status": 400,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/debug/bundle",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "ops",
+          "status": 400,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/health",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/logs",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "ops",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "ops",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "ops",
+          "status": 400,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/metadata/runs/:id",
+      "readWrite": "read",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "ops",
+          "status": 400,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/requests",
+      "readWrite": "read",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/runs",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "ops",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "ops",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/runs/:id",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "ops",
+          "status": 400,
+          "kind": "reject"
+        },
+        {
+          "test": "ops",
+          "status": 404,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/summary",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "readWrite": "read",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "health",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/monitor/targets/:id",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "kind": "reject"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 404,
+          "kind": "reject"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/advance",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 409,
+          "kind": "reject"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 404,
+          "kind": "reject"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/block",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/complete",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/plan",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 409,
+          "kind": "reject"
+        },
+        {
+          "test": "commercial",
+          "status": 400,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/publish",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/rollback",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/skip",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 409,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/step",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 409,
+          "kind": "reject"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/unblock",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId/cancel",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 409,
+          "kind": "reject"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId/close",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/stages/:stageId/step",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/imports/csv",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "imports",
+          "status": 400,
+          "kind": "reject"
+        },
+        {
+          "test": "imports",
+          "status": 400,
+          "kind": "reject"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/creators/:mid/refresh",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 404,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/metadata/refresh",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 400,
+          "kind": "reject"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 202,
+          "kind": "success"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 409,
+          "kind": "reject"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 202,
+          "kind": "success"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 202,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/targets",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "kind": "reject"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "kind": "reject"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "kind": "reject"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "kind": "reject"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/targets/:id/run",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 409,
+          "kind": "reject"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/videos/:bvid/refresh",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "success": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "kind": "success"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 404,
+          "kind": "reject"
+        }
+      ]
+    }
+  ]
+}

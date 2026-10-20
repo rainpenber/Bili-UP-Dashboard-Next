@@ -1,6 +1,7 @@
 import { runMigrations, createSql } from '@studio/db';
 import { createLogger, startAppLogRetention } from '@studio/observability';
 import { createApp } from './app';
+import { mountApiRoutes } from './mount-api';
 
 const port = Number(process.env.API_PORT ?? 3000);
 
@@ -18,16 +19,7 @@ startAppLogRetention(sql, {
 });
 logger.info('API 启动', { event: 'service.started' });
 const app = createApp({ skipDb: true, logger });
-const { createMonitorRoutes } = await import('./monitor-routes');
-app.route('/api/v1/monitor', createMonitorRoutes(sql, { logger }));
-const { createAssetsRoutes } = await import('./assets-routes');
-const { createImportRoutes } = await import('./import-routes');
-app.route('/api/v1/assets', createAssetsRoutes(sql));
-app.route('/api/v1/imports', createImportRoutes(sql));
-const { createCommercialRoutes } = await import('./commercial-routes');
-app.route('/api/v1/commercial', createCommercialRoutes(sql));
-const { createOpsRoutes } = await import('./ops-routes');
-app.route('/api/v1/ops', createOpsRoutes(sql));
+mountApiRoutes(app, sql, { logger });
 
 export default {
   port,

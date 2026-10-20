@@ -18,6 +18,12 @@
 
 禁止：`apps/web/src/**`、`packages/db/migrations/**`、`packages/observability/**` 的缓冲与退出 flush、采集器调度与鉴权、Docker / Compose、宿主脚本、部署、DROP 共享库或生产库。验收库只关闭连接，不执行 DROP DATABASE。
 
+## 结果
+
+注册、清单和执行集合都是 49。成功路径 49。注入 transport 有调用，逃逸到 B 站或 CDN 的 fetch 为 0。验收库保留，不执行 DROP DATABASE。数字以 `docs/architecture/http-coverage.json` 为准。
+
+作者创建请求接受 240，省略时默认 240，读响应带 `intervalMode`。视频自动档在离线 worker 后读回 15 / 120 / 360，固定频率保持 5–10080，不把作者默认改成 360。
+
 ## 验收
 
 - 每条注册路由至少一个成功调用和合同断言；写接口有持久化读回；适用时覆盖非法输入、缺失、重复、过期 token、冲突和拒绝零写。

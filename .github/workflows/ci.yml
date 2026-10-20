@@ -29,6 +29,7 @@ jobs:
       POSTGRES_PASSWORD: studio_ci_password
       POSTGRES_DB: studio_ci
       CI: true
+      REQUIRE_POSTGRES: '1'
       MONITOR_DATA_SOURCE: mock
     steps:
       - uses: actions/checkout@v4

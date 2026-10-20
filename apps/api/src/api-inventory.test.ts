@@ -1,12 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { Hono } from 'hono';
-import type { Sql } from '@studio/db';
-import { createAssetsRoutes } from './assets-routes';
-import { createCommercialRoutes } from './commercial-routes';
-import { createImportRoutes } from './import-routes';
-import { createMonitorRoutes } from './monitor-routes';
-import { createOpsRoutes } from './ops-routes';
+import { listRegisteredApiRoutes, routeKey } from './route-catalog';
 
 type InventoryRoute = {
   method: string;
@@ -22,24 +16,8 @@ type Inventory = {
   routes: InventoryRoute[];
 };
 
-const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
-
 function registeredKeys(): string[] {
-  const sql = (() => {
-    throw new Error('inventory registration must not query');
-  }) as unknown as Sql;
-  const app = new Hono();
-  app.get('/health', (c) => c.text('ok'));
-  app.get('/api/health', (c) => c.text('ok'));
-  app.route('/api/v1/monitor', createMonitorRoutes(sql));
-  app.route('/api/v1/assets', createAssetsRoutes(sql));
-  app.route('/api/v1/imports', createImportRoutes(sql));
-  app.route('/api/v1/commercial', createCommercialRoutes(sql));
-  app.route('/api/v1/ops', createOpsRoutes(sql));
-  const keys = app.routes
-    .filter((route) => METHODS.has(route.method))
-    .map((route) => `${route.method} ${route.path}`);
-  return [...new Set(keys)].sort();
+  return listRegisteredApiRoutes().map(routeKey);
 }
 
 describe('api inventory', () => {

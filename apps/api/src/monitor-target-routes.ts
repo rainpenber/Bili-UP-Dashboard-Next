@@ -36,6 +36,7 @@ export function toMonitorTarget(row: MonitorTargetRow): MonitorTarget {
     tags: row.tags,
     enabled: row.enabled,
     intervalMinutes: row.intervalMinutes,
+    intervalMode: row.intervalMode,
     nextRunAt: iso(row.nextRunAt),
     lastRunAt: iso(row.lastRunAt),
     lastSuccessAt: iso(row.lastSuccessAt),
@@ -126,6 +127,7 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
         label: request.label,
         tags: request.tags,
         intervalMinutes: request.intervalMinutes,
+        intervalMode: request.intervalMode,
         now,
       });
       return c.json({

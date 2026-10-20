@@ -16,6 +16,7 @@ describe('monitor target contracts', () => {
     expect(video.externalId).toBe('BV1xx411c7mD');
     expect(video.label).toBe('BV1xx411c7mD');
     expect(video.intervalMinutes).toBe(60);
+    expect(video.intervalMode).toBe('auto');
     expect(video.tags).toEqual(['春季', 'spring']);
 
     const creator = parseCreateMonitorTargetRequest({
@@ -26,6 +27,31 @@ describe('monitor target contracts', () => {
     });
     expect(creator.externalId).toBe('12345');
     expect(creator.intervalMinutes).toBe(15);
+    expect(creator.intervalMode).toBe('auto');
+
+    const defaultCreator = parseCreateMonitorTargetRequest({
+      type: 'creator',
+      externalId: '240',
+    });
+    expect(defaultCreator.intervalMinutes as number).toBe(240);
+    expect(defaultCreator.intervalMode).toBe('auto');
+
+    const fixed = parseCreateMonitorTargetRequest({
+      type: 'video',
+      externalId: 'BV1xx411c7mD',
+      intervalMinutes: 120,
+      intervalMode: 'fixed',
+    });
+    expect(fixed.intervalMinutes as number).toBe(120);
+    expect(fixed.intervalMode).toBe('fixed');
+    expect(
+      parseCreateMonitorTargetRequest({
+        type: 'creator',
+        externalId: '7',
+        intervalMinutes: 7,
+        intervalMode: 'fixed',
+      }).intervalMinutes as number,
+    ).toBe(7);
   });
 
   test('rejects illegal BV, UID, interval, and unknown fields', () => {
@@ -46,9 +72,23 @@ describe('monitor target contracts', () => {
       parseCreateMonitorTargetRequest({
         type: 'video',
         externalId: 'BV1xx411c7mD',
-        intervalMinutes: 7,
+        intervalMinutes: 4,
       }),
     ).toThrow(/频率/);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'video',
+        externalId: 'BV1xx411c7mD',
+        intervalMinutes: 10081,
+      }),
+    ).toThrow(/频率/);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'creator',
+        externalId: '12345',
+        intervalMode: 'weekly',
+      }),
+    ).toThrow(/自动或固定/);
     expect(() =>
       parseCreateMonitorTargetRequest({
         type: 'video',
@@ -60,7 +100,11 @@ describe('monitor target contracts', () => {
 
   test('patch requires a known field', () => {
     expect(parsePatchMonitorTargetRequest({ enabled: false }).enabled).toBe(false);
+    expect(parsePatchMonitorTargetRequest({ intervalMinutes: 240, intervalMode: 'fixed' })).toEqual(
+      { intervalMinutes: 240, intervalMode: 'fixed' },
+    );
     expect(() => parsePatchMonitorTargetRequest({})).toThrow(/没有可更新/);
+    expect(() => parsePatchMonitorTargetRequest({ intervalMinutes: 3 })).toThrow(/频率/);
   });
 
   test('splits tag input on commas and spaces', () => {
