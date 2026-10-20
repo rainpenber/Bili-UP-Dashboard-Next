@@ -1,11 +1,12 @@
 {
-  "generatedAt": "2026-10-20T16:26:57.439Z",
-  "databaseName": "wp_r2_11_89114f0274d8",
+  "databaseName": "wp_r2_11_794f321ddf2a",
   "retainedDatabase": true,
   "registeredCount": 49,
   "inventoryCount": 49,
   "executedCount": 49,
-  "successCount": 49,
+  "httpSuccessCount": 49,
+  "acceptedCount": 49,
+  "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 8,
   "routes": [
@@ -15,17 +16,20 @@
       "readWrite": "write",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 409,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -35,12 +39,14 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "health",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -50,27 +56,32 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "assets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "assets",
           "status": 304,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "assets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "assets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -80,12 +91,14 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -95,27 +108,32 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 404,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -125,152 +143,182 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -280,12 +328,14 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -295,17 +345,20 @@
       "readWrite": "read",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "imports",
           "status": 404,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "imports",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -315,12 +368,14 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -330,17 +385,20 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-read",
           "status": 404,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -350,12 +408,20 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -365,17 +431,20 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-read",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -385,12 +454,14 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -400,17 +471,20 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-read",
           "status": 404,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -420,17 +494,20 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -440,12 +517,14 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -455,32 +534,38 @@
       "readWrite": "read",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "metadata-refresh",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "metadata-refresh",
           "status": 404,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "metadata-refresh",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "metadata-refresh",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "metadata-refresh",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -490,22 +575,26 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -515,27 +604,32 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-read",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -545,17 +639,20 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-read",
           "status": 404,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -565,22 +662,44 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-read",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-read",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -590,17 +709,20 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "ops",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "ops",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -610,12 +732,14 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "ops",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -625,27 +749,32 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "ops",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "ops",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "ops",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "ops",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -655,17 +784,20 @@
       "readWrite": "read",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "metadata-refresh",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "ops",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -675,12 +807,14 @@
       "readWrite": "read",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "ops",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -690,22 +824,26 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "ops",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "ops",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "ops",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -715,22 +853,26 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "ops",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "ops",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "ops",
           "status": 404,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -740,12 +882,14 @@
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "ops",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -755,12 +899,14 @@
       "readWrite": "read",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "health",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -770,32 +916,38 @@
       "readWrite": "write",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 404,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -805,52 +957,62 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 409,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 404,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -860,27 +1022,32 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -890,42 +1057,50 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -935,22 +1110,26 @@
       "readWrite": "write",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 409,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -960,17 +1139,20 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -980,12 +1162,14 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -995,17 +1179,20 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 409,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -1015,22 +1202,26 @@
       "readWrite": "write",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 409,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1040,12 +1231,14 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1055,17 +1248,20 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 409,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1075,17 +1271,20 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1095,12 +1294,14 @@
       "readWrite": "write",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "commercial",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1110,32 +1311,38 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "imports",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "imports",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "imports",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "imports",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "imports",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1145,17 +1352,20 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "metadata-refresh",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "metadata-refresh",
           "status": 404,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -1165,32 +1375,38 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "metadata-refresh",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "metadata-refresh",
           "status": 202,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "metadata-refresh",
           "status": 409,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "metadata-refresh",
           "status": 202,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "metadata-refresh",
           "status": 202,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1200,77 +1416,98 @@
       "readWrite": "write",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 400,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1280,17 +1517,32 @@
       "readWrite": "write",
       "frontendCaller": true,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "monitor-targets",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "monitor-targets",
           "status": 409,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -1300,17 +1552,20 @@
       "readWrite": "write",
       "frontendCaller": false,
       "executed": true,
-      "success": true,
+      "httpSuccess": true,
+      "accepted": true,
       "cases": [
         {
           "test": "metadata-refresh",
           "status": 200,
-          "kind": "success"
+          "http": "success",
+          "assertions": "passed"
         },
         {
           "test": "metadata-refresh",
           "status": 404,
-          "kind": "reject"
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     }

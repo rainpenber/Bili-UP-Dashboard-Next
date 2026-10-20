@@ -18,6 +18,10 @@
 
 禁止：`apps/web/src/**`、`packages/db/migrations/**`、`packages/observability/**` 的缓冲与退出 flush、采集器调度与鉴权、Docker / Compose、宿主脚本、部署、DROP 共享库或生产库。验收库只关闭连接，不执行 DROP DATABASE。
 
+## 证据闭环
+
+CSV apply 只核对本夹具的 `BVTEST002` / `BVTEST001` / `12345` 和该批次的拒绝行，不使用全库样本总数。dry-run 不写这些指标，再次 apply 不增加。立即运行返回的 job 由离线 worker 跑完，并和创建时的初始 job 分开核对。覆盖报告把“HTTP 成功”和“断言验收”分开；断言失败时即使路由都返回 2xx，也不会写成验收通过。
+
 ## 结果
 
 注册、清单和执行集合都是 49。成功路径 49。注入 transport 有调用，逃逸到 B 站或 CDN 的 fetch 为 0。验收库保留，不执行 DROP DATABASE。数字以 `docs/architecture/http-coverage.json` 为准。
