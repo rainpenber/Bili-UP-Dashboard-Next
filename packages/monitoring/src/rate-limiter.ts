@@ -19,13 +19,18 @@ export type RateLimiterOptions = {
   random?: () => number;
 };
 
-type ReservedSql = Sql & { release(): void };
-
 type RateRow = {
-  window_started_at: Date | null;
-  count: number;
-  last_request_at: Date | null;
+  window_started_at: Date | string | null;
+  count: number | string;
+  last_request_at: Date | string | null;
 };
+
+function toMillis(value: Date | string | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const millis = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  if (Number.isNaN(millis)) throw new Error('限流时间无法解析');
+  return millis;
+}
 
 export function rateAccountId(accountKey: string): string {
   return ACCOUNT_ID.test(accountKey) ? accountKey : ANONYMOUS_RATE_ACCOUNT_ID;
@@ -36,9 +41,12 @@ function lockKey(accountId: string): string {
 }
 
 /**
- * Cross-process request slot. Holds a session advisory lock for this account
- * while deciding, sleeping, and writing `collector_rate_state`, so two
- * processes cannot both pass the same minute cap.
+ * Cross-process request slot.
+ *
+ * The next allowed timestamp is written inside a transaction that also holds
+ * `pg_advisory_xact_lock`. That lock is released only when the transaction
+ * commits, so the following request cannot read a stale `last_request_at`.
+ * Sleep happens after the commit, before the HTTP call.
  */
 export async function acquireRequestSlot(
   sql: Sql,
@@ -54,61 +62,47 @@ export async function acquireRequestSlot(
   }
   const clock = options.clock ?? createRealThrottleClock();
   const random = options.random ?? Math.random;
-  const reserved = await (sql as Sql & { reserve(): Promise<ReservedSql> }).reserve();
   const key = lockKey(accountId);
-  let locked = false;
-  try {
-    await reserved`SELECT pg_advisory_lock(hashtext(${key})::bigint)`;
-    locked = true;
-    for (;;) {
-      const now = clock.now();
-      const rows = await reserved<RateRow[]>`
-        SELECT window_started_at, count, last_request_at
-        FROM collector_rate_state
-        WHERE account_id = ${accountId}::uuid
-      `;
-      const row = rows[0];
-      const windowStarted = row?.window_started_at ? row.window_started_at.getTime() : null;
-      const lastAt = row?.last_request_at ? row.last_request_at.getTime() : null;
-      let count = Number(row?.count ?? 0);
-      let windowMs = windowStarted;
-      if (windowMs === null || now - windowMs >= WINDOW_MS) {
-        windowMs = now;
-        count = 0;
-      }
-      let sleepMs = 0;
-      if (count >= policy.maxPerMinute) {
-        sleepMs = Math.max(sleepMs, windowMs + WINDOW_MS - now);
-      }
-      const jitter = Math.floor(random() * (policy.maxJitterMs + 1));
-      const need = policy.minIntervalMs + jitter;
-      if (lastAt !== null && now - lastAt < need) {
-        sleepMs = Math.max(sleepMs, need - (now - lastAt));
-      }
-      if (sleepMs > 0) {
-        await clock.sleep(sleepMs);
-        continue;
-      }
-      const grantedAt = clock.now();
-      await reserved`
-        INSERT INTO collector_rate_state (account_id, window_started_at, count, last_request_at)
-        VALUES (
-          ${accountId}::uuid,
-          ${new Date(windowMs)},
-          ${count + 1},
-          ${new Date(grantedAt)}
-        )
-        ON CONFLICT (account_id) DO UPDATE SET
-          window_started_at = EXCLUDED.window_started_at,
-          count = EXCLUDED.count,
-          last_request_at = EXCLUDED.last_request_at
-      `;
-      return;
+  const grantAt = await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${key})::bigint)`;
+    const now = clock.now();
+    const rows = await tx<RateRow[]>`
+      SELECT window_started_at, count, last_request_at
+      FROM collector_rate_state
+      WHERE account_id = ${accountId}::uuid
+    `;
+    const row = rows[0];
+    const jitter = Math.floor(random() * (policy.maxJitterMs + 1));
+    const need = policy.minIntervalMs + jitter;
+    const lastAt = toMillis(row?.last_request_at);
+    let windowMs = toMillis(row?.window_started_at);
+    let count = Number(row?.count ?? 0);
+    let nextAt = now;
+    if (lastAt !== null) nextAt = Math.max(nextAt, lastAt + need);
+    if (windowMs === null || nextAt - windowMs >= WINDOW_MS) {
+      windowMs = nextAt;
+      count = 0;
     }
-  } finally {
-    if (locked) {
-      await reserved`SELECT pg_advisory_unlock(hashtext(${key})::bigint)`;
+    if (count >= policy.maxPerMinute) {
+      nextAt = Math.max(nextAt, windowMs + WINDOW_MS);
+      windowMs = nextAt;
+      count = 0;
     }
-    reserved.release();
-  }
+    await tx`
+      INSERT INTO collector_rate_state (account_id, window_started_at, count, last_request_at)
+      VALUES (
+        ${accountId}::uuid,
+        ${new Date(windowMs)},
+        ${count + 1},
+        ${new Date(nextAt)}
+      )
+      ON CONFLICT (account_id) DO UPDATE SET
+        window_started_at = EXCLUDED.window_started_at,
+        count = EXCLUDED.count,
+        last_request_at = EXCLUDED.last_request_at
+    `;
+    return nextAt;
+  });
+  const delay = grantAt - clock.now();
+  if (delay > 0) await clock.sleep(delay);
 }

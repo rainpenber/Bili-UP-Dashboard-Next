@@ -15,6 +15,11 @@ export function createRealThrottleClock(): ThrottleClock {
   };
 }
 
+/**
+ * In-process limiter used only when the caller has no database.
+ * The collector and metadata refresh pass `sql` and use `acquireRequestSlot`
+ * instead, so the two limiters never stack on the same request.
+ */
 export function createAccountThrottle(options: {
   minIntervalMs: number;
   maxJitterMs: number;

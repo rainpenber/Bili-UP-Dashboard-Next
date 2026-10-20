@@ -50,7 +50,9 @@ bun run apps/collector/src/cli.ts fetch metadata --kind creator --mid <mid> --di
 
 ## 共享配额
 
-`collector_rate_state(account_id, window_started_at, count, last_request_at)` 加 `acquireRequestSlot`。放行前对 `pg_advisory_lock(hashtext('bili-rate:' || account_id))` 加会话锁，在同一条连接上读状态、按最小间隔和每分钟上限睡眠、再更新计数。采集器在传入 `sql` 时走这个函数，环境变量仍是 `COLLECTOR_MIN_INTERVAL_MS`、`COLLECTOR_MAX_JITTER_MS`、`COLLECTOR_MAX_REQUESTS_PER_MINUTE`；没有 Cookie 时最小间隔仍至少 5 秒。没有账号 UUID 的流量共用 `00000000-0000-0000-0000-000000000000`。回填和刷新使用同一函数。
+`collector_rate_state(account_id, window_started_at, count, last_request_at)` 加 `acquireRequestSlot`。事务里先拿 `pg_advisory_xact_lock(hashtext('bili-rate:' || account_id))`，把下一次放行时间写进行，**提交之后锁才释放**，然后才睡眠到那个时间。因此同一次采集里的 `view` 和 `online`、以及 `view/detail` 和随后的图片下载，都会相隔至少 `COLLECTOR_MIN_INTERVAL_MS` 加抖动。环境变量仍是 `COLLECTOR_MIN_INTERVAL_MS`、`COLLECTOR_MAX_JITTER_MS`、`COLLECTOR_MAX_REQUESTS_PER_MINUTE`；没有 Cookie 时最小间隔仍至少 5 秒。没有账号 UUID 的流量共用 `00000000-0000-0000-0000-000000000000`。
+
+有数据库连接时（采集进程、API/CLI 刷新）只走 `acquireRequestSlot`。没有 `sql` 时（不连库的单元测试）走进程内的 `createAccountThrottle`，规则相同，但不能跨进程共享。两条路径不会叠在同一次请求上。
 
 封面和头像下载只允许 HTTPS 的 `*.hdslb.com`（重定向后再次校验），校验魔数，拒绝 GIF，超过 8 MiB 或 10 秒即失败，请求不带 Cookie。
 

@@ -65,6 +65,136 @@ describe('shared request slots', () => {
     expect(clock.elapsed()).toBe(0);
   });
 
+  test('view then online in one fetch waits at least minIntervalMs', async () => {
+    if (!sql) return;
+    const origin = 1_700_000_000_000;
+    const clock = fakeClock();
+    clock.now = () => origin + clock.elapsed();
+    const seenAt: number[] = [];
+    const transport: HttpTransport = async (request) => {
+      seenAt.push(clock.now());
+      const online = request.url.includes('/online/total');
+      return {
+        status: 200,
+        headers: {},
+        durationMs: 1,
+        body: JSON.stringify(
+          online
+            ? { code: 0, data: { total: 3 } }
+            : {
+                code: 0,
+                data: {
+                  bvid: 'BV1jHnn63EEi',
+                  cid: 5,
+                  pubdate: 1_720_000_000,
+                  title: '示例',
+                  pic: 'https://i0.hdslb.com/a.jpg',
+                  owner: { mid: 7, name: 'UP' },
+                  stat: {
+                    view: 1,
+                    danmaku: 1,
+                    reply: 1,
+                    favorite: 1,
+                    coin: 1,
+                    share: 1,
+                    like: 1,
+                  },
+                },
+              },
+        ),
+      };
+    };
+    const interval = 30_000;
+    const provider = createBilibiliProvider(
+      {
+        minIntervalMs: interval,
+        maxJitterMs: 0,
+        maxPerMinute: 2,
+        timeoutMs: 1_000,
+        dryRun: false,
+        forcedAccountId: null,
+        anonymousMinIntervalMs: interval,
+      },
+      {
+        transport,
+        sql,
+        clock,
+        random: () => 0,
+      },
+    );
+    await provider.fetchVideo({
+      bvid: 'BV1jHnn63EEi',
+      sampledAt: new Date('2026-10-20T00:33:20.000Z'),
+      collectedAt: new Date('2026-10-20T00:33:20.000Z'),
+      cookieHeader: 'session=fixture',
+      accountKey: 'dddddddd-dddd-4ddd-8ddd-ddddddddddd5',
+    });
+    expect(seenAt).toHaveLength(2);
+    const gap = (seenAt[1] ?? 0) - (seenAt[0] ?? 0);
+    console.log(`view→online gap ${gap}ms`);
+    expect(gap).toBeGreaterThanOrEqual(interval);
+  });
+
+  test('in-memory throttle also spaces the second request of one fetch', async () => {
+    const clock = fakeClock();
+    const seenAt: number[] = [];
+    const transport: HttpTransport = async (request) => {
+      seenAt.push(clock.now());
+      const online = request.url.includes('/online/total');
+      return {
+        status: 200,
+        headers: {},
+        durationMs: 1,
+        body: JSON.stringify(
+          online
+            ? { code: 0, data: { total: 3 } }
+            : {
+                code: 0,
+                data: {
+                  bvid: 'BV1jHnn63EEi',
+                  cid: 5,
+                  pubdate: 1_720_000_000,
+                  title: '示例',
+                  owner: { mid: 7, name: 'UP' },
+                  stat: {
+                    view: 1,
+                    danmaku: 1,
+                    reply: 1,
+                    favorite: 1,
+                    coin: 1,
+                    share: 1,
+                    like: 1,
+                  },
+                },
+              },
+        ),
+      };
+    };
+    const interval = 30_000;
+    const provider = createBilibiliProvider(
+      {
+        minIntervalMs: interval,
+        maxJitterMs: 0,
+        maxPerMinute: 2,
+        timeoutMs: 1_000,
+        dryRun: false,
+        forcedAccountId: null,
+        anonymousMinIntervalMs: interval,
+      },
+      { transport, clock, random: () => 0 },
+    );
+    await provider.fetchVideo({
+      bvid: 'BV1jHnn63EEi',
+      sampledAt: new Date('2026-10-20T00:33:20.000Z'),
+      collectedAt: new Date('2026-10-20T00:33:20.000Z'),
+      cookieHeader: 'session=fixture',
+      accountKey: 'account-1',
+    });
+    const gap = (seenAt[1] ?? 0) - (seenAt[0] ?? 0);
+    console.log(`in-memory view→online gap ${gap}ms`);
+    expect(gap).toBeGreaterThanOrEqual(interval);
+  });
+
   test('minimum interval is shared across two provider instances', async () => {
     if (!sql) return;
     const clock = fakeClock();

@@ -265,6 +265,7 @@ async function getJson(
 
 async function fetchImage(deps: MetadataRefreshDeps, url: string) {
   if (!deps.download) throw new ImageReject('status', '没有图片传输层');
+  await takeSlot(deps);
   const started = Date.now();
   try {
     const image = await downloadHdslbImage(url, deps.download);
