@@ -7,6 +7,7 @@ import {
 import { coverAssetUrl } from '@/api/monitor-client';
 import { ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
 import { Badge } from '@/components/ui/badge';
+import { CreatorVideosSection } from '@/features/monitoring/creator-videos-section';
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
 import { MonitoringDetailLayout } from '@/features/monitoring/monitoring-detail-layout';
 import { formatCompactNumber } from '@/lib/format-compact-number';
@@ -36,9 +37,11 @@ export function MonitoringCreatorDetailPage() {
 
   return (
     <MonitoringDetailLayout
+      testId="creator-detail-page"
       title={c.uname ?? c.mid}
       description="UP 主粉丝趋势与元数据"
       entityLabel={c.mid}
+      footer={<CreatorVideosSection mid={c.mid} />}
       backTo="/monitoring?tab=creators"
       status={
         c.deletedAt ? (

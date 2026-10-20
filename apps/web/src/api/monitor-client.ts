@@ -1,7 +1,9 @@
 import type {
   CreatorListItem,
+  CreatorVideoList,
   DynamicListItem,
   Paginated,
+  VideoDetail,
   VideoListItem,
   VideoMetricPoint,
   CreatorMetricPoint,
@@ -47,6 +49,17 @@ export function fetchCreatorMetrics(mid: string): Promise<{ items: CreatorMetric
   return getJson(`/creators/${encodeURIComponent(mid)}/metrics?limit=500`);
 }
 
+export function fetchCreatorVideos(
+  mid: string,
+  params: { limit?: number; offset?: number } = {},
+): Promise<CreatorVideoList> {
+  const qs = new URLSearchParams();
+  if (params.limit != null) qs.set('limit', String(params.limit));
+  if (params.offset != null) qs.set('offset', String(params.offset));
+  const query = qs.toString();
+  return getJson(`/creators/${encodeURIComponent(mid)}/videos${query ? `?${query}` : ''}`);
+}
+
 export function fetchDynamics(params: { page: number }): Promise<Paginated<DynamicListItem>> {
   const qs = new URLSearchParams({ page: String(params.page), pageSize: '8' });
   return getJson(`/dynamics?${qs}`);
@@ -56,20 +69,7 @@ export function fetchDynamicMetrics(id: string): Promise<{ items: DynamicMetricP
   return getJson(`/dynamics/${encodeURIComponent(id)}/metrics?limit=500`);
 }
 
-export type VideoDetail = {
-  bvid: string;
-  title: string | null;
-  category: string | null;
-  mid: string | null;
-  monitoringEnabled: boolean;
-  archivedAt: string | null;
-  deletedAt: string | null;
-  coverAssetId: string | null;
-  tid: number | null;
-  tidV2: number | null;
-  partitionName: string | null;
-  metadata: Record<string, unknown>;
-};
+export type { VideoDetail };
 
 export type CreatorDetail = {
   mid: string;

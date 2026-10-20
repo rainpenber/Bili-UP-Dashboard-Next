@@ -6,6 +6,7 @@ import { ErrorState, LoadingListSkeleton } from '@/components/states/async-state
 import { Badge } from '@/components/ui/badge';
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
 import { MonitoringDetailLayout } from '@/features/monitoring/monitoring-detail-layout';
+import { VideoAuthorPanel } from '@/features/monitoring/video-author-panel';
 import {
   formatOnlineViewersDisplay,
   formatUnknownMetric,
@@ -37,9 +38,11 @@ export function MonitoringVideoDetailPage() {
 
   return (
     <MonitoringDetailLayout
+      testId="video-detail-page"
       title={v.title ?? v.bvid}
       description="视频监控详情与历史指标"
       entityLabel={v.bvid}
+      aside={<VideoAuthorPanel creator={v.creator ?? null} />}
       backTo="/monitoring?tab=videos"
       status={
         v.deletedAt ? (

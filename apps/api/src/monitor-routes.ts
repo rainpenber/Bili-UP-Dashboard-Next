@@ -1,5 +1,8 @@
 import {
   bigintToJson,
+  parseCreatorMid,
+  parseCreatorVideosLimit,
+  parseCreatorVideosOffset,
   parseIsoDateParam,
   parseMetricsLimit,
   parseMonitorPage,
@@ -7,11 +10,15 @@ import {
   MONITOR_MAX_METRICS_LIMIT,
   type Paginated,
   type CreatorListItem,
+  type CreatorVideoItem,
+  type CreatorVideoList,
   type DynamicListItem,
+  type VideoDetail,
   type VideoListItem,
   type VideoMetricPoint,
   type CreatorMetricPoint,
   type DynamicMetricPoint,
+  type VideoCreatorSummary,
 } from '@studio/contracts';
 import { VIDEO_PARTITION_JOINS, VIDEO_PARTITION_NAME_SQL, type Sql } from '@studio/db';
 import {
@@ -203,19 +210,50 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
         tid_v2: number | null;
         partition_name: string | null;
         metadata: Record<string, unknown>;
+        creator_mid: bigint | null;
+        creator_uname: string | null;
+        creator_face_asset_id: string | null;
+        creator_monitoring_enabled: boolean | null;
+        follower_latest: bigint | null;
+        follower_sampled_at: Date | null;
       }[]
     >`
       SELECT v.bvid, v.title, v.category, v.mid, v.monitoring_enabled, v.archived_at, v.deleted_at,
         v.cover_asset_id, v.tid, v.tid_v2,
         ${db.unsafe(VIDEO_PARTITION_NAME_SQL)} AS partition_name,
-        v.metadata
+        v.metadata,
+        c.mid AS creator_mid,
+        c.uname AS creator_uname,
+        c.face_asset_id AS creator_face_asset_id,
+        c.monitoring_enabled AS creator_monitoring_enabled,
+        f.follower_count AS follower_latest,
+        f.sampled_at AS follower_sampled_at
       FROM videos v
       ${db.unsafe(VIDEO_PARTITION_JOINS)}
+      LEFT JOIN creators c ON c.mid = v.mid
+      LEFT JOIN LATERAL (
+        SELECT s.follower_count, s.sampled_at
+        FROM creator_follower_samples s
+        WHERE s.mid = v.mid
+        ORDER BY s.sampled_at DESC
+        LIMIT 1
+      ) f ON TRUE
       WHERE v.bvid = ${bvid}
     `;
     const row = rows[0];
     if (!row) return c.json({ error: 'not found' }, 404);
-    return c.json({
+    const creator: VideoCreatorSummary | null =
+      row.mid == null || row.creator_mid == null
+        ? null
+        : {
+            mid: bigintToJson(row.creator_mid)!,
+            uname: row.creator_uname,
+            faceAssetId: row.creator_face_asset_id,
+            followerLatest: bigintToJson(row.follower_latest),
+            followerSampledAt: row.follower_sampled_at?.toISOString() ?? null,
+            monitoringEnabled: row.creator_monitoring_enabled ?? false,
+          };
+    const body: VideoDetail = {
       bvid: row.bvid,
       title: row.title,
       category: row.category,
@@ -228,7 +266,9 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
       tidV2: row.tid_v2,
       partitionName: row.partition_name,
       metadata: row.metadata,
-    });
+      creator,
+    };
+    return c.json(body);
   });
 
   app.get('/videos/:bvid/metrics', async (c) => {
@@ -355,6 +395,113 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
         totalPages: Math.max(1, Math.ceil(totalItems / pageSize)),
         items,
       } satisfies Paginated<CreatorListItem>);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
+    }
+  });
+
+  app.get('/creators/:mid/videos', async (c) => {
+    try {
+      const mid = parseCreatorMid(c.req.param('mid'));
+      const limit = parseCreatorVideosLimit(c.req.query('limit'));
+      const offset = parseCreatorVideosOffset(c.req.query('offset'));
+      const rows = await db<
+        {
+          mid: bigint;
+          total: string;
+          bvid: string | null;
+          title: string | null;
+          cover_asset_id: string | null;
+          pubdate: Date | null;
+          archived_at: Date | null;
+          partition_name: string | null;
+          sampled_at: Date | null;
+          view_count: bigint | null;
+          like_count: bigint | null;
+          comment_count: bigint | null;
+          online_viewers: bigint | null;
+        }[]
+      >`
+        SELECT
+          c.mid,
+          (
+            SELECT count(*)::text
+            FROM videos counted
+            WHERE counted.mid = c.mid
+              AND counted.deleted_at IS NULL
+          ) AS total,
+          v.bvid,
+          v.title,
+          v.cover_asset_id,
+          v.pubdate,
+          v.archived_at,
+          ${db.unsafe(VIDEO_PARTITION_NAME_SQL)} AS partition_name,
+          m.sampled_at,
+          m.view_count,
+          m.like_count,
+          m.comment_count,
+          m.online_viewers
+        FROM creators c
+        LEFT JOIN LATERAL (
+          SELECT
+            vid.bvid,
+            vid.title,
+            vid.cover_asset_id,
+            vid.pubdate,
+            vid.archived_at,
+            vid.tid,
+            vid.tid_v2,
+            vid.partition_name
+          FROM videos vid
+          WHERE vid.mid = c.mid
+            AND vid.deleted_at IS NULL
+          ORDER BY vid.pubdate DESC NULLS LAST, vid.bvid
+          LIMIT ${limit} OFFSET ${offset}
+        ) v ON TRUE
+        ${db.unsafe(VIDEO_PARTITION_JOINS)}
+        LEFT JOIN LATERAL (
+          SELECT
+            s.sampled_at,
+            s.view_count,
+            s.like_count,
+            s.comment_count,
+            s.online_viewers
+          FROM video_metric_samples s
+          WHERE s.bvid = v.bvid
+          ORDER BY s.sampled_at DESC
+          LIMIT 1
+        ) m ON TRUE
+        WHERE c.mid = ${mid}
+      `;
+      const first = rows[0];
+      if (!first) return c.json({ error: 'not found' }, 404);
+      const items: CreatorVideoItem[] = [];
+      for (const row of rows) {
+        if (!row.bvid) continue;
+        items.push({
+          bvid: row.bvid,
+          title: row.title,
+          coverAssetId: row.cover_asset_id,
+          pubdate: row.pubdate?.toISOString() ?? null,
+          partitionName: row.partition_name,
+          archivedAt: row.archived_at?.toISOString() ?? null,
+          latest: row.sampled_at
+            ? {
+                sampledAt: row.sampled_at.toISOString(),
+                viewCount: bigintToJson(row.view_count),
+                likeCount: bigintToJson(row.like_count),
+                commentCount: bigintToJson(row.comment_count),
+                onlineViewers: bigintToJson(row.online_viewers),
+              }
+            : null,
+        });
+      }
+      const body: CreatorVideoList = {
+        mid: bigintToJson(first.mid)!,
+        total: Number(first.total),
+        items,
+      };
+      return c.json(body);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
     }
