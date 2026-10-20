@@ -27,11 +27,13 @@ services:
       MONITOR_DATA_SOURCE: mock
       SOURCE_TIMEZONE: ${SOURCE_TIMEZONE:-Asia/Shanghai}
       MOCK_DATA_ROOT: /mock-data
-      MONITOR_ASSETS_ROOT: /mock-data/assets
+      MONITOR_ASSETS_ROOT: /assets
+      COLLECTOR_SECRET_KEY: ${COLLECTOR_SECRET_KEY:-}
       API_PORT: 3000
       WEB_STATIC_ROOT: /app/web-dist
     volumes:
       - ${MOCK_DATA_ROOT:-./packages/monitoring/fixtures/mock-data}:/mock-data:ro
+      - assets:/assets
     ports:
       - '${APP_PORT:-8080}:3000'
     depends_on:
@@ -69,9 +71,12 @@ services:
       COLLECTOR_PROVIDER: offline
       SOURCE_TIMEZONE: ${SOURCE_TIMEZONE:-Asia/Shanghai}
       MOCK_DATA_ROOT: /mock-data
+      MONITOR_ASSETS_ROOT: /assets
+      COLLECTOR_SECRET_KEY: ${COLLECTOR_SECRET_KEY:-}
       COLLECTOR_INSTANCE_ID: collector-1
     volumes:
       - ${MOCK_DATA_ROOT:-./packages/monitoring/fixtures/mock-data}:/mock-data:ro
+      - assets:/assets
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,3 +91,4 @@ services:
 
 volumes:
   postgres_data:
+  assets:

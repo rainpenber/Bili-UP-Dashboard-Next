@@ -19,9 +19,9 @@ const providerKind = readCollectorProviderKind(process.env);
 assertProviderCanStart(providerKind, process.env);
 if (providerKind === 'offline') installOfflineFetchGuard();
 
-const provider = createMonitorProvider(providerKind, process.env);
-const config = readCollectorConfig(process.env);
 const sql = createSql();
+const provider = createMonitorProvider(providerKind, process.env, { sql });
+const config = readCollectorConfig(process.env);
 const logger = createLogger({
   service: 'collector',
   instance: config.instanceId,

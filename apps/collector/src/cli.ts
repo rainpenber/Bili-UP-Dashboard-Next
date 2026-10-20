@@ -3,36 +3,109 @@ import { createLogger } from '@studio/observability';
 import {
   assertProviderCanStart,
   createLiveBilibiliTransport,
+  createLiveImageTransport,
   encryptCookieJar,
   formatLegacyImportReport,
+  formatWebuiImportReport,
   importLegacyDirectory,
+  importWebuiDirectory,
   loadCollectorSecretKey,
   readBilibiliRuntimeConfig,
+  resolveMetadataIds,
   runQrLogin,
   scrubCollectorError,
+  startMetadataBackfill,
+  type MetadataKind,
 } from '@studio/monitoring';
 import { renderLoginQr } from './qr-render';
 import { waitForReady } from './wait-for-schema';
 
 export type CollectorCli =
-  { command: 'login'; pngPath: string } | { command: 'import-legacy'; dir: string };
+  | { command: 'login'; pngPath: string }
+  | { command: 'import-legacy'; dir: string }
+  | { command: 'import-webui'; root: string; dryRun: boolean }
+  | {
+      command: 'fetch-metadata';
+      kind: MetadataKind;
+      bvid?: string;
+      mid?: string;
+      dir?: string;
+      allMissing: boolean;
+      limit: number | null;
+      force: boolean;
+      dryRun: boolean;
+    };
+
+function flagValue(rest: readonly string[], name: string): string | undefined {
+  const index = rest.indexOf(name);
+  if (index < 0) return undefined;
+  const value = rest[index + 1];
+  if (!value || value.startsWith('--')) throw new Error(`${name} 缺少参数`);
+  return value;
+}
+
+const USAGE = [
+  '用法:',
+  '  login --qr [--png path]',
+  '  import-legacy --dir <path>',
+  '  import-webui --root <webui_meta> [--dry-run]',
+  '  fetch metadata --kind video|creator (--bvid X | --mid X | --dir <webui_meta> | --all-missing) [--limit N] [--force] [--dry-run | --execute]',
+].join('\n');
 
 export function parseCollectorCli(argv: readonly string[]): CollectorCli {
   const [command, ...rest] = argv;
   if (command === 'login') {
     if (!rest.includes('--qr')) throw new Error('登录命令需要 --qr');
-    const pngFlag = rest.indexOf('--png');
-    const pngPath = pngFlag >= 0 ? rest[pngFlag + 1] : 'bilibili-login-qr.png';
-    if (!pngPath) throw new Error('缺少二维码 PNG 路径');
+    const pngPath = flagValue(rest, '--png') ?? 'bilibili-login-qr.png';
     return { command: 'login', pngPath };
   }
   if (command === 'import-legacy') {
-    const dirFlag = rest.indexOf('--dir');
-    const dir = dirFlag >= 0 ? rest[dirFlag + 1] : undefined;
+    const dir = flagValue(rest, '--dir');
     if (!dir) throw new Error('import-legacy 需要 --dir <path>');
     return { command: 'import-legacy', dir };
   }
-  throw new Error('用法: login --qr [--png path] | import-legacy --dir <path>');
+  if (command === 'import-webui') {
+    const root = flagValue(rest, '--root');
+    if (!root) throw new Error('import-webui 需要 --root <webui_meta>');
+    return { command: 'import-webui', root, dryRun: rest.includes('--dry-run') };
+  }
+  if (command === 'fetch' && rest[0] === 'metadata') {
+    const args = rest.slice(1);
+    const kind = flagValue(args, '--kind');
+    if (kind !== 'video' && kind !== 'creator') {
+      throw new Error('fetch metadata 需要 --kind video|creator');
+    }
+    const bvid = flagValue(args, '--bvid');
+    const mid = flagValue(args, '--mid');
+    const dir = flagValue(args, '--dir');
+    const allMissing = args.includes('--all-missing');
+    const selectors = [bvid, mid, dir, allMissing ? 'all' : undefined].filter(Boolean);
+    if (selectors.length !== 1) {
+      throw new Error('fetch metadata 需要且只能指定 --bvid、--mid、--dir 或 --all-missing 之一');
+    }
+    if (bvid && kind !== 'video') throw new Error('--bvid 只用于 --kind video');
+    if (mid && kind !== 'creator') throw new Error('--mid 只用于 --kind creator');
+    const limitRaw = flagValue(args, '--limit');
+    let limit: number | null = null;
+    if (limitRaw !== undefined) {
+      limit = Number(limitRaw);
+      if (!Number.isInteger(limit) || limit < 1) throw new Error('--limit 必须是正整数');
+    }
+    const execute = args.includes('--execute');
+    const dryFlag = args.includes('--dry-run');
+    return {
+      command: 'fetch-metadata',
+      kind,
+      ...(bvid ? { bvid } : {}),
+      ...(mid ? { mid } : {}),
+      ...(dir ? { dir } : {}),
+      allMissing,
+      limit,
+      force: args.includes('--force'),
+      dryRun: dryFlag || !execute,
+    };
+  }
+  throw new Error(USAGE);
 }
 
 async function main(): Promise<void> {
@@ -43,6 +116,68 @@ async function main(): Promise<void> {
     if (parsed.command === 'import-legacy') {
       const report = await importLegacyDirectory(sql, parsed.dir);
       console.log(formatLegacyImportReport(report));
+      return;
+    }
+    if (parsed.command === 'import-webui') {
+      const logger = parsed.dryRun
+        ? null
+        : createLogger({
+            service: 'collector',
+            instance: process.env.COLLECTOR_INSTANCE_ID ?? 'import-webui',
+            sql,
+          });
+      const report = await importWebuiDirectory({
+        root: parsed.root,
+        dryRun: parsed.dryRun,
+        ...(parsed.dryRun ? {} : { sql, logger }),
+        assetsRoot: process.env.MONITOR_ASSETS_ROOT ?? null,
+      });
+      console.log(formatWebuiImportReport(report));
+      await logger?.flush();
+      return;
+    }
+    if (parsed.command === 'fetch-metadata') {
+      const ids = parsed.bvid ? [parsed.bvid] : parsed.mid ? [parsed.mid] : undefined;
+      if (parsed.dryRun) {
+        const plan = await resolveMetadataIds(sql, {
+          kind: parsed.kind,
+          ...(ids ? { ids } : {}),
+          ...(parsed.dir ? { dir: parsed.dir } : {}),
+          ...(parsed.allMissing ? { allMissing: true } : {}),
+          limit: parsed.limit,
+        });
+        console.log(
+          `metadata dry-run kind=${parsed.kind} mode=${plan.mode} requested=${plan.ids.length}`,
+        );
+        return;
+      }
+      const runtime = readBilibiliRuntimeConfig(process.env);
+      const logger = createLogger({
+        service: 'collector',
+        instance: process.env.COLLECTOR_INSTANCE_ID ?? 'fetch-metadata',
+        sql,
+      });
+      const started = await startMetadataBackfill(
+        {
+          sql,
+          transport: createLiveBilibiliTransport(runtime.timeoutMs),
+          download: createLiveImageTransport(runtime.timeoutMs),
+          assetsRoot: process.env.MONITOR_ASSETS_ROOT ?? null,
+          logger,
+          env: process.env,
+        },
+        {
+          kind: parsed.kind,
+          ...(ids ? { ids } : {}),
+          ...(parsed.dir ? { dir: parsed.dir } : {}),
+          ...(parsed.allMissing ? { allMissing: true } : {}),
+          limit: parsed.limit,
+          force: parsed.force,
+        },
+      );
+      console.log(`metadata backfill ${started.backfillRunId} requested=${started.requested}`);
+      await started.done;
+      await logger.flush();
       return;
     }
     assertProviderCanStart('bilibili', process.env);

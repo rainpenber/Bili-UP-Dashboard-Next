@@ -8,7 +8,7 @@ WP-R2-06。Collector 仍是独立进程，只通过 PostgreSQL 与 API 交换目
 
 `GET /x/player/online/total` 必须带 `bvid` 和 `cid`，所以它发生在 `view` 之后。它给出的是当前在线人数下界。**每一轮都要采**，不按发布年龄截断：老视频也可能突然爆火，那正是不能漏掉的时刻。返回值可能是数字，也可能是 `"1234+"`：整数写入 `online_viewers`，原文写入 `online_viewers_raw`。调用失败或业务码不是 0 时，`online_viewers` 写 NULL，原文能解析就保留，不能解析就留空。不要写成 0，否则图表会显示一次虚假的下跌。
 
-`GET /x/relation/stat?vmid=` 很轻，但旧粉丝脚本能稳定跑一年，靠的是两个 mid 之间 `sleep(30)`。新实现不按脚本写死 30 秒，而是按账号做全局节流：同一账号串行，最小间隔 `COLLECTOR_MIN_INTERVAL_MS`（1500）再加 `0..COLLECTOR_MAX_JITTER_MS`（800）抖动，并且每分钟不超过 `COLLECTOR_MAX_REQUESTS_PER_MINUTE`（20）。没有 Cookie 时最小间隔至少 5 秒，因为未登录配额更低。
+`GET /x/relation/stat?vmid=` 很轻，但旧粉丝脚本能稳定跑一年，靠的是两个 mid 之间 `sleep(30)`。新实现不按脚本写死 30 秒，而是按账号做全局节流：同一账号串行，最小间隔 `COLLECTOR_MIN_INTERVAL_MS`（1500）再加 `0..COLLECTOR_MAX_JITTER_MS`（800）抖动，并且每分钟不超过 `COLLECTOR_MAX_REQUESTS_PER_MINUTE`（20）。同一次任务里的 `view` 和 `online` 也各自占一个名额，不能连发。没有 Cookie 时最小间隔至少 5 秒，因为未登录配额更低。采集进程把这个配额放在 `collector_rate_state` 里，细节见 [metadata-backfill.md](./metadata-backfill.md)。
 
 这三个接口都不需要 WBI。`w_rid` / `wts` 是多余参数，风控会注意到。WBI 只留给 `reply/wbi/main` 这类接口，本包不采评论列表。每个请求带桌面 Chrome `User-Agent` 和 `Referer: https://www.bilibili.com/`，否则容易直接 `-352`。
 
@@ -124,3 +124,5 @@ bun run seed-partitions -- --file partitions.json
 文件可以是数组，或 `{ "partitions": [...] }`。每行 `tid`、可选 `parentTid`、`name`、`source`（`bilibili` / `import` / `manual` / `unknown`，缺省 `manual`）。假名导入后存成 NULL。
 
 运行记录、心跳和请求审计的只读查询在 `/api/v1/ops`。日志级别、脱敏和 `app_logs` 写入策略见 [observability.md](./observability.md)。采集频率、熔断和样本写入仍按本文。
+
+元数据补齐（本地 WebUI 导入、单条/批量 `view/detail`、以及和采集器共用的 `collector_rate_state` 配额）见 [metadata-backfill.md](./metadata-backfill.md)。那条链路不改变上面的采样间隔，也不改 CSV 导入。

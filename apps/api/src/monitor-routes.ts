@@ -14,7 +14,22 @@ import {
   type DynamicMetricPoint,
 } from '@studio/contracts';
 import { VIDEO_PARTITION_JOINS, VIDEO_PARTITION_NAME_SQL, type Sql } from '@studio/db';
+import {
+  BackfillConflict,
+  MetadataRequestError,
+  createLiveBilibiliTransport,
+  createLiveImageTransport,
+  readBilibiliRuntimeConfig,
+  readMetadataRun,
+  refreshCreator,
+  refreshVideo,
+  startMetadataBackfill,
+  type MetadataKind,
+  type MetadataRefreshDeps,
+} from '@studio/monitoring';
+import type { StudioLogger } from '@studio/observability';
 import { Hono } from 'hono';
+import { readAssetsRoot } from './assets-config';
 import { registerMonitorTargetRoutes } from './monitor-target-routes';
 
 type MonitorStatusFilter = 'all' | 'active' | 'archived' | 'deleted';
@@ -25,9 +40,60 @@ function parseStatus(raw: string | undefined): MonitorStatusFilter {
   throw new Error('invalid status');
 }
 
-export function createMonitorRoutes(db: Sql) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
+  const text = await request.text();
+  if (!text.trim()) return {};
+  const parsed = JSON.parse(text) as unknown;
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('invalid body');
+  }
+  return parsed as Record<string, unknown>;
+}
+
+export type MonitorRefreshOptions = Partial<MetadataRefreshDeps> & {
+  onBackfill?: (task: Promise<void>) => void;
+};
+
+function buildRefreshDeps(db: Sql, refreshDeps: MonitorRefreshOptions): MetadataRefreshDeps {
+  const config = readBilibiliRuntimeConfig(refreshDeps.env);
+  return {
+    ...refreshDeps,
+    sql: db,
+    transport: refreshDeps.transport ?? createLiveBilibiliTransport(config.timeoutMs),
+    download: refreshDeps.download ?? createLiveImageTransport(config.timeoutMs),
+    assetsRoot:
+      refreshDeps.assetsRoot === undefined
+        ? readAssetsRoot(refreshDeps.env)
+        : refreshDeps.assetsRoot,
+  };
+}
+
+function refreshDepsFor(
+  c: { get: (key: string) => unknown },
+  base: MetadataRefreshDeps,
+): MetadataRefreshDeps {
+  const candidate = c.get('log');
+  if (
+    candidate &&
+    typeof candidate === 'object' &&
+    'info' in candidate &&
+    'warn' in candidate &&
+    'flush' in candidate
+  ) {
+    return { ...base, logger: candidate as StudioLogger };
+  }
+  return base;
+}
+
+export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions = {}) {
   const app = new Hono();
   registerMonitorTargetRoutes(app, db);
+  const deps = (c?: { get: (key: string) => unknown }) => {
+    const base = buildRefreshDeps(db, refreshDeps);
+    return c ? refreshDepsFor(c, base) : base;
+  };
 
   app.get('/videos', async (c) => {
     try {
@@ -503,6 +569,80 @@ export function createMonitorRoutes(db: Sql) {
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
     }
+  });
+
+  app.post('/videos/:bvid/refresh', async (c) => {
+    try {
+      const body = await readJsonBody(c.req.raw);
+      const force = body.force === true || c.req.query('force') === 'true';
+      const result = await refreshVideo(deps(c), c.req.param('bvid'), force);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof MetadataRequestError) {
+        const status =
+          error.bizCode === -404 || error.message.includes('404') ? 404 : error.abort ? 503 : 502;
+        return c.json({ error: error.message, bizCode: error.bizCode }, status);
+      }
+      return c.json({ error: error instanceof Error ? error.message : 'bad request' }, 400);
+    }
+  });
+
+  app.post('/creators/:mid/refresh', async (c) => {
+    try {
+      const body = await readJsonBody(c.req.raw);
+      const force = body.force === true || c.req.query('force') === 'true';
+      const result = await refreshCreator(deps(c), c.req.param('mid'), force);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof MetadataRequestError) {
+        const status = error.bizCode === -404 ? 404 : error.abort ? 503 : 502;
+        return c.json({ error: error.message, bizCode: error.bizCode }, status);
+      }
+      return c.json({ error: error instanceof Error ? error.message : 'bad request' }, 400);
+    }
+  });
+
+  app.post('/metadata/refresh', async (c) => {
+    try {
+      const body = await readJsonBody(c.req.raw);
+      const kind = body.kind;
+      if (kind !== 'video' && kind !== 'creator') throw new Error('invalid kind');
+      const ids = Array.isArray(body.ids)
+        ? body.ids.filter((id): id is string => typeof id === 'string')
+        : undefined;
+      const allMissing = body.allMissing === true;
+      const force = body.force === true;
+      const started = await startMetadataBackfill(deps(c), {
+        kind: kind as MetadataKind,
+        ...(ids && ids.length > 0 ? { ids } : {}),
+        ...(allMissing ? { allMissing: true } : {}),
+        force,
+      });
+      refreshDeps.onBackfill?.(started.done);
+      void started.done.catch(() => undefined);
+      return c.json({ backfillRunId: started.backfillRunId, requested: started.requested }, 202);
+    } catch (error) {
+      if (error instanceof BackfillConflict) {
+        return c.json({ error: error.message, backfillRunId: error.backfillRunId }, 409);
+      }
+      return c.json({ error: error instanceof Error ? error.message : 'bad request' }, 400);
+    }
+  });
+
+  app.get('/metadata/runs/:id', async (c) => {
+    const id = c.req.param('id');
+    if (!UUID.test(id)) return c.json({ error: 'invalid id' }, 400);
+    const run = await readMetadataRun(db, id);
+    if (!run) return c.json({ error: 'not found' }, 404);
+    return c.json({
+      id: run.id,
+      status: run.status,
+      requested: run.requested,
+      succeeded: run.succeeded,
+      failed: run.failed,
+      skipped: run.skipped,
+      report: run.report,
+    });
   });
 
   return app;

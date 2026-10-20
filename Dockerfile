@@ -9,6 +9,7 @@ COPY apps/web/package.json apps/web/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/db/package.json packages/db/
 COPY packages/monitoring/package.json packages/monitoring/
+COPY packages/observability/package.json packages/observability/
 COPY packages/workflow/package.json packages/workflow/
 COPY apps/collector/package.json apps/collector/
 RUN bun install --frozen-lockfile

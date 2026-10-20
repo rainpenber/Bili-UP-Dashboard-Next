@@ -111,6 +111,7 @@
       },
       "dependencies": {
         "@studio/db": "workspace:*",
+        "@studio/observability": "workspace:*",
         "postgres": "^3.4.5",
       },
       "devDependencies": {

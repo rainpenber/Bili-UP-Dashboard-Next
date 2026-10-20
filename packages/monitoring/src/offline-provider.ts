@@ -1,3 +1,4 @@
+import type { Sql } from '@studio/db';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -179,6 +180,7 @@ export function createMonitorProvider(
     random?: () => number;
     clock?: ThrottleClock;
     log?: (line: string) => void;
+    sql?: Sql;
   } = {},
 ): MonitorProvider {
   if (kind === 'offline' || kind === 'mock') return createOfflineProvider(env);

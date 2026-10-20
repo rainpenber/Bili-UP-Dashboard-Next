@@ -19,7 +19,7 @@ startAppLogRetention(sql, {
 logger.info('API 启动', { event: 'service.started' });
 const app = createApp({ skipDb: true, logger });
 const { createMonitorRoutes } = await import('./monitor-routes');
-app.route('/api/v1/monitor', createMonitorRoutes(sql));
+app.route('/api/v1/monitor', createMonitorRoutes(sql, { logger }));
 const { createAssetsRoutes } = await import('./assets-routes');
 const { createImportRoutes } = await import('./import-routes');
 app.route('/api/v1/assets', createAssetsRoutes(sql));

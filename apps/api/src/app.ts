@@ -97,7 +97,7 @@ export function createApp(options: CreateAppOptions = {}) {
     void runMigrations(sql).catch((err) => {
       console.error('Migration failed', err);
     });
-    app.route('/api/v1/monitor', createMonitorRoutes(sql));
+    app.route('/api/v1/monitor', createMonitorRoutes(sql, { logger }));
     app.route('/api/v1/assets', createAssetsRoutes(sql));
     app.route('/api/v1/imports', createImportRoutes(sql));
     app.route('/api/v1/commercial', createCommercialRoutes(sql));

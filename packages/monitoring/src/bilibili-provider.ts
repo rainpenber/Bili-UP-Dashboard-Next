@@ -1,3 +1,4 @@
+import type { Sql } from '@studio/db';
 import type { MonitorProvider } from './offline-provider';
 import type { BilibiliRuntimeConfig } from './bilibili-config';
 import {
@@ -23,6 +24,7 @@ import {
   guardTransport,
   type HttpTransport,
 } from './bilibili-transport';
+import { acquireRequestSlot, rateAccountId } from './rate-limiter';
 import { createAccountThrottle, type ThrottleClock } from './throttle';
 
 const VIEW_URL = 'https://api.bilibili.com/x/web-interface/view';
@@ -84,19 +86,44 @@ export function createBilibiliProvider(
     random?: () => number;
     clock?: ThrottleClock;
     log?: (line: string) => void;
+    /** When set, every upstream call shares the database rate budget. */
+    sql?: Sql;
   } = {},
 ): BilibiliProvider {
   const transport = guardTransport(
     overrides.transport ?? createLiveBilibiliTransport(config.timeoutMs),
   );
-  const throttle = createAccountThrottle({
-    minIntervalMs: config.minIntervalMs,
-    maxJitterMs: config.maxJitterMs,
-    maxPerMinute: config.maxPerMinute,
-    ...(overrides.random ? { random: overrides.random } : {}),
-    ...(overrides.clock ? { clock: overrides.clock } : {}),
-  });
+  const throttle = overrides.sql
+    ? null
+    : createAccountThrottle({
+        minIntervalMs: config.minIntervalMs,
+        maxJitterMs: config.maxJitterMs,
+        maxPerMinute: config.maxPerMinute,
+        ...(overrides.random ? { random: overrides.random } : {}),
+        ...(overrides.clock ? { clock: overrides.clock } : {}),
+      });
   const log = overrides.log ?? (() => undefined);
+
+  async function waitTurn(accountKey: string, interval: number): Promise<void> {
+    if (overrides.sql) {
+      await acquireRequestSlot(
+        overrides.sql,
+        rateAccountId(accountKey),
+        {
+          minIntervalMs: interval,
+          maxJitterMs: config.maxJitterMs,
+          maxPerMinute: config.maxPerMinute,
+        },
+        {
+          ...(overrides.random ? { random: overrides.random } : {}),
+          ...(overrides.clock ? { clock: overrides.clock } : {}),
+        },
+      );
+      return;
+    }
+    if (!throttle) throw new Error('限流器未初始化');
+    await throttle.wait(accountKey, interval);
+  }
 
   async function request(
     endpoint: UpstreamEndpoint,
@@ -108,7 +135,8 @@ export function createBilibiliProvider(
     const interval = cookieHeader
       ? config.minIntervalMs
       : Math.max(config.minIntervalMs, config.anonymousMinIntervalMs);
-    await throttle.wait(accountKey, interval);
+    await waitTurn(accountKey, interval);
+    const requestedAt = new Date();
     let response;
     try {
       response = await transport({ url, method: 'GET', headers: bilibiliHeaders(cookieHeader) });
@@ -120,6 +148,7 @@ export function createBilibiliProvider(
         bizCode: null,
         durationMs: 0,
         error: message,
+        requestedAt,
       };
       calls.push(call);
       throw new BilibiliFailure({
@@ -164,6 +193,7 @@ export function createBilibiliProvider(
       bizCode: biz.code,
       durationMs: response.durationMs,
       error: kind ? biz.message || kind : null,
+      requestedAt,
     };
     calls.push(call);
     if (kind) {
