@@ -18,6 +18,8 @@ import {
   formatShanghaiDateTime,
   jobStatusLabel,
   jobStatusVariant,
+  monitorTargetLabel,
+  monitorTargetMark,
   safeContext,
   safeText,
 } from './ops-format';
@@ -50,7 +52,7 @@ function JobRow({ job, onOpen }: { job: OpsCollectorJob; onOpen: (id: string) =>
           <img src={job.coverUrl} alt="" className="size-10 shrink-0 rounded-md object-cover" />
         ) : (
           <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted text-xs text-muted-foreground">
-            {job.targetType === 'creator' ? 'UP' : 'BV'}
+            {monitorTargetMark(job.targetType)}
           </span>
         )}
         <span className="min-w-0 flex-1">
@@ -62,7 +64,7 @@ function JobRow({ job, onOpen }: { job: OpsCollectorJob; onOpen: (id: string) =>
             {job.targetDeleted ? <Badge variant="outline">已移除</Badge> : null}
           </span>
           <span className="mt-1 block truncate text-xs text-muted-foreground">
-            {job.targetType === 'creator' ? 'UP 主' : '视频'} {job.externalId}
+            {monitorTargetLabel(job.targetType)} {job.externalId}
             {job.label && job.label !== job.displayName ? ` · ${safeText(job.label)}` : ''}
           </span>
           <span className="mt-1 block text-xs text-muted-foreground">
@@ -230,7 +232,13 @@ export function OpsJobsPanel({
       {view.targetId ? (
         <p className="break-all text-sm text-muted-foreground" data-testid="ops-target-filter">
           已按目标筛选
-          {view.targetType === 'video' ? ' 视频' : view.targetType === 'creator' ? ' UP 主' : ''}
+          {view.targetType === 'video'
+            ? ' 视频'
+            : view.targetType === 'creator'
+              ? ' UP 主'
+              : view.targetType === 'dynamic'
+                ? ' 动态'
+                : ''}
           {view.externalId ? ` ${view.externalId}` : ''} · {view.targetId}
           <Button
             type="button"
@@ -262,6 +270,7 @@ export function OpsJobsPanel({
             <option value="">全部</option>
             <option value="video">视频</option>
             <option value="creator">UP 主</option>
+            <option value="dynamic">动态</option>
           </select>
         </label>
         <label className="min-w-0 space-y-1 text-sm">
@@ -304,7 +313,7 @@ export function OpsJobsPanel({
           <Input
             aria-label="对象搜索"
             value={targetQuery}
-            placeholder="标题、名称、BV 或 UID"
+            placeholder="标题、名称、BV、UID 或动态 id"
             onChange={(event) => {
               setTargetQuery(event.target.value);
               onChange({ q: event.target.value.trim(), page: null });
@@ -641,7 +650,7 @@ function JobDrawer({
                 </span>
               </div>
               <p className="break-all text-sm text-muted-foreground">
-                {detail.job.targetType === 'creator' ? 'UP 主' : '视频'} {detail.job.externalId}
+                {monitorTargetLabel(detail.job.targetType)} {detail.job.externalId}
                 {detail.job.targetDeleted ? ' · 监控项已移除，历史任务仍保留' : ''}
               </p>
               <ProjectNames projects={detail.job.projects} linked />

@@ -60,6 +60,36 @@ describe('collection frequency', () => {
     expect(creatorFixed).toEqual({ minutes: 15, persistMinutes: false });
   });
 
+  test('dynamic stays on its fixed interval and does not borrow video or creator tiers', () => {
+    const now = new Date('2026-10-19T00:00:00.000Z');
+    const fixed = decideSchedule(
+      {
+        type: 'dynamic',
+        mode: 'fixed',
+        fixedMinutes: 60,
+        pubdate: new Date('2020-01-01T00:00:00.000Z'),
+      },
+      now,
+      policy,
+    );
+    expect(fixed).toEqual({ minutes: 60, persistMinutes: false });
+    expect(() =>
+      decideSchedule(
+        { type: 'dynamic', mode: 'auto', fixedMinutes: 60, pubdate: now },
+        now,
+        policy,
+      ),
+    ).toThrow(/固定间隔/);
+    expect(decideSchedule(video(new Date(now.getTime() - 2 * DAY)), now, policy).minutes).toBe(15);
+    expect(
+      decideSchedule(
+        { type: 'creator', mode: 'auto', fixedMinutes: 60, pubdate: null },
+        now,
+        policy,
+      ).minutes,
+    ).toBe(240);
+  });
+
   test('a video with no pubdate stays on the fresh tier until age is known', () => {
     const now = new Date('2026-10-19T00:00:00.000Z');
     expect(decideSchedule(video(null), now, policy).minutes).toBe(15);

@@ -107,6 +107,51 @@ describe('monitor target contracts', () => {
     expect(() => parsePatchMonitorTargetRequest({ intervalMinutes: 3 })).toThrow(/频率/);
   });
 
+  test('dynamic ids stay strings on a fixed 60 minute default and reject auto', () => {
+    const created = parseCreateMonitorTargetRequest({
+      type: 'dynamic',
+      externalId: ' 966692349750018048 ',
+    });
+    expect(created).toMatchObject({
+      type: 'dynamic',
+      externalId: '966692349750018048',
+      intervalMode: 'fixed',
+      intervalMinutes: 60,
+    });
+    expect(typeof created.externalId).toBe('string');
+    const longId = '9'.repeat(25);
+    expect(
+      parseCreateMonitorTargetRequest({ type: 'dynamic', externalId: longId }).externalId,
+    ).toBe(longId);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'dynamic',
+        externalId: longId,
+        intervalMode: 'auto',
+      }),
+    ).toThrow(/固定间隔/);
+    for (const externalId of ['0', '01', 'BV1xx411c7mD', '12.5', '']) {
+      expect(() => parseCreateMonitorTargetRequest({ type: 'dynamic', externalId })).toThrow(
+        /十进制/,
+      );
+    }
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'dynamic',
+        externalId: '12345',
+        intervalMinutes: 4,
+        intervalMode: 'fixed',
+      }),
+    ).toThrow(/频率/);
+    expect(
+      parseCreateMonitorTargetRequest({ type: 'video', externalId: 'BV1xx411c7mD' }).intervalMode,
+    ).toBe('auto');
+    expect(
+      parseCreateMonitorTargetRequest({ type: 'creator', externalId: '240' })
+        .intervalMinutes as number,
+    ).toBe(240);
+  });
+
   test('splits tag input on commas and spaces', () => {
     expect(splitTagInput(' 春季， 活动  beta ')).toEqual(['春季', '活动', 'beta']);
   });

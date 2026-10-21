@@ -3,6 +3,7 @@ import {
   deriveMonitorCardState,
   parseCreateMonitorTargetRequest,
   parseMonitorCard,
+  parseMonitorCardIdentity,
   parseMonitorExternalInput,
   serializeCreateMonitorTargetRequest,
 } from './index';
@@ -27,6 +28,10 @@ describe('monitor card contracts', () => {
       ok: true,
       externalId: '80486',
     });
+    const dynamic = parseMonitorExternalInput('dynamic', '12345');
+    expect(dynamic.ok).toBe(false);
+    if (!dynamic.ok) expect(dynamic.message).toContain('动态');
+    expect(() => parseMonitorCardIdentity('dynamic', '12345')).toThrow(/视频或 UP 主/);
   });
 
   test('rejects empty input, short links, and the wrong object type without fetching', () => {

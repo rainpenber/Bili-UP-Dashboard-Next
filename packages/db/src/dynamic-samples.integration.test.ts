@@ -296,7 +296,7 @@ describe('historical dynamic sample upgrade', () => {
     expect(Object.keys(beforeSamples[0] ?? {})).not.toContain('source');
 
     const applied = await runMigrations(db);
-    expect(applied).toEqual(['011_dynamic_sample_storage']);
+    expect(applied).toEqual(['011_dynamic_sample_storage', '012_dynamic_monitor_targets']);
     const creators = await snapshotRows(db, 'creators', 'mid');
     const dynamics = await snapshotRows(db, 'dynamics', 'dynamic_id');
     const samples = await snapshotRows(db, 'dynamic_metric_samples', 'id');
@@ -1610,7 +1610,7 @@ describe('dynamic sample writes', () => {
     expect(creator?.source).toBe('legacy_csv');
   });
 
-  test('does not add a dynamic monitor target type', async () => {
+  test('allows a fixed dynamic target and still rejects automatic mode', async () => {
     const database = db();
     const checks = await database<{ def: string }[]>`
       SELECT pg_get_constraintdef(oid) AS def
@@ -1619,7 +1619,7 @@ describe('dynamic sample writes', () => {
     `;
     const defs = checks.map((row) => row.def);
     expect(defs.some((def) => def.includes("'video'") && def.includes("'creator'"))).toBe(true);
-    expect(defs.some((def) => def.includes("'dynamic'"))).toBe(false);
+    expect(defs.some((def) => def.includes("'dynamic'"))).toBe(true);
     const indexes = await database<{ indexname: string }[]>`
       SELECT indexname FROM pg_indexes
       WHERE tablename = 'dynamic_metric_samples'
@@ -1635,14 +1635,20 @@ describe('dynamic sample writes', () => {
       'idx_dynamic_metric_samples_id_at',
     ]);
     const rejected = await database`
-      INSERT INTO monitor_targets (id, "type", external_id, interval_minutes)
-      VALUES (${crypto.randomUUID()}::uuid, 'dynamic', '8510000000000008888', 60)
+      INSERT INTO monitor_targets (id, "type", external_id, interval_minutes, interval_mode)
+      VALUES (${crypto.randomUUID()}::uuid, 'dynamic', '8510000000000008888', 60, 'auto')
     `.catch((caught: unknown) => caught);
     expect(rejected).toBeInstanceOf(Error);
-    const targets = await database<{ n: string }[]>`
-      SELECT count(*)::text AS n FROM monitor_targets WHERE "type" = 'dynamic'
+    const id = crypto.randomUUID();
+    await database`
+      INSERT INTO monitor_targets (id, "type", external_id, interval_minutes, interval_mode)
+      VALUES (${id}::uuid, 'dynamic', '8510000000000008888', 60, 'fixed')
     `;
-    expect(targets[0]?.n).toBe('0');
+    const targets = await database<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM monitor_targets WHERE id = ${id}::uuid
+    `;
+    expect(targets[0]?.n).toBe('1');
+    await database`DELETE FROM monitor_targets WHERE id = ${id}::uuid`;
   });
 });
 

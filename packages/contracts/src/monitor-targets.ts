@@ -1,6 +1,6 @@
 import { parseMonitorPage, parseMonitorPageSize, type Paginated } from './monitor';
 
-export const MONITOR_TARGET_TYPES = ['video', 'creator'] as const;
+export const MONITOR_TARGET_TYPES = ['video', 'creator', 'dynamic'] as const;
 export type MonitorTargetType = (typeof MONITOR_TARGET_TYPES)[number];
 
 export const MONITOR_INTERVAL_MINUTES = [5, 15, 30, 60, 180, 360, 720, 1440] as const;
@@ -10,6 +10,8 @@ export type MonitorIntervalMinutes = (typeof MONITOR_INTERVAL_MINUTES)[number];
 export const MIN_MONITOR_INTERVAL_MINUTES = 5;
 export const MAX_MONITOR_INTERVAL_MINUTES = 10_080;
 export const CREATOR_DEFAULT_INTERVAL_MINUTES = 240;
+/** Fixed interval used when a dynamic target omits intervalMinutes. Not an age policy. */
+export const DYNAMIC_DEFAULT_INTERVAL_MINUTES = 60;
 
 export const MONITOR_INTERVAL_MODES = ['auto', 'fixed'] as const;
 export type MonitorIntervalMode = (typeof MONITOR_INTERVAL_MODES)[number];
@@ -22,6 +24,7 @@ export type CollectorRunStatus = (typeof COLLECTOR_RUN_STATUSES)[number];
 
 const VIDEO_EXTERNAL_ID = /^BV[1-9A-HJ-NP-Za-km-z]{10}$/;
 const CREATOR_EXTERNAL_ID = /^[1-9][0-9]{0,18}$/;
+const DYNAMIC_EXTERNAL_ID = /^[1-9]\d*$/;
 const MAX_CREATOR_MID = 9223372036854775807n;
 const TARGET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TAG_VALUE = /^[\p{L}\p{N}_.-]{1,24}$/u;
@@ -130,9 +133,16 @@ export function isMonitorIntervalMinutes(value: number): value is MonitorInterva
   return (MONITOR_INTERVAL_MINUTES as readonly number[]).includes(value);
 }
 
+export function isMonitorTargetType(value: unknown): value is MonitorTargetType {
+  return value === 'video' || value === 'creator' || value === 'dynamic';
+}
+
 export function externalIdError(type: MonitorTargetType, externalId: string): string | null {
   if (type === 'video') {
     return VIDEO_EXTERNAL_ID.test(externalId) ? null : 'BV 号格式不正确';
+  }
+  if (type === 'dynamic') {
+    return DYNAMIC_EXTERNAL_ID.test(externalId) ? null : '动态 id 必须是十进制整数字符串';
   }
   if (!CREATOR_EXTERNAL_ID.test(externalId)) return 'UID 格式不正确';
   try {
@@ -196,6 +206,24 @@ function parseIntervalMode(value: unknown, fallback: MonitorIntervalMode): Monit
   return value;
 }
 
+/** Dynamics stay on a fixed interval. Omitted mode means fixed, not the video age policy. */
+function parseDynamicIntervalMode(value: unknown): 'fixed' {
+  if (value === undefined || value === null) return 'fixed';
+  if (value === 'auto') {
+    throw new MonitorContractError('invalid_interval', '动态只支持固定间隔，不能使用自动频率');
+  }
+  if (value !== 'fixed') {
+    throw new MonitorContractError('invalid_interval', '采集模式只能是自动或固定');
+  }
+  return 'fixed';
+}
+
+function externalIdTypeMessage(type: MonitorTargetType): string {
+  if (type === 'video') return 'BV 号格式不正确';
+  if (type === 'dynamic') return '动态 id 必须是十进制整数字符串';
+  return 'UID 格式不正确';
+}
+
 function parseStoredInterval(value: unknown, fallback: number): number {
   if (value === undefined || value === null) return fallback;
   if (
@@ -226,28 +254,31 @@ export function parseCreateMonitorTargetRequest(value: unknown): MonitorTargetCr
     'intervalMinutes',
     'intervalMode',
   ]);
-  if (value.type !== 'video' && value.type !== 'creator') {
-    throw new MonitorContractError('invalid_target_type', '监控类型只能是视频或 UP 主');
+  if (!isMonitorTargetType(value.type)) {
+    throw new MonitorContractError('invalid_target_type', '监控类型只能是视频、UP 主或动态');
   }
   if (typeof value.externalId !== 'string') {
-    throw new MonitorContractError(
-      'invalid_external_id',
-      value.type === 'video' ? 'BV 号格式不正确' : 'UID 格式不正确',
-    );
+    throw new MonitorContractError('invalid_external_id', externalIdTypeMessage(value.type));
   }
   const externalId = value.externalId.trim();
   const idError = externalIdError(value.type, externalId);
   if (idError) throw new MonitorContractError('invalid_external_id', idError);
+  const intervalMode =
+    value.type === 'dynamic'
+      ? parseDynamicIntervalMode(value.intervalMode)
+      : parseIntervalMode(value.intervalMode, 'auto');
   return {
     type: value.type,
     externalId,
     label: parseLabel(value.label, externalId),
     tags: parseTags(value.tags),
-    intervalMode: parseIntervalMode(value.intervalMode, 'auto'),
+    intervalMode,
     intervalMinutes: asPresetInterval(
       parseStoredInterval(
         value.intervalMinutes,
-        value.type === 'creator' ? CREATOR_DEFAULT_INTERVAL_MINUTES : 60,
+        value.type === 'creator'
+          ? CREATOR_DEFAULT_INTERVAL_MINUTES
+          : DYNAMIC_DEFAULT_INTERVAL_MINUTES,
       ),
     ),
   };
@@ -343,7 +374,7 @@ export function parseMonitorTarget(value: unknown): MonitorTarget {
   if (!isRecord(value)) throw new MonitorContractError('invalid_body', '监控项响应不完整');
   if (typeof value.id !== 'string')
     throw new MonitorContractError('invalid_body', '监控项响应不完整');
-  if (value.type !== 'video' && value.type !== 'creator') {
+  if (!isMonitorTargetType(value.type)) {
     throw new MonitorContractError('invalid_body', '监控项响应不完整');
   }
   if (typeof value.externalId !== 'string' || typeof value.label !== 'string') {
@@ -445,7 +476,7 @@ export function parseCollectorJob(value: unknown): CollectorJob {
   ) {
     throw new MonitorContractError('invalid_body', '采集任务响应不完整');
   }
-  if (value.targetType !== 'video' && value.targetType !== 'creator') {
+  if (!isMonitorTargetType(value.targetType)) {
     throw new MonitorContractError('invalid_body', '采集任务响应不完整');
   }
   if (

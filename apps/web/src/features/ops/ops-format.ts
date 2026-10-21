@@ -1,5 +1,5 @@
 import { scrubString, scrubValue } from '@studio/observability/redact';
-import type { OpsJobStatus, OpsOperationAction } from '@studio/contracts';
+import type { MonitorTargetType, OpsJobStatus, OpsOperationAction } from '@studio/contracts';
 
 export function formatShanghaiDateTime(iso: string): string {
   const date = new Date(iso);
@@ -24,6 +24,18 @@ export function formatDuration(ms: number | null): string {
   if (ms === null) return '—';
   if (ms < 1000) return `${ms} ms`;
   return `${(ms / 1000).toFixed(1)} s`;
+}
+
+export function monitorTargetLabel(type: MonitorTargetType): string {
+  if (type === 'video') return '视频';
+  if (type === 'creator') return 'UP 主';
+  return '动态';
+}
+
+export function monitorTargetMark(type: MonitorTargetType): string {
+  if (type === 'video') return 'BV';
+  if (type === 'creator') return 'UP';
+  return '动态';
 }
 
 export function jobStatusLabel(status: OpsJobStatus): string {

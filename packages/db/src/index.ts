@@ -67,6 +67,7 @@ export {
   clearCollectorCircuit,
   collectorSchemaReady,
   commitBilibiliCreator,
+  commitBilibiliDynamic,
   commitBilibiliVideo,
   deferCollectorJob,
   disableMonitorTarget,

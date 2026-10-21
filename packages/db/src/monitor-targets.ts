@@ -4,7 +4,7 @@ import { partitionNameFromLabels } from './partitions';
 
 type Queryable = postgres.Sql | postgres.TransactionSql;
 
-export type MonitorTargetType = 'video' | 'creator';
+export type MonitorTargetType = 'video' | 'creator' | 'dynamic';
 export type CollectorJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
 
 export type MonitorTargetRow = {
@@ -147,7 +147,10 @@ export async function insertMonitorTarget(
     now: Date;
   },
 ): Promise<{ target: MonitorTargetRow; created: boolean; jobId: string | null }> {
-  const intervalMode = input.intervalMode ?? 'auto';
+  const intervalMode = input.intervalMode ?? (input.type === 'dynamic' ? 'fixed' : 'auto');
+  if (input.type === 'dynamic' && intervalMode !== 'fixed') {
+    throw new Error('动态只支持固定间隔，不能使用自动频率');
+  }
   return sql.begin(async (tx) => {
     const inserted = await tx<TargetSqlRow[]>`
       INSERT INTO monitor_targets (
@@ -257,6 +260,9 @@ export async function updateMonitorTarget(
     const existing = await getMonitorTarget(tx, id);
     if (!existing) return { status: 'missing', target: null, jobId: null };
     if (existing.deletedAt) return { status: 'deleted', target: existing, jobId: null };
+    if (existing.type === 'dynamic' && patch.intervalMode === 'auto') {
+      throw new Error('动态只支持固定间隔，不能使用自动频率');
+    }
     const enabled = patch.enabled ?? null;
     const interval = patch.intervalMinutes ?? null;
     const intervalMode = patch.intervalMode ?? null;
@@ -608,7 +614,8 @@ export async function readTargetSchedule(
       pubdate: Date | null;
     }[]
   >`
-    SELECT t.type, t.interval_mode, t.interval_minutes, v.pubdate
+    SELECT t.type, t.interval_mode, t.interval_minutes,
+      CASE WHEN t.type = 'video' THEN v.pubdate ELSE NULL END AS pubdate
     FROM monitor_targets t
     LEFT JOIN videos v ON t.type = 'video' AND v.bvid = t.external_id
     WHERE t.id = ${targetId}::uuid

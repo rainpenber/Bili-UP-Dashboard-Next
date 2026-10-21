@@ -314,6 +314,14 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
       });
       const patch = parsePatchMonitorTargetRequest(body);
       const before = await getMonitorTarget(db, id);
+      if (
+        before &&
+        !before.deletedAt &&
+        before.type === 'dynamic' &&
+        patch.intervalMode === 'auto'
+      ) {
+        throw new MonitorContractError('invalid_interval', '动态只支持固定间隔，不能使用自动频率');
+      }
       const result = await updateMonitorTarget(db, id, patch, new Date());
       if (result.status === 'missing') {
         throw new MonitorContractError('target_not_found', '监控项不存在');

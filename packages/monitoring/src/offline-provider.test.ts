@@ -42,6 +42,27 @@ describe('offline provider', () => {
     await expect(provider.collectVideo('BV1xx411c7mD', new Date())).rejects.toThrow(/离线夹具缺失/);
   });
 
+  test('dynamic samples are deterministic and do not use the network', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'offline-dynamic-'));
+    mkdirSync(join(root, 'backend'));
+    const provider = createMonitorProvider('offline', {
+      MOCK_DATA_ROOT: root,
+      SOURCE_TIMEZONE: 'Asia/Shanghai',
+      OFFLINE_REQUIRE_FIXTURE: '1',
+    });
+    const minute = truncateToUtcMinute(new Date('2026-10-21T08:00:30.000Z'));
+    const dynamicId = '966692349750018048';
+    const first = await provider.collectDynamic(dynamicId, minute);
+    const second = await provider.collectDynamic(dynamicId, new Date(minute.getTime() + 20_000));
+    const other = await provider.collectDynamic('1000000000000000000000001', minute);
+    expect(first.dynamicId).toBe(dynamicId);
+    expect(second).toEqual(first);
+    expect(other.dynamicId).toBe('1000000000000000000000001');
+    expect(typeof other.dynamicId).toBe('string');
+    expect(first.likeCount).not.toBe(other.likeCount);
+    await expect(provider.collectDynamic('01', minute)).rejects.toThrow(/十进制/);
+  });
+
   test('unknown upstream provider fails closed', () => {
     expect(() => createMonitorProvider('upstream')).toThrow(/fail closed/);
   });

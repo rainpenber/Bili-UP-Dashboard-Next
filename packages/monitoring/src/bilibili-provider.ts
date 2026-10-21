@@ -234,6 +234,9 @@ export function createBilibiliProvider(
     async collectCreator() {
       throw new Error('bilibili UP 主采集请走 fetchCreator');
     },
+    async collectDynamic() {
+      throw new Error('bilibili 动态采集请走 fetchDynamic');
+    },
     async fetchVideo(input) {
       const viewUrl = endpointUrl(VIEW_URL, { bvid: input.bvid });
       if (config.dryRun) {

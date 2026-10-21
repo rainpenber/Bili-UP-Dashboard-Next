@@ -1,5 +1,6 @@
 import {
   claimNextCollectorJob,
+  commitBilibiliDynamic,
   enqueueDueCollectorJobs,
   readTargetSchedule,
   recordCollectorFailure,
@@ -18,6 +19,7 @@ import { loadCollectorSecretKey, scrubCollectorError } from './credentials';
 import type { CollectorLogger } from './collector-log';
 import {
   createOfflineProvider,
+  formatSourceMinute,
   truncateToUtcMinute,
   type MonitorProvider,
 } from './offline-provider';
@@ -149,7 +151,7 @@ export async function runCollectorOnce(options: {
         event: 'job.succeeded',
         context: { samplesWritten: inserted ? 1 : 0 },
       });
-    } else {
+    } else if (job.targetType === 'creator') {
       const sample = await options.provider.collectCreator(job.externalId, sampledAt);
       const inserted = await writeCreatorSample(options.sql, sample);
       const committed = await recordCollectorSuccess(options.sql, {
@@ -164,6 +166,15 @@ export async function runCollectorOnce(options: {
         event: 'job.succeeded',
         context: { samplesWritten: inserted ? 1 : 0 },
       });
+    } else if (job.targetType === 'dynamic') {
+      const committed = await commitOfflineDynamic(options, job, startedAt, startedMs);
+      jobLog?.child({ runId: committed.runId })?.info('任务成功', {
+        event: 'job.succeeded',
+        context: { samplesWritten: committed.inserted ? 1 : 0 },
+      });
+    } else {
+      const unreachable: never = job.targetType;
+      throw new Error(`无法采集的目标类型 ${String(unreachable)}`);
     }
     log(`[collector] 任务成功 ${job.id}`);
     return 'succeeded';
@@ -195,6 +206,49 @@ export async function runCollectorOnce(options: {
     log(`[collector] 任务失败 ${job.id} attempts=${job.attempts} error=${message}`);
     return 'failed';
   }
+}
+
+async function commitOfflineDynamic(
+  options: {
+    sql: Sql;
+    provider: MonitorProvider;
+    env?: NodeJS.ProcessEnv;
+  },
+  job: { id: string; targetId: string; externalId: string; scheduledFor: Date },
+  startedAt: Date,
+  startedMs: number,
+): Promise<{ inserted: boolean; runId: string }> {
+  const bucket = job.scheduledFor;
+  const collected = await options.provider.collectDynamic(job.externalId, bucket);
+  if (collected.dynamicId !== job.externalId) {
+    throw new Error('动态样本身份与目标不一致');
+  }
+  const scheduled = await offlineSchedule(options.sql, job.targetId, startedAt, options.env);
+  return commitBilibiliDynamic(options.sql, {
+    jobId: job.id,
+    targetId: job.targetId,
+    startedAt,
+    durationMs: Math.max(0, Date.now() - startedMs),
+    sample: {
+      dynamicId: job.externalId,
+      authorName: collected.authorName,
+      text: collected.text,
+      likeCount: collected.likeCount,
+      repostCount: collected.repostCount,
+      commentCount: collected.commentCount,
+      sampledAt: bucket,
+      rawTime: formatSourceMinute(bucket, collected.sourceTimezone),
+      sourceTimezone: collected.sourceTimezone,
+      timestampPrecision:
+        bucket.getUTCSeconds() === 0 && bucket.getUTCMilliseconds() === 0 ? 'minute' : 'second',
+      source: 'import',
+      accountId: null,
+      collectorRunId: null,
+      collectedAt: startedAt,
+      extra: {},
+    },
+    schedule: 'schedule' in scheduled ? scheduled.schedule : null,
+  });
 }
 
 async function offlineSchedule(

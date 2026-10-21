@@ -12,7 +12,7 @@ export type FrequencyPolicy = {
 };
 
 export type ScheduleSubject = {
-  type: 'video' | 'creator';
+  type: 'video' | 'creator' | 'dynamic';
   mode: 'auto' | 'fixed';
   fixedMinutes: number;
   pubdate: Date | null;
@@ -52,6 +52,9 @@ export function decideSchedule(
 ): ScheduleDecision {
   if (subject.mode === 'fixed') {
     return { minutes: subject.fixedMinutes, persistMinutes: false };
+  }
+  if (subject.type === 'dynamic') {
+    throw new Error('动态监控只支持固定间隔');
   }
   if (subject.type === 'creator') {
     return { minutes: policy.creatorMinutes, persistMinutes: true };
