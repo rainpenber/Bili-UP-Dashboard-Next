@@ -155,4 +155,38 @@ describe('monitor target contracts', () => {
   test('splits tag input on commas and spaces', () => {
     expect(splitTagInput(' 春季， 活动  beta ')).toEqual(['春季', '活动', 'beta']);
   });
+
+  test('startAt requires an explicit timezone and is video-only on create', () => {
+    const scheduled = parseCreateMonitorTargetRequest({
+      type: 'video',
+      externalId: 'BV1xx411c7mD',
+      startAt: '2026-10-21T20:00:00+08:00',
+    });
+    expect(scheduled.startAt).toBe('2026-10-21T12:00:00.000Z');
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'video',
+        externalId: 'BV1xx411c7mD',
+        startAt: '2026-10-21T20:00:00',
+      }),
+    ).toThrow(/时区/);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'creator',
+        externalId: '12345',
+        startAt: '2026-10-21T20:00:00+08:00',
+      }),
+    ).toThrow(/视频/);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'dynamic',
+        externalId: '966692349750018048',
+        startAt: '2026-10-21T20:00:00Z',
+      }),
+    ).toThrow(/视频/);
+    expect(parsePatchMonitorTargetRequest({ startAt: null }).startAt).toBeNull();
+    expect(
+      parsePatchMonitorTargetRequest({ startAt: '2026-12-01T08:00:00.000Z' }).startAt,
+    ).toBe('2026-12-01T08:00:00.000Z');
+  });
 });

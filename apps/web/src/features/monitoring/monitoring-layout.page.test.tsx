@@ -48,6 +48,7 @@ function card(externalId: string, patch: Record<string, unknown> = {}) {
       enabled: true,
       intervalMinutes: 15,
       intervalMode: 'auto',
+      startAt: null,
       nextRunAt: '2026-10-21T01:00:00.000Z',
       lastRunAt: '2026-10-21T00:00:00.000Z',
       lastSuccessAt: '2026-10-21T00:00:00.000Z',

@@ -39,6 +39,7 @@ export function toMonitorTarget(row: MonitorTargetRow): MonitorTarget {
     enabled: row.enabled,
     intervalMinutes: row.intervalMinutes,
     intervalMode: row.intervalMode,
+    startAt: iso(row.startAt),
     nextRunAt: iso(row.nextRunAt),
     lastRunAt: iso(row.lastRunAt),
     lastSuccessAt: iso(row.lastSuccessAt),
@@ -77,7 +78,14 @@ export function toCollectorJob(row: CollectorJobRow): CollectorJob {
 
 function statusForCode(code: string): 400 | 404 | 409 {
   if (code === 'target_not_found') return 404;
-  if (code === 'target_deleted') return 409;
+  if (
+    code === 'target_deleted' ||
+    code === 'target_already_started' ||
+    code === 'target_running' ||
+    code === 'run_before_start'
+  ) {
+    return 409;
+  }
   return 400;
 }
 
@@ -132,6 +140,12 @@ function sameTags(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function sameInstant(left: Date | null, right: Date | null): boolean {
+  if (left === null && right === null) return true;
+  if (left === null || right === null) return false;
+  return left.getTime() === right.getTime();
+}
+
 function patchEvents(
   before: MonitorTargetRow,
   after: MonitorTargetRow,
@@ -141,6 +155,7 @@ function patchEvents(
     intervalMode?: 'auto' | 'fixed';
     tags?: string[];
     label?: string;
+    startAt?: string | null;
   },
 ): OperationEvent[] {
   const events: OperationEvent[] = [];
@@ -197,6 +212,23 @@ function patchEvents(
         ...base,
         action: 'tags',
         changes: { tags: { before: before.tags, after: after.tags } },
+      },
+    });
+  }
+  if (patch.startAt !== undefined && !sameInstant(before.startAt, after.startAt)) {
+    events.push({
+      event: 'monitor.target.reschedule',
+      message: '已调整计划开始时间',
+      targetId: after.id,
+      context: {
+        ...base,
+        action: 'reschedule',
+        changes: {
+          startAt: {
+            before: iso(before.startAt),
+            after: iso(after.startAt),
+          },
+        },
       },
     });
   }
@@ -266,6 +298,10 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
       });
       const request = parseCreateMonitorTargetRequest(body);
       const now = new Date();
+      const startAt =
+        request.startAt === undefined || request.startAt === null
+          ? null
+          : new Date(request.startAt);
       const result = await insertMonitorTarget(db, {
         id: crypto.randomUUID(),
         type: request.type,
@@ -274,9 +310,18 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
         tags: request.tags,
         intervalMinutes: request.intervalMinutes,
         intervalMode: request.intervalMode,
+        startAt,
         now,
       });
       if (result.created) {
+        const createChanges: Record<string, { before: unknown; after: unknown }> = {
+          label: { before: null, after: result.target.label },
+          intervalMinutes: { before: null, after: result.target.intervalMinutes },
+          enabled: { before: null, after: result.target.enabled },
+        };
+        if (result.target.startAt) {
+          createChanges.startAt = { before: null, after: iso(result.target.startAt) };
+        }
         await recordOperations(contextLogger(c), requestIdFrom(c), [
           {
             event: 'monitor.target.created',
@@ -285,11 +330,7 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
             context: {
               ...identity(result.target),
               action: 'create',
-              changes: {
-                label: { before: null, after: result.target.label },
-                intervalMinutes: { before: null, after: result.target.intervalMinutes },
-                enabled: { before: null, after: result.target.enabled },
-              },
+              changes: createChanges,
             },
           },
         ]);
@@ -322,12 +363,46 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
       ) {
         throw new MonitorContractError('invalid_interval', '动态只支持固定间隔，不能使用自动频率');
       }
-      const result = await updateMonitorTarget(db, id, patch, new Date());
+      if (before && !before.deletedAt && patch.startAt !== undefined && before.type !== 'video') {
+        throw new MonitorContractError('invalid_start_at', '只有视频监控支持计划开始时间');
+      }
+      const dbPatch: {
+        enabled?: boolean;
+        intervalMinutes?: number;
+        intervalMode?: 'auto' | 'fixed';
+        tags?: string[];
+        label?: string;
+        startAt?: Date | null;
+      } = {};
+      if (patch.enabled !== undefined) dbPatch.enabled = patch.enabled;
+      if (patch.intervalMinutes !== undefined) dbPatch.intervalMinutes = patch.intervalMinutes;
+      if (patch.intervalMode !== undefined) dbPatch.intervalMode = patch.intervalMode;
+      if (patch.tags !== undefined) dbPatch.tags = patch.tags;
+      if (patch.label !== undefined) dbPatch.label = patch.label;
+      if (patch.startAt !== undefined) {
+        dbPatch.startAt = patch.startAt === null ? null : new Date(patch.startAt);
+      }
+      const result = await updateMonitorTarget(db, id, dbPatch, new Date());
       if (result.status === 'missing') {
         throw new MonitorContractError('target_not_found', '监控项不存在');
       }
       if (result.status === 'deleted' || !result.target) {
         throw new MonitorContractError('target_deleted', '监控项已删除');
+      }
+      if (result.status === 'already_started') {
+        throw new MonitorContractError(
+          'target_already_started',
+          '该监控项已成功采集过，不能再改计划开始时间',
+        );
+      }
+      if (result.status === 'running') {
+        throw new MonitorContractError(
+          'target_running',
+          '该监控项正在采集，不能改计划开始时间',
+        );
+      }
+      if (result.status === 'invalid_start_type') {
+        throw new MonitorContractError('invalid_start_at', '只有视频监控支持计划开始时间');
       }
       if (before && !before.deletedAt) {
         await recordOperations(
@@ -379,7 +454,16 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
       if (result.status === 'missing') {
         throw new MonitorContractError('target_not_found', '监控项不存在');
       }
-      if (result.status === 'deleted' || !result.job) {
+      if (result.status === 'deleted') {
+        throw new MonitorContractError('target_deleted', '监控项已删除');
+      }
+      if (result.status === 'before_start') {
+        throw new MonitorContractError(
+          'run_before_start',
+          '计划开始时间未到，请先修改开始时间后再手动采集',
+        );
+      }
+      if (result.status !== 'queued' || !result.job) {
         throw new MonitorContractError('target_deleted', '监控项已删除');
       }
       const job = await getCollectorJob(db, result.job.id);

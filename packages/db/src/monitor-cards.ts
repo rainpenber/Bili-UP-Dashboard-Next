@@ -34,6 +34,7 @@ export type MonitorCardRow = {
   enabled: boolean | null;
   intervalMinutes: number | null;
   intervalMode: 'auto' | 'fixed' | null;
+  startAt: Date | null;
   nextRunAt: Date | null;
   lastRunAt: Date | null;
   lastSuccessAt: Date | null;
@@ -64,6 +65,7 @@ type SqlCardRow = {
   enabled: boolean | null;
   interval_minutes: number | null;
   interval_mode: 'auto' | 'fixed' | null;
+  start_at: Date | null;
   next_run_at: Date | null;
   last_run_at: Date | null;
   last_success_at: Date | null;
@@ -105,6 +107,7 @@ SELECT
   t.enabled,
   t.interval_minutes,
   t.interval_mode,
+  t.start_at,
   t.next_run_at,
   t.last_run_at,
   t.last_success_at,
@@ -133,7 +136,7 @@ FROM (
 FULL OUTER JOIN (
   SELECT
     id, external_id, label, tags, enabled, interval_minutes, interval_mode,
-    next_run_at, last_run_at, last_success_at, last_error
+    start_at, next_run_at, last_run_at, last_success_at, last_error
   FROM monitor_targets
   WHERE "type" = 'video' AND deleted_at IS NULL
 ) t ON t.external_id = e.external_id
@@ -160,6 +163,7 @@ SELECT
   t.enabled,
   t.interval_minutes,
   t.interval_mode,
+  t.start_at,
   t.next_run_at,
   t.last_run_at,
   t.last_success_at,
@@ -185,7 +189,7 @@ FROM (
 FULL OUTER JOIN (
   SELECT
     id, external_id, label, tags, enabled, interval_minutes, interval_mode,
-    next_run_at, last_run_at, last_success_at, last_error
+    start_at, next_run_at, last_run_at, last_success_at, last_error
   FROM monitor_targets
   WHERE "type" = 'creator' AND deleted_at IS NULL
 ) t ON t.external_id = e.external_id
@@ -231,6 +235,7 @@ function mapRow(type: MonitorCardKind, row: SqlCardRow): MonitorCardRow | null {
     enabled: row.enabled,
     intervalMinutes: row.interval_minutes,
     intervalMode: row.interval_mode,
+    startAt: row.start_at,
     nextRunAt: row.next_run_at,
     lastRunAt: row.last_run_at,
     lastSuccessAt: row.last_success_at,
@@ -310,6 +315,7 @@ export async function listMonitorCards(
       card_page.enabled,
       card_page.interval_minutes,
       card_page.interval_mode,
+      card_page.start_at,
       card_page.next_run_at,
       card_page.last_run_at,
       card_page.last_success_at,

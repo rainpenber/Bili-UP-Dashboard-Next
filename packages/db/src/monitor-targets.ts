@@ -16,6 +16,8 @@ export type MonitorTargetRow = {
   enabled: boolean;
   intervalMinutes: number;
   intervalMode: 'auto' | 'fixed';
+  /** User-planned first collect. Distinct from nextRunAt (scheduler cursor). */
+  startAt: Date | null;
   nextRunAt: Date | null;
   lastRunAt: Date | null;
   lastSuccessAt: Date | null;
@@ -25,6 +27,20 @@ export type MonitorTargetRow = {
   updatedAt: Date;
   deletedAt: Date | null;
 };
+
+export type UpdateMonitorTargetStatus =
+  | 'missing'
+  | 'deleted'
+  | 'updated'
+  | 'already_started'
+  | 'running'
+  | 'invalid_start_type';
+
+export type RequestCollectorRunStatus =
+  | 'missing'
+  | 'deleted'
+  | 'queued'
+  | 'before_start';
 
 export type CollectorRunRow = {
   id: string;
@@ -68,6 +84,7 @@ type TargetSqlRow = {
   enabled: boolean;
   interval_minutes: number;
   interval_mode: 'auto' | 'fixed';
+  start_at: Date | null;
   next_run_at: Date | null;
   last_run_at: Date | null;
   last_success_at: Date | null;
@@ -104,6 +121,7 @@ function mapTarget(row: TargetSqlRow): MonitorTargetRow {
     enabled: row.enabled,
     intervalMinutes: row.interval_minutes,
     intervalMode: row.interval_mode,
+    startAt: row.start_at,
     nextRunAt: row.next_run_at,
     lastRunAt: row.last_run_at,
     lastSuccessAt: row.last_success_at,
@@ -117,9 +135,16 @@ function mapTarget(row: TargetSqlRow): MonitorTargetRow {
 
 const targetColumns = `
   id, "type", external_id, label, tags, enabled, interval_minutes, interval_mode,
-  next_run_at, last_run_at, last_success_at, last_error, source,
+  start_at, next_run_at, last_run_at, last_success_at, last_error, source,
   created_at, updated_at, deleted_at
 `;
+
+/** First-collect cursor: never earlier than a future startAt. */
+export function effectiveFirstRunAt(now: Date, startAt: Date | null): Date {
+  if (!startAt) return now;
+  return startAt.getTime() > now.getTime() ? startAt : now;
+}
+
 
 export async function getMonitorTarget(
   sql: Queryable,
@@ -144,6 +169,8 @@ export async function insertMonitorTarget(
     tags: string[];
     intervalMinutes: number;
     intervalMode?: 'auto' | 'fixed';
+    /** Video only. Null/omitted = immediate. */
+    startAt?: Date | null;
     now: Date;
   },
 ): Promise<{ target: MonitorTargetRow; created: boolean; jobId: string | null }> {
@@ -151,11 +178,17 @@ export async function insertMonitorTarget(
   if (input.type === 'dynamic' && intervalMode !== 'fixed') {
     throw new Error('动态只支持固定间隔，不能使用自动频率');
   }
+  const startAt = input.startAt ?? null;
+  if (startAt && input.type !== 'video') {
+    throw new Error('只有视频监控支持计划开始时间');
+  }
+  const firstRunAt = effectiveFirstRunAt(input.now, startAt);
+  const dueNow = firstRunAt.getTime() <= input.now.getTime();
   return sql.begin(async (tx) => {
     const inserted = await tx<TargetSqlRow[]>`
       INSERT INTO monitor_targets (
         id, "type", external_id, label, tags, enabled, interval_minutes, interval_mode,
-        next_run_at, source
+        start_at, next_run_at, source
       ) VALUES (
         ${input.id}::uuid,
         ${input.type},
@@ -165,7 +198,8 @@ export async function insertMonitorTarget(
         true,
         ${input.intervalMinutes},
         ${intervalMode},
-        ${input.now},
+        ${startAt},
+        ${firstRunAt},
         'offline'
       )
       ON CONFLICT ("type", external_id) WHERE deleted_at IS NULL
@@ -185,10 +219,13 @@ export async function insertMonitorTarget(
       if (!row) throw new Error('监控项冲突后未能读回既有记录');
       return { target: mapTarget(row), created: false, jobId: null };
     }
+    if (!dueNow) {
+      return { target: mapTarget(createdRow), created: true, jobId: null };
+    }
     const jobId = crypto.randomUUID();
     await tx`
       INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
-      VALUES (${jobId}::uuid, ${createdRow.id}::uuid, 'pending', 0, ${input.now})
+      VALUES (${jobId}::uuid, ${createdRow.id}::uuid, 'pending', 0, ${firstRunAt})
     `;
     return { target: mapTarget(createdRow), created: true, jobId };
   });
@@ -240,6 +277,48 @@ async function insertJobIfIdle(
   return inserted[0]?.id ?? null;
 }
 
+async function lockMonitorTarget(
+  tx: Queryable,
+  id: string,
+): Promise<MonitorTargetRow | null> {
+  const rows = await tx<TargetSqlRow[]>`
+    SELECT ${tx.unsafe(targetColumns)}
+    FROM monitor_targets
+    WHERE id = ${id}::uuid
+    FOR UPDATE
+  `;
+  const row = rows[0];
+  return row ? mapTarget(row) : null;
+}
+
+async function hasRunningJob(tx: Queryable, targetId: string): Promise<boolean> {
+  const rows = await tx<{ id: string }[]>`
+    SELECT id::text AS id
+    FROM collector_jobs
+    WHERE target_id = ${targetId}::uuid AND status = 'running'
+    LIMIT 1
+    FOR UPDATE
+  `;
+  return rows.length > 0;
+}
+
+/**
+ * Drop unexecuted pending jobs for a target, then optionally insert one due job.
+ * Running / succeeded / failed history is untouched.
+ */
+async function replacePendingJobs(
+  tx: Queryable,
+  targetId: string,
+  scheduledFor: Date | null,
+): Promise<string | null> {
+  await tx`
+    DELETE FROM collector_jobs
+    WHERE target_id = ${targetId}::uuid AND status = 'pending'
+  `;
+  if (!scheduledFor) return null;
+  return insertJobIfIdle(tx, targetId, scheduledFor);
+}
+
 export async function updateMonitorTarget(
   sql: Sql,
   id: string,
@@ -249,26 +328,62 @@ export async function updateMonitorTarget(
     intervalMode?: 'auto' | 'fixed';
     tags?: string[];
     label?: string;
+    /** Present = change plan. Explicit null clears plan (immediate). */
+    startAt?: Date | null;
   },
   now: Date,
 ): Promise<{
-  status: 'missing' | 'deleted' | 'updated';
+  status: UpdateMonitorTargetStatus;
   target: MonitorTargetRow | null;
   jobId: string | null;
 }> {
   return sql.begin(async (tx) => {
-    const existing = await getMonitorTarget(tx, id);
+    const existing = await lockMonitorTarget(tx, id);
     if (!existing) return { status: 'missing', target: null, jobId: null };
     if (existing.deletedAt) return { status: 'deleted', target: existing, jobId: null };
     if (existing.type === 'dynamic' && patch.intervalMode === 'auto') {
       throw new Error('动态只支持固定间隔，不能使用自动频率');
     }
+
+    const reschedule = 'startAt' in patch;
+    if (reschedule) {
+      if (existing.type !== 'video') {
+        return { status: 'invalid_start_type', target: existing, jobId: null };
+      }
+      if (existing.lastSuccessAt) {
+        return { status: 'already_started', target: existing, jobId: null };
+      }
+      if (await hasRunningJob(tx, id)) {
+        return { status: 'running', target: existing, jobId: null };
+      }
+    }
+
     const enabled = patch.enabled ?? null;
     const interval = patch.intervalMinutes ?? null;
     const intervalMode = patch.intervalMode ?? null;
     const label = patch.label ?? null;
     const tags = patch.tags === undefined ? null : pgTextArray(patch.tags);
     const resume = patch.enabled === true && !existing.enabled;
+    const pause = patch.enabled === false && existing.enabled;
+
+    const nextStartAt = reschedule ? (patch.startAt ?? null) : existing.startAt;
+    const firstRunAt = effectiveFirstRunAt(now, nextStartAt);
+    const dueNow = firstRunAt.getTime() <= now.getTime();
+
+    // Resume respects max(now, startAt). Pause never auto-resumes on reschedule.
+    let nextRunAt: Date | null = existing.nextRunAt;
+    let touchSchedule = false;
+    if (reschedule) {
+      touchSchedule = true;
+      nextRunAt = firstRunAt;
+    } else if (resume) {
+      touchSchedule = true;
+      nextRunAt = firstRunAt;
+    } else if (pause) {
+      // Keep next_run_at; pending jobs stay but claim/enqueue gate on enabled.
+      nextRunAt = existing.nextRunAt;
+    }
+
     const rows = await tx<TargetSqlRow[]>`
       UPDATE monitor_targets SET
         enabled = COALESCE(${enabled}::boolean, enabled),
@@ -276,28 +391,46 @@ export async function updateMonitorTarget(
         interval_mode = COALESCE(${intervalMode}::text, interval_mode),
         label = COALESCE(${label}::text, label),
         tags = COALESCE(${tags}::text[], tags),
-        next_run_at = CASE WHEN ${resume}::boolean THEN ${now} ELSE next_run_at END,
+        start_at = CASE
+          WHEN ${reschedule}::boolean THEN ${nextStartAt}
+          ELSE start_at
+        END,
+        next_run_at = CASE
+          WHEN ${touchSchedule}::boolean THEN ${nextRunAt}
+          ELSE next_run_at
+        END,
         updated_at = now()
       WHERE id = ${id}::uuid AND deleted_at IS NULL
       RETURNING ${tx.unsafe(targetColumns)}
     `;
     const row = rows[0];
     if (!row) return { status: 'deleted', target: existing, jobId: null };
+
     let jobId: string | null = null;
-    if (resume) {
-      await tx`
-        UPDATE collector_jobs
-        SET scheduled_for = ${now}, updated_at = statement_timestamp()
-        WHERE id = (
-          SELECT id FROM collector_jobs
-          WHERE target_id = ${id}::uuid AND status = 'pending'
-          ORDER BY scheduled_for, id
-          LIMIT 1
-        )
-      `;
-      jobId = await insertJobIfIdle(tx, id, now);
+    const after = mapTarget(row);
+    if (reschedule) {
+      // Paused targets keep paused; only enqueue when enabled and due.
+      const scheduleJob = after.enabled && dueNow ? firstRunAt : null;
+      jobId = await replacePendingJobs(tx, id, scheduleJob);
+    } else if (resume) {
+      if (dueNow) {
+        await tx`
+          UPDATE collector_jobs
+          SET scheduled_for = ${firstRunAt}, updated_at = statement_timestamp()
+          WHERE id = (
+            SELECT id FROM collector_jobs
+            WHERE target_id = ${id}::uuid AND status = 'pending'
+            ORDER BY scheduled_for, id
+            LIMIT 1
+          )
+        `;
+        jobId = await insertJobIfIdle(tx, id, firstRunAt);
+      } else {
+        // Still before startAt: park or remove pending so claim cannot race early.
+        jobId = await replacePendingJobs(tx, id, null);
+      }
     }
-    return { status: 'updated', target: mapTarget(row), jobId };
+    return { status: 'updated', target: after, jobId };
   });
 }
 
@@ -327,6 +460,7 @@ export async function enqueueDueCollectorJobs(sql: Sql): Promise<number> {
       AND t.enabled = true
       AND t.next_run_at IS NOT NULL
       AND t.next_run_at <= statement_timestamp()
+      AND (t.start_at IS NULL OR t.start_at <= statement_timestamp())
       AND NOT EXISTS (
         SELECT 1 FROM collector_jobs j
         WHERE j.target_id = t.id AND j.status IN ('pending', 'running')
@@ -357,8 +491,9 @@ export async function claimNextCollectorJob(sql: Sql): Promise<ClaimedCollectorJ
         AND j.scheduled_for <= statement_timestamp()
         AND t.enabled = true
         AND t.deleted_at IS NULL
+        AND (t.start_at IS NULL OR t.start_at <= statement_timestamp())
       ORDER BY j.scheduled_for, j.id
-      FOR UPDATE OF j SKIP LOCKED
+      FOR UPDATE OF j, t SKIP LOCKED
       LIMIT 1
     )
     UPDATE collector_jobs AS job
@@ -370,6 +505,9 @@ export async function claimNextCollectorJob(sql: Sql): Promise<ClaimedCollectorJ
     FROM candidate
     JOIN monitor_targets t ON t.id = candidate.target_id
     WHERE job.id = candidate.id
+      AND (t.start_at IS NULL OR t.start_at <= statement_timestamp())
+      AND t.enabled = true
+      AND t.deleted_at IS NULL
     RETURNING job.id::text AS id,
       job.target_id::text AS target_id,
       job.attempts,
@@ -873,7 +1011,10 @@ const jobSelect = `
   ) r ON TRUE
 `;
 
-export async function getCollectorJob(sql: Sql, id: string): Promise<CollectorJobRow | null> {
+export async function getCollectorJob(
+  sql: Queryable,
+  id: string,
+): Promise<CollectorJobRow | null> {
   const rows = await sql<JobSqlRow[]>`
     ${sql.unsafe(jobSelect)}
     WHERE j.id = ${id}::uuid
@@ -906,35 +1047,40 @@ export async function requestCollectorRun(
   targetId: string,
   now: Date,
 ): Promise<
-  | { status: 'missing' | 'deleted'; job: null }
+  | { status: 'missing' | 'deleted' | 'before_start'; job: null }
   | { status: 'queued'; job: CollectorJobRow; created: boolean }
 > {
-  const target = await getMonitorTarget(sql, targetId);
-  if (!target) return { status: 'missing', job: null };
-  if (target.deletedAt) return { status: 'deleted', job: null };
-  const jobId = crypto.randomUUID();
-  const inserted = await sql<{ id: string }[]>`
-    INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
-    VALUES (${jobId}::uuid, ${targetId}::uuid, 'pending', 0, ${now})
-    ON CONFLICT (target_id, scheduled_for) DO NOTHING
-    RETURNING id::text AS id
-  `;
-  const id = inserted[0]?.id;
-  if (!id) {
-    const existing = await sql<{ id: string }[]>`
-      SELECT id::text AS id
-      FROM collector_jobs
-      WHERE target_id = ${targetId}::uuid AND scheduled_for = ${now}
+  return sql.begin(async (tx) => {
+    const target = await lockMonitorTarget(tx, targetId);
+    if (!target) return { status: 'missing' as const, job: null };
+    if (target.deletedAt) return { status: 'deleted' as const, job: null };
+    if (target.startAt && target.startAt.getTime() > now.getTime()) {
+      return { status: 'before_start' as const, job: null };
+    }
+    const jobId = crypto.randomUUID();
+    const inserted = await tx<{ id: string }[]>`
+      INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
+      VALUES (${jobId}::uuid, ${targetId}::uuid, 'pending', 0, ${now})
+      ON CONFLICT (target_id, scheduled_for) DO NOTHING
+      RETURNING id::text AS id
     `;
-    const existingId = existing[0]?.id;
-    if (!existingId) throw new Error('采集任务冲突后未能读回');
-    const job = await getCollectorJob(sql, existingId);
-    if (!job) throw new Error('采集任务冲突后未能读回');
-    return { status: 'queued', job, created: false };
-  }
-  const job = await getCollectorJob(sql, id);
-  if (!job) throw new Error('采集任务写入后未能读回');
-  return { status: 'queued', job, created: true };
+    const id = inserted[0]?.id;
+    if (!id) {
+      const existing = await tx<{ id: string }[]>`
+        SELECT id::text AS id
+        FROM collector_jobs
+        WHERE target_id = ${targetId}::uuid AND scheduled_for = ${now}
+      `;
+      const existingId = existing[0]?.id;
+      if (!existingId) throw new Error('采集任务冲突后未能读回');
+      const job = await getCollectorJob(tx, existingId);
+      if (!job) throw new Error('采集任务冲突后未能读回');
+      return { status: 'queued' as const, job, created: false };
+    }
+    const job = await getCollectorJob(tx, id);
+    if (!job) throw new Error('采集任务写入后未能读回');
+    return { status: 'queued' as const, job, created: true };
+  });
 }
 
 export async function refreshCollectorHeartbeat(sql: Sql, instanceId: string): Promise<void> {

@@ -78,6 +78,7 @@ export function OpsOperationsPanel({
           <option value="tags">调整标签</option>
           <option value="remove">移除</option>
           <option value="run">手动采集</option>
+          <option value="reschedule">调整开始时间</option>
         </select>
       </label>
       <p className="text-xs text-muted-foreground">
