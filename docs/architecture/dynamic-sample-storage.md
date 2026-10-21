@@ -77,6 +77,8 @@ WP-R2-16B。这一包只给已经存在的 `dynamics` 和 `dynamic_metric_sample
 
 失败的删除语句不会继续改下一张表。
 
+调试包 `GET /api/v1/ops/debug/bundle` 的 `schemaVersion` 取 `schema_migrations` 里按版本名倒序的第一条。加上 `011_dynamic_sample_storage` 之后，这个值从 `010_` 变为 `011_dynamic_sample_storage`。路由代码没有改；空库时的回退字符串仍是原来的 `009_refresh_request_audit`。消费方测试里对最新迁移前缀的断言随之改为 `011_`。
+
 ## 还没有接入的部分
 
 - `monitor_targets` 没有动态类型，调度器不领取动态任务。
