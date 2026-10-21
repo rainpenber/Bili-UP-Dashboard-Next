@@ -28,3 +28,9 @@ enqueue／claim／manual／恢复均在取得目标行锁后读取最新 `startA
 ## 历史保全
 
 改期更新 pending 的 `scheduled_for`，不删除已有 `collector_runs` 引用的 job；失败未成功可改期并保全 failed run。视频上已有 import 样本不代表该新 target 已成功。
+
+## UI 入口（WP-R2-17B）
+
+- 监控新增（video）：可选计划上线时间；`datetime-local` → 本地偏移 ISO → contracts 校验后 POST。
+- 监控详情展开／设置：展示计划开始；未成功且非 running 时可 PATCH 改期或清空。
+- 项目发布面板：演示发布与「按此时间创建定时监控」并存；后者走真实 create API，幂等提示已存在。

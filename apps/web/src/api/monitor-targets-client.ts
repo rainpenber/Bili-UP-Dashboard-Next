@@ -54,6 +54,8 @@ export function createMonitorTarget(input: {
   tags?: string[];
   intervalMode?: 'auto' | 'fixed';
   intervalMinutes?: number;
+  /** Video-only planned first collect; omit for immediate start. */
+  startAt?: string | null;
 }): Promise<MonitorTargetCreateResponse> {
   const body: Record<string, unknown> = {
     type: input.type,
@@ -63,6 +65,7 @@ export function createMonitorTarget(input: {
   if (input.tags !== undefined) body.tags = input.tags;
   if (input.intervalMode) body.intervalMode = input.intervalMode;
   if (input.intervalMinutes !== undefined) body.intervalMinutes = input.intervalMinutes;
+  if (input.startAt !== undefined) body.startAt = input.startAt;
   return requestJson('/targets', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

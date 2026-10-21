@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatVideoCardMetricsSummary } from '@/features/monitoring/video-card-metrics';
 import { MonitorSettingsDialog } from '@/features/monitoring/monitor-settings-dialog';
+import { formatStartAtDisplay } from '@/lib/datetime-local';
 import { formatFullLocalTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
 
@@ -335,6 +336,11 @@ export function MonitorCardControls({
           )}
         >
           <p>频率：{monitorFrequencyText(card)}</p>
+          {card.type === 'video' ? (
+            <p data-testid="monitor-start-at-details" className="tabular-nums">
+              计划开始：{formatStartAtDisplay(card.target?.startAt ?? null)}
+            </p>
+          ) : null}
           <p className="tabular-nums">
             上一次成功采集：{whenText(card.target?.lastSuccessAt ?? null)}
           </p>
