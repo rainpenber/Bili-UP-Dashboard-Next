@@ -14,8 +14,8 @@ WP-R2-17R1。建立在 [采集目标／任务／运行的共同事务边界](./c
 ## 写入合同
 
 - **创建**：完整显式时区（`Z` 或 `±HH:MM`），严格真实日历；UTC 存储／输出。未来 video 只保存目标，`next_run_at = start_at`，不插入立即可执行 job；到点由既有 enqueue 创建。
-- **改期（PATCH `startAt`）**：仅 `last_success_at` 为空且无 `running` job。省略＝不变；显式 `null`＝清除计划并立即待采。暂停时改期保持暂停；恢复遵守 `max(now, startAt)`。
-- **拒绝**：非 video／非法日期／无时区 → 400；缺目标 → 404；已成功／running／未到点 manual → 409，全量零副作用。
+- **改期（PATCH `startAt`）**：仅 `last_success_at` 为空且无 `running` job。省略＝不变；video 显式 `null`＝清除计划并立即待采；非 video 显式 `null`＝无操作（兼容列表／详情整包回写）。暂停时改期保持暂停；恢复遵守 `max(now, startAt)`。
+- **拒绝**：非 video **非 null**／非法日期／无时区 → 400；缺目标 → 404；已成功／running／未到点 manual → 409，全量零副作用。
 - **重复创建**：不覆盖计划、不恢复 paused。
 
 ## 准入门（锁后）

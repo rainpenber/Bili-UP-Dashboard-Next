@@ -28,3 +28,9 @@
 ## 明确不做
 
 17A2 上游码／宽限、监控／项目页控件、Hermes 闭环、Compose／CI 拓扑、真实 B 站、MON-01、dynamic UI、18492 换版。
+
+## FIX1（同 PR）
+
+- 非 video 显式 `startAt: null` 为无操作（整包回写兼容）；仅非 null 拒绝。
+- 创建审计始终带 `changes.startAt`（含 after=null）。
+- 013 幂等用例实际重放 DDL 两次并保全已有 `start_at` 数据。

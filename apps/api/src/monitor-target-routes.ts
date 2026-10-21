@@ -318,10 +318,9 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
           label: { before: null, after: result.target.label },
           intervalMinutes: { before: null, after: result.target.intervalMinutes },
           enabled: { before: null, after: result.target.enabled },
+          // Always record plan intent: null = immediate / no plan (not "unlogged").
+          startAt: { before: null, after: iso(result.target.startAt) },
         };
-        if (result.target.startAt) {
-          createChanges.startAt = { before: null, after: iso(result.target.startAt) };
-        }
         await recordOperations(contextLogger(c), requestIdFrom(c), [
           {
             event: 'monitor.target.created',
@@ -363,7 +362,15 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
       ) {
         throw new MonitorContractError('invalid_interval', '动态只支持固定间隔，不能使用自动频率');
       }
-      if (before && !before.deletedAt && patch.startAt !== undefined && before.type !== 'video') {
+      // Non-null startAt on non-video is rejected. Explicit null on non-video is a no-op
+      // (clients echo list/detail payloads); only video null clears the plan.
+      if (
+        before &&
+        !before.deletedAt &&
+        patch.startAt !== undefined &&
+        patch.startAt !== null &&
+        before.type !== 'video'
+      ) {
         throw new MonitorContractError('invalid_start_at', '只有视频监控支持计划开始时间');
       }
       const dbPatch: {
@@ -380,7 +387,10 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
       if (patch.tags !== undefined) dbPatch.tags = patch.tags;
       if (patch.label !== undefined) dbPatch.label = patch.label;
       if (patch.startAt !== undefined) {
-        dbPatch.startAt = patch.startAt === null ? null : new Date(patch.startAt);
+        const targetType = before?.type;
+        if (targetType === 'video' || patch.startAt !== null) {
+          dbPatch.startAt = patch.startAt === null ? null : new Date(patch.startAt);
+        }
       }
       const result = await updateMonitorTarget(db, id, dbPatch, new Date());
       if (result.status === 'missing') {

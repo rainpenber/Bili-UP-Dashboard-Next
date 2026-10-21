@@ -377,7 +377,9 @@ export async function updateMonitorTarget(
       throw new Error('动态只支持固定间隔，不能使用自动频率');
     }
 
-    const reschedule = 'startAt' in patch;
+    // Non-video + explicit null is a no-op (echo of list/detail payloads), not a clear-plan.
+    // Only a non-null startAt, or a video null clear, enters the reschedule branch.
+    const reschedule = 'startAt' in patch && (patch.startAt !== null || existing.type === 'video');
     if (reschedule) {
       if (existing.type !== 'video') {
         return { status: 'invalid_start_type', target: asMonitorTargetRow(existing), jobId: null };

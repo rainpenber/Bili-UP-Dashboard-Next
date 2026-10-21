@@ -15,6 +15,7 @@ import {
   createRetainedTestDatabase,
   createSql,
   enqueueDueCollectorJobs,
+  migrationSql,
   readDbConfigFromEnv,
   recordCollectorFailure,
   updateMonitorTarget,
@@ -138,6 +139,45 @@ describe('scheduled video targets (WP-R2-17R1)', () => {
       SELECT version FROM schema_migrations WHERE version LIKE '013_%'
     `;
     expect(versions.some((row) => row.version.startsWith('013_'))).toBe(true);
+
+    // Seed a planned start_at, then actually replay the 013 DDL twice.
+    const seedId = crypto.randomUUID();
+    const seedAt = new Date('2028-06-01T08:00:00.000Z');
+    await db()`
+      INSERT INTO monitor_targets (
+        id, "type", external_id, label, tags, enabled, interval_minutes, interval_mode,
+        start_at, next_run_at, source
+      ) VALUES (
+        ${seedId}::uuid, 'video', 'BV1xx411c7zZ', '幂等种子', '{}'::text[],
+        true, 15, 'auto', ${seedAt}, ${seedAt}, 'offline'
+      )
+    `;
+    const ddl = migrationSql('013_monitor_target_start_at');
+    await db().unsafe(ddl);
+    await db().unsafe(ddl);
+
+    const colsAfter = await db()<{ column_name: string }[]>`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'monitor_targets' AND column_name = 'start_at'
+    `;
+    expect(colsAfter).toHaveLength(1);
+    const checks = await db()<{ conname: string }[]>`
+      SELECT c.conname
+      FROM pg_constraint c
+      JOIN pg_class t ON t.oid = c.conrelid
+      WHERE t.relname = 'monitor_targets'
+        AND c.conname = 'monitor_targets_start_at_video_chk'
+    `;
+    expect(checks).toHaveLength(1);
+    const indexes = await db()<{ indexname: string }[]>`
+      SELECT indexname FROM pg_indexes
+      WHERE tablename = 'monitor_targets' AND indexname = 'monitor_targets_start_at'
+    `;
+    expect(indexes).toHaveLength(1);
+    const [seeded] = await db()<{ start_at: Date | null }[]>`
+      SELECT start_at FROM monitor_targets WHERE id = ${seedId}::uuid
+    `;
+    expect(seeded?.start_at?.toISOString()).toBe(seedAt.toISOString());
   });
 
   test('future create → read startAt → idle with zero transport → due after reschedule to past', async () => {
@@ -519,6 +559,12 @@ describe('scheduled video targets (WP-R2-17R1)', () => {
   });
 
   test('ops records include create startAt and reschedule; omit does not invent', async () => {
+    const immediate = parseMonitorTargetCreateResponse(
+      await (await postTarget({ type: 'video', externalId: 'BV1xx411c7mK' })).json(),
+    );
+    expect(immediate.created).toBe(true);
+    expect(immediate.target.startAt).toBeNull();
+
     const startAt = futureIso(9);
     const created = parseMonitorTargetCreateResponse(
       await (
@@ -536,16 +582,99 @@ describe('scheduled video targets (WP-R2-17R1)', () => {
     expect(labelOnly.status).toBe(200);
 
     await apiLogger!.flush();
+    const immediateOps = parseOpsOperationList(
+      await (
+        await app!.request(`/api/v1/ops/operations?targetId=${immediate.target.id}&pageSize=50`)
+      ).json(),
+    );
+    const immediateCreate = immediateOps.items.find((item) => item.action === 'create');
+    expect(immediateCreate?.changes.startAt).toEqual({ before: null, after: null });
+
     const ops = parseOpsOperationList(
       await (
         await app!.request(`/api/v1/ops/operations?targetId=${created.target.id}&pageSize=50`)
       ).json(),
     );
     expect(ops.items.some((item) => item.action === 'create')).toBe(true);
+    const create = ops.items.find((item) => item.action === 'create');
+    expect(create?.changes.startAt).toEqual({ before: null, after: startAt });
     expect(ops.items.some((item) => item.action === 'reschedule')).toBe(true);
     const reschedule = ops.items.find((item) => item.action === 'reschedule');
     expect(reschedule?.changes.startAt?.after).toBe(next);
     expect(ops.items.some((item) => item.action === 'rename')).toBe(true);
+  });
+
+  test('non-video echo startAt:null is no-op; non-null still rejected with zero writes', async () => {
+    const creator = parseMonitorTargetCreateResponse(
+      await (await postTarget({ type: 'creator', externalId: '17011' })).json(),
+    );
+    const dynamic = parseMonitorTargetCreateResponse(
+      await (
+        await postTarget({
+          type: 'dynamic',
+          externalId: '966692349750018111',
+        })
+      ).json(),
+    );
+    expect(creator.target.startAt).toBeNull();
+    expect(dynamic.target.startAt).toBeNull();
+    const creatorPendingBefore = await pendingCount(creator.target.id);
+    const dynamicPendingBefore = await pendingCount(dynamic.target.id);
+
+    for (const target of [creator.target, dynamic.target]) {
+      const echo = await patchTarget(target.id, {
+        enabled: target.enabled,
+        intervalMinutes: target.intervalMinutes,
+        intervalMode: target.intervalMode,
+        tags: target.tags,
+        label: target.label,
+        startAt: null,
+      });
+      expect(echo.status).toBe(200);
+      const after = parseMonitorTarget(((await echo.json()) as { target: unknown }).target);
+      expect(after.startAt).toBeNull();
+      expect(after.enabled).toBe(target.enabled);
+      expect(after.intervalMinutes).toBe(target.intervalMinutes);
+      expect(after.intervalMode).toBe(target.intervalMode);
+      expect(after.label).toBe(target.label);
+      expect(after.tags).toEqual(target.tags);
+      expect(after.nextRunAt).toBe(target.nextRunAt);
+      expect(await pendingCount(target.id)).toBe(
+        target.id === creator.target.id ? creatorPendingBefore : dynamicPendingBefore,
+      );
+    }
+
+    await apiLogger!.flush();
+    for (const target of [creator.target, dynamic.target]) {
+      const ops = parseOpsOperationList(
+        await (
+          await app!.request(`/api/v1/ops/operations?targetId=${target.id}&pageSize=50`)
+        ).json(),
+      );
+      expect(ops.items.some((item) => item.action === 'reschedule')).toBe(false);
+    }
+
+    const creatorReject = await patchTarget(creator.target.id, {
+      startAt: futureIso(3),
+    });
+    expect(creatorReject.status).toBe(400);
+    expect(((await creatorReject.json()) as { code: string }).code).toBe('invalid_start_at');
+    const [creatorRow] = await db()<{ start_at: Date | null; updated_at: Date }[]>`
+      SELECT start_at, updated_at FROM monitor_targets WHERE id = ${creator.target.id}::uuid
+    `;
+    expect(creatorRow?.start_at).toBeNull();
+    expect(creatorRow?.updated_at.toISOString()).toBe(creator.target.updatedAt);
+
+    const dynamicReject = await patchTarget(dynamic.target.id, {
+      startAt: '2026-10-21T20:00:00+08:00',
+    });
+    expect(dynamicReject.status).toBe(400);
+    expect(((await dynamicReject.json()) as { code: string }).code).toBe('invalid_start_at');
+    const [dynamicRow] = await db()<{ start_at: Date | null; updated_at: Date }[]>`
+      SELECT start_at, updated_at FROM monitor_targets WHERE id = ${dynamic.target.id}::uuid
+    `;
+    expect(dynamicRow?.start_at).toBeNull();
+    expect(dynamicRow?.updated_at.toISOString()).toBe(dynamic.target.updatedAt);
   });
 
   test('cards expose startAt; omitted startAt on old payload parses as null', async () => {
