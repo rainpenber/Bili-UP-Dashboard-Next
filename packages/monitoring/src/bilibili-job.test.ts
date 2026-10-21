@@ -32,6 +32,9 @@ function provider(fetchVideo: BilibiliProvider['fetchVideo']): BilibiliProvider 
     fetchCreator: async () => {
       throw new Error('unused');
     },
+    fetchDynamic: async () => {
+      throw new Error('动态详情尚未接入采集任务');
+    },
   };
 }
 
