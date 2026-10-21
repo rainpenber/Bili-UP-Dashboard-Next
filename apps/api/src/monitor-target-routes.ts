@@ -373,13 +373,12 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
         tags?: string[];
         label?: string;
         startAt?: Date | null;
-      } = {
-        enabled: patch.enabled,
-        intervalMinutes: patch.intervalMinutes,
-        intervalMode: patch.intervalMode,
-        tags: patch.tags,
-        label: patch.label,
-      };
+      } = {};
+      if (patch.enabled !== undefined) dbPatch.enabled = patch.enabled;
+      if (patch.intervalMinutes !== undefined) dbPatch.intervalMinutes = patch.intervalMinutes;
+      if (patch.intervalMode !== undefined) dbPatch.intervalMode = patch.intervalMode;
+      if (patch.tags !== undefined) dbPatch.tags = patch.tags;
+      if (patch.label !== undefined) dbPatch.label = patch.label;
       if (patch.startAt !== undefined) {
         dbPatch.startAt = patch.startAt === null ? null : new Date(patch.startAt);
       }

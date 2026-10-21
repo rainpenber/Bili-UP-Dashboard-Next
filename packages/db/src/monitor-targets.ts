@@ -319,12 +319,7 @@ function asLockedTarget(target: MonitorTargetRow): LockedMonitorTarget {
 }
 
 export type UpdateMonitorTargetStatus =
-  | 'missing'
-  | 'deleted'
-  | 'updated'
-  | 'already_started'
-  | 'running'
-  | 'invalid_start_type';
+  'missing' | 'deleted' | 'updated' | 'already_started' | 'running' | 'invalid_start_type';
 
 /**
  * Align the single effective pending to scheduledFor without deleting jobs that
@@ -340,12 +335,7 @@ async function realignPendingToSchedule(
   await convergeActiveJobsUnderTargetLock(tx, lockedTarget);
   const active = await findActiveJob(tx, lockedTarget.id);
   if (active && active.status === 'pending') {
-    const uniqueAt = await allocateUniqueScheduledFor(
-      tx,
-      lockedTarget.id,
-      scheduledFor,
-      active.id,
-    );
+    const uniqueAt = await allocateUniqueScheduledFor(tx, lockedTarget.id, scheduledFor, active.id);
     await tx`
       UPDATE collector_jobs
       SET scheduled_for = ${uniqueAt}, updated_at = statement_timestamp()

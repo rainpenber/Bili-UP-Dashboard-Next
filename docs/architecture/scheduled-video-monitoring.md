@@ -4,10 +4,10 @@ WP-R2-17R1。建立在 [采集目标／任务／运行的共同事务边界](./c
 
 ## 字段
 
-| 字段 | 含义 |
-| --- | --- |
-| `monitor_targets.start_at` | 用户计划的首次采集意图（仅 video 可非 null） |
-| `monitor_targets.next_run_at` | 调度游标；不得早于未来的 `start_at` |
+| 字段                          | 含义                                         |
+| ----------------------------- | -------------------------------------------- |
+| `monitor_targets.start_at`    | 用户计划的首次采集意图（仅 video 可非 null） |
+| `monitor_targets.next_run_at` | 调度游标；不得早于未来的 `start_at`          |
 
 缺省／null 的 `start_at` 表示无计划、立即待采。用户意图不等于可变的 `next_run_at`。
 
