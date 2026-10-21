@@ -57,7 +57,7 @@ export function OpsLogsPanel({
         targetId: view.targetId || undefined,
         since,
         until,
-        attention: view.attention && !view.level,
+        attention: view.attention,
         cursor: view.logCursor || undefined,
         limit: 50,
       },
@@ -143,9 +143,9 @@ export function OpsLogsPanel({
         <input
           type="checkbox"
           aria-label="只看告警和失败"
-          checked={view.attention && !view.level}
+          checked={view.attention}
           onChange={(event) =>
-            onChange({ attention: event.target.checked ? null : '0', level: null, logCursor: null })
+            onChange({ attention: event.target.checked ? '1' : null, logCursor: null })
           }
         />
         只看告警和失败

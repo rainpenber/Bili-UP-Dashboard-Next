@@ -214,7 +214,9 @@ describe('ops page', () => {
     );
     expect(await screen.findByText('这个范围内没有采集记录')).toBeTruthy();
     expect(screen.getByText('失联')).toBeTruthy();
-    expect(screen.getByTestId('ops-range').textContent).toContain('默认时间范围');
+    expect(screen.getByTestId('ops-range').textContent).toContain('默认计划日期');
+    expect(screen.getByLabelText('计划日期起')).toBeTruthy();
+    expect(screen.getByLabelText('计划日期止')).toBeTruthy();
     expect(screen.getByTestId('ops-range').textContent).toContain('Asia/Shanghai');
     expect(calls.some((url) => url.includes('/api/v1/ops/operations'))).toBe(false);
     expect(calls.some((url) => url.includes('/api/v1/ops/logs'))).toBe(false);
@@ -381,5 +383,150 @@ describe('ops page', () => {
     expect(jobCall).toContain('targetId=22222222-2222-4222-8222-222222222222');
     expect(jobCall).toContain('externalId=BV1xx411c7mD');
     expect(jobCall).not.toContain('group=target');
+  });
+
+  test('shows info logs until the user turns on attention', async () => {
+    const calls: string[] = [];
+    const infoLog = {
+      id: '41',
+      ts: '2026-10-21T02:00:00.000Z',
+      level: 'info',
+      service: 'api',
+      event: 'service.started',
+      message: '服务已启动',
+      requestId: null,
+      runId: null,
+      context: { note: 'folded-field' },
+    };
+    const warnLog = {
+      ...infoLog,
+      id: '42',
+      level: 'warn',
+      event: 'job.failed',
+      message: '告警一条',
+    };
+    install((url) => {
+      calls.push(url);
+      if (url.includes('/summary')) return jsonResponse(healthySummary);
+      if (url.includes('/health')) return jsonResponse(healthy);
+      if (url.includes('/logs')) {
+        const attention = new URL(url, 'http://localhost').searchParams.get('attention') === '1';
+        return jsonResponse({
+          items: attention ? [warnLog] : [infoLog, warnLog],
+          nextCursor: null,
+          limit: 50,
+          total: attention ? 1 : 2,
+        });
+      }
+      if (url.includes('/collector-jobs')) return jsonResponse({ ...jobList, items: [], total: 0 });
+      return jsonResponse({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        range,
+        logRetention: retention,
+      });
+    });
+    renderPage('/ops?tab=logs');
+    expect(await screen.findByText('服务已启动')).toBeTruthy();
+    const box = screen.getByRole('checkbox', { name: '只看告警和失败' }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    const firstLogCall = calls.find((url) => url.includes('/api/v1/ops/logs?'));
+    expect(firstLogCall).toBeTruthy();
+    expect(firstLogCall).not.toContain('attention=1');
+    fireEvent.click(box);
+    await waitFor(() => {
+      expect(
+        calls.some((url) => url.includes('/api/v1/ops/logs?') && url.includes('attention=1')),
+      ).toBe(true);
+      expect(screen.queryByText('服务已启动')).toBeNull();
+    });
+    expect(screen.getByText('告警一条')).toBeTruthy();
+  });
+
+  test('reproduces the attention filter from the URL', async () => {
+    const calls: string[] = [];
+    install((url) => {
+      calls.push(url);
+      if (url.includes('/summary')) return jsonResponse(healthySummary);
+      if (url.includes('/health')) return jsonResponse(healthy);
+      if (url.includes('/logs')) {
+        return jsonResponse({
+          items: [
+            {
+              id: '42',
+              ts: '2026-10-21T02:00:00.000Z',
+              level: 'warn',
+              service: 'api',
+              event: 'job.failed',
+              message: '只剩告警',
+              requestId: null,
+              runId: null,
+              context: {},
+            },
+          ],
+          nextCursor: null,
+          limit: 50,
+          total: 1,
+        });
+      }
+      return jsonResponse({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        range,
+        logRetention: retention,
+      });
+    });
+    renderPage('/ops?tab=logs&attention=1');
+    expect(await screen.findByText('只剩告警')).toBeTruthy();
+    expect(
+      (screen.getByRole('checkbox', { name: '只看告警和失败' }) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(
+      calls.some((url) => url.includes('/api/v1/ops/logs?') && url.includes('attention=1')),
+    ).toBe(true);
+  });
+
+  test('explains a running job with no finished run', async () => {
+    const running = {
+      ...pendingJob,
+      status: 'running',
+      attempts: 1,
+      startedAt: '2026-10-21T16:10:00.000Z',
+      durationMs: 1200,
+      samplesWritten: null,
+    };
+    install((url) => {
+      if (url.includes('/summary')) return jsonResponse(healthySummary);
+      if (url.includes('/health')) return jsonResponse(healthy);
+      if (url.includes(`/collector-jobs/${running.id}`)) {
+        return jsonResponse({
+          ...detail,
+          job: running,
+          attempts: [],
+          attemptTotal: 0,
+        });
+      }
+      if (url.includes('/collector-jobs'))
+        return jsonResponse({ ...jobList, items: [running], total: 1 });
+      return jsonResponse({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        range,
+        logRetention: retention,
+      });
+    });
+    renderPage(`/ops?job=${running.id}`);
+    expect(await screen.findByText('已完成执行记录 0')).toBeTruthy();
+    expect(screen.getByText('还没有已完成的执行记录。')).toBeTruthy();
+    expect(document.body.textContent).toContain('尝试（已开始） 1');
+    expect(document.body.textContent).toContain('当前第 1 次');
+    expect(document.body.textContent).not.toContain('尝试 0');
+    expect(document.body.textContent).not.toContain('尝试 1');
   });
 });

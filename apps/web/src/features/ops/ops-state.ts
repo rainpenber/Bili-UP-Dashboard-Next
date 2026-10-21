@@ -65,7 +65,7 @@ export function readOpsView(params: URLSearchParams): OpsView {
     service: params.get('service')?.trim() ?? '',
     logQ: params.get('logQ')?.trim() ?? '',
     runId: params.get('runId')?.trim() ?? '',
-    attention: params.get('attention') !== '0',
+    attention: params.get('attention') === '1',
     opPage: pageOf(params.get('opPage')),
     logCursor: params.get('logCursor')?.trim() ?? '',
     attemptPage: pageOf(params.get('attemptPage')),
@@ -86,7 +86,6 @@ export function patchOpsView(
   if (next.get('page') === '1') next.delete('page');
   if (next.get('opPage') === '1') next.delete('opPage');
   if (next.get('attemptPage') === '1') next.delete('attemptPage');
-  if (next.get('attention') === '1') next.delete('attention');
   return next;
 }
 

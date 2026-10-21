@@ -30,6 +30,7 @@ const OUTSIDE = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb8';
 const BOUND_IN = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb9';
 const BOUND_BEFORE = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb10';
 const BOUND_AFTER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb11';
+const CROSS_DAY = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb12';
 const RUN_FAIL = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1';
 const RUN_FIRST = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2';
 const RUN_OK = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc3';
@@ -134,6 +135,14 @@ describe('ops collection records on an isolated database', () => {
     expect(byId.has(BOUND_BEFORE)).toBe(false);
     expect(byId.has(BOUND_AFTER)).toBe(false);
     expect(byId.get(BOUND_IN)?.scheduledFor).toBe('2026-10-20T16:00:00.000Z');
+    const crossDay = byId.get(CROSS_DAY);
+    expect(crossDay?.scheduledFor).toBe('2026-10-21T15:50:00.000Z');
+    expect(crossDay?.startedAt).toBe('2026-10-21T16:10:00.000Z');
+    expect(crossDay?.attempts).toBe(1);
+    const nextDay = parseOpsCollectorJobList(
+      await get('/api/v1/ops/collector-jobs?since=2026-10-22&until=2026-10-22&pageSize=50'),
+    );
+    expect(nextDay.items.some((item) => item.id === CROSS_DAY)).toBe(false);
 
     const names = parseOpsCollectorJobList(
       await get(
@@ -243,7 +252,14 @@ describe('ops collection records on an isolated database', () => {
     const pending = parseOpsCollectorJobDetail(await get(`/api/v1/ops/collector-jobs/${PENDING}`));
     expect(pending.attemptTotal).toBe(0);
     expect(pending.attempts).toEqual([]);
+    expect(pending.job.attempts).toBe(0);
     expect(pending.job.durationMs).toBeNull();
+
+    const running = parseOpsCollectorJobDetail(await get(`/api/v1/ops/collector-jobs/${RUNNING}`));
+    expect(running.job.attempts).toBe(1);
+    expect(running.attemptTotal).toBe(0);
+    expect(running.attempts).toEqual([]);
+    expect(running.job.status).toBe('running');
 
     if (!app) throw new Error('app missing');
     expect((await app.request('/api/v1/ops/collector-jobs/not-a-uuid')).status).toBe(400);
@@ -251,6 +267,31 @@ describe('ops collection records on an isolated database', () => {
       (await app.request('/api/v1/ops/collector-jobs/00000000-0000-4000-8000-000000000099')).status,
     ).toBe(404);
     expect((await app.request('/api/v1/ops/collector-jobs?status=queued')).status).toBe(400);
+  });
+
+  test('returns info logs unless attention=1', async () => {
+    if (!sql || !app) throw new Error('app missing');
+    await sql`
+      INSERT INTO app_logs (level, service, event, message)
+      VALUES
+        ('info', 'api', 'service.started', 'wp-r2-14-info-visible'),
+        ('warn', 'api', 'job.failed', 'wp-r2-14-warn-visible'),
+        ('info', 'api', 'http.request', 'wp-r2-14-http-hidden')
+    `;
+    const open = (await (await app.request('/api/v1/ops/logs?q=wp-r2-14-&limit=20')).json()) as {
+      items: { level: string; message: string; event: string | null }[];
+    };
+    expect(open.items.map((item) => item.message).sort()).toEqual([
+      'wp-r2-14-info-visible',
+      'wp-r2-14-warn-visible',
+    ]);
+    const attention = (await (
+      await app.request('/api/v1/ops/logs?q=wp-r2-14-&attention=1&limit=20')
+    ).json()) as { items: { level: string; message: string }[] };
+    expect(attention.items.map((item) => item.message)).toEqual(['wp-r2-14-warn-visible']);
+    expect(attention.items.every((item) => item.level === 'warn' || item.level === 'error')).toBe(
+      true,
+    );
   });
 });
 
@@ -303,7 +344,8 @@ async function seed(sql: Sql): Promise<void> {
       (${OUTSIDE}::uuid, ${A}::uuid, 'pending', 0, '2020-01-01T02:00:00Z', NULL, NULL, NULL),
       (${BOUND_IN}::uuid, ${F}::uuid, 'pending', 0, '2026-10-20T16:00:00Z', NULL, NULL, NULL),
       (${BOUND_BEFORE}::uuid, ${F}::uuid, 'pending', 0, '2026-10-20T15:59:59Z', NULL, NULL, NULL),
-      (${BOUND_AFTER}::uuid, ${F}::uuid, 'pending', 0, '2026-10-21T16:00:00Z', NULL, NULL, NULL)
+      (${BOUND_AFTER}::uuid, ${F}::uuid, 'pending', 0, '2026-10-21T16:00:00Z', NULL, NULL, NULL),
+      (${CROSS_DAY}::uuid, ${F}::uuid, 'running', 1, '2026-10-21T15:50:00Z', '2026-10-21T16:10:00Z', NULL, NULL)
   `;
   for (const [index, id] of pageJobIds.entries()) {
     await sql`

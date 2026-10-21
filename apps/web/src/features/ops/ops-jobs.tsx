@@ -70,7 +70,7 @@ function JobRow({ job, onOpen }: { job: OpsCollectorJob; onOpen: (id: string) =>
             {' · '}耗时 {formatDuration(job.durationMs)}
             {' · '}
             {writeLine(job)}
-            {' · '}尝试 {job.attempts}
+            {' · '}尝试（已开始） {job.attempts}
           </span>
           {job.error ? (
             <span className="mt-1 block truncate text-xs text-destructive">
@@ -261,18 +261,18 @@ export function OpsJobsPanel({
           </select>
         </label>
         <label className="min-w-0 space-y-1 text-sm">
-          <span className="text-muted-foreground">开始日期</span>
+          <span className="text-muted-foreground">计划日期起</span>
           <Input
-            aria-label="开始日期"
+            aria-label="计划日期起"
             type="date"
             value={view.since}
             onChange={(event) => onChange({ since: event.target.value, page: null })}
           />
         </label>
         <label className="min-w-0 space-y-1 text-sm">
-          <span className="text-muted-foreground">结束日期</span>
+          <span className="text-muted-foreground">计划日期止</span>
           <Input
-            aria-label="结束日期"
+            aria-label="计划日期止"
             type="date"
             value={view.until}
             onChange={(event) => onChange({ until: event.target.value, page: null })}
@@ -370,7 +370,7 @@ export function OpsJobsPanel({
       </div>
       {list ? (
         <p className="text-xs text-muted-foreground" data-testid="ops-range">
-          {list.range.defaulted ? '默认时间范围' : '时间范围'}：{list.range.since} 至{' '}
+          {list.range.defaulted ? '默认计划日期' : '计划日期'}：{list.range.since} 至{' '}
           {list.range.until}（{list.range.timezone}）。日志保留 {list.logRetention.days} 天
           {list.logRetention.oldestStoredAt
             ? `，最早入库 ${formatShanghaiDateTime(list.logRetention.oldestStoredAt)}`
@@ -608,14 +608,16 @@ function JobDrawer({
                 {' · '}耗时 {formatDuration(detail.job.durationMs)}
                 {' · '}
                 {writeLine(detail.job)}
+                {' · '}尝试（已开始） {detail.job.attempts}
+                {detail.job.attempts > 0 ? ` · 当前第 ${detail.job.attempts} 次` : ''}
               </p>
               <p className="text-xs text-muted-foreground">
                 日志保留 {detail.logRetention.days} 天。没有关联日志不会改变运行结果。
               </p>
               <div className="space-y-3">
-                <h3 className="text-sm font-medium">尝试 {detail.attemptTotal}</h3>
+                <h3 className="text-sm font-medium">已完成执行记录 {detail.attemptTotal}</h3>
                 {detail.attempts.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">这一轮还没有执行记录。</p>
+                  <p className="text-sm text-muted-foreground">还没有已完成的执行记录。</p>
                 ) : (
                   detail.attempts.map((attempt) => (
                     <article key={attempt.id} className="min-w-0 space-y-2 rounded-md border p-3">
@@ -713,7 +715,7 @@ function JobDrawer({
                       disabled={attemptPage <= 1}
                       onClick={() => onAttemptPage(attemptPage - 1)}
                     >
-                      上一批尝试
+                      上一批执行记录
                     </Button>
                     <Button
                       type="button"
@@ -722,7 +724,7 @@ function JobDrawer({
                       disabled={attemptPage >= attemptPages}
                       onClick={() => onAttemptPage(attemptPage + 1)}
                     >
-                      下一批尝试
+                      下一批执行记录
                     </Button>
                   </div>
                 ) : null}

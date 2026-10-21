@@ -85,7 +85,7 @@ export function OpsOperationsPanel({
       </p>
       {list ? (
         <p className="text-xs text-muted-foreground">
-          {list.range.defaulted ? '默认时间范围' : '时间范围'}：{list.range.since} 至{' '}
+          {list.range.defaulted ? '默认事件日期' : '事件日期'}：{list.range.since} 至{' '}
           {list.range.until}
           （Asia/Shanghai）
         </p>
