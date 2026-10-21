@@ -184,9 +184,14 @@ describe('monitoring cards', () => {
     ).toBe('active');
     const row = await screen.findByTestId('monitor-object-card');
     expect(row.getAttribute('data-monitor-state')).toBe('active');
+    expect(row.getAttribute('data-execution')).toBe('waiting');
     expect(row.textContent).toContain('监控中');
-    expect(row.textContent).toContain('等待');
+    expect(row.textContent).not.toContain('等待');
+    expect(row.textContent).not.toContain('执行中');
+    expect(row.textContent).not.toContain('暂无进行中的任务');
+    expect(row.textContent).not.toContain('下次计划');
     expect(row.textContent).not.toContain('正在采集');
+    expect(within(row).getByTestId('monitor-card-actions').className).toContain('col-start-2');
     expect(screen.getByRole('link', { name: '查看采集记录' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '新增监控' }));
@@ -207,18 +212,35 @@ describe('monitoring cards', () => {
     fireEvent.click(screen.getByRole('link', { name: '查看详情' }));
     expect(router.state.location.pathname).toBe(`/monitoring/videos/${BVID}`);
     expect(router.state.location.search).toContain('from=');
-    expect(await screen.findByTestId('video-detail-page')).toBeTruthy();
+    const detail = await screen.findByTestId('video-detail-page');
+    const toolbar = screen.getByTestId('monitor-detail-toolbar');
+    const grid = screen.getByTestId('monitor-detail-grid');
+    expect(detail.contains(toolbar)).toBe(true);
+    expect(toolbar.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      toolbar.compareDocumentPosition(screen.getByText('元数据')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByTestId('monitor-detail-bar')).toBeTruthy();
     expect(screen.getByTestId('monitor-card-controls').textContent).toContain('监控中');
+    expect(screen.getByTestId('monitor-card-controls').textContent).not.toContain('等待');
+    expect(screen.getByTestId('monitor-card-controls').textContent).not.toContain('下次计划');
+    fireEvent.click(screen.getByRole('button', { name: '监控详情' }));
+    expect(screen.getByTestId('monitor-frequency-details').textContent).toContain('频率：自动');
+    expect(screen.getByTestId('monitor-frequency-details').textContent).toContain('上一次成功采集');
+    expect(screen.getByTestId('monitor-frequency-details').textContent).not.toContain('按发布年龄');
     fireEvent.click(screen.getByRole('link', { name: '返回列表' }));
     expect(router.state.location.pathname).toBe('/monitoring');
     expect(router.state.location.search).toContain('page=2');
     expect(router.state.location.search).toContain('monitor=paused');
 
+    fireEvent.click(await screen.findByRole('button', { name: '更多' }));
     fireEvent.click(await screen.findByRole('link', { name: '查看日志' }));
     expect(router.state.location.pathname).toBe('/ops');
     expect(router.state.location.search).toContain(`targetId=${TARGET}`);
     expect((await screen.findByTestId('ops-target-filter')).textContent).toContain(TARGET);
     await router.navigate(-1);
+    fireEvent.click(await screen.findByRole('button', { name: '更多' }));
     fireEvent.click(await screen.findByRole('link', { name: '进入商单' }));
     expect(router.state.location.pathname).toBe(`/projects/${PROJECT_A}`);
     expect((await screen.findAllByText('找不到这个项目')).length).toBeGreaterThan(0);
@@ -306,7 +328,8 @@ describe('monitoring cards', () => {
     renderAt('/monitoring');
     const row = await screen.findByTestId('monitor-object-card');
     expect(row.textContent).toContain('未监控');
-    expect(row.textContent).toContain('尚无采集数据');
+    expect(row.textContent?.match(/尚无采集数据/g)).toEqual(['尚无采集数据']);
+    expect(row.textContent).not.toContain('暂无进行中的任务');
     fireEvent.click(within(row).getByRole('button', { name: '开始监控' }));
     await waitFor(() => {
       expect(calls.some((call) => call.startsWith('POST'))).toBe(true);
@@ -371,6 +394,7 @@ describe('monitoring cards', () => {
     const view = renderAt('/monitoring?tab=videos');
     const row = await screen.findByTestId('monitor-object-card');
     expect(row.textContent).toContain(longName.slice(0, 8));
+    fireEvent.click(within(row).getByRole('button', { name: '更多' }));
     expect(within(row).getByLabelText('关联商单')).toBeTruthy();
     fireEvent.change(within(row).getByLabelText('关联商单'), { target: { value: PROJECT_B } });
     expect(within(row).getByRole('link', { name: '进入商单' }).getAttribute('href')).toBe(
@@ -655,5 +679,54 @@ describe('monitoring cards', () => {
     expect(
       (await screen.findByTestId('monitor-object-card')).getAttribute('data-monitor-state'),
     ).toBe('paused');
+  });
+
+  test('shows one failure line and keeps frequency inside the disclosure', async () => {
+    install((url) => {
+      if (url.includes('/jobs')) return jsonResponse(emptyJobs);
+      if (url.includes('/cards')) {
+        return jsonResponse(
+          list([
+            card({
+              execution: 'failed',
+              target: {
+                ...targetRecord(true),
+                intervalMode: 'fixed',
+                intervalMinutes: 30,
+                lastError: '上游超时',
+              },
+            }),
+          ]),
+        );
+      }
+      return jsonResponse(emptyJobs);
+    });
+    renderAt('/monitoring?tab=videos');
+    const row = await screen.findByTestId('monitor-object-card');
+    expect(row.getAttribute('data-execution')).toBe('failed');
+    expect(row.textContent).toContain('最近失败：上游超时');
+    expect(row.textContent).not.toContain('最近失败 —');
+    expect(row.textContent).not.toContain('最近失败：—');
+    expect(row.textContent).not.toContain('固定间隔');
+    expect(row.textContent).not.toContain('等待');
+    expect(row.textContent).not.toContain('执行中');
+    expect(within(row).queryByTestId('monitor-frequency-details')).toBeNull();
+
+    fireEvent.click(within(row).getByRole('button', { name: '监控详情' }));
+    const details = within(row).getByTestId('monitor-frequency-details');
+    expect(details.textContent).toContain('频率：固定间隔 · 每 30 分钟');
+    expect(details.textContent).toContain('上一次成功采集');
+    expect(details.textContent).not.toContain('下次计划');
+    expect(details.textContent).not.toContain('按发布年龄');
+    expect(within(row).getByTestId('monitor-card-controls').getAttribute('data-details-open')).toBe(
+      'true',
+    );
+
+    fireEvent.click(within(row).getByRole('button', { name: '监控状态：监控中' }));
+    expect(within(row).queryByTestId('monitor-frequency-details')).toBeNull();
+    expect(within(row).getByTestId('monitor-card-controls').getAttribute('data-details-open')).toBe(
+      'false',
+    );
+    expect(row.textContent).not.toContain('固定间隔');
   });
 });

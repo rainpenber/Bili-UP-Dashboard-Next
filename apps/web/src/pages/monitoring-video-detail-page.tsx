@@ -31,7 +31,7 @@ export function MonitoringVideoDetailPage() {
   const detailQuery = useVideoDetailQuery(bvid);
   const cardQuery = useMonitorCardQuery('video', bvid);
   const metricsQuery = useVideoMetricsDetailQuery(bvid, Boolean(detailQuery.data));
-  const monitorFooter = cardQuery.isLoading ? (
+  const monitorToolbar = cardQuery.isLoading ? (
     <LoadingListSkeleton rows={1} />
   ) : cardQuery.isError ? (
     <ErrorState
@@ -40,7 +40,12 @@ export function MonitoringVideoDetailPage() {
       onRetry={() => void cardQuery.refetch()}
     />
   ) : cardQuery.data ? (
-    <MonitorCardControls card={cardQuery.data} listQuery={listQuery} includeDetailLink={false} />
+    <MonitorCardControls
+      card={cardQuery.data}
+      listQuery={listQuery}
+      includeDetailLink={false}
+      layout="detail"
+    />
   ) : null;
 
   if (detailQuery.isLoading || (detailQuery.isError && cardQuery.isLoading)) {
@@ -60,7 +65,7 @@ export function MonitoringVideoDetailPage() {
           { label: '采样', value: '尚无采集数据' },
         ]}
         charts={<p className="text-sm text-muted-foreground">尚无采集数据</p>}
-        footer={monitorFooter}
+        toolbar={monitorToolbar}
       />
     );
   }
@@ -88,7 +93,7 @@ export function MonitoringVideoDetailPage() {
       entityLabel={v.bvid}
       aside={<VideoAuthorPanel creator={v.creator ?? null} />}
       backTo={backTo}
-      footer={monitorFooter}
+      toolbar={monitorToolbar}
       status={
         v.deletedAt ? (
           <Badge variant="destructive">已删除</Badge>

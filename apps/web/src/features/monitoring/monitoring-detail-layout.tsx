@@ -13,6 +13,8 @@ type Props = {
   meta: { label: string; value: ReactNode }[];
   charts: ReactNode;
   status?: ReactNode;
+  /** Compact monitor bar directly under the title, above metadata. */
+  toolbar?: ReactNode;
   /** Right column on wide screens, stacked under the metadata card on narrow screens. */
   aside?: ReactNode;
   /** Full-width block under the metadata / charts grid. */
@@ -28,6 +30,7 @@ export function MonitoringDetailLayout({
   meta,
   charts,
   status,
+  toolbar,
   aside,
   footer,
   testId,
@@ -51,6 +54,11 @@ export function MonitoringDetailLayout({
           </Button>
         }
       />
+      {toolbar ? (
+        <div data-testid="monitor-detail-toolbar" className="mb-6 min-w-0 max-w-full">
+          {toolbar}
+        </div>
+      ) : null}
       <div
         data-testid="monitor-detail-grid"
         className="grid min-w-0 max-w-full gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]"
@@ -81,7 +89,7 @@ export function MonitoringDetailLayout({
           </Card>
         </div>
       </div>
-      {footer}
+      {footer ? <div className="mt-6 min-w-0 max-w-full">{footer}</div> : null}
     </div>
   );
 }

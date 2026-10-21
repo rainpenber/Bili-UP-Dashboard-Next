@@ -20,13 +20,6 @@ const STATE_LABEL = {
   paused: '已暂停',
 } as const;
 
-const EXECUTION_LABEL = {
-  waiting: '等待',
-  running: '执行中',
-  failed: '最近失败',
-  none: '暂无进行中的任务',
-} as const;
-
 function whenText(value: string | null): string {
   return value ? formatFullLocalTime(value) : '暂无';
 }
@@ -34,10 +27,16 @@ function whenText(value: string | null): string {
 export function monitorFrequencyText(card: MonitorCard): string {
   if (!card.target) return '未设置频率';
   if (card.target.intervalMode === 'fixed') {
-    return `固定 · 每 ${card.target.intervalMinutes} 分钟`;
+    return `固定间隔 · 每 ${card.target.intervalMinutes} 分钟`;
   }
-  if (card.type === 'creator') return '自动 · 每 240 分钟';
-  return '自动 · 按发布年龄 15/120/360 分钟';
+  return '自动';
+}
+
+function failureLine(card: MonitorCard): string | null {
+  if (card.execution !== 'failed') return null;
+  const raw = card.target?.lastError?.trim() ?? '';
+  if (!raw || raw === '—' || raw === '-') return null;
+  return `最近失败：${raw}`;
 }
 
 function ProjectJump({ projects }: { projects: MonitorCard['projects'] }) {
@@ -82,14 +81,21 @@ export function MonitorCardControls({
   card,
   listQuery,
   includeDetailLink = true,
+  layout = 'card',
+  selected = false,
+  onSelect,
 }: {
   card: MonitorCard;
   listQuery: string;
   includeDetailLink?: boolean;
+  layout?: 'card' | 'detail';
+  selected?: boolean;
+  onSelect?: () => void;
 }) {
   const mutations = useMonitorTargetMutations();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const pending =
@@ -122,222 +128,137 @@ export function MonitorCardControls({
   };
 
   const detailKind = card.type === 'video' ? 'videos' : 'creators';
+  const detailsId = `monitor-details-${card.type}-${card.externalId}`;
+  const failed = failureLine(card);
+  const showMore = Boolean(card.target) || card.projects.length > 0;
+  const showLogsOnBar = layout === 'detail' && Boolean(card.target);
+  const span = layout === 'card' ? 'col-span-2' : '';
+
+  const primary =
+    card.monitorState === 'unmonitored' ? (
+      <Button type="button" size="sm" disabled={pending} onClick={start}>
+        开始监控
+      </Button>
+    ) : card.monitorState === 'active' && card.target ? (
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={pending}
+        onClick={() => mutations.patch.mutate({ id: card.target!.id, patch: { enabled: false } })}
+      >
+        暂停
+      </Button>
+    ) : card.monitorState === 'paused' && card.target ? (
+      <Button
+        type="button"
+        size="sm"
+        disabled={pending}
+        onClick={() => mutations.patch.mutate({ id: card.target!.id, patch: { enabled: true } })}
+      >
+        恢复
+      </Button>
+    ) : null;
+
+  const detailLink = includeDetailLink ? (
+    <Button type="button" size="sm" variant="outline" asChild>
+      <Link
+        to={`/monitoring/${detailKind}/${encodeURIComponent(card.externalId)}?from=${encodeURIComponent(listQuery)}`}
+      >
+        查看详情
+      </Link>
+    </Button>
+  ) : null;
+
+  const logsLink = card.target ? (
+    <Button type="button" size="sm" variant="outline" asChild>
+      <Link
+        to={`/ops?${new URLSearchParams({
+          targetId: card.target.id,
+          targetType: card.type,
+          externalId: card.externalId,
+        }).toString()}`}
+      >
+        查看日志
+      </Link>
+    </Button>
+  ) : null;
+
+  const moreButton = showMore ? (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      aria-expanded={moreOpen}
+      onClick={() => {
+        setMoreOpen((open) => !open);
+        setConfirmRemove(false);
+      }}
+    >
+      更多
+    </Button>
+  ) : null;
+
+  const stateBadge = (
+    <button
+      type="button"
+      className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      aria-label={`监控状态：${STATE_LABEL[card.monitorState]}`}
+      aria-expanded={detailsOpen}
+      aria-controls={detailsId}
+      onClick={() => setDetailsOpen((open) => !open)}
+    >
+      <Badge
+        variant={
+          card.monitorState === 'active'
+            ? 'success'
+            : card.monitorState === 'paused'
+              ? 'warning'
+              : 'secondary'
+        }
+      >
+        {STATE_LABEL[card.monitorState]}
+      </Badge>
+    </button>
+  );
+
+  const detailsToggle = (
+    <Button
+      type="button"
+      size="sm"
+      variant="ghost"
+      aria-expanded={detailsOpen}
+      aria-controls={detailsId}
+      onClick={() => setDetailsOpen((open) => !open)}
+    >
+      监控详情
+    </Button>
+  );
 
   return (
     <div
-      className="min-w-0 max-w-full space-y-2"
+      className={
+        layout === 'card'
+          ? cn(
+              'grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg border p-3',
+              selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
+            )
+          : 'flex min-w-0 max-w-full flex-col gap-2'
+      }
       data-testid="monitor-card-controls"
       data-monitor-state={card.monitorState}
       data-execution={card.execution}
       data-external-id={card.externalId}
       data-target-id={card.target?.id ?? ''}
       data-pending={pending ? 'true' : 'false'}
+      data-details-open={detailsOpen ? 'true' : 'false'}
       aria-busy={pending}
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge
-          variant={
-            card.monitorState === 'active'
-              ? 'success'
-              : card.monitorState === 'paused'
-                ? 'warning'
-                : 'secondary'
-          }
-        >
-          {STATE_LABEL[card.monitorState]}
-        </Badge>
-        <Badge
-          variant={
-            card.execution === 'failed'
-              ? 'destructive'
-              : card.execution === 'running'
-                ? 'info'
-                : 'outline'
-          }
-        >
-          {EXECUTION_LABEL[card.execution]}
-        </Badge>
-      </div>
-      <p className="break-words text-xs text-muted-foreground">{monitorFrequencyText(card)}</p>
-      <p className="break-words text-xs tabular-nums text-muted-foreground">
-        最近成功 {whenText(card.target?.lastSuccessAt ?? null)} · 下次计划{' '}
-        {whenText(card.target?.nextRunAt ?? null)}
-      </p>
-      {card.hasSamples ? null : <p className="text-xs text-muted-foreground">尚无采集数据</p>}
-      {card.target?.lastError && card.execution === 'failed' ? (
-        <p className="break-words text-xs text-destructive">{card.target.lastError}</p>
-      ) : null}
-      {notice ? (
-        <p role="status" className="break-words text-xs text-muted-foreground">
-          {notice}
-        </p>
-      ) : null}
-      {error ? (
-        <p role="alert" className="break-words text-xs text-destructive">
-          {error}
-        </p>
-      ) : null}
-      <div className="flex min-w-0 max-w-full flex-wrap gap-2">
-        {card.monitorState === 'unmonitored' ? (
-          <Button type="button" size="sm" disabled={pending} onClick={start}>
-            开始监控
-          </Button>
-        ) : null}
-        {card.monitorState === 'active' && card.target ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={pending}
-            onClick={() =>
-              mutations.patch.mutate({ id: card.target!.id, patch: { enabled: false } })
-            }
-          >
-            暂停
-          </Button>
-        ) : null}
-        {card.monitorState === 'paused' && card.target ? (
-          <Button
-            type="button"
-            size="sm"
-            disabled={pending}
-            onClick={() =>
-              mutations.patch.mutate({ id: card.target!.id, patch: { enabled: true } })
-            }
-          >
-            恢复
-          </Button>
-        ) : null}
-        {card.target ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={pending}
-            onClick={() => setSettingsOpen(true)}
-          >
-            监控设置
-          </Button>
-        ) : null}
-        {card.target ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            aria-expanded={moreOpen}
-            onClick={() => {
-              setMoreOpen((open) => !open);
-              setConfirmRemove(false);
-            }}
-          >
-            更多
-          </Button>
-        ) : null}
-        {includeDetailLink ? (
-          <Button type="button" size="sm" variant="outline" asChild>
-            <Link
-              to={`/monitoring/${detailKind}/${encodeURIComponent(card.externalId)}?from=${encodeURIComponent(listQuery)}`}
-            >
-              查看详情
-            </Link>
-          </Button>
-        ) : null}
-        {card.target ? (
-          <Button type="button" size="sm" variant="outline" asChild>
-            <Link
-              to={`/ops?${new URLSearchParams({
-                targetId: card.target.id,
-                targetType: card.type,
-                externalId: card.externalId,
-              }).toString()}`}
-            >
-              查看日志
-            </Link>
-          </Button>
-        ) : null}
-        <ProjectJump projects={card.projects} />
-      </div>
-      {moreOpen && card.target ? (
-        <div className="flex flex-wrap gap-2" role="group" aria-label="更多操作">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={pending}
-            onClick={() => mutations.run.mutate(card.target!.id)}
-          >
-            立即采集
-          </Button>
-          {confirmRemove ? (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                variant="destructive"
-                disabled={pending}
-                onClick={() =>
-                  mutations.remove.mutate(card.target!.id, {
-                    onSuccess: () => {
-                      setConfirmRemove(false);
-                      setMoreOpen(false);
-                    },
-                  })
-                }
-              >
-                确认移除
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => setConfirmRemove(false)}
-              >
-                取消
-              </Button>
-            </>
-          ) : (
-            <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmRemove(true)}>
-              移除
-            </Button>
-          )}
-        </div>
-      ) : null}
-      {settingsOpen && card.target ? (
-        <MonitorSettingsDialog card={card} open={settingsOpen} onOpenChange={setSettingsOpen} />
-      ) : null}
-    </div>
-  );
-}
-
-export function MonitorObjectCard({
-  card,
-  selected,
-  listQuery,
-  onSelect,
-}: {
-  card: MonitorCard;
-  selected: boolean;
-  listQuery: string;
-  onSelect: () => void;
-}) {
-  return (
-    <li
-      className="min-w-0 max-w-full"
-      data-testid="monitor-object-card"
-      data-monitor-state={card.monitorState}
-      data-execution={card.execution}
-      data-external-id={card.externalId}
-    >
-      <div
-        className={cn(
-          'flex min-w-0 max-w-full flex-col gap-3 rounded-lg border p-3',
-          selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
-        )}
-      >
+      {layout === 'card' ? (
         <button
           type="button"
           onClick={onSelect}
-          className="flex min-w-0 gap-3 rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="col-start-1 row-start-1 flex min-w-0 gap-3 rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-pressed={selected}
         >
           <img
@@ -367,8 +288,165 @@ export function MonitorObjectCard({
             </span>
           </span>
         </button>
-        <MonitorCardControls card={card} listQuery={listQuery} />
+      ) : null}
+      <div
+        data-testid={layout === 'detail' ? 'monitor-detail-bar' : 'monitor-card-actions'}
+        className={
+          layout === 'card'
+            ? 'col-start-2 row-start-1 flex w-max max-w-[8.75rem] flex-col items-stretch justify-center gap-1.5 self-center justify-self-end sm:max-w-none sm:flex-row sm:flex-wrap sm:items-center sm:justify-end'
+            : 'flex min-w-0 flex-wrap items-center gap-2'
+        }
+      >
+        {layout === 'detail' ? stateBadge : null}
+        {layout === 'detail' ? primary : <div className="sm:order-4">{primary}</div>}
+        {layout === 'detail' ? detailsToggle : null}
+        {showLogsOnBar ? logsLink : null}
+        {layout === 'detail' ? moreButton : null}
+        {layout === 'card' ? <div className="sm:order-3">{detailLink}</div> : null}
+        {layout === 'card' ? <div className="sm:order-2">{moreButton}</div> : null}
+        {layout === 'card' ? (
+          <div className="flex flex-col items-stretch gap-1 sm:order-1 sm:flex-row sm:items-center">
+            <div className="flex justify-end">{stateBadge}</div>
+            {detailsToggle}
+          </div>
+        ) : null}
       </div>
+      {failed ? (
+        <p
+          data-testid="monitor-last-failure"
+          className={cn('break-words text-xs text-destructive', span)}
+        >
+          {failed}
+        </p>
+      ) : null}
+      {detailsOpen ? (
+        <div
+          id={detailsId}
+          data-testid="monitor-frequency-details"
+          className={cn(
+            'grid gap-1 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground',
+            span,
+          )}
+        >
+          <p>频率：{monitorFrequencyText(card)}</p>
+          <p className="tabular-nums">
+            上一次成功采集：{whenText(card.target?.lastSuccessAt ?? null)}
+          </p>
+        </div>
+      ) : null}
+      {notice ? (
+        <p role="status" className={cn('break-words text-xs text-muted-foreground', span)}>
+          {notice}
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className={cn('break-words text-xs text-destructive', span)}>
+          {error}
+        </p>
+      ) : null}
+      {moreOpen && showMore ? (
+        <div
+          className={cn('flex flex-wrap items-center gap-2', span)}
+          role="group"
+          aria-label="更多操作"
+        >
+          {card.target ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={() => setSettingsOpen(true)}
+            >
+              监控设置
+            </Button>
+          ) : null}
+          {layout === 'card' ? logsLink : null}
+          <ProjectJump projects={card.projects} />
+          {card.target ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={() => mutations.run.mutate(card.target!.id)}
+            >
+              立即采集
+            </Button>
+          ) : null}
+          {card.target ? (
+            confirmRemove ? (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  disabled={pending}
+                  onClick={() =>
+                    mutations.remove.mutate(card.target!.id, {
+                      onSuccess: () => {
+                        setConfirmRemove(false);
+                        setMoreOpen(false);
+                      },
+                    })
+                  }
+                >
+                  确认移除
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setConfirmRemove(false)}
+                >
+                  取消
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setConfirmRemove(true)}
+              >
+                移除
+              </Button>
+            )
+          ) : null}
+        </div>
+      ) : null}
+      {settingsOpen && card.target ? (
+        <MonitorSettingsDialog card={card} open={settingsOpen} onOpenChange={setSettingsOpen} />
+      ) : null}
+    </div>
+  );
+}
+
+export function MonitorObjectCard({
+  card,
+  selected,
+  listQuery,
+  onSelect,
+}: {
+  card: MonitorCard;
+  selected: boolean;
+  listQuery: string;
+  onSelect: () => void;
+}) {
+  return (
+    <li
+      className="min-w-0 max-w-full"
+      data-testid="monitor-object-card"
+      data-monitor-state={card.monitorState}
+      data-execution={card.execution}
+      data-external-id={card.externalId}
+    >
+      <MonitorCardControls
+        card={card}
+        listQuery={listQuery}
+        selected={selected}
+        onSelect={onSelect}
+      />
     </li>
   );
 }

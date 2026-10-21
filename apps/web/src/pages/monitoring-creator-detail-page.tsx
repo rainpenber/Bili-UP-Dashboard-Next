@@ -30,7 +30,7 @@ export function MonitoringCreatorDetailPage() {
   const detailQuery = useCreatorDetailQuery(mid);
   const cardQuery = useMonitorCardQuery('creator', mid);
   const metricsQuery = useCreatorMetricsDetailQuery(mid);
-  const monitorFooter = cardQuery.isLoading ? (
+  const monitorToolbar = cardQuery.isLoading ? (
     <LoadingListSkeleton rows={1} />
   ) : cardQuery.isError ? (
     <ErrorState
@@ -39,7 +39,12 @@ export function MonitoringCreatorDetailPage() {
       onRetry={() => void cardQuery.refetch()}
     />
   ) : cardQuery.data ? (
-    <MonitorCardControls card={cardQuery.data} listQuery={listQuery} includeDetailLink={false} />
+    <MonitorCardControls
+      card={cardQuery.data}
+      listQuery={listQuery}
+      includeDetailLink={false}
+      layout="detail"
+    />
   ) : null;
 
   if (detailQuery.isLoading || (detailQuery.isError && cardQuery.isLoading)) {
@@ -59,7 +64,7 @@ export function MonitoringCreatorDetailPage() {
           { label: '采样', value: '尚无采集数据' },
         ]}
         charts={<p className="text-sm text-muted-foreground">尚无采集数据</p>}
-        footer={monitorFooter}
+        toolbar={monitorToolbar}
       />
     );
   }
@@ -85,12 +90,8 @@ export function MonitoringCreatorDetailPage() {
       title={c.uname ?? c.mid}
       description="UP 主粉丝趋势与元数据"
       entityLabel={c.mid}
-      footer={
-        <div className="min-w-0 space-y-6">
-          {monitorFooter}
-          <CreatorVideosSection mid={c.mid} />
-        </div>
-      }
+      toolbar={monitorToolbar}
+      footer={<CreatorVideosSection mid={c.mid} />}
       backTo={backTo}
       status={
         c.deletedAt ? (
