@@ -24,6 +24,7 @@ export const OPS_OPERATION_ACTIONS = [
   'tags',
   'remove',
   'run',
+  'reschedule',
 ] as const;
 export type OpsOperationAction = (typeof OPS_OPERATION_ACTIONS)[number];
 
@@ -36,6 +37,7 @@ export const OPS_OPERATION_EVENTS = [
   'monitor.target.tags',
   'monitor.target.removed',
   'monitor.target.run',
+  'monitor.target.reschedule',
 ] as const;
 export type OpsOperationEvent = (typeof OPS_OPERATION_EVENTS)[number];
 
@@ -688,6 +690,7 @@ const ACTION_BY_EVENT: Record<OpsOperationEvent, OpsOperationAction> = {
   'monitor.target.tags': 'tags',
   'monitor.target.removed': 'remove',
   'monitor.target.run': 'run',
+  'monitor.target.reschedule': 'reschedule',
 };
 
 function parseChangeValue(value: unknown): OpsOperationChange['before'] {

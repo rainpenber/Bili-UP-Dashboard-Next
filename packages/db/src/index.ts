@@ -16,6 +16,7 @@ export { runMigrations } from './migrate';
 export {
   claimNextCollectorJob,
   countSamplesAt,
+  effectiveFirstRunAt,
   enqueueDueCollectorJobs,
   getCollectorJob,
   getMonitorTarget,
@@ -42,6 +43,7 @@ export {
   type CreatorSampleWrite,
   type MonitorTargetRow,
   type SampleSource,
+  type UpdateMonitorTargetStatus,
   type VideoSampleWrite,
 } from './monitor-targets';
 export {

@@ -45,6 +45,7 @@ export function toMonitorCard(row: MonitorCardRow): MonitorCard {
             enabled: row.enabled === true,
             intervalMinutes: row.intervalMinutes ?? 0,
             intervalMode: row.intervalMode ?? 'auto',
+            startAt: iso(row.startAt),
             nextRunAt: iso(row.nextRunAt),
             lastRunAt: iso(row.lastRunAt),
             lastSuccessAt: iso(row.lastSuccessAt),

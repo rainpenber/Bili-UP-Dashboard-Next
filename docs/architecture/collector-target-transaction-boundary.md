@@ -1,14 +1,14 @@
 # 采集目标／任务／运行的共同事务边界
 
-WP-R2-17R0。本文件只描述 DB 层共同并发协议，不引入 `startAt`、新迁移或新状态枚举。17R1 的计划开始时间读写应建立在本边界之上。
+WP-R2-17R0／17R1。本文件描述 DB 层共同并发协议。17R1 在同一锁序上增加 `start_at` 计划意图与锁后准入；不另建计划表／状态枚举／2099 停放。详见 [scheduled-video-monitoring.md](./scheduled-video-monitoring.md)。
 
 ## 范围
 
-| 在内                                                                     | 在外                                   |
-| ------------------------------------------------------------------------ | -------------------------------------- |
-| `monitor_targets` / `collector_jobs` / `collector_runs` / metric samples | 新字段、迁移、API、UI                  |
-| enqueue / claim / manual run / success / failure / defer / 启停 / 软删除 | 采集 transport、限流、重试预算算法     |
-| 三种 `commitBilibili*` 成功提交                                          | 真实 B 站请求、Windows 采集、CSV timer |
+| 在内                                                                     | 在外                               |
+| ------------------------------------------------------------------------ | ---------------------------------- |
+| `monitor_targets`（含 `start_at`）/ jobs / runs / samples                | 上游未发布探测、宽限窗口、UI 控件  |
+| enqueue / claim / manual / 改期 / success / failure / defer / 启停／软删 | 采集 transport、限流、重试预算算法 |
+| 三种 `commitBilibili*` 成功提交                                          | 真实 B 站请求、Windows 采集、CSV   |
 
 入口实现：`packages/db/src/collector-target-tx.ts`、`monitor-targets.ts`、`real-collector.ts`。
 
@@ -41,8 +41,8 @@ Claim 使用真实 `FOR UPDATE OF j SKIP LOCKED` 选取 due pending，再对目�
 ## 每目标一个有效执行机会
 
 - **manual**（`requestCollectorRun`）：锁后若已有 pending/running，复用既有 job，不因 `now` 不同再插一条；若复用的是 pending，将其 `scheduled_for` 拉到 `now`（与基线「立即采集」一致），仍保持每目标至多一个有效机会。
-- **enqueue**：锁后重读 `next_run_at`；旧快照在等待改期锁后不得插入过期 bucket。
-- **resume**：收敛后至多保留／创建一个 pending。
+- **enqueue**：锁后重读 `next_run_at` 与 `start_at`；旧快照在等待改期锁后不得插入过期／未到点 bucket。
+- **resume**：遵守 `max(now, startAt)`；收敛后至多保留／创建一个 due pending。
 - **收敛**（`convergeActiveJobsUnderTargetLock`）：
   - 有 `running` 时保留 running，多余 pending 处理掉；
   - 无引用且从未执行的冗余 pending：**删除**；
@@ -64,6 +64,7 @@ Claim 使用真实 `FOR UPDATE OF j SKIP LOCKED` 选取 due pending，再对目�
 
 ## 未覆盖（显式）
 
-- `startAt` 计划开始与改期语义（17R1）
+- 上游未发布码分类与有限宽限（17A2）
+- 监控／项目页改期控件与 Hermes 闭环（17B／17C）
 - runner 进程崩溃后的通用恢复引擎
 - 网络层／账号熔断策略（仍在事务外）
