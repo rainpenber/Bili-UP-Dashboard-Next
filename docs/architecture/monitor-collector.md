@@ -35,5 +35,13 @@ MONITOR_DATA_SOURCE=collector MONITOR_PROVIDER=offline bun run apps/collector/sr
 - `DELETE /api/v1/monitor/targets/:id`
 - `POST /api/v1/monitor/targets/:id/run`
 - `GET /api/v1/monitor/jobs`
+- `GET /api/v1/monitor/cards?type=video|creator&monitor=all|active|paused|unmonitored`
+- `GET /api/v1/monitor/cards/:type/:externalId`
+
+视频 / UP 主页面读的是上面的卡片投影，不是把 `GET /targets` 整页拉到浏览器后再和当前视频页对拍。投影是 `videos` 或 `creators` 与未删除的 `monitor_targets` 做有界全外连接：目标可以先于实体存在。筛选、搜索和总数在同一次查询里计算。卡片状态只看活动目标的 `enabled`，不看 `videos.monitoring_enabled` / `creators.monitoring_enabled`。
+
+商单跳转只认 `project_publish_records.bvid` 与 `project_monitor_contracts.bvid`。`linked_bvid` 不参与匹配。UP 主表和商单表之间没有 UID 关系，所以 UP 主卡片不显示商单入口。暂停不改这两张表，项目结案也不改 `monitor_targets.enabled`。
+
+`?tab=targets` 打开视频页。最近采集任务仍在监控中心底部。运行记录页接受 `targetId`、`targetType`、`externalId`，并按 `targetId` 预筛选。
 
 错误体为 `{ "error": "中文说明", "code": "机器可读码" }`。重复添加返回既有记录，并带 `code: "target_exists"`。

@@ -10,7 +10,20 @@ describe('monitor URL state', () => {
       category: '',
       q: '',
       selected: null,
+      monitor: 'all',
     });
+  });
+
+  test('old targets tab opens the video page and keeps the monitor filter', () => {
+    const state = parseMonitorSearchParams(
+      new URLSearchParams('tab=targets&page=3&monitor=paused'),
+    );
+    expect(state.tab).toBe('videos');
+    expect(state.page).toBe(3);
+    expect(state.monitor).toBe('paused');
+    const next = writeMonitorSearchParams(new URLSearchParams('tab=targets'), { monitor: 'all' });
+    expect(next.get('tab')).toBe('videos');
+    expect(next.has('monitor')).toBe(false);
   });
 
   test('write merges and clears empty fields', () => {

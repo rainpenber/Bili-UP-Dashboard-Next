@@ -104,11 +104,12 @@ export function useDynamicMetricsDetailQuery(dynamicId: string) {
   });
 }
 
-export function useEntityMetricsQuery(tab: MonitorTab, selected: string | null) {
+export function useEntityMetricsQuery(tab: MonitorTab, selected: string | null, enabled = true) {
   return useQuery({
     queryKey: monitorQueryKeys.metrics(tab, selected),
+    enabled: enabled && Boolean(selected),
     queryFn: async () => {
-      if (!selected || tab === 'targets') return null;
+      if (!selected) return null;
       if (tab === 'videos') {
         const data = await fetchVideoMetrics(selected);
         return { kind: 'video' as const, points: data.items };
@@ -120,6 +121,5 @@ export function useEntityMetricsQuery(tab: MonitorTab, selected: string | null) 
       const data = await fetchDynamicMetrics(selected);
       return { kind: 'dynamic' as const, points: data.items };
     },
-    enabled: Boolean(selected) && tab !== 'targets',
   });
 }

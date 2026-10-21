@@ -1,5 +1,6 @@
 import { newestMetricPoint } from '@studio/contracts';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { useMonitorCardQuery } from '@/api/hooks/use-monitor-card-queries';
 import {
   useCreatorDetailQuery,
   useCreatorMetricsDetailQuery,
@@ -9,16 +10,59 @@ import { ErrorState, LoadingListSkeleton } from '@/components/states/async-state
 import { Badge } from '@/components/ui/badge';
 import { CreatorVideosSection } from '@/features/monitoring/creator-videos-section';
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
+import { MonitorCardControls } from '@/features/monitoring/monitor-object-card';
+import { detailReturnHref } from '@/features/monitoring/monitor-url-state';
 import { MonitoringDetailLayout } from '@/features/monitoring/monitoring-detail-layout';
 import { formatCompactNumber } from '@/lib/format-compact-number';
 import { formatFullLocalTime, formatShortTime } from '@/lib/format-time';
 
+function missingEntity(error: unknown): boolean {
+  return (
+    error instanceof Error && (error.message === 'not found' || error.message.includes('未找到'))
+  );
+}
+
 export function MonitoringCreatorDetailPage() {
   const { mid = '' } = useParams();
+  const [params] = useSearchParams();
+  const listQuery = params.get('from') ?? '';
+  const backTo = detailReturnHref('creators', listQuery || null);
   const detailQuery = useCreatorDetailQuery(mid);
+  const cardQuery = useMonitorCardQuery('creator', mid);
   const metricsQuery = useCreatorMetricsDetailQuery(mid);
+  const monitorFooter = cardQuery.isLoading ? (
+    <LoadingListSkeleton rows={1} />
+  ) : cardQuery.isError ? (
+    <ErrorState
+      title="监控状态加载失败"
+      message={cardQuery.error instanceof Error ? cardQuery.error.message : '加载失败'}
+      onRetry={() => void cardQuery.refetch()}
+    />
+  ) : cardQuery.data ? (
+    <MonitorCardControls card={cardQuery.data} listQuery={listQuery} includeDetailLink={false} />
+  ) : null;
 
-  if (detailQuery.isLoading) return <LoadingListSkeleton rows={4} />;
+  if (detailQuery.isLoading || (detailQuery.isError && cardQuery.isLoading)) {
+    return <LoadingListSkeleton rows={4} />;
+  }
+  if (missingEntity(detailQuery.error) && cardQuery.data && !cardQuery.data.hasEntity) {
+    const card = cardQuery.data;
+    return (
+      <MonitoringDetailLayout
+        testId="creator-detail-page"
+        title={card.displayName}
+        description="该监控目标还没有 UP 主实体或采样"
+        entityLabel={card.externalId}
+        backTo={backTo}
+        meta={[
+          { label: 'MID', value: card.externalId },
+          { label: '采样', value: '尚无采集数据' },
+        ]}
+        charts={<p className="text-sm text-muted-foreground">尚无采集数据</p>}
+        footer={monitorFooter}
+      />
+    );
+  }
   if (detailQuery.isError) {
     return (
       <ErrorState
@@ -41,8 +85,13 @@ export function MonitoringCreatorDetailPage() {
       title={c.uname ?? c.mid}
       description="UP 主粉丝趋势与元数据"
       entityLabel={c.mid}
-      footer={<CreatorVideosSection mid={c.mid} />}
-      backTo="/monitoring?tab=creators"
+      footer={
+        <div className="min-w-0 space-y-6">
+          {monitorFooter}
+          <CreatorVideosSection mid={c.mid} />
+        </div>
+      }
+      backTo={backTo}
       status={
         c.deletedAt ? (
           <Badge variant="destructive">已删除</Badge>
