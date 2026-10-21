@@ -415,7 +415,7 @@ async function closeSucceededRun(
  * Lock target → job before INSERT collector_runs so FK KEY SHARE cannot invert lock order
  * against a concurrent target-edit barrier (avoids 40P01).
  */
-async function commitSucceededSample<TSample>(
+async function commitSucceededSample(
   sql: Sql,
   input: {
     jobId: string;

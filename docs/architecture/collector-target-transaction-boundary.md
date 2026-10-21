@@ -4,11 +4,11 @@ WP-R2-17R0。本文件只描述 DB 层共同并发协议，不引入 `startAt`�
 
 ## 范围
 
-| 在内 | 在外 |
-| --- | --- |
-| `monitor_targets` / `collector_jobs` / `collector_runs` / metric samples | 新字段、迁移、API、UI |
-| enqueue / claim / manual run / success / failure / defer / 启停 / 软删除 | 采集 transport、限流、重试预算算法 |
-| 三种 `commitBilibili*` 成功提交 | 真实 B 站请求、Windows 采集、CSV timer |
+| 在内                                                                     | 在外                                   |
+| ------------------------------------------------------------------------ | -------------------------------------- |
+| `monitor_targets` / `collector_jobs` / `collector_runs` / metric samples | 新字段、迁移、API、UI                  |
+| enqueue / claim / manual run / success / failure / defer / 启停 / 软删除 | 采集 transport、限流、重试预算算法     |
+| 三种 `commitBilibili*` 成功提交                                          | 真实 B 站请求、Windows 采集、CSV timer |
 
 入口实现：`packages/db/src/collector-target-tx.ts`、`monitor-targets.ts`、`real-collector.ts`。
 

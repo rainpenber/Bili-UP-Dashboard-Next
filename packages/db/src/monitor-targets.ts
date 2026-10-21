@@ -306,7 +306,8 @@ export async function updateMonitorTarget(
     const existing = await lockMonitorTargetForUpdate(tx, id);
     if (!existing) return { status: 'missing', target: null, jobId: null };
     if (hooks?.afterParentRowsLocked) await hooks.afterParentRowsLocked();
-    if (existing.deletedAt) return { status: 'deleted', target: asMonitorTargetRow(existing), jobId: null };
+    if (existing.deletedAt)
+      return { status: 'deleted', target: asMonitorTargetRow(existing), jobId: null };
     if (existing.type === 'dynamic' && patch.intervalMode === 'auto') {
       throw new Error('动态只支持固定间隔，不能使用自动频率');
     }

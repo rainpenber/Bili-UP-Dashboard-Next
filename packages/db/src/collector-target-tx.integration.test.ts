@@ -192,8 +192,7 @@ describe('WP-R2-17R0 collector target transaction foundation', () => {
 
   test('commitBilibiliCreator and commitBilibiliDynamic share the same barrier protocol', async () => {
     for (const kind of ['creator', 'dynamic'] as const) {
-      const externalId =
-        kind === 'creator' ? String(++midSeq) : (dynSeq++).toString();
+      const externalId = kind === 'creator' ? String(++midSeq) : (dynSeq++).toString();
       const seeded = await seedRunningJob({ type: kind, externalId });
       const connA = extraConn();
       const connB = extraConn();
@@ -577,7 +576,9 @@ describe('WP-R2-17R0 collector target transaction foundation', () => {
       WHERE target_id = ${created.target.id}::uuid
       ORDER BY created_at
     `;
-    const pendingOrRunning = active.filter((row) => row.status === 'pending' || row.status === 'running');
+    const pendingOrRunning = active.filter(
+      (row) => row.status === 'pending' || row.status === 'running',
+    );
     expect(pendingOrRunning).toHaveLength(1);
     expect(pendingOrRunning[0]?.id).toBe(primaryId);
     const superseded = active.find((row) => row.id === orphanId);
