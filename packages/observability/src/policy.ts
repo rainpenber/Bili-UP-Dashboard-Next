@@ -31,6 +31,7 @@ export const PERSISTED_INFO_EVENTS = [
   'monitor.target.tags',
   'monitor.target.removed',
   'monitor.target.run',
+  'monitor.target.reschedule',
 ] as const;
 
 export type PersistedInfoEvent = (typeof PERSISTED_INFO_EVENTS)[number];

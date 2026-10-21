@@ -135,7 +135,7 @@ describe('WP-R2-17R0 collector target transaction foundation', () => {
         release = resolve;
       });
       let locked = false;
-      // Simulate future 17R1 target edit: hold common target lock seam (no startAt).
+      // Hold common target lock seam while a peer path waits (17R1 startAt edits use the same hook).
       const hold = withMonitorTargetTransaction(connA, seeded.targetId, async (tx) => {
         locked = true;
         await barrier;

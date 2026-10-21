@@ -54,6 +54,7 @@ const EVENT_BY_ACTION: Record<OpsOperationAction, (typeof OPS_OPERATION_EVENTS)[
   tags: 'monitor.target.tags',
   remove: 'monitor.target.removed',
   run: 'monitor.target.run',
+  reschedule: 'monitor.target.reschedule',
 };
 
 type Ctx = {

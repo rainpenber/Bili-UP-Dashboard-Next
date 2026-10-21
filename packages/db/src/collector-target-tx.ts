@@ -71,6 +71,8 @@ export type LockedMonitorTarget = {
   enabled: boolean;
   intervalMinutes: number;
   intervalMode: 'auto' | 'fixed';
+  /** User-planned first collect (video only). Distinct from nextRunAt. */
+  startAt: Date | null;
   nextRunAt: Date | null;
   lastRunAt: Date | null;
   lastSuccessAt: Date | null;
@@ -101,6 +103,7 @@ type TargetSqlRow = {
   enabled: boolean;
   interval_minutes: number;
   interval_mode: 'auto' | 'fixed';
+  start_at: Date | null;
   next_run_at: Date | null;
   last_run_at: Date | null;
   last_success_at: Date | null;
@@ -143,6 +146,7 @@ function mapTarget(row: TargetSqlRow): LockedMonitorTarget {
     enabled: row.enabled,
     intervalMinutes: row.interval_minutes,
     intervalMode: row.interval_mode,
+    startAt: row.start_at,
     nextRunAt: row.next_run_at,
     lastRunAt: row.last_run_at,
     lastSuccessAt: row.last_success_at,
@@ -169,7 +173,7 @@ function mapLockedJob(row: JobLockSqlRow): LockedCollectorJob {
 
 const targetColumns = `
   id, "type", external_id, label, tags, enabled, interval_minutes, interval_mode,
-  next_run_at, last_run_at, last_success_at, last_error, source,
+  start_at, next_run_at, last_run_at, last_success_at, last_error, source,
   created_at, updated_at, deleted_at
 `;
 

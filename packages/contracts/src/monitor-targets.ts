@@ -50,6 +50,8 @@ export type MonitorTarget = {
   enabled: boolean;
   intervalMinutes: number;
   intervalMode: MonitorIntervalMode;
+  /** User-planned first collect instant (video only). Null = immediate / no plan. */
+  startAt: string | null;
   nextRunAt: string | null;
   lastRunAt: string | null;
   lastSuccessAt: string | null;
@@ -71,6 +73,8 @@ export type MonitorTargetCreateRequest = {
    */
   intervalMinutes: MonitorIntervalMinutes;
   intervalMode: MonitorIntervalMode;
+  /** Video only. Omitted/null = immediate. Must carry an explicit timezone. */
+  startAt?: string | null;
 };
 
 export type MonitorTargetPatchRequest = {
@@ -79,6 +83,11 @@ export type MonitorTargetPatchRequest = {
   intervalMode?: MonitorIntervalMode;
   tags?: string[];
   label?: string;
+  /**
+   * Video pending-start reschedule only. Omitted = unchanged; explicit null
+   * clears the plan and treats the target as immediately due.
+   */
+  startAt?: string | null;
 };
 
 export type MonitorTargetCreateResponse = {
@@ -253,6 +262,7 @@ export function parseCreateMonitorTargetRequest(value: unknown): MonitorTargetCr
     'tags',
     'intervalMinutes',
     'intervalMode',
+    'startAt',
   ]);
   if (!isMonitorTargetType(value.type)) {
     throw new MonitorContractError('invalid_target_type', '监控类型只能是视频、UP 主或动态');
@@ -267,7 +277,8 @@ export function parseCreateMonitorTargetRequest(value: unknown): MonitorTargetCr
     value.type === 'dynamic'
       ? parseDynamicIntervalMode(value.intervalMode)
       : parseIntervalMode(value.intervalMode, 'auto');
-  return {
+  const startAt = parseOptionalStartAtField(value.startAt, value.type);
+  const request: MonitorTargetCreateRequest = {
     type: value.type,
     externalId,
     label: parseLabel(value.label, externalId),
@@ -282,6 +293,8 @@ export function parseCreateMonitorTargetRequest(value: unknown): MonitorTargetCr
       ),
     ),
   };
+  if (startAt !== undefined) request.startAt = startAt;
+  return request;
 }
 
 /**
@@ -296,6 +309,7 @@ export function serializeCreateMonitorTargetRequest(request: MonitorTargetCreate
   tags: string[];
   intervalMode: MonitorIntervalMode;
   intervalMinutes?: number;
+  startAt?: string | null;
 } {
   const body: {
     type: MonitorTargetType;
@@ -304,6 +318,7 @@ export function serializeCreateMonitorTargetRequest(request: MonitorTargetCreate
     tags: string[];
     intervalMode: MonitorIntervalMode;
     intervalMinutes?: number;
+    startAt?: string | null;
   } = {
     type: request.type,
     externalId: request.externalId,
@@ -312,6 +327,7 @@ export function serializeCreateMonitorTargetRequest(request: MonitorTargetCreate
     intervalMode: request.intervalMode,
   };
   if (request.intervalMode === 'fixed') body.intervalMinutes = request.intervalMinutes;
+  if (request.startAt !== undefined) body.startAt = request.startAt;
   return body;
 }
 
@@ -319,7 +335,14 @@ export function parsePatchMonitorTargetRequest(value: unknown): MonitorTargetPat
   if (!isRecord(value)) {
     throw new MonitorContractError('invalid_body', '请求体不是合法的监控项更新');
   }
-  rejectUnknownKeys(value, ['enabled', 'intervalMinutes', 'intervalMode', 'tags', 'label']);
+  rejectUnknownKeys(value, [
+    'enabled',
+    'intervalMinutes',
+    'intervalMode',
+    'tags',
+    'label',
+    'startAt',
+  ]);
   const patch: MonitorTargetPatchRequest = {};
   if ('enabled' in value) {
     if (typeof value.enabled !== 'boolean') {
@@ -350,16 +373,97 @@ export function parsePatchMonitorTargetRequest(value: unknown): MonitorTargetPat
     }
     patch.label = label;
   }
+  if ('startAt' in value) {
+    patch.startAt = parseMonitorStartAtInput(value.startAt);
+  }
   if (
     patch.enabled === undefined &&
     patch.intervalMinutes === undefined &&
     patch.intervalMode === undefined &&
     patch.tags === undefined &&
-    patch.label === undefined
+    patch.label === undefined &&
+    patch.startAt === undefined
   ) {
     throw new MonitorContractError('invalid_patch', '没有可更新的字段');
   }
   return patch;
+}
+
+/**
+ * Accept only full instants with an explicit timezone (Z or ±HH:MM).
+ * Bare local forms like 2026-10-21T12:00:00 are rejected so servers and
+ * browsers cannot silently reinterpret Asia/Shanghai business times.
+ * Civil Y-M-D must be a real calendar date (no Date.parse rollover of Feb 30).
+ */
+const START_AT_WITH_ZONE =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+
+function assertCivilDate(year: number, month: number, day: number): void {
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    throw new MonitorContractError('invalid_start_at', '开始时间不是合法日历日期');
+  }
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (
+    probe.getUTCFullYear() !== year ||
+    probe.getUTCMonth() !== month - 1 ||
+    probe.getUTCDate() !== day
+  ) {
+    throw new MonitorContractError('invalid_start_at', '开始时间不是合法日历日期');
+  }
+}
+
+function assertCivilTime(hour: number, minute: number, second: number): void {
+  if (hour > 23 || minute > 59 || second > 59) {
+    throw new MonitorContractError('invalid_start_at', '开始时间不是合法时间');
+  }
+}
+
+export function parseMonitorStartAtInput(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') {
+    throw new MonitorContractError('invalid_start_at', '开始时间必须是带时区的完整时间');
+  }
+  const raw = value.trim();
+  const matched = START_AT_WITH_ZONE.exec(raw);
+  if (!matched) {
+    throw new MonitorContractError(
+      'invalid_start_at',
+      '开始时间必须是带明确时区的完整时间（例如 2026-10-21T20:00:00+08:00）',
+    );
+  }
+  const year = Number(matched[1]);
+  const month = Number(matched[2]);
+  const day = Number(matched[3]);
+  const hour = Number(matched[4]);
+  const minute = Number(matched[5]);
+  const second = Number(matched[6]);
+  assertCivilDate(year, month, day);
+  assertCivilTime(hour, minute, second);
+  const ms = Date.parse(raw);
+  if (Number.isNaN(ms)) {
+    throw new MonitorContractError('invalid_start_at', '开始时间不是合法时间');
+  }
+  return new Date(ms).toISOString();
+}
+
+function parseOptionalStartAtField(
+  value: unknown,
+  type: MonitorTargetType,
+): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (type !== 'video' && value !== null) {
+    throw new MonitorContractError('invalid_start_at', '只有视频监控支持计划开始时间');
+  }
+  return parseMonitorStartAtInput(value);
+}
+
+/** Response field: missing startAt on old payloads is null, not an error. */
+function parseOptionalStartAtResponse(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
+    throw new MonitorContractError('invalid_body', 'startAt 不是合法时间');
+  }
+  return value;
 }
 
 function parseIso(value: unknown, name: string): string | null {
@@ -406,6 +510,7 @@ export function parseMonitorTarget(value: unknown): MonitorTarget {
     enabled: value.enabled,
     intervalMinutes: value.intervalMinutes,
     intervalMode,
+    startAt: parseOptionalStartAtResponse(value.startAt),
     nextRunAt: parseIso(value.nextRunAt, 'nextRunAt'),
     lastRunAt: parseIso(value.lastRunAt, 'lastRunAt'),
     lastSuccessAt: parseIso(value.lastSuccessAt, 'lastSuccessAt'),

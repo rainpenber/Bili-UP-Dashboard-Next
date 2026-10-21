@@ -62,6 +62,7 @@ export function operationLabel(action: OpsOperationAction): string {
   if (action === 'rename') return '调整名称';
   if (action === 'tags') return '调整标签';
   if (action === 'remove') return '移除';
+  if (action === 'reschedule') return '调整开始时间';
   return '手动采集';
 }
 

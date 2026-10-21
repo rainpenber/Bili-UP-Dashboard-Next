@@ -296,7 +296,11 @@ describe('historical dynamic sample upgrade', () => {
     expect(Object.keys(beforeSamples[0] ?? {})).not.toContain('source');
 
     const applied = await runMigrations(db);
-    expect(applied).toEqual(['011_dynamic_sample_storage', '012_dynamic_monitor_targets']);
+    expect(applied).toEqual([
+      '011_dynamic_sample_storage',
+      '012_dynamic_monitor_targets',
+      '013_monitor_target_start_at',
+    ]);
     const creators = await snapshotRows(db, 'creators', 'mid');
     const dynamics = await snapshotRows(db, 'dynamics', 'dynamic_id');
     const samples = await snapshotRows(db, 'dynamic_metric_samples', 'id');

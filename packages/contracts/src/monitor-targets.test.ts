@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   MonitorContractError,
   parseCreateMonitorTargetRequest,
+  parseMonitorStartAtInput,
   parsePatchMonitorTargetRequest,
   splitTagInput,
 } from './monitor-targets';
@@ -154,5 +155,50 @@ describe('monitor target contracts', () => {
 
   test('splits tag input on commas and spaces', () => {
     expect(splitTagInput(' 春季， 活动  beta ')).toEqual(['春季', '活动', 'beta']);
+  });
+
+  test('startAt requires an explicit timezone and is video-only on create', () => {
+    const scheduled = parseCreateMonitorTargetRequest({
+      type: 'video',
+      externalId: 'BV1xx411c7mD',
+      startAt: '2026-10-21T20:00:00+08:00',
+    });
+    expect(scheduled.startAt).toBe('2026-10-21T12:00:00.000Z');
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'video',
+        externalId: 'BV1xx411c7mD',
+        startAt: '2026-10-21T20:00:00',
+      }),
+    ).toThrow(/时区/);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'creator',
+        externalId: '12345',
+        startAt: '2026-10-21T20:00:00+08:00',
+      }),
+    ).toThrow(/视频/);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'dynamic',
+        externalId: '12345',
+        startAt: '2026-10-21T20:00:00Z',
+      }),
+    ).toThrow(/视频/);
+    expect(parsePatchMonitorTargetRequest({ startAt: null }).startAt).toBeNull();
+    expect(parsePatchMonitorTargetRequest({ startAt: '2026-12-01T08:00:00.000Z' }).startAt).toBe(
+      '2026-12-01T08:00:00.000Z',
+    );
+  });
+
+  test('startAt rejects non-calendar days and keeps leap-day boundaries', () => {
+    expect(() => parseMonitorStartAtInput('2027-02-30T18:00:00+08:00')).toThrow(/日历日期/);
+    expect(() => parseMonitorStartAtInput('2027-02-29T18:00:00+08:00')).toThrow(/日历日期/);
+    expect(() => parseMonitorStartAtInput('2027-04-31T12:00:00Z')).toThrow(/日历日期/);
+    expect(() => parseMonitorStartAtInput('2027-02-30T18:00:00+08:00')).toThrow(
+      MonitorContractError,
+    );
+    expect(parseMonitorStartAtInput('2028-02-29T18:00:00+08:00')).toBe('2028-02-29T10:00:00.000Z');
+    expect(parseMonitorStartAtInput('2027-02-28T18:00:00+08:00')).toBe('2027-02-28T10:00:00.000Z');
   });
 });

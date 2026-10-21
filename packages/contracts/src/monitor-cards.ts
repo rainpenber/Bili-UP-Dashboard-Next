@@ -36,6 +36,8 @@ export type MonitorCardTarget = {
   enabled: boolean;
   intervalMinutes: number;
   intervalMode: MonitorIntervalMode;
+  /** User-planned first collect instant. Null when absent or not applicable. */
+  startAt: string | null;
   nextRunAt: string | null;
   lastRunAt: string | null;
   lastSuccessAt: string | null;
@@ -331,6 +333,15 @@ function parseTarget(value: unknown): MonitorCardTarget | null {
   if (lastError !== null && typeof lastError !== 'string') {
     throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
   }
+  const startAtRaw = value.startAt;
+  const startAt =
+    startAtRaw === undefined || startAtRaw === null
+      ? null
+      : typeof startAtRaw === 'string'
+        ? startAtRaw
+        : (() => {
+            throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+          })();
   return {
     id: value.id,
     label: value.label,
@@ -338,6 +349,7 @@ function parseTarget(value: unknown): MonitorCardTarget | null {
     enabled: value.enabled,
     intervalMinutes: value.intervalMinutes,
     intervalMode: value.intervalMode,
+    startAt,
     nextRunAt: optionalTime('nextRunAt'),
     lastRunAt: optionalTime('lastRunAt'),
     lastSuccessAt: optionalTime('lastSuccessAt'),
