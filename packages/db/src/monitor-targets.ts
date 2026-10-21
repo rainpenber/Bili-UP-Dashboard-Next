@@ -1,8 +1,17 @@
 import type postgres from 'postgres';
 import type { Sql } from './client';
+import {
+  convergeActiveJobsUnderTargetLock,
+  findActiveJob,
+  lockMonitorTargetForUpdate,
+  type CollectorTargetTxHooks,
+  type LockedMonitorTarget,
+} from './collector-target-tx';
 import { partitionNameFromLabels } from './partitions';
 
 type Queryable = postgres.Sql | postgres.TransactionSql;
+
+export type { CollectorTargetTxHooks } from './collector-target-tx';
 
 export type MonitorTargetType = 'video' | 'creator' | 'dynamic';
 export type CollectorJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
@@ -222,14 +231,8 @@ async function insertJobIfIdle(
   targetId: string,
   scheduledFor: Date,
 ): Promise<string | null> {
-  const busy = await sql<{ id: string }[]>`
-    SELECT id::text AS id
-    FROM collector_jobs
-    WHERE target_id = ${targetId}::uuid
-      AND status IN ('pending', 'running')
-    LIMIT 1
-  `;
-  if (busy.length > 0) return null;
+  const busy = await findActiveJob(sql, targetId);
+  if (busy) return null;
   const jobId = crypto.randomUUID();
   const inserted = await sql<{ id: string }[]>`
     INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
@@ -238,6 +241,48 @@ async function insertJobIfIdle(
     RETURNING id::text AS id
   `;
   return inserted[0]?.id ?? null;
+}
+
+function asMonitorTargetRow(target: LockedMonitorTarget): MonitorTargetRow {
+  return {
+    id: target.id,
+    type: target.type,
+    externalId: target.externalId,
+    label: target.label,
+    tags: target.tags,
+    enabled: target.enabled,
+    intervalMinutes: target.intervalMinutes,
+    intervalMode: target.intervalMode,
+    nextRunAt: target.nextRunAt,
+    lastRunAt: target.lastRunAt,
+    lastSuccessAt: target.lastSuccessAt,
+    lastError: target.lastError,
+    source: target.source,
+    createdAt: target.createdAt,
+    updatedAt: target.updatedAt,
+    deletedAt: target.deletedAt,
+  };
+}
+
+function asLockedTarget(target: MonitorTargetRow): LockedMonitorTarget {
+  return {
+    id: target.id,
+    type: target.type,
+    externalId: target.externalId,
+    label: target.label,
+    tags: target.tags,
+    enabled: target.enabled,
+    intervalMinutes: target.intervalMinutes,
+    intervalMode: target.intervalMode,
+    nextRunAt: target.nextRunAt,
+    lastRunAt: target.lastRunAt,
+    lastSuccessAt: target.lastSuccessAt,
+    lastError: target.lastError,
+    source: target.source,
+    createdAt: target.createdAt,
+    updatedAt: target.updatedAt,
+    deletedAt: target.deletedAt,
+  };
 }
 
 export async function updateMonitorTarget(
@@ -251,15 +296,17 @@ export async function updateMonitorTarget(
     label?: string;
   },
   now: Date,
+  hooks?: CollectorTargetTxHooks,
 ): Promise<{
   status: 'missing' | 'deleted' | 'updated';
   target: MonitorTargetRow | null;
   jobId: string | null;
 }> {
   return sql.begin(async (tx) => {
-    const existing = await getMonitorTarget(tx, id);
+    const existing = await lockMonitorTargetForUpdate(tx, id);
     if (!existing) return { status: 'missing', target: null, jobId: null };
-    if (existing.deletedAt) return { status: 'deleted', target: existing, jobId: null };
+    if (hooks?.afterParentRowsLocked) await hooks.afterParentRowsLocked();
+    if (existing.deletedAt) return { status: 'deleted', target: asMonitorTargetRow(existing), jobId: null };
     if (existing.type === 'dynamic' && patch.intervalMode === 'auto') {
       throw new Error('动态只支持固定间隔，不能使用自动频率');
     }
@@ -282,113 +329,168 @@ export async function updateMonitorTarget(
       RETURNING ${tx.unsafe(targetColumns)}
     `;
     const row = rows[0];
-    if (!row) return { status: 'deleted', target: existing, jobId: null };
+    if (!row) return { status: 'deleted', target: asMonitorTargetRow(existing), jobId: null };
+    const after = mapTarget(row);
+    const lockedAfter = asLockedTarget(after);
     let jobId: string | null = null;
     if (resume) {
-      await tx`
-        UPDATE collector_jobs
-        SET scheduled_for = ${now}, updated_at = statement_timestamp()
-        WHERE id = (
-          SELECT id FROM collector_jobs
-          WHERE target_id = ${id}::uuid AND status = 'pending'
-          ORDER BY scheduled_for, id
-          LIMIT 1
-        )
-      `;
-      jobId = await insertJobIfIdle(tx, id, now);
+      await convergeActiveJobsUnderTargetLock(tx, lockedAfter);
+      const pending = await findActiveJob(tx, id);
+      if (pending && pending.status === 'pending') {
+        await tx`
+          UPDATE collector_jobs
+          SET scheduled_for = ${now}, updated_at = statement_timestamp()
+          WHERE id = ${pending.id}::uuid AND status = 'pending'
+        `;
+        jobId = pending.id;
+      } else if (!pending) {
+        jobId = await insertJobIfIdle(tx, id, now);
+      } else {
+        jobId = pending.id;
+      }
+    } else {
+      await convergeActiveJobsUnderTargetLock(tx, lockedAfter);
     }
-    return { status: 'updated', target: mapTarget(row), jobId };
+    return { status: 'updated', target: after, jobId };
   });
 }
 
 export async function softDeleteMonitorTarget(
   sql: Sql,
   id: string,
+  hooks?: CollectorTargetTxHooks,
 ): Promise<{ status: 'missing' | 'deleted' | 'removed'; target: MonitorTargetRow | null }> {
-  const rows = await sql<TargetSqlRow[]>`
-    UPDATE monitor_targets
-    SET deleted_at = now(), enabled = false, updated_at = now()
-    WHERE id = ${id}::uuid AND deleted_at IS NULL
-    RETURNING ${sql.unsafe(targetColumns)}
-  `;
-  const removed = rows[0];
-  if (removed) return { status: 'removed', target: mapTarget(removed) };
-  const existing = await getMonitorTarget(sql, id);
-  if (!existing) return { status: 'missing', target: null };
-  return { status: 'deleted', target: existing };
+  return sql.begin(async (tx) => {
+    const existing = await lockMonitorTargetForUpdate(tx, id);
+    if (!existing) return { status: 'missing', target: null };
+    if (hooks?.afterParentRowsLocked) await hooks.afterParentRowsLocked();
+    if (existing.deletedAt) return { status: 'deleted', target: asMonitorTargetRow(existing) };
+    const rows = await tx<TargetSqlRow[]>`
+      UPDATE monitor_targets
+      SET deleted_at = now(), enabled = false, updated_at = now()
+      WHERE id = ${id}::uuid AND deleted_at IS NULL
+      RETURNING ${tx.unsafe(targetColumns)}
+    `;
+    const removed = rows[0];
+    if (!removed) return { status: 'deleted', target: asMonitorTargetRow(existing) };
+    // Soft-delete blocks new claims via deleted_at; running may still finish.
+    return { status: 'removed', target: mapTarget(removed) };
+  });
 }
 
-export async function enqueueDueCollectorJobs(sql: Sql): Promise<number> {
-  const rows = await sql<{ id: string }[]>`
-    INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
-    SELECT gen_random_uuid(), t.id, 'pending', 0, t.next_run_at
+/**
+ * Enqueue due targets one-at-a-time under target → job locks.
+ * Re-reads next_run_at after the lock so an old snapshot cannot insert a stale bucket job.
+ */
+export async function enqueueDueCollectorJobs(
+  sql: Sql,
+  hooks?: CollectorTargetTxHooks,
+): Promise<number> {
+  const due = await sql<{ id: string }[]>`
+    SELECT t.id::text AS id
     FROM monitor_targets t
     WHERE t.deleted_at IS NULL
       AND t.enabled = true
       AND t.next_run_at IS NOT NULL
       AND t.next_run_at <= statement_timestamp()
-      AND NOT EXISTS (
-        SELECT 1 FROM collector_jobs j
-        WHERE j.target_id = t.id AND j.status IN ('pending', 'running')
-      )
-    ON CONFLICT (target_id, scheduled_for) DO NOTHING
-    RETURNING id
+    ORDER BY t.id ASC
   `;
-  return rows.length;
+  let inserted = 0;
+  for (const row of due) {
+    const created = await sql.begin(async (tx) => {
+      const target = await lockMonitorTargetForUpdate(tx, row.id);
+      if (hooks?.afterParentRowsLocked) await hooks.afterParentRowsLocked();
+      if (!target || target.deletedAt || !target.enabled) return false;
+      if (!target.nextRunAt || target.nextRunAt.getTime() > Date.now()) return false;
+      await convergeActiveJobsUnderTargetLock(tx, target);
+      const active = await findActiveJob(tx, target.id);
+      if (active) return false;
+      const jobId = await insertJobIfIdle(tx, target.id, target.nextRunAt);
+      return jobId !== null;
+    });
+    if (created) inserted += 1;
+  }
+  return inserted;
 }
 
+/**
+ * Claim keeps non-blocking worker semantics: peek due jobs, then take target → job locks.
+ * Candidates already taken or converged away are skipped (SKIP LOCKED equivalent).
+ */
 export async function claimNextCollectorJob(sql: Sql): Promise<ClaimedCollectorJob | null> {
-  const rows = await sql<
-    {
-      id: string;
-      target_id: string;
-      attempts: number;
-      scheduled_for: Date;
-      type: MonitorTargetType;
-      external_id: string;
-      account_id: string | null;
-    }[]
-  >`
-    WITH candidate AS (
-      SELECT j.id, j.target_id
-      FROM collector_jobs j
-      JOIN monitor_targets t ON t.id = j.target_id
-      WHERE j.status = 'pending'
-        AND j.scheduled_for <= statement_timestamp()
-        AND t.enabled = true
-        AND t.deleted_at IS NULL
-      ORDER BY j.scheduled_for, j.id
-      FOR UPDATE OF j SKIP LOCKED
-      LIMIT 1
-    )
-    UPDATE collector_jobs AS job
-    SET status = 'running',
-        started_at = statement_timestamp(),
-        attempts = job.attempts + 1,
-        error = NULL,
-        updated_at = statement_timestamp()
-    FROM candidate
-    JOIN monitor_targets t ON t.id = candidate.target_id
-    WHERE job.id = candidate.id
-    RETURNING job.id::text AS id,
-      job.target_id::text AS target_id,
-      job.attempts,
-      job.scheduled_for,
-      t."type" AS type,
-      t.external_id,
-      t.account_id::text AS account_id
+  const candidates = await sql<{ id: string; target_id: string }[]>`
+    SELECT j.id::text AS id, j.target_id::text AS target_id
+    FROM collector_jobs j
+    JOIN monitor_targets t ON t.id = j.target_id
+    WHERE j.status = 'pending'
+      AND j.scheduled_for <= statement_timestamp()
+      AND t.enabled = true
+      AND t.deleted_at IS NULL
+    ORDER BY j.scheduled_for, j.id
+    LIMIT 16
   `;
-  const row = rows[0];
-  if (!row) return null;
-  return {
-    id: row.id,
-    targetId: row.target_id,
-    targetType: row.type,
-    externalId: row.external_id,
-    attempts: row.attempts,
-    scheduledFor: row.scheduled_for,
-    accountId: row.account_id,
-  };
+
+  for (const candidate of candidates) {
+    const claimed = await sql.begin(async (tx) => {
+      const target = await lockMonitorTargetForUpdate(tx, candidate.target_id);
+      if (!target || target.deletedAt || !target.enabled) return null;
+
+      await convergeActiveJobsUnderTargetLock(tx, target, candidate.id);
+
+      const jobRows = await tx<
+        {
+          id: string;
+          target_id: string;
+          attempts: number;
+          scheduled_for: Date;
+          type: MonitorTargetType;
+          external_id: string;
+          account_id: string | null;
+        }[]
+      >`
+        UPDATE collector_jobs AS job
+        SET status = 'running',
+            started_at = statement_timestamp(),
+            attempts = job.attempts + 1,
+            error = NULL,
+            updated_at = statement_timestamp()
+        FROM monitor_targets t
+        WHERE job.id = ${candidate.id}::uuid
+          AND job.target_id = ${candidate.target_id}::uuid
+          AND job.status = 'pending'
+          AND job.scheduled_for <= statement_timestamp()
+          AND t.id = job.target_id
+          AND t.enabled = true
+          AND t.deleted_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM collector_jobs other
+            WHERE other.target_id = job.target_id
+              AND other.status = 'running'
+              AND other.id <> job.id
+          )
+        RETURNING job.id::text AS id,
+          job.target_id::text AS target_id,
+          job.attempts,
+          job.scheduled_for,
+          t."type" AS type,
+          t.external_id,
+          t.account_id::text AS account_id
+      `;
+      const row = jobRows[0];
+      if (!row) return null;
+      return {
+        id: row.id,
+        targetId: row.target_id,
+        targetType: row.type,
+        externalId: row.external_id,
+        attempts: row.attempts,
+        scheduledFor: row.scheduled_for,
+        accountId: row.account_id,
+      } satisfies ClaimedCollectorJob;
+    });
+    if (claimed) return claimed;
+  }
+  return null;
 }
 
 export type SampleSource = 'import' | 'legacy_csv' | 'bilibili';
@@ -686,9 +788,22 @@ export async function recordCollectorSuccess(
     startedAt: Date;
     schedule?: CollectorScheduleWrite;
   },
+  hooks?: CollectorTargetTxHooks,
 ): Promise<{ runId: string }> {
   const runId = crypto.randomUUID();
   await sql.begin(async (tx) => {
+    const target = await lockMonitorTargetForUpdate(tx, input.targetId);
+    if (!target) throw new Error('监控目标不存在');
+    const job = await tx<{ id: string; target_id: string; status: CollectorJobStatus }[]>`
+      SELECT id::text AS id, target_id::text AS target_id, status
+      FROM collector_jobs
+      WHERE id = ${input.jobId}::uuid
+      FOR UPDATE
+    `;
+    const lockedJob = job[0];
+    if (!lockedJob) throw new Error('采集任务不存在');
+    if (lockedJob.target_id !== input.targetId) throw new Error('采集任务不属于该监控目标');
+    if (hooks?.afterParentRowsLocked) await hooks.afterParentRowsLocked();
     const finished = new Date();
     await tx`
       UPDATE collector_jobs
@@ -734,11 +849,24 @@ export async function recordCollectorFailure(
     retryAt: Date | null;
     schedule?: CollectorScheduleWrite;
   },
+  hooks?: CollectorTargetTxHooks,
 ): Promise<{ terminal: boolean; runId: string }> {
   const retryAt = input.retryAt;
   const terminal = input.attempts >= input.maxAttempts || retryAt === null;
   const runId = crypto.randomUUID();
   await sql.begin(async (tx) => {
+    const target = await lockMonitorTargetForUpdate(tx, input.targetId);
+    if (!target) throw new Error('监控目标不存在');
+    const job = await tx<{ id: string; target_id: string; status: CollectorJobStatus }[]>`
+      SELECT id::text AS id, target_id::text AS target_id, status
+      FROM collector_jobs
+      WHERE id = ${input.jobId}::uuid
+      FOR UPDATE
+    `;
+    const lockedJob = job[0];
+    if (!lockedJob) throw new Error('采集任务不存在');
+    if (lockedJob.target_id !== input.targetId) throw new Error('采集任务不属于该监控目标');
+    if (hooks?.afterParentRowsLocked) await hooks.afterParentRowsLocked();
     const finished = new Date();
     if (terminal) {
       await tx`
@@ -905,36 +1033,50 @@ export async function requestCollectorRun(
   sql: Sql,
   targetId: string,
   now: Date,
+  hooks?: CollectorTargetTxHooks,
 ): Promise<
   | { status: 'missing' | 'deleted'; job: null }
   | { status: 'queued'; job: CollectorJobRow; created: boolean }
 > {
-  const target = await getMonitorTarget(sql, targetId);
-  if (!target) return { status: 'missing', job: null };
-  if (target.deletedAt) return { status: 'deleted', job: null };
-  const jobId = crypto.randomUUID();
-  const inserted = await sql<{ id: string }[]>`
-    INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
-    VALUES (${jobId}::uuid, ${targetId}::uuid, 'pending', 0, ${now})
-    ON CONFLICT (target_id, scheduled_for) DO NOTHING
-    RETURNING id::text AS id
-  `;
-  const id = inserted[0]?.id;
-  if (!id) {
-    const existing = await sql<{ id: string }[]>`
-      SELECT id::text AS id
-      FROM collector_jobs
-      WHERE target_id = ${targetId}::uuid AND scheduled_for = ${now}
+  type Outcome =
+    | { status: 'missing' | 'deleted'; jobId: null; created: false }
+    | { status: 'queued'; jobId: string; created: boolean };
+  const outcome = (await sql.begin(async (tx) => {
+    const target = await lockMonitorTargetForUpdate(tx, targetId);
+    if (!target) return { status: 'missing' as const, jobId: null, created: false as const };
+    if (hooks?.afterParentRowsLocked) await hooks.afterParentRowsLocked();
+    if (target.deletedAt) {
+      return { status: 'deleted' as const, jobId: null, created: false as const };
+    }
+
+    await convergeActiveJobsUnderTargetLock(tx, target);
+    const active = await findActiveJob(tx, targetId);
+    if (active) {
+      return { status: 'queued' as const, jobId: active.id, created: false };
+    }
+
+    const jobId = crypto.randomUUID();
+    const inserted = await tx<{ id: string }[]>`
+      INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
+      VALUES (${jobId}::uuid, ${targetId}::uuid, 'pending', 0, ${now})
+      ON CONFLICT (target_id, scheduled_for) DO NOTHING
+      RETURNING id::text AS id
     `;
-    const existingId = existing[0]?.id;
-    if (!existingId) throw new Error('采集任务冲突后未能读回');
-    const job = await getCollectorJob(sql, existingId);
-    if (!job) throw new Error('采集任务冲突后未能读回');
-    return { status: 'queued', job, created: false };
+    const id = inserted[0]?.id;
+    if (!id) {
+      const existing = await findActiveJob(tx, targetId);
+      if (!existing) throw new Error('采集任务冲突后未能读回');
+      return { status: 'queued' as const, jobId: existing.id, created: false };
+    }
+    return { status: 'queued' as const, jobId: id, created: true };
+  })) as Outcome;
+
+  if (outcome.status !== 'queued') {
+    return { status: outcome.status, job: null };
   }
-  const job = await getCollectorJob(sql, id);
+  const job = await getCollectorJob(sql, outcome.jobId);
   if (!job) throw new Error('采集任务写入后未能读回');
-  return { status: 'queued', job, created: true };
+  return { status: 'queued', job, created: outcome.created };
 }
 
 export async function refreshCollectorHeartbeat(sql: Sql, instanceId: string): Promise<void> {

@@ -34,6 +34,7 @@ export {
   writeCreatorSample,
   writeVideoSample,
   type CollectorScheduleWrite,
+  type CollectorTargetTxHooks,
   type TargetScheduleContext,
   type ClaimedCollectorJob,
   type CollectorJobRow,
@@ -43,6 +44,19 @@ export {
   type SampleSource,
   type VideoSampleWrite,
 } from './monitor-targets';
+export {
+  SUPERSEDED_ACTIVE_JOB_ERROR,
+  convergeActiveJobs,
+  convergeActiveJobsUnderTargetLock,
+  findActiveJob,
+  lockCollectorJobForUpdate,
+  lockMonitorTargetForUpdate,
+  lockMonitorTargetsInOrder,
+  withMonitorTargetAndJobTransaction,
+  withMonitorTargetTransaction,
+  type LockedCollectorJob,
+  type LockedMonitorTarget,
+} from './collector-target-tx';
 export {
   writeDynamicSample,
   writeDynamicSampleWithin,
