@@ -82,6 +82,7 @@ export function MonitorCardControls({
   listQuery,
   includeDetailLink = true,
   layout = 'card',
+  presentation = 'list',
   selected = false,
   onSelect,
 }: {
@@ -89,6 +90,8 @@ export function MonitorCardControls({
   listQuery: string;
   includeDetailLink?: boolean;
   layout?: 'card' | 'detail';
+  /** 列表沿用横向操作；网格在卡片不够宽时把操作收成右列。 */
+  presentation?: 'list' | 'grid';
   selected?: boolean;
   onSelect?: () => void;
 }) {
@@ -241,6 +244,7 @@ export function MonitorCardControls({
         layout === 'card'
           ? cn(
               'grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg border p-3',
+              presentation === 'grid' && '@container',
               selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
             )
           : 'flex min-w-0 max-w-full flex-col gap-2'
@@ -293,7 +297,9 @@ export function MonitorCardControls({
         data-testid={layout === 'detail' ? 'monitor-detail-bar' : 'monitor-card-actions'}
         className={
           layout === 'card'
-            ? 'col-start-2 row-start-1 flex w-max max-w-[8.75rem] flex-col items-stretch justify-center gap-1.5 self-center justify-self-end sm:max-w-none sm:flex-row sm:flex-wrap sm:items-center sm:justify-end'
+            ? presentation === 'grid'
+              ? 'col-start-2 row-start-1 flex w-max max-w-[8.75rem] flex-col items-stretch justify-center gap-1.5 self-center justify-self-end @[40rem]:max-w-none @[40rem]:flex-row @[40rem]:flex-wrap @[40rem]:items-center @[40rem]:justify-end'
+              : 'col-start-2 row-start-1 flex w-max max-w-[8.75rem] flex-col items-stretch justify-center gap-1.5 self-center justify-self-end sm:max-w-none sm:flex-row sm:flex-wrap sm:items-center sm:justify-end'
             : 'flex min-w-0 flex-wrap items-center gap-2'
         }
       >
@@ -427,16 +433,19 @@ export function MonitorObjectCard({
   selected,
   listQuery,
   onSelect,
+  presentation = 'list',
 }: {
   card: MonitorCard;
   selected: boolean;
   listQuery: string;
   onSelect: () => void;
+  presentation?: 'list' | 'grid';
 }) {
   return (
     <li
       className="min-w-0 max-w-full"
       data-testid="monitor-object-card"
+      data-presentation={presentation}
       data-monitor-state={card.monitorState}
       data-execution={card.execution}
       data-external-id={card.externalId}
@@ -444,6 +453,7 @@ export function MonitorObjectCard({
       <MonitorCardControls
         card={card}
         listQuery={listQuery}
+        presentation={presentation}
         selected={selected}
         onSelect={onSelect}
       />

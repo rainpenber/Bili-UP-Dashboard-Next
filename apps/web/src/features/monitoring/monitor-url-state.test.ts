@@ -11,7 +11,41 @@ describe('monitor URL state', () => {
       q: '',
       selected: null,
       monitor: 'all',
+      view: 'split',
     });
+  });
+
+  test('view falls back to split unless the query is grid', () => {
+    expect(parseMonitorSearchParams(new URLSearchParams('view=grid')).view).toBe('grid');
+    expect(parseMonitorSearchParams(new URLSearchParams('view=split')).view).toBe('split');
+    for (const raw of ['', 'board', 'GRID', 'list']) {
+      expect(parseMonitorSearchParams(new URLSearchParams(`view=${raw}`)).view).toBe('split');
+    }
+  });
+
+  test('layout changes keep filters, selection, and page', () => {
+    const base = new URLSearchParams(
+      'tab=creators&page=2&q=test&category=游戏&monitor=paused&selected=abc&view=grid',
+    );
+    const samePage = writeMonitorSearchParams(base, { view: 'split' });
+    expect(samePage.get('tab')).toBe('creators');
+    expect(samePage.get('page')).toBe('2');
+    expect(samePage.get('q')).toBe('test');
+    expect(samePage.get('category')).toBe('游戏');
+    expect(samePage.get('monitor')).toBe('paused');
+    expect(samePage.get('selected')).toBe('abc');
+    expect(samePage.has('view')).toBe(false);
+
+    const grid = writeMonitorSearchParams(samePage, { view: 'grid' });
+    expect(grid.get('view')).toBe('grid');
+    expect(grid.get('page')).toBe('2');
+    expect(grid.get('selected')).toBe('abc');
+    expect(grid.get('q')).toBe('test');
+
+    const nextPage = writeMonitorSearchParams(grid, { page: 3 });
+    expect(nextPage.get('view')).toBe('grid');
+    expect(nextPage.get('page')).toBe('3');
+    expect(nextPage.get('selected')).toBe('abc');
   });
 
   test('old targets tab opens the video page and keeps the monitor filter', () => {

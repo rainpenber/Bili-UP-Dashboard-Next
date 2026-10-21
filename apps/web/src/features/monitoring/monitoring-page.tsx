@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { Columns2, LayoutGrid } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { useDynamicsQuery, useEntityMetricsQuery } from '@/api/hooks/use-monitor-queries';
 import { useMonitorCardsQuery } from '@/api/hooks/use-monitor-card-queries';
@@ -17,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
 import { MonitorAddDialog } from '@/features/monitoring/monitor-add-dialog';
 import { MonitorObjectCard } from '@/features/monitoring/monitor-object-card';
@@ -25,6 +27,7 @@ import {
   writeMonitorSearchParams,
   type MonitorPresenceFilter,
   type MonitorTab,
+  type MonitorView,
 } from '@/features/monitoring/monitor-url-state';
 import { OfflineEnvironmentBadge } from '@/features/monitoring/offline-environment-badge';
 import { formatUnknownMetric } from '@/lib/format-compact-number';
@@ -42,6 +45,38 @@ const MONITOR_FILTER_LABEL: Record<MonitorPresenceFilter, string> = {
   paused: '已暂停',
   unmonitored: '未监控',
 };
+
+function MonitorLayoutToggle({
+  value,
+  onValueChange,
+}: {
+  value: MonitorView;
+  onValueChange: (value: MonitorView) => void;
+}) {
+  return (
+    <div className="ml-auto grid shrink-0 gap-1.5">
+      <Label id="monitor-view-label">布局</Label>
+      <ToggleGroup
+        type="single"
+        size="sm"
+        value={value}
+        aria-labelledby="monitor-view-label"
+        onValueChange={(next) => {
+          if (next === 'split' || next === 'grid') onValueChange(next);
+        }}
+      >
+        <ToggleGroupItem value="split" aria-label="分栏">
+          <Columns2 aria-hidden />
+          分栏
+        </ToggleGroupItem>
+        <ToggleGroupItem value="grid" aria-label="网格">
+          <LayoutGrid aria-hidden />
+          网格
+        </ToggleGroupItem>
+      </ToggleGroup>
+    </div>
+  );
+}
 
 export function MonitoringPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -83,6 +118,8 @@ export function MonitoringPage() {
 
   const listQueryState = state.tab === 'dynamics' ? dynamicsQuery : cardsQuery;
   const totalPages = listQueryState.data?.totalPages ?? 1;
+  const layoutView = state.tab === 'dynamics' ? 'split' : state.view;
+  const gridLayout = layoutView === 'grid';
 
   return (
     <div data-testid="monitoring-page" className="min-w-0 max-w-full overflow-x-hidden">
@@ -170,11 +207,21 @@ export function MonitoringPage() {
                 ))}
               </select>
             </div>
+            <MonitorLayoutToggle value={state.view} onValueChange={(view) => patchUrl({ view })} />
           </div>
         )}
 
         <TabsContent value={state.tab} className="mt-0 min-w-0">
-          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
+          <div
+            data-testid="monitor-layout"
+            data-view={layoutView}
+            className={cn(
+              'grid min-w-0 gap-6',
+              gridLayout
+                ? 'grid-cols-1'
+                : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start',
+            )}
+          >
             <section aria-label="实体列表" className="min-w-0 space-y-4">
               {listQueryState.isLoading ? <LoadingListSkeleton rows={3} /> : null}
               {listQueryState.isError ? (
@@ -197,11 +244,21 @@ export function MonitoringPage() {
               {state.tab !== 'dynamics' &&
               cardsQuery.isSuccess &&
               cardsQuery.data.items.length > 0 ? (
-                <ul className="min-w-0 space-y-2" role="list">
+                <ul
+                  className={cn(
+                    'min-w-0',
+                    gridLayout
+                      ? 'grid grid-cols-[repeat(auto-fit,minmax(min(100%,26rem),1fr))] gap-3'
+                      : 'space-y-2',
+                  )}
+                  role="list"
+                  data-testid="monitor-card-list"
+                >
                   {cardsQuery.data.items.map((card) => (
                     <MonitorObjectCard
                       key={`${card.type}:${card.externalId}`}
                       card={card}
+                      presentation={gridLayout ? 'grid' : 'list'}
                       selected={state.selected === card.externalId}
                       listQuery={listQuery}
                       onSelect={() => patchUrl({ selected: card.externalId })}
@@ -261,7 +318,10 @@ export function MonitoringPage() {
               />
             </section>
 
-            <Card className="min-w-0 lg:sticky lg:top-20">
+            <Card
+              data-testid="monitor-trend-card"
+              className={cn('min-w-0', gridLayout ? 'w-full' : 'lg:sticky lg:top-20')}
+            >
               <CardHeader className="flex-row items-center justify-between space-y-0">
                 <CardTitle className="text-base">播放与互动趋势</CardTitle>
                 {state.selected ? (
@@ -275,7 +335,13 @@ export function MonitoringPage() {
               </CardHeader>
               <CardContent className="min-w-0 space-y-4">
                 {!state.selected ? (
-                  <NoSelectionHint message="从左侧列表选择一条记录以查看趋势图。" />
+                  <NoSelectionHint
+                    message={
+                      gridLayout
+                        ? '从上方卡片选择一条记录以查看趋势图。'
+                        : '从左侧列表选择一条记录以查看趋势图。'
+                    }
+                  />
                 ) : null}
                 {state.selected && selectedCard && !selectedCard.hasEntity ? (
                   <NoSelectionHint message="尚无采集数据" />
