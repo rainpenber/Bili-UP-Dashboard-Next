@@ -325,9 +325,16 @@ export function MonitoringPage() {
           open={addOpen}
           type={cardType}
           onOpenChange={setAddOpen}
-          onCreated={(externalId, message) => {
+          onCreated={({ externalId, message, enabled }) => {
             setNotice(message);
-            patchUrl({ q: externalId, page: 1, selected: externalId, tab: state.tab });
+            patchUrl({
+              q: externalId,
+              page: 1,
+              selected: externalId,
+              tab: state.tab,
+              category: '',
+              monitor: enabled ? 'active' : 'paused',
+            });
           }}
         />
       )}

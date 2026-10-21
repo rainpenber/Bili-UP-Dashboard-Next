@@ -40,7 +40,7 @@ export function MonitorAddDialog({
   open: boolean;
   type: MonitorTargetType;
   onOpenChange: (open: boolean) => void;
-  onCreated: (externalId: string, message: string) => void;
+  onCreated: (result: { externalId: string; message: string; enabled: boolean }) => void;
 }) {
   const [externalInput, setExternalInput] = useState('');
   const [label, setLabel] = useState('');
@@ -79,7 +79,11 @@ export function MonitorAddDialog({
       const body = serializeCreateMonitorTargetRequest(request);
       mutations.create.mutate(body, {
         onSuccess: (result) => {
-          onCreated(result.target.externalId, result.message);
+          onCreated({
+            externalId: result.target.externalId,
+            message: result.message,
+            enabled: result.target.enabled,
+          });
           reset();
           onOpenChange(false);
         },
