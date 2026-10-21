@@ -1,0 +1,97 @@
+{
+  "_fixture": {
+    "origin": "test-synthesized",
+    "source": "条目形态来自同一 commit cfc5fddcc8a94b74d91970bb5b4eaeb349addc47 的 docs/dynamic/all.md。detail.md 写明 data.item 参照获取动态列表。转发样例的 id_str、comment_type、module_stat 与 orig.id_str 取自该列表示例。",
+    "note": "测试合成，不是真实实测响应。orig.modules.module_stat 的计数是故意写成与本条不同的值；列表文档样例里的 orig 没有给出 module_stat。作者显示名也是合成的。未访问 B 站。"
+  },
+  "code": 0,
+  "message": "0",
+  "ttl": 1,
+  "data": {
+    "item": {
+      "basic": {
+        "comment_id_str": "966692349750018048",
+        "comment_type": 17,
+        "rid_str": "966692349750018048"
+      },
+      "id_str": "966692349750018048",
+      "modules": {
+        "module_author": {
+          "face": "https://example.invalid/forwarder.jpg",
+          "mid": 10001,
+          "name": "合成转发者",
+          "pub_time": "06月10日",
+          "pub_ts": 1717992000
+        },
+        "module_dynamic": {
+          "additional": null,
+          "desc": {
+            "text": "转发附言，不是原帖正文"
+          },
+          "major": null,
+          "topic": null
+        },
+        "module_stat": {
+          "comment": {
+            "count": 88,
+            "forbidden": false
+          },
+          "forward": {
+            "count": 12,
+            "forbidden": false
+          },
+          "like": {
+            "count": 3088,
+            "forbidden": false,
+            "status": false
+          }
+        }
+      },
+      "orig": {
+        "basic": {
+          "comment_id_str": "318324614",
+          "comment_type": 11,
+          "rid_str": "318324614"
+        },
+        "id_str": "939874290505875465",
+        "modules": {
+          "module_author": {
+            "face": "https://example.invalid/origin.jpg",
+            "mid": 10002,
+            "name": "合成原作者",
+            "pub_ts": 1717669936
+          },
+          "module_dynamic": {
+            "desc": {
+              "text": "原帖正文，不能当成这条转发的正文"
+            },
+            "major": {
+              "draw": {
+                "id": 318324614
+              },
+              "type": "MAJOR_TYPE_DRAW"
+            }
+          },
+          "module_stat": {
+            "comment": {
+              "count": 9000,
+              "forbidden": false
+            },
+            "forward": {
+              "count": 8000,
+              "forbidden": false
+            },
+            "like": {
+              "count": 7000,
+              "forbidden": false
+            }
+          }
+        },
+        "type": "DYNAMIC_TYPE_DRAW",
+        "visible": true
+      },
+      "type": "DYNAMIC_TYPE_FORWARD",
+      "visible": true
+    }
+  }
+}

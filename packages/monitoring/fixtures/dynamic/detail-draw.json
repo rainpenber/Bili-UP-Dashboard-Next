@@ -1,0 +1,70 @@
+{
+  "_fixture": {
+    "origin": "document-derived",
+    "source": "reference/bilibili-api/detail.md 的动态详情响应示例，固定上游 commit cfc5fddcc8a94b74d91970bb5b4eaeb349addc47",
+    "note": "由文档示例裁剪的离线夹具，去掉了未解析的头像图层。不是真实实测响应，也不是对 B 站的请求结果。"
+  },
+  "code": 0,
+  "message": "0",
+  "ttl": 1,
+  "data": {
+    "item": {
+      "basic": {
+        "comment_id_str": "326122895",
+        "comment_type": 11,
+        "rid_str": "326122895"
+      },
+      "id_str": "967717348014293017",
+      "modules": {
+        "module_author": {
+          "face": "https://i2.hdslb.com/bfs/face/77906db03b1eefac02613de184afad03f7bc58d7.jpg",
+          "mid": 645769214,
+          "name": "Session小胡",
+          "pub_time": "2024年08月20日 19:17",
+          "pub_ts": 1724152653
+        },
+        "module_dynamic": {
+          "additional": null,
+          "desc": {
+            "text": "今天因为Linux被骂, 决定放弃支持 Windows. 而且明天要开始军训了, 将停更若干时间, 遂发此动态, 望不知."
+          },
+          "major": {
+            "draw": {
+              "id": 326122895
+            },
+            "type": "MAJOR_TYPE_DRAW"
+          },
+          "topic": null
+        },
+        "module_more": {
+          "three_point_items": [
+            {
+              "params": {
+                "dyn_id_str": "967717348014293017",
+                "rid_str": "326122895"
+              },
+              "type": "THREE_POINT_DELETE"
+            }
+          ]
+        },
+        "module_stat": {
+          "comment": {
+            "count": 34,
+            "forbidden": false
+          },
+          "forward": {
+            "count": 2,
+            "forbidden": false
+          },
+          "like": {
+            "count": 65,
+            "forbidden": false,
+            "status": true
+          }
+        }
+      },
+      "type": "DYNAMIC_TYPE_DRAW",
+      "visible": true
+    }
+  }
+}

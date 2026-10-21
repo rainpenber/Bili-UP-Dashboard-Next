@@ -8,6 +8,7 @@ import {
   type UpstreamCall,
   type UpstreamEndpoint,
 } from './bilibili-failure';
+import { assertDynamicId, parseDynamicDetail, type ParsedDynamicDetail } from './bilibili-dynamic';
 import {
   onlineRawFromPayload,
   parseOnlineTotal,
@@ -30,6 +31,7 @@ import { createAccountThrottle, type ThrottleClock } from './throttle';
 const VIEW_URL = 'https://api.bilibili.com/x/web-interface/view';
 const ONLINE_URL = 'https://api.bilibili.com/x/player/online/total';
 const RELATION_URL = 'https://api.bilibili.com/x/relation/stat';
+const DYNAMIC_DETAIL_URL = 'https://api.bilibili.com/x/polymer/web-dynamic/v1/detail';
 
 export type VideoFetchResult = {
   bvid: string;
@@ -51,6 +53,15 @@ export type CreatorFetchResult = {
   extra: Record<string, unknown>;
 };
 
+export type DynamicFetchResult = {
+  dynamicId: string;
+  sampledAt: Date;
+  collectedAt: Date;
+  detail: ParsedDynamicDetail;
+  calls: UpstreamCall[];
+  extra: Record<string, unknown>;
+};
+
 export type BilibiliProvider = MonitorProvider & {
   readonly id: 'bilibili';
   fetchVideo(input: {
@@ -67,6 +78,13 @@ export type BilibiliProvider = MonitorProvider & {
     cookieHeader: string | null;
     accountKey: string;
   }): Promise<CreatorFetchResult>;
+  fetchDynamic(input: {
+    dynamicId: string;
+    sampledAt: Date;
+    collectedAt: Date;
+    cookieHeader: string | null;
+    accountKey: string;
+  }): Promise<DynamicFetchResult>;
 };
 
 function endpointUrl(base: string, params: Record<string, string>): string {
@@ -325,6 +343,51 @@ export function createBilibiliProvider(
         sampledAt: input.sampledAt,
         collectedAt: input.collectedAt,
         relation,
+        calls,
+        extra: {},
+      };
+    },
+    async fetchDynamic(input) {
+      assertDynamicId(input.dynamicId);
+      const url = endpointUrl(DYNAMIC_DETAIL_URL, { id: input.dynamicId });
+      if (config.dryRun) {
+        const message = `dry-run GET ${url}`;
+        log(`[collector] ${message}`);
+        throw new BilibiliFailure({
+          message,
+          kind: 'dry_run',
+          endpoint: 'dynamic_detail',
+          statusCode: null,
+          bizCode: null,
+          calls: [],
+        });
+      }
+      const calls: UpstreamCall[] = [];
+      const payload = await request(
+        'dynamic_detail',
+        url,
+        input.cookieHeader,
+        input.accountKey,
+        calls,
+      );
+      let detail;
+      try {
+        detail = parseDynamicDetail(payload, input.dynamicId);
+      } catch (error) {
+        throw new BilibiliFailure({
+          message: scrubSensitive(error instanceof Error ? error.message : '动态详情解析失败'),
+          kind: 'retryable',
+          endpoint: 'dynamic_detail',
+          statusCode: calls.at(-1)?.statusCode ?? null,
+          bizCode: calls.at(-1)?.bizCode ?? null,
+          calls: [...calls],
+        });
+      }
+      return {
+        dynamicId: detail.dynamicId,
+        sampledAt: input.sampledAt,
+        collectedAt: input.collectedAt,
+        detail,
         calls,
         extra: {},
       };

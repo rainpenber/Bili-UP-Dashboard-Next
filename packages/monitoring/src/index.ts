@@ -22,6 +22,7 @@ export * from './frequency';
 export * from './bilibili-config';
 export * from './bilibili-failure';
 export * from './bilibili-parse';
+export * from './bilibili-dynamic';
 export * from './bilibili-transport';
 export * from './bilibili-provider';
 export * from './bilibili-job';

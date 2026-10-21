@@ -2,7 +2,7 @@ export type FailureKind =
   'retryable' | 'not_found' | 'risk_control' | 'rate_limited' | 'unauthorized' | 'dry_run';
 
 export type UpstreamEndpoint =
-  'view' | 'online' | 'relation_stat' | 'nav' | 'qr_generate' | 'qr_poll';
+  'view' | 'online' | 'relation_stat' | 'nav' | 'qr_generate' | 'qr_poll' | 'dynamic_detail';
 
 export type UpstreamCall = {
   endpoint: UpstreamEndpoint;
