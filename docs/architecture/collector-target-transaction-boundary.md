@@ -65,6 +65,6 @@ Claim 使用真实 `FOR UPDATE OF j SKIP LOCKED` 选取 due pending，再对目�
 ## 未覆盖（显式）
 
 - 上游未发布码分类与有限宽限（17A2）
-- 监控／项目页改期控件与 Hermes 闭环（17B／17C）
+- 监控／项目页改期控件（17B 已提供 UI 入口）与 Hermes 闭环（17C）
 - runner 进程崩溃后的通用恢复引擎
 - 网络层／账号熔断策略（仍在事务外）

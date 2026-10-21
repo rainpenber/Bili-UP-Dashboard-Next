@@ -18,6 +18,11 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  datetimeLocalToOffsetIso,
+  formatStartAtDisplay,
+  offsetIsoToDatetimeLocal,
+} from '@/lib/datetime-local';
 
 const INTERVAL_LABEL: Record<MonitorIntervalMinutes, string> = {
   5: '每 5 分钟',
@@ -29,6 +34,23 @@ const INTERVAL_LABEL: Record<MonitorIntervalMinutes, string> = {
   720: '每 12 小时',
   1440: '每天',
 };
+
+/** Mirrors API: reschedule only while never successfully collected and not running. */
+export function canRescheduleMonitorStartAt(card: MonitorCard): boolean {
+  return (
+    card.type === 'video' &&
+    Boolean(card.target) &&
+    card.target?.lastSuccessAt == null &&
+    card.execution !== 'running'
+  );
+}
+
+export function rescheduleStartAtBlockedReason(card: MonitorCard): string | null {
+  if (card.type !== 'video' || !card.target) return null;
+  if (card.execution === 'running') return '正在采集，不能改计划开始时间';
+  if (card.target.lastSuccessAt) return '已开始采集，不能再改计划开始时间';
+  return null;
+}
 
 export function MonitorSettingsDialog({
   card,
@@ -51,17 +73,25 @@ export function MonitorSettingsDialog({
   const [intervalMinutes, setIntervalMinutes] = useState<number>(
     target?.intervalMinutes ?? initialMinutes,
   );
+  const [startAtLocal, setStartAtLocal] = useState(
+    target?.startAt ? offsetIsoToDatetimeLocal(target.startAt) : '',
+  );
   const [formError, setFormError] = useState<string | null>(null);
+  const [startAtNotice, setStartAtNotice] = useState<string | null>(null);
 
   if (!target) return null;
 
   const choices = Array.from(new Set<number>([...MONITOR_INTERVAL_MINUTES, intervalMinutes])).sort(
     (left, right) => left - right,
   );
+  const showStartAt = card.type === 'video';
+  const canReschedule = canRescheduleMonitorStartAt(card);
+  const blockedReason = rescheduleStartAtBlockedReason(card);
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     setFormError(null);
+    setStartAtNotice(null);
     const nextTags = tags.trim() ? splitTagInput(tags) : [];
     const patch: Record<string, unknown> = {};
     if (label.trim() !== target.label) patch.label = label.trim();
@@ -69,6 +99,22 @@ export function MonitorSettingsDialog({
     if (intervalMode !== target.intervalMode) patch.intervalMode = intervalMode;
     if (intervalMode === 'fixed' && intervalMinutes !== target.intervalMinutes) {
       patch.intervalMinutes = intervalMinutes;
+    }
+    if (showStartAt && canReschedule) {
+      const trimmed = startAtLocal.trim();
+      if (!trimmed) {
+        if (target.startAt !== null) patch.startAt = null;
+      } else {
+        try {
+          const next = datetimeLocalToOffsetIso(trimmed);
+          // Compare as instants: API stores UTC ISO; input is offset-local.
+          const normalized = parsePatchMonitorTargetRequest({ startAt: next }).startAt;
+          if (normalized !== target.startAt) patch.startAt = next;
+        } catch (error) {
+          setFormError(error instanceof Error ? error.message : '请输入合法的计划上线时间');
+          return;
+        }
+      }
     }
     if (Object.keys(patch).length === 0) {
       setFormError('没有需要保存的修改');
@@ -79,7 +125,10 @@ export function MonitorSettingsDialog({
       mutations.patch.mutate(
         { id: target.id, patch: request },
         {
-          onSuccess: () => onOpenChange(false),
+          onSuccess: () => {
+            if ('startAt' in request) setStartAtNotice('计划开始时间已更新');
+            onOpenChange(false);
+          },
           onError: (error) => {
             setFormError(error instanceof Error ? error.message : '保存失败');
           },
@@ -147,9 +196,43 @@ export function MonitorSettingsDialog({
               </select>
             </div>
           ) : null}
+          {showStartAt ? (
+            <div className="grid gap-1.5" data-testid="monitor-settings-start-at">
+              <Label htmlFor={`monitor-settings-start-at-${target.id}`}>计划开始</Label>
+              <p className="text-sm" data-testid="monitor-settings-start-at-display">
+                {formatStartAtDisplay(target.startAt)}
+              </p>
+              {canReschedule ? (
+                <>
+                  <Input
+                    id={`monitor-settings-start-at-${target.id}`}
+                    type="datetime-local"
+                    data-testid="monitor-settings-start-at-input"
+                    value={startAtLocal}
+                    onChange={(event) => setStartAtLocal(event.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    改期或清空（留空）后保存。清空表示立即开始采集。
+                  </p>
+                </>
+              ) : (
+                <p
+                  className="text-xs text-muted-foreground"
+                  data-testid="monitor-settings-start-at-blocked"
+                >
+                  {blockedReason ?? '当前不可改期'}
+                </p>
+              )}
+            </div>
+          ) : null}
           {formError ? (
             <p role="alert" className="text-sm text-destructive">
               {formError}
+            </p>
+          ) : null}
+          {startAtNotice ? (
+            <p role="status" className="text-sm text-muted-foreground">
+              {startAtNotice}
             </p>
           ) : null}
           <Button type="submit" disabled={mutations.patch.isPending}>

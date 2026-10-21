@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { resolveOptionalVideoStartAt } from '@/features/monitoring/monitor-start-at-input';
 
 const INTERVAL_LABEL: Record<MonitorIntervalMinutes, string> = {
   5: '每 5 分钟',
@@ -47,6 +48,7 @@ export function MonitorAddDialog({
   const [tags, setTags] = useState('');
   const [intervalMode, setIntervalMode] = useState<'auto' | 'fixed'>('auto');
   const [intervalMinutes, setIntervalMinutes] = useState<MonitorIntervalMinutes>(15);
+  const [startAtLocal, setStartAtLocal] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const mutations = useMonitorTargetMutations();
 
@@ -56,6 +58,7 @@ export function MonitorAddDialog({
     setTags('');
     setIntervalMode('auto');
     setIntervalMinutes(15);
+    setStartAtLocal('');
     setFormError(null);
   };
 
@@ -67,6 +70,11 @@ export function MonitorAddDialog({
       setFormError(parsedId.message);
       return;
     }
+    const startAtResolved = resolveOptionalVideoStartAt(type, startAtLocal);
+    if (!startAtResolved.ok) {
+      setFormError(startAtResolved.message);
+      return;
+    }
     try {
       const request = parseCreateMonitorTargetRequest({
         type,
@@ -75,6 +83,7 @@ export function MonitorAddDialog({
         ...(intervalMode === 'fixed' ? { intervalMinutes } : {}),
         ...(label.trim() ? { label } : {}),
         ...(tags.trim() ? { tags: splitTagInput(tags) } : {}),
+        ...(startAtResolved.startAt !== undefined ? { startAt: startAtResolved.startAt } : {}),
       });
       const body = serializeCreateMonitorTargetRequest(request);
       mutations.create.mutate(body, {
@@ -147,6 +156,21 @@ export function MonitorAddDialog({
               onChange={(event) => setExternalInput(event.target.value)}
             />
           </div>
+          {type === 'video' ? (
+            <div className="grid gap-1.5">
+              <Label htmlFor="monitor-add-start-at">计划上线时间（可选）</Label>
+              <Input
+                id="monitor-add-start-at"
+                type="datetime-local"
+                data-testid="monitor-add-start-at"
+                value={startAtLocal}
+                onChange={(event) => setStartAtLocal(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                填了就先等到这个时间再开始采集；留空则立即开始。
+              </p>
+            </div>
+          ) : null}
           <div className="grid gap-1.5">
             <Label htmlFor="monitor-add-mode">频率</Label>
             <select
