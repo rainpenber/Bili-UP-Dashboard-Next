@@ -560,7 +560,7 @@ describe('scheduled video targets (WP-R2-17R1)', () => {
 
   test('ops records include create startAt and reschedule; omit does not invent', async () => {
     const immediate = parseMonitorTargetCreateResponse(
-      await (await postTarget({ type: 'video', externalId: 'BV1xx411c7mK' })).json(),
+      await (await postTarget({ type: 'video', externalId: 'BV1xx411c7iA' })).json(),
     );
     expect(immediate.created).toBe(true);
     expect(immediate.target.startAt).toBeNull();
@@ -654,6 +654,9 @@ describe('scheduled video targets (WP-R2-17R1)', () => {
       expect(ops.items.some((item) => item.action === 'reschedule')).toBe(false);
     }
 
+    const [creatorBeforeReject] = await db()<{ start_at: Date | null; updated_at: Date }[]>`
+      SELECT start_at, updated_at FROM monitor_targets WHERE id = ${creator.target.id}::uuid
+    `;
     const creatorReject = await patchTarget(creator.target.id, {
       startAt: futureIso(3),
     });
@@ -663,8 +666,14 @@ describe('scheduled video targets (WP-R2-17R1)', () => {
       SELECT start_at, updated_at FROM monitor_targets WHERE id = ${creator.target.id}::uuid
     `;
     expect(creatorRow?.start_at).toBeNull();
-    expect(creatorRow?.updated_at.toISOString()).toBe(creator.target.updatedAt);
+    expect(creatorRow?.updated_at.toISOString()).toBe(
+      creatorBeforeReject?.updated_at.toISOString(),
+    );
+    expect(await pendingCount(creator.target.id)).toBe(creatorPendingBefore);
 
+    const [dynamicBeforeReject] = await db()<{ start_at: Date | null; updated_at: Date }[]>`
+      SELECT start_at, updated_at FROM monitor_targets WHERE id = ${dynamic.target.id}::uuid
+    `;
     const dynamicReject = await patchTarget(dynamic.target.id, {
       startAt: '2026-10-21T20:00:00+08:00',
     });
@@ -674,7 +683,10 @@ describe('scheduled video targets (WP-R2-17R1)', () => {
       SELECT start_at, updated_at FROM monitor_targets WHERE id = ${dynamic.target.id}::uuid
     `;
     expect(dynamicRow?.start_at).toBeNull();
-    expect(dynamicRow?.updated_at.toISOString()).toBe(dynamic.target.updatedAt);
+    expect(dynamicRow?.updated_at.toISOString()).toBe(
+      dynamicBeforeReject?.updated_at.toISOString(),
+    );
+    expect(await pendingCount(dynamic.target.id)).toBe(dynamicPendingBefore);
   });
 
   test('cards expose startAt; omitted startAt on old payload parses as null', async () => {
