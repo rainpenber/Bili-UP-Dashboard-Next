@@ -1,15 +1,27 @@
 import {
+  parseOpsCollectorJobDetail,
+  parseOpsCollectorJobGroups,
+  parseOpsCollectorJobList,
+  parseOpsCollectorTargetSearch,
   parseOpsDebugBundle,
   parseOpsHealth,
   parseOpsLog,
+  parseOpsOperationList,
   parseOpsPage,
+  parseOpsProjectSearch,
   parseOpsRun,
   parseOpsRunDetail,
   parseOpsSummary,
+  type OpsCollectorJobDetail,
+  type OpsCollectorJobGroups,
+  type OpsCollectorJobList,
+  type OpsCollectorTargetSearch,
   type OpsDebugBundle,
   type OpsHealth,
   type OpsLog,
+  type OpsOperationList,
   type OpsPage,
+  type OpsProjectSearch,
   type OpsRun,
   type OpsRunDetail,
   type OpsSummary,
@@ -60,17 +72,135 @@ export function fetchOpsRun(runId: string, signal?: AbortSignal): Promise<OpsRun
 }
 
 export function fetchOpsLogs(
-  query: { level?: string; service?: string; q?: string; runId?: string },
+  query: {
+    level?: string | undefined;
+    service?: string | undefined;
+    q?: string | undefined;
+    runId?: string | undefined;
+    targetId?: string | undefined;
+    since?: string | undefined;
+    until?: string | undefined;
+    attention?: boolean | undefined;
+    cursor?: string | undefined;
+    limit?: number | undefined;
+  },
   signal?: AbortSignal,
-): Promise<OpsPage<OpsLog>> {
-  const params = new URLSearchParams({ limit: '200' });
+): Promise<OpsPage<OpsLog> & { total: number }> {
+  const params = new URLSearchParams({ limit: String(query.limit ?? 50) });
   if (query.level) params.set('level', query.level);
   if (query.service) params.set('service', query.service);
   if (query.q) params.set('q', query.q);
   if (query.runId) params.set('runId', query.runId);
-  return getJson(`/api/v1/ops/logs?${params.toString()}`, signal).then((body) =>
-    parseOpsPage(body, parseOpsLog, 'logs'),
+  if (query.targetId) params.set('targetId', query.targetId);
+  if (query.since) params.set('since', query.since);
+  if (query.until) params.set('until', query.until);
+  if (query.attention) params.set('attention', '1');
+  if (query.cursor) params.set('cursor', query.cursor);
+  return getJson(`/api/v1/ops/logs?${params.toString()}`, signal).then((body) => {
+    const page = parseOpsPage(body, parseOpsLog, 'logs');
+    const total = (body as { total?: unknown }).total;
+    if (typeof total !== 'number' || !Number.isInteger(total) || total < 0) {
+      throw new Error('total must be a non-negative integer');
+    }
+    return { ...page, total };
+  });
+}
+
+export type OpsJobQuery = {
+  type?: string | undefined;
+  targetId?: string | undefined;
+  externalId?: string | undefined;
+  q?: string | undefined;
+  status?: string | undefined;
+  since?: string | undefined;
+  until?: string | undefined;
+  projectId?: string | undefined;
+  group?: string | undefined;
+  page?: number | undefined;
+  pageSize?: number | undefined;
+  jobsPerGroup?: number | undefined;
+};
+
+function jobParams(query: OpsJobQuery): URLSearchParams {
+  const params = new URLSearchParams();
+  if (query.type) params.set('type', query.type);
+  if (query.targetId) params.set('targetId', query.targetId);
+  if (query.externalId) params.set('externalId', query.externalId);
+  if (query.q) params.set('q', query.q);
+  if (query.status) params.set('status', query.status);
+  if (query.since) params.set('since', query.since);
+  if (query.until) params.set('until', query.until);
+  if (query.projectId) params.set('projectId', query.projectId);
+  if (query.group) params.set('group', query.group);
+  if (query.page) params.set('page', String(query.page));
+  if (query.pageSize) params.set('pageSize', String(query.pageSize));
+  if (query.jobsPerGroup) params.set('jobsPerGroup', String(query.jobsPerGroup));
+  return params;
+}
+
+export function fetchOpsCollectorJobs(
+  query: OpsJobQuery,
+  signal?: AbortSignal,
+): Promise<OpsCollectorJobList | OpsCollectorJobGroups> {
+  const params = jobParams(query);
+  return getJson(`/api/v1/ops/collector-jobs?${params.toString()}`, signal).then((body) => {
+    const mode = (body as { mode?: unknown }).mode;
+    if (mode === 'target') return parseOpsCollectorJobGroups(body);
+    return parseOpsCollectorJobList(body);
+  });
+}
+
+export function fetchOpsCollectorJob(
+  jobId: string,
+  query: { attemptPage?: number; attemptPageSize?: number },
+  signal?: AbortSignal,
+): Promise<OpsCollectorJobDetail> {
+  const params = new URLSearchParams();
+  if (query.attemptPage) params.set('attemptPage', String(query.attemptPage));
+  if (query.attemptPageSize) params.set('attemptPageSize', String(query.attemptPageSize));
+  const suffix = params.size > 0 ? `?${params.toString()}` : '';
+  return getJson(`/api/v1/ops/collector-jobs/${jobId}${suffix}`, signal).then(
+    parseOpsCollectorJobDetail,
   );
+}
+
+export function fetchOpsCollectorTargets(
+  query: { q: string; type?: string | undefined },
+  signal?: AbortSignal,
+): Promise<OpsCollectorTargetSearch> {
+  const params = new URLSearchParams({ q: query.q, limit: '20' });
+  if (query.type) params.set('type', query.type);
+  return getJson(`/api/v1/ops/collector-targets?${params.toString()}`, signal).then(
+    parseOpsCollectorTargetSearch,
+  );
+}
+
+export function fetchOpsProjects(q: string, signal?: AbortSignal): Promise<OpsProjectSearch> {
+  const params = new URLSearchParams({ q, limit: '20' });
+  return getJson(`/api/v1/ops/projects?${params.toString()}`, signal).then(parseOpsProjectSearch);
+}
+
+export function fetchOpsOperations(
+  query: {
+    targetId?: string | undefined;
+    action?: string | undefined;
+    since?: string | undefined;
+    until?: string | undefined;
+    requestId?: string | undefined;
+    page?: number | undefined;
+    pageSize?: number | undefined;
+  },
+  signal?: AbortSignal,
+): Promise<OpsOperationList> {
+  const params = new URLSearchParams();
+  if (query.targetId) params.set('targetId', query.targetId);
+  if (query.action) params.set('action', query.action);
+  if (query.since) params.set('since', query.since);
+  if (query.until) params.set('until', query.until);
+  if (query.requestId) params.set('requestId', query.requestId);
+  if (query.page) params.set('page', String(query.page));
+  if (query.pageSize) params.set('pageSize', String(query.pageSize));
+  return getJson(`/api/v1/ops/operations?${params.toString()}`, signal).then(parseOpsOperationList);
 }
 
 export function fetchOpsDebugBundle(runId: string): Promise<OpsDebugBundle> {

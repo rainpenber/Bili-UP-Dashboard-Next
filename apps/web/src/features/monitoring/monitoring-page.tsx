@@ -27,7 +27,6 @@ import {
   type MonitorTab,
 } from '@/features/monitoring/monitor-url-state';
 import { OfflineEnvironmentBadge } from '@/features/monitoring/offline-environment-badge';
-import { RecentCollectorJobs } from '@/features/monitoring/recent-collector-jobs';
 import { formatUnknownMetric } from '@/lib/format-compact-number';
 import { cn } from '@/lib/utils';
 
@@ -318,7 +317,11 @@ export function MonitoringPage() {
         </TabsContent>
       </Tabs>
 
-      <RecentCollectorJobs />
+      <div className="mt-6">
+        <Button type="button" size="sm" variant="outline" asChild>
+          <Link to="/ops">查看采集记录</Link>
+        </Button>
+      </div>
 
       {state.tab === 'dynamics' ? null : (
         <MonitorAddDialog

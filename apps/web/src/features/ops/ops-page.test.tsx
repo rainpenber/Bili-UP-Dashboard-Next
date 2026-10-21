@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { MemoryRouter } from 'react-router-dom';
 import { OpsPage } from './ops-page';
@@ -26,6 +26,35 @@ const emptySummary = {
   recentErrorCount: 0,
 };
 
+const healthySummary = {
+  ...emptySummary,
+  heartbeats: [
+    {
+      instance: 'collector-1',
+      status: 'idle',
+      lastSeenAt: new Date().toISOString(),
+      currentJobId: null,
+    },
+  ],
+  queue: { due: 1, running: 0, failed24h: 2 },
+  circuits: [
+    {
+      accountId: '33333333-3333-4333-8333-333333333333',
+      openedAt: '2026-10-19T01:00:00.000Z',
+      resumeAt: '2026-10-19T01:30:00.000Z',
+      consecutiveFailures: 1,
+      reason: 'risk',
+    },
+  ],
+};
+
+const healthy = {
+  lastHeartbeatAt: new Date().toISOString(),
+  stale: false,
+  queueBacklog: 4,
+  lastSuccessAt: '2026-10-19T01:00:00.000Z',
+};
+
 const emptyHealth = {
   lastHeartbeatAt: null,
   stale: true,
@@ -33,109 +62,200 @@ const emptyHealth = {
   lastSuccessAt: null,
 };
 
-const emptyPage = { items: [], nextCursor: null, limit: 50 };
+const range = {
+  since: '2026-10-15',
+  until: '2026-10-21',
+  timezone: 'Asia/Shanghai',
+  defaulted: true,
+};
 
-const run = {
-  id: '11111111-1111-4111-8111-111111111111',
+const retention = {
+  days: 14,
+  cutoff: '2026-10-07T00:00:00.000Z',
+  oldestStoredAt: null,
+  timezone: 'Asia/Shanghai',
+};
+
+const pendingJob = {
+  id: '33333333-3333-4333-8333-333333333333',
   targetId: '22222222-2222-4222-8222-222222222222',
-  targetLabel: '离线视频',
-  status: 'failed',
-  samplesWritten: 0,
-  durationMs: 42,
-  error: 'SESSDATA=plain-sess-value-9f3a; bili_jct=plain-jct-value-9f3a',
-  startedAt: '2026-10-19T01:02:03.000Z',
-  finishedAt: '2026-10-19T01:02:04.000Z',
+  targetType: 'video',
+  externalId: 'BV1xx411c7mD',
+  label: '排队视频',
+  displayName: '排队视频标题超长'.repeat(8),
+  coverUrl: null,
+  targetDeleted: false,
+  status: 'pending',
+  attempts: 0,
+  scheduledFor: '2026-10-21T02:00:00.000Z',
+  startedAt: null,
+  finishedAt: null,
+  durationMs: null,
+  samplesWritten: null,
+  error: null,
+  latestAttempt: null,
+  projects: [],
+};
+
+const jobList = {
+  mode: 'time',
+  items: [pendingJob],
+  total: 21,
+  page: 1,
+  pageSize: 20,
+  range,
+  logRetention: retention,
 };
 
 const detail = {
-  run,
-  requests: [
+  job: pendingJob,
+  attempts: [
     {
-      id: '9',
-      endpoint: 'view',
-      statusCode: 200,
-      bizCode: -352,
-      durationMs: 18,
-      error: null,
-      requestedAt: '2026-10-19T01:02:03.000Z',
-      runId: run.id,
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'failed',
+      samplesWritten: 0,
+      durationMs: 42,
+      error: 'SESSDATA=plain-sess-value-9f3a',
+      startedAt: '2026-10-21T01:00:00.000Z',
+      finishedAt: '2026-10-21T01:00:01.000Z',
+      requests: [
+        {
+          id: '9',
+          endpoint: 'view',
+          statusCode: 200,
+          bizCode: -352,
+          durationMs: 18,
+          error: null,
+          requestedAt: '2026-10-21T01:00:00.000Z',
+          runId: '11111111-1111-4111-8111-111111111111',
+        },
+      ],
+      requestsTruncated: false,
+      logs: [
+        {
+          id: '3',
+          ts: '2026-10-21T01:00:01.000Z',
+          level: 'error',
+          service: 'collector',
+          event: 'job.failed',
+          message: '任务失败',
+          requestId: null,
+          runId: '11111111-1111-4111-8111-111111111111',
+          context: { password: 'pw-secret-value', note: 'keep-visible' },
+        },
+      ],
+      logsTruncated: false,
+      logNote: null,
     },
   ],
-  logs: [
-    {
-      id: '3',
-      ts: '2026-10-19T01:02:04.000Z',
-      level: 'error',
-      service: 'collector',
-      event: 'job.failed',
-      message: '任务失败',
-      requestId: null,
-      runId: run.id,
-      context: { password: 'pw-secret-value', note: 'ciphertext stays hidden' },
-    },
-  ],
+  attemptTotal: 1,
+  attemptPage: 1,
+  attemptPageSize: 10,
+  jobLogs: [],
+  jobLogsTruncated: false,
+  logRetention: retention,
 };
 
-function install(handler: (url: string) => Response | Promise<Response>) {
-  globalThis.fetch = ((input: RequestInfo | URL) => {
+const groupList = {
+  mode: 'target',
+  items: [
+    {
+      targetId: pendingJob.targetId,
+      targetType: 'video',
+      externalId: pendingJob.externalId,
+      label: pendingJob.label,
+      displayName: pendingJob.displayName,
+      coverUrl: null,
+      targetDeleted: false,
+      matchCount: 6,
+      truncated: true,
+      jobs: [pendingJob],
+    },
+  ],
+  total: 2,
+  page: 1,
+  pageSize: 20,
+  jobsPerGroup: 5,
+  range,
+  logRetention: retention,
+};
+
+function install(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    return Promise.resolve(handler(url));
+    return Promise.resolve(handler(url, init));
   }) as unknown as typeof fetch;
 }
 
-function renderPage() {
+function renderPage(path = '/ops') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <OpsPage />
     </MemoryRouter>,
   );
 }
 
 describe('ops page', () => {
-  test('shows the loading state', () => {
-    globalThis.fetch = (() => new Promise(() => undefined)) as unknown as typeof fetch;
-    renderPage();
-    expect(screen.getByLabelText('加载中')).toBeTruthy();
-    expect(document.querySelector('[data-testid="ops-loading"]')).toBeTruthy();
-  });
-
-  test('shows the error state', async () => {
-    install(() => jsonResponse({ error: '数据库不可用' }, 500));
-    renderPage();
-    expect(await screen.findByText('数据库不可用')).toBeTruthy();
-    expect(document.querySelector('[data-testid="ops-error"]')).toBeTruthy();
-  });
-
-  test('shows the empty state', async () => {
-    install((url) => {
-      if (url.includes('/summary')) return jsonResponse(emptySummary);
-      if (url.includes('/health')) return jsonResponse(emptyHealth);
-      return jsonResponse(emptyPage);
-    });
-    renderPage();
-    expect(await screen.findByText('还没有采集运行')).toBeTruthy();
-    expect(screen.getByText('失联')).toBeTruthy();
-    expect(screen.getByText('队列积压')).toBeTruthy();
-  });
-
-  test('shows a run, scrubs secrets, copies the bundle, and refreshes logs every 10 seconds', async () => {
+  test('defaults to collection records and separates an empty list from a failed request', async () => {
     const calls: string[] = [];
-    const intervals: number[] = [];
-    const original = globalThis.setInterval;
-    globalThis.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
-      if (typeof timeout === 'number') intervals.push(timeout);
-      return original(handler, timeout, ...args);
-    }) as typeof setInterval;
     install((url) => {
       calls.push(url);
+      if (url.includes('/summary')) return jsonResponse(emptySummary);
+      if (url.includes('/health')) return jsonResponse(emptyHealth);
+      if (url.includes('/collector-jobs')) {
+        return jsonResponse({ ...jobList, items: [], total: 0 });
+      }
+      return jsonResponse({ error: '不应请求' }, 500);
+    });
+    renderPage();
+    expect(screen.getByRole('tab', { name: '采集记录' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(await screen.findByText('这个范围内没有采集记录')).toBeTruthy();
+    expect(screen.getByText('失联')).toBeTruthy();
+    expect(screen.getByTestId('ops-range').textContent).toContain('默认时间范围');
+    expect(screen.getByTestId('ops-range').textContent).toContain('Asia/Shanghai');
+    expect(calls.some((url) => url.includes('/api/v1/ops/operations'))).toBe(false);
+    expect(calls.some((url) => url.includes('/api/v1/ops/logs'))).toBe(false);
+    expect(calls.some((url) => url.includes('/collector-jobs?') && !url.includes('since='))).toBe(
+      true,
+    );
+  });
+
+  test('keeps the health summary when collection records fail, then loads logs on their own', async () => {
+    install((url) => {
+      if (url.includes('/summary')) return jsonResponse(healthySummary);
+      if (url.includes('/health')) return jsonResponse(healthy);
+      if (url.includes('/collector-jobs')) return jsonResponse({ error: '任务库不可用' }, 500);
+      if (url.includes('/logs')) return jsonResponse({ error: '日志库不可用' }, 500);
+      if (url.includes('/operations')) return jsonResponse({ error: '操作库不可用' }, 500);
+      return jsonResponse({ error: '未知' }, 500);
+    });
+    renderPage();
+    expect(await screen.findByText('任务库不可用')).toBeTruthy();
+    expect(screen.getByText('正常')).toBeTruthy();
+    expect(screen.getByText('4')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: '系统日志' }));
+    expect(await screen.findByText('日志库不可用')).toBeTruthy();
+    expect(screen.getByText('正常')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: '操作记录' }));
+    expect(await screen.findByText('操作库不可用')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: '采集记录' }));
+    expect(await screen.findByText('任务库不可用')).toBeTruthy();
+  });
+
+  test('filters into the drawer, scrubs secrets, and keeps the open job across refresh', async () => {
+    const calls: string[] = [];
+    install((url, init) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
       if (url.includes('/debug/bundle')) {
         return jsonResponse({
           schemaVersion: '007_metadata_assets_logs',
-          generatedAt: '2026-10-19T01:02:05.000Z',
-          run,
+          generatedAt: '2026-10-21T01:02:05.000Z',
+          run: null,
           target: null,
-          requests: detail.requests,
+          requests: detail.attempts[0]?.requests,
           logs: [],
           video: null,
           creator: null,
@@ -143,73 +263,84 @@ describe('ops page', () => {
           circuits: [],
         });
       }
-      if (url.includes('/summary')) {
+      if (url.includes('/summary')) return jsonResponse(healthySummary);
+      if (url.includes('/health')) return jsonResponse(healthy);
+      if (url.includes(`/collector-jobs/${pendingJob.id}`)) return jsonResponse(detail);
+      if (url.includes('group=target')) return jsonResponse(groupList);
+      if (url.includes('page=2')) return jsonResponse({ ...jobList, page: 2, items: [] });
+      if (url.includes('/collector-jobs')) return jsonResponse(jobList);
+      if (url.includes('/collector-targets')) {
         return jsonResponse({
-          ...emptySummary,
-          heartbeats: [
+          items: [
             {
-              instance: 'collector-1',
-              status: 'idle',
-              lastSeenAt: new Date().toISOString(),
-              currentJobId: null,
+              id: pendingJob.targetId,
+              type: 'video',
+              externalId: pendingJob.externalId,
+              label: pendingJob.label,
+              displayName: '搜索命中',
+              deleted: false,
             },
           ],
-          queue: { due: 1, running: 0, failed24h: 2 },
-          circuits: [
-            {
-              accountId: '33333333-3333-4333-8333-333333333333',
-              openedAt: '2026-10-19T01:00:00.000Z',
-              resumeAt: '2026-10-19T01:30:00.000Z',
-              consecutiveFailures: 1,
-              reason: 'risk',
-            },
-          ],
+          limit: 20,
         });
       }
-      if (url.includes('/health')) {
-        return jsonResponse({
-          lastHeartbeatAt: new Date().toISOString(),
-          stale: false,
-          queueBacklog: 4,
-          lastSuccessAt: '2026-10-19T01:00:00.000Z',
-        });
-      }
-      if (url.includes('/runs/')) return jsonResponse(detail);
-      if (url.includes('/runs')) return jsonResponse({ items: [run], nextCursor: null, limit: 50 });
       return jsonResponse({
-        items: [
-          {
-            id: '8',
-            ts: '2026-10-19T01:02:04.000Z',
-            level: 'error',
-            service: 'collector',
-            event: 'job.failed',
-            message: 'SESSDATA=plain-sess-value-9f3a',
-            requestId: null,
-            runId: run.id,
-            context: {},
-          },
-        ],
-        nextCursor: null,
-        limit: 200,
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        range,
+        logRetention: retention,
       });
     });
     const view = renderPage();
-    expect(await screen.findByText('离线视频')).toBeTruthy();
-    expect(screen.getByText('正常')).toBeTruthy();
-    expect(screen.getByText('4')).toBeTruthy();
-    expect(document.body.textContent).not.toContain('plain-sess-value-9f3a');
-    expect(document.body.textContent).not.toContain('plain-jct-value-9f3a');
-    expect(document.body.textContent).not.toMatch(/SESSDATA|bili_jct|password|ciphertext/);
+    expect(await screen.findByText(/尚未写入/)).toBeTruthy();
+    expect(document.body.textContent).toContain('未开始');
+    expect(document.body.textContent).not.toContain('写入 0');
+    const title = screen.getByTitle(pendingJob.displayName);
+    expect(title.className).toContain('truncate');
+    expect(title.textContent?.startsWith('排队视频标题超长')).toBe(true);
 
-    fireEvent.click(screen.getByRole('checkbox', { name: '自动刷新' }));
-    expect(intervals).toContain(10_000);
+    fireEvent.change(screen.getByLabelText('执行状态'), { target: { value: 'pending' } });
+    await waitFor(() => {
+      expect(calls.some((url) => url.includes('status=pending'))).toBe(true);
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /2026/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    expect(calls.some((url) => url.includes('page=2'))).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: '按监控对象分组' }));
+    expect(await screen.findByText(/本组只列出最近 1 条，匹配共 6 条/)).toBeTruthy();
+    expect(calls.some((url) => url.includes('group=target'))).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '查看该对象全部匹配记录' }));
+    await waitFor(() => {
+      expect(
+        calls.some(
+          (url) => url.includes(`targetId=${pendingJob.targetId}`) && !url.includes('group=target'),
+        ),
+      ).toBe(true);
+    });
+
+    fireEvent.click(await screen.findByTestId('ops-job-row'));
     expect(await screen.findByText('view')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('plain-sess-value-9f3a');
+    expect(document.body.textContent).not.toContain('pw-secret-value');
+    fireEvent.click(screen.getByText('技术字段'));
+    expect(document.body.textContent).toContain('keep-visible');
+    expect(document.body.textContent).not.toContain('pw-secret-value');
     fireEvent.click(screen.getByRole('button', { name: '复制排障包' }));
     expect(await screen.findByText('已复制排障包')).toBeTruthy();
     expect(calls.some((url) => url.includes('/api/v1/ops/debug/bundle?runId='))).toBe(true);
+    expect(calls.every((url) => url.startsWith('GET '))).toBe(true);
+
+    const detailCallsBefore = calls.filter((url) =>
+      url.includes(`/collector-jobs/${pendingJob.id}`),
+    ).length;
+    fireEvent.click(screen.getByRole('button', { name: '刷新', hidden: true }));
+    expect(await screen.findByText('view')).toBeTruthy();
+    expect(
+      calls.filter((url) => url.includes(`/collector-jobs/${pendingJob.id}`)).length,
+    ).toBeGreaterThan(detailCallsBefore);
 
     for (const width of [390, 1440]) {
       const host = view.container;
@@ -223,39 +354,32 @@ describe('ops page', () => {
       expect(scrollers.length).toBeGreaterThan(0);
       for (const node of scrollers) {
         expect((node as HTMLElement).className).toContain('overflow-x-auto');
-        expect((node as HTMLElement).className).toContain('max-w-full');
       }
       if (host.clientWidth > 0) {
         expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
       }
     }
-    globalThis.setInterval = original;
   });
 
-  test('opens with the target id from the URL already filtering runs', async () => {
+  test('opens a card link on the same collection query as a direct target filter', async () => {
     const calls: string[] = [];
     install((url) => {
       calls.push(url);
-      if (url.includes('/summary')) return jsonResponse(emptySummary);
-      if (url.includes('/health')) return jsonResponse(emptyHealth);
-      return jsonResponse(emptyPage);
+      if (url.includes('/summary')) return jsonResponse(healthySummary);
+      if (url.includes('/health')) return jsonResponse(healthy);
+      if (url.includes('/collector-jobs')) return jsonResponse({ ...jobList, total: 1 });
+      return jsonResponse({ items: [], nextCursor: null, limit: 50, total: 0 });
     });
-    render(
-      <MemoryRouter
-        initialEntries={[
-          '/ops?targetId=22222222-2222-4222-8222-222222222222&targetType=video&externalId=BV1xx411c7mD',
-        ]}
-      >
-        <OpsPage />
-      </MemoryRouter>,
+    renderPage(
+      '/ops?targetId=22222222-2222-4222-8222-222222222222&targetType=video&externalId=BV1xx411c7mD',
     );
-    expect(await screen.findByTestId('ops-target-filter')).toBeTruthy();
-    expect(
-      screen.getByLabelText('目标编号').getAttribute('value') ??
-        (screen.getByLabelText('目标编号') as HTMLInputElement).value,
-    ).toBe('22222222-2222-4222-8222-222222222222');
-    expect(calls.some((url) => url.includes('targetId=22222222-2222-4222-8222-222222222222'))).toBe(
-      true,
+    expect((await screen.findByTestId('ops-target-filter')).textContent).toContain('BV1xx411c7mD');
+    expect((await screen.findByTestId('ops-target-filter')).textContent).toContain(
+      '22222222-2222-4222-8222-222222222222',
     );
+    const jobCall = calls.find((url) => url.includes('/api/v1/ops/collector-jobs?'));
+    expect(jobCall).toContain('targetId=22222222-2222-4222-8222-222222222222');
+    expect(jobCall).toContain('externalId=BV1xx411c7mD');
+    expect(jobCall).not.toContain('group=target');
   });
 });

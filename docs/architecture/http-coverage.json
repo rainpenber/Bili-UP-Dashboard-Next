@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_1e670962e004",
+  "databaseName": "wp_r2_11_a598b08b3466",
   "retainedDatabase": true,
-  "registeredCount": 51,
-  "inventoryCount": 51,
-  "executedCount": 51,
-  "httpSuccessCount": 51,
-  "acceptedCount": 51,
+  "registeredCount": 56,
+  "inventoryCount": 56,
+  "executedCount": 56,
+  "httpSuccessCount": 56,
+  "acceptedCount": 56,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 8,
@@ -745,6 +745,63 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/ops/collector-jobs",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/collector-jobs/:id",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/collector-targets",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/ops/debug/bundle",
       "readWrite": "read",
       "frontendCaller": true,
@@ -837,6 +894,40 @@
           "test": "ops",
           "status": 400,
           "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/operations",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/projects",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
           "assertions": "passed"
         }
       ]

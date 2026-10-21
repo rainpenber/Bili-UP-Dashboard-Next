@@ -127,6 +127,8 @@ describe('app_logs write policy', () => {
     expect(PERSISTED_INFO_EVENTS).toContain('legacy.sync.started');
     expect(PERSISTED_INFO_EVENTS).toContain('legacy.sync.finished');
     expect(PERSISTED_INFO_EVENTS).toContain('legacy.sync.failed');
+    expect(PERSISTED_INFO_EVENTS).toContain('monitor.target.created');
+    expect(shouldPersistLog('info', 'monitor.target.paused')).toBe(true);
     expect(shouldPersistLog('info', 'http.request')).toBe(false);
     expect(shouldPersistLog('warn', null)).toBe(true);
   });

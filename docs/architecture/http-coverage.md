@@ -1,8 +1,8 @@
 # HTTP API 覆盖
 
-验收库 `wp_r2_11_1e670962e004` 保留，本文件不执行 DROP DATABASE。
+验收库 `wp_r2_11_a598b08b3466` 保留，本文件不执行 DROP DATABASE。
 
-注册 51，清单 51，已执行 51，HTTP 成功 51，断言验收 51。
+注册 56，清单 56，已执行 56，HTTP 成功 56，断言验收 56。
 
 验收结论：通过。每一条注册路由都有一次 HTTP 成功响应，且发出该响应的测试断言已通过。
 
@@ -249,6 +249,31 @@
 - imports：HTTP 200（成功响应，断言通过）
 - imports：HTTP 200（成功响应，断言通过）
 
+## GET `/api/v1/ops/collector-jobs`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- ops：HTTP 200（成功响应，断言通过）
+- ops：HTTP 200（成功响应，断言通过）
+
+## GET `/api/v1/ops/collector-jobs/:id`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- ops：HTTP 200（成功响应，断言通过）
+
+## GET `/api/v1/ops/collector-targets`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- ops：HTTP 200（成功响应，断言通过）
+
 ## GET `/api/v1/ops/debug/bundle`
 
 - 前端调用：有
@@ -285,6 +310,22 @@
 - 断言验收：是
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 - ops：HTTP 400（拒绝响应，断言通过）
+
+## GET `/api/v1/ops/operations`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- ops：HTTP 200（成功响应，断言通过）
+
+## GET `/api/v1/ops/projects`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- ops：HTTP 200（成功响应，断言通过）
 
 ## GET `/api/v1/ops/requests`
 

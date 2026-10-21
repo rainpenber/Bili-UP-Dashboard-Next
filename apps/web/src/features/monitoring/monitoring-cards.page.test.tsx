@@ -187,7 +187,7 @@ describe('monitoring cards', () => {
     expect(row.textContent).toContain('监控中');
     expect(row.textContent).toContain('等待');
     expect(row.textContent).not.toContain('正在采集');
-    expect(screen.getByRole('heading', { name: '最近采集任务' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: '查看采集记录' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '新增监控' }));
     const dialog = await screen.findByTestId('monitor-add-dialog');
@@ -217,7 +217,7 @@ describe('monitoring cards', () => {
     fireEvent.click(await screen.findByRole('link', { name: '查看日志' }));
     expect(router.state.location.pathname).toBe('/ops');
     expect(router.state.location.search).toContain(`targetId=${TARGET}`);
-    expect(((await screen.findByLabelText('目标编号')) as HTMLInputElement).value).toBe(TARGET);
+    expect((await screen.findByTestId('ops-target-filter')).textContent).toContain(TARGET);
     await router.navigate(-1);
     fireEvent.click(await screen.findByRole('link', { name: '进入商单' }));
     expect(router.state.location.pathname).toBe(`/projects/${PROJECT_A}`);
@@ -391,7 +391,7 @@ describe('monitoring cards', () => {
     expect(await screen.findByText('dyn-1')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '新增监控' })).toBeNull();
     expect(screen.queryByRole('button', { name: '开始监控' })).toBeNull();
-    expect(screen.getByRole('heading', { name: '最近采集任务' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: '查看采集记录' })).toBeTruthy();
   });
 
   test('shows loading, empty, and error states', async () => {
