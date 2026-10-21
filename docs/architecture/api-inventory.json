@@ -2,8 +2,8 @@
   "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
   "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 49,
-  "wiredRouteCount": 31,
+  "apiRouteCount": 51,
+  "wiredRouteCount": 33,
   "unwiredImplementedRouteCount": 18,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes adds a fixed POST list.",
@@ -378,6 +378,51 @@
       "wired": false,
       "notes": "No web caller. Timeline confirmation uses force on the step route.",
       "storedEntity": "open_items"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/cards",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-card-routes.ts",
+      "sourceLine": 77,
+      "registration": "registerMonitorCardRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-cards.ts#parseMonitorCardListQuery",
+      "responseContract": "packages/contracts/src/monitor-cards.ts#parseMonitorCardList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-cards-client.ts",
+          "symbol": "fetchMonitorCards",
+          "evidence": "/cards?"
+        }
+      ],
+      "wired": true,
+      "notes": "Video and creator cards. Active monitor_targets are joined to entities; targets may exist first. Status is not taken from monitoring_enabled.",
+      "query": "type, monitor, page, pageSize, q, category",
+      "storedEntity": "monitor_targets"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/cards/:type/:externalId",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-card-routes.ts",
+      "sourceLine": 104,
+      "registration": "registerMonitorCardRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-cards.ts#parseMonitorCardIdentity",
+      "responseContract": "packages/contracts/src/monitor-cards.ts#parseMonitorCard",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-cards-client.ts",
+          "symbol": "fetchMonitorCard",
+          "evidence": "/cards/"
+        }
+      ],
+      "wired": true,
+      "notes": "One card for detail. Same read model as the list, including a target that has no entity yet.",
+      "storedEntity": "monitor_targets"
     },
     {
       "method": "GET",

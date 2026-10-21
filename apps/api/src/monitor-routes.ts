@@ -37,6 +37,7 @@ import {
 import type { StudioLogger } from '@studio/observability';
 import { Hono } from 'hono';
 import { readAssetsRoot } from './assets-config';
+import { registerMonitorCardRoutes } from './monitor-card-routes';
 import { registerMonitorTargetRoutes } from './monitor-target-routes';
 
 type MonitorStatusFilter = 'all' | 'active' | 'archived' | 'deleted';
@@ -97,6 +98,7 @@ function refreshDepsFor(
 export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions = {}) {
   const app = new Hono();
   registerMonitorTargetRoutes(app, db);
+  registerMonitorCardRoutes(app, db);
   const deps = (c?: { get: (key: string) => unknown }) => {
     const base = buildRefreshDeps(db, refreshDeps);
     return c ? refreshDepsFor(c, base) : base;

@@ -8,6 +8,7 @@ import type {
   OpsSummary,
 } from '@studio/contracts';
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/page-header';
 import { EmptyState, ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
 import { Badge } from '@/components/ui/badge';
@@ -101,14 +102,24 @@ function localInputToIso(value: string): string | undefined {
   return date.toISOString();
 }
 
+function initialRunFilters(params: URLSearchParams): RunFilters {
+  return {
+    ...emptyRuns,
+    targetId: params.get('targetId')?.trim() ?? '',
+  };
+}
+
 export function OpsPage() {
+  const [searchParams] = useSearchParams();
+  const presetType = searchParams.get('targetType');
+  const presetExternalId = searchParams.get('externalId');
   const [summary, setSummary] = useState<OpsSummary | null>(null);
   const [health, setHealth] = useState<OpsHealth | null>(null);
   const [runs, setRuns] = useState<OpsRun[] | null>(null);
   const [logs, setLogs] = useState<OpsLog[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [runFilters, setRunFilters] = useState<RunFilters>(emptyRuns);
+  const [runFilters, setRunFilters] = useState<RunFilters>(() => initialRunFilters(searchParams));
   const [logFilters, setLogFilters] = useState<LogFilters>(emptyLogs);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -250,6 +261,16 @@ export function OpsPage() {
               <CardTitle>运行记录</CardTitle>
             </CardHeader>
             <CardContent className="min-w-0 space-y-4">
+              {runFilters.targetId ? (
+                <p
+                  className="break-all text-sm text-muted-foreground"
+                  data-testid="ops-target-filter"
+                >
+                  已按目标筛选
+                  {presetType === 'video' ? '视频' : presetType === 'creator' ? ' UP 主' : ''}
+                  {presetExternalId ? ` ${presetExternalId}` : ''} · {runFilters.targetId}
+                </p>
+              ) : null}
               <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <label className="min-w-0 space-y-1 text-sm">
                   <span className="text-muted-foreground">状态</span>

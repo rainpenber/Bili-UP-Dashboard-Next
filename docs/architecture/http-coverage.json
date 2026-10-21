@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_b094fa3f1e3f",
+  "databaseName": "wp_r2_11_1e670962e004",
   "retainedDatabase": true,
-  "registeredCount": 49,
-  "inventoryCount": 49,
-  "executedCount": 49,
-  "httpSuccessCount": 49,
-  "acceptedCount": 49,
+  "registeredCount": 51,
+  "inventoryCount": 51,
+  "executedCount": 51,
+  "httpSuccessCount": 51,
+  "acceptedCount": 51,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 8,
@@ -356,6 +356,46 @@
         },
         {
           "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/cards",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/cards/:type/:externalId",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
           "status": 200,
           "http": "success",
           "assertions": "passed"

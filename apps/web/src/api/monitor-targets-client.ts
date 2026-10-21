@@ -5,7 +5,6 @@ import {
   parseMonitorTargetList,
   parseMonitorTargetRunResponse,
   type CollectorJob,
-  type MonitorIntervalMinutes,
   type MonitorTarget,
   type MonitorTargetCreateResponse,
   type MonitorTargetPatchRequest,
@@ -53,12 +52,21 @@ export function createMonitorTarget(input: {
   externalId: string;
   label?: string;
   tags?: string[];
-  intervalMinutes: MonitorIntervalMinutes;
+  intervalMode?: 'auto' | 'fixed';
+  intervalMinutes?: number;
 }): Promise<MonitorTargetCreateResponse> {
+  const body: Record<string, unknown> = {
+    type: input.type,
+    externalId: input.externalId,
+  };
+  if (input.label !== undefined) body.label = input.label;
+  if (input.tags !== undefined) body.tags = input.tags;
+  if (input.intervalMode) body.intervalMode = input.intervalMode;
+  if (input.intervalMinutes !== undefined) body.intervalMinutes = input.intervalMinutes;
   return requestJson('/targets', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify(body),
   }).then(parseMonitorTargetCreateResponse);
 }
 

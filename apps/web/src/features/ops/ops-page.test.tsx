@@ -231,4 +231,31 @@ describe('ops page', () => {
     }
     globalThis.setInterval = original;
   });
+
+  test('opens with the target id from the URL already filtering runs', async () => {
+    const calls: string[] = [];
+    install((url) => {
+      calls.push(url);
+      if (url.includes('/summary')) return jsonResponse(emptySummary);
+      if (url.includes('/health')) return jsonResponse(emptyHealth);
+      return jsonResponse(emptyPage);
+    });
+    render(
+      <MemoryRouter
+        initialEntries={[
+          '/ops?targetId=22222222-2222-4222-8222-222222222222&targetType=video&externalId=BV1xx411c7mD',
+        ]}
+      >
+        <OpsPage />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId('ops-target-filter')).toBeTruthy();
+    expect(
+      screen.getByLabelText('目标编号').getAttribute('value') ??
+        (screen.getByLabelText('目标编号') as HTMLInputElement).value,
+    ).toBe('22222222-2222-4222-8222-222222222222');
+    expect(calls.some((url) => url.includes('targetId=22222222-2222-4222-8222-222222222222'))).toBe(
+      true,
+    );
+  });
 });

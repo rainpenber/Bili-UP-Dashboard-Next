@@ -1,10 +1,13 @@
 import { newestMetricPoint } from '@studio/contracts';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { useMonitorCardQuery } from '@/api/hooks/use-monitor-card-queries';
 import { useVideoDetailQuery, useVideoMetricsDetailQuery } from '@/api/hooks/use-monitor-queries';
 import { coverAssetUrl } from '@/api/monitor-client';
 import { ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
 import { Badge } from '@/components/ui/badge';
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
+import { MonitorCardControls } from '@/features/monitoring/monitor-object-card';
+import { detailReturnHref } from '@/features/monitoring/monitor-url-state';
 import { MonitoringDetailLayout } from '@/features/monitoring/monitoring-detail-layout';
 import { VideoAuthorPanel } from '@/features/monitoring/video-author-panel';
 import {
@@ -14,12 +17,53 @@ import {
 } from '@/lib/format-compact-number';
 import { formatFullLocalTime, formatShortTime } from '@/lib/format-time';
 
+function missingEntity(error: unknown): boolean {
+  return (
+    error instanceof Error && (error.message === 'not found' || error.message.includes('未找到'))
+  );
+}
+
 export function MonitoringVideoDetailPage() {
   const { bvid = '' } = useParams();
+  const [params] = useSearchParams();
+  const listQuery = params.get('from') ?? '';
+  const backTo = detailReturnHref('videos', listQuery || null);
   const detailQuery = useVideoDetailQuery(bvid);
-  const metricsQuery = useVideoMetricsDetailQuery(bvid);
+  const cardQuery = useMonitorCardQuery('video', bvid);
+  const metricsQuery = useVideoMetricsDetailQuery(bvid, Boolean(detailQuery.data));
+  const monitorFooter = cardQuery.isLoading ? (
+    <LoadingListSkeleton rows={1} />
+  ) : cardQuery.isError ? (
+    <ErrorState
+      title="监控状态加载失败"
+      message={cardQuery.error instanceof Error ? cardQuery.error.message : '加载失败'}
+      onRetry={() => void cardQuery.refetch()}
+    />
+  ) : cardQuery.data ? (
+    <MonitorCardControls card={cardQuery.data} listQuery={listQuery} includeDetailLink={false} />
+  ) : null;
 
-  if (detailQuery.isLoading) return <LoadingListSkeleton rows={4} />;
+  if (detailQuery.isLoading || (detailQuery.isError && cardQuery.isLoading)) {
+    return <LoadingListSkeleton rows={4} />;
+  }
+  if (missingEntity(detailQuery.error) && cardQuery.data && !cardQuery.data.hasEntity) {
+    const card = cardQuery.data;
+    return (
+      <MonitoringDetailLayout
+        testId="video-detail-page"
+        title={card.displayName}
+        description="该监控目标还没有视频实体或采样"
+        entityLabel={card.externalId}
+        backTo={backTo}
+        meta={[
+          { label: 'BV 号', value: card.externalId },
+          { label: '采样', value: '尚无采集数据' },
+        ]}
+        charts={<p className="text-sm text-muted-foreground">尚无采集数据</p>}
+        footer={monitorFooter}
+      />
+    );
+  }
   if (detailQuery.isError) {
     return (
       <ErrorState
@@ -43,7 +87,8 @@ export function MonitoringVideoDetailPage() {
       description="视频监控详情与历史指标"
       entityLabel={v.bvid}
       aside={<VideoAuthorPanel creator={v.creator ?? null} />}
-      backTo="/monitoring?tab=videos"
+      backTo={backTo}
+      footer={monitorFooter}
       status={
         v.deletedAt ? (
           <Badge variant="destructive">已删除</Badge>

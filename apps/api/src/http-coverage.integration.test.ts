@@ -547,6 +547,19 @@ describe('HTTP API coverage against isolated Postgres', () => {
       expect(creator.created).toBe(true);
       expect(creator.target.intervalMinutes).toBe(240);
       expect(creator.target.intervalMode).toBe('auto');
+      const cards = (await expectStatus(
+        await api('/api/v1/monitor/cards?type=creator&q=240240&monitor=active'),
+        200,
+      )) as { totalItems: number; items: { externalId: string; monitorState: string }[] };
+      expect(cards.totalItems).toBe(1);
+      expect(cards.items[0]?.monitorState).toBe('active');
+      const card = (await expectStatus(await api('/api/v1/monitor/cards/creator/240240'), 200)) as {
+        externalId: string;
+        hasEntity: boolean;
+      };
+      expect(card.externalId).toBe('240240');
+      expect(card.hasEntity).toBe(false);
+      await expectStatus(await api('/api/v1/monitor/cards?type=dynamic'), 400);
       const fixed = parseMonitorTargetCreateResponse(
         await expectStatus(
           await api(

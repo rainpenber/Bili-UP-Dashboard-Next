@@ -1,13 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/page-header';
-import {
-  useCreatorsQuery,
-  useDynamicsQuery,
-  useEntityMetricsQuery,
-  useVideosQuery,
-} from '@/api/hooks/use-monitor-queries';
-import { coverAssetUrl, formatCount } from '@/api/monitor-client';
+import { useDynamicsQuery, useEntityMetricsQuery } from '@/api/hooks/use-monitor-queries';
+import { useMonitorCardsQuery } from '@/api/hooks/use-monitor-card-queries';
+import { formatCount } from '@/api/monitor-client';
 import {
   EmptyState,
   ErrorState,
@@ -15,35 +11,45 @@ import {
   NoSelectionHint,
 } from '@/components/states/async-states';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
+import { MonitorAddDialog } from '@/features/monitoring/monitor-add-dialog';
+import { MonitorObjectCard } from '@/features/monitoring/monitor-object-card';
 import {
   parseMonitorSearchParams,
   writeMonitorSearchParams,
+  type MonitorPresenceFilter,
   type MonitorTab,
 } from '@/features/monitoring/monitor-url-state';
-import { formatVideoCardMetricsSummary } from '@/features/monitoring/video-card-metrics';
-import { cn } from '@/lib/utils';
-import { MonitorTargetsPanel } from '@/features/monitoring/monitor-targets-panel';
 import { OfflineEnvironmentBadge } from '@/features/monitoring/offline-environment-badge';
-import { formatShortTime } from '@/lib/format-time';
+import { RecentCollectorJobs } from '@/features/monitoring/recent-collector-jobs';
 import { formatUnknownMetric } from '@/lib/format-compact-number';
-import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 const TAB_LABEL: Record<MonitorTab, string> = {
-  targets: '监控项',
   videos: '视频',
   creators: 'UP 主',
   dynamics: '动态',
 };
 
+const MONITOR_FILTER_LABEL: Record<MonitorPresenceFilter, string> = {
+  all: '全部',
+  active: '监控中',
+  paused: '已暂停',
+  unmonitored: '未监控',
+};
+
 export function MonitoringPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const state = useMemo(() => parseMonitorSearchParams(searchParams), [searchParams]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const listQuery = searchParams.toString();
 
   const patchUrl = (patch: Parameters<typeof writeMonitorSearchParams>[1]) => {
     setSearchParams(writeMonitorSearchParams(searchParams, patch), { replace: true });
@@ -58,34 +64,56 @@ export function MonitoringPage() {
     });
   };
 
-  const historyTab = state.tab === 'targets' ? 'videos' : state.tab;
-  const videosQuery = useVideosQuery(state.page, state.category, state.q, state.tab === 'videos');
-  const creatorsQuery = useCreatorsQuery(state.page, state.q, state.tab === 'creators');
+  const cardType = state.tab === 'creators' ? 'creator' : 'video';
+  const cardsQuery = useMonitorCardsQuery({
+    type: cardType,
+    page: state.page,
+    monitor: state.monitor,
+    q: state.q,
+    category: state.category,
+    enabled: state.tab === 'videos' || state.tab === 'creators',
+  });
   const dynamicsQuery = useDynamicsQuery(state.page, state.tab === 'dynamics');
+  const selectedCard =
+    cardsQuery.data?.items.find((item) => item.externalId === state.selected) ?? null;
   const metricsQuery = useEntityMetricsQuery(
-    historyTab,
-    state.tab === 'targets' ? null : state.selected,
+    state.tab,
+    state.tab === 'dynamics' ? state.selected : selectedCard?.hasEntity ? state.selected : null,
+    state.tab === 'dynamics' || selectedCard?.hasEntity === true,
   );
 
-  const listQuery =
-    historyTab === 'videos'
-      ? videosQuery
-      : historyTab === 'creators'
-        ? creatorsQuery
-        : dynamicsQuery;
-
-  const totalPages = listQuery.data?.totalPages ?? (listQuery.isSuccess ? 1 : 1);
+  const listQueryState = state.tab === 'dynamics' ? dynamicsQuery : cardsQuery;
+  const totalPages = listQueryState.data?.totalPages ?? 1;
 
   return (
-    <>
+    <div data-testid="monitoring-page" className="min-w-0 max-w-full overflow-x-hidden">
       <PageHeader
         title="监控中心"
-        description="添加视频与 UP 主监控项，由离线采集器写入样本；也可查看已导入的历史数据。"
+        description="按视频、UP 主和动态查看对象。视频与 UP 主可在此新增、暂停和恢复监控。"
         crumbs={[{ label: '工作室', to: '/' }, { label: '监控' }]}
-        actions={<OfflineEnvironmentBadge />}
+        actions={
+          <>
+            <OfflineEnvironmentBadge />
+            {state.tab === 'dynamics' ? null : (
+              <Button type="button" onClick={() => setAddOpen(true)}>
+                新增监控
+              </Button>
+            )}
+          </>
+        }
       />
 
-      <Tabs value={state.tab} onValueChange={(v) => onTabChange(v as MonitorTab)} className="gap-4">
+      {notice ? (
+        <p role="status" className="mb-4 text-sm text-muted-foreground">
+          {notice}
+        </p>
+      ) : null}
+
+      <Tabs
+        value={state.tab}
+        onValueChange={(value) => onTabChange(value as MonitorTab)}
+        className="gap-4"
+      >
         <TabsList aria-label="监控实体类型">
           {(Object.keys(TAB_LABEL) as MonitorTab[]).map((tab) => (
             <TabsTrigger key={tab} value={tab}>
@@ -94,286 +122,215 @@ export function MonitoringPage() {
           ))}
         </TabsList>
 
-        {state.tab === 'targets' ? (
-          <TabsContent value="targets" className="mt-0">
-            <MonitorTargetsPanel />
-          </TabsContent>
-        ) : null}
-
-        {state.tab !== 'targets' ? (
-          <div className="flex flex-wrap gap-4 rounded-lg border bg-muted/20 p-4">
+        {state.tab === 'dynamics' ? (
+          <p className="text-sm text-muted-foreground">
+            动态只浏览已有互动数据，启动监控不在这个页面提供。
+          </p>
+        ) : (
+          <div className="flex min-w-0 flex-wrap gap-4 rounded-lg border bg-muted/20 p-4">
             {state.tab === 'videos' ? (
-              <div className="grid w-full min-w-[10rem] max-w-xs gap-1.5">
+              <div className="grid w-full min-w-0 max-w-xs gap-1.5">
                 <Label htmlFor="monitor-category">分类</Label>
                 <Input
                   id="monitor-category"
                   value={state.category}
                   placeholder="可选"
-                  onChange={(e) => patchUrl({ category: e.target.value, page: 1, selected: null })}
+                  onChange={(event) =>
+                    patchUrl({ category: event.target.value, page: 1, selected: null })
+                  }
                 />
               </div>
             ) : null}
-            {(state.tab === 'videos' || state.tab === 'creators') && (
-              <div className="grid w-full min-w-[10rem] max-w-sm flex-1 gap-1.5">
-                <Label htmlFor="monitor-q">关键词</Label>
-                <Input
-                  id="monitor-q"
-                  value={state.q}
-                  placeholder="标题 / ID"
-                  onChange={(e) => patchUrl({ q: e.target.value, page: 1, selected: null })}
-                />
-              </div>
-            )}
-          </div>
-        ) : null}
-
-        {state.tab !== 'targets' ? (
-          <TabsContent value={state.tab} className="mt-0">
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
-              <section aria-label="实体列表" className="min-w-0 space-y-4">
-                {listQuery.isLoading ? <LoadingListSkeleton rows={3} /> : null}
-                {listQuery.isError ? (
-                  <ErrorState
-                    message={
-                      listQuery.error instanceof Error ? listQuery.error.message : '加载失败'
-                    }
-                    onRetry={() => void listQuery.refetch()}
-                  />
-                ) : null}
-                {listQuery.isSuccess && listQuery.data.items.length === 0 ? (
-                  <EmptyState
-                    title="没有匹配的条目"
-                    description="尝试调整筛选条件或确认离线 CSV 是否已成功导入。"
-                  />
-                ) : null}
-
-                {listQuery.isSuccess && listQuery.data.items.length > 0 ? (
-                  <ul className="space-y-2" role="list">
-                    {state.tab === 'videos' &&
-                      videosQuery.data?.items.map((v) => {
-                        const id = 'bvid' in v ? v.bvid : '';
-                        const selected = state.selected === id;
-                        return (
-                          <li key={id}>
-                            <div
-                              className={cn(
-                                'flex w-full gap-2 rounded-lg border p-3 transition-colors duration-200',
-                                selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
-                              )}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => patchUrl({ selected: id })}
-                                className={cn(
-                                  'flex min-w-0 flex-1 gap-3 text-left',
-                                  'hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md',
-                                )}
-                                aria-pressed={selected}
-                              >
-                                <img
-                                  src={coverAssetUrl('coverAssetId' in v ? v.coverAssetId : null)}
-                                  alt=""
-                                  width={96}
-                                  height={54}
-                                  className="size-16 shrink-0 rounded object-cover"
-                                />
-                                <div className="min-w-0 flex-1 space-y-1">
-                                  <p className="line-clamp-2 font-medium leading-snug">
-                                    {'title' in v ? (v.title ?? v.bvid) : id}
-                                  </p>
-                                  <p className="truncate text-xs text-muted-foreground">
-                                    {'category' in v ? (v.category ?? '未分类') : ''}
-                                  </p>
-                                  <p className="truncate text-xs tabular-nums text-muted-foreground">
-                                    更新{' '}
-                                    {'latestMetrics' in v && v.latestMetrics.sampledAt
-                                      ? formatShortTime(v.latestMetrics.sampledAt)
-                                      : '—'}{' '}
-                                    ·{' '}
-                                    {'latestMetrics' in v
-                                      ? formatVideoCardMetricsSummary(v.latestMetrics)
-                                      : '—'}
-                                  </p>
-                                </div>
-                              </button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="shrink-0 self-center"
-                                asChild
-                              >
-                                <Link to={`/monitoring/videos/${encodeURIComponent(id)}`}>
-                                  查看详情
-                                </Link>
-                              </Button>
-                            </div>
-                          </li>
-                        );
-                      })}
-
-                    {state.tab === 'creators' &&
-                      creatorsQuery.data?.items.map((c) => {
-                        const id = 'mid' in c ? c.mid : '';
-                        const selected = state.selected === id;
-                        return (
-                          <li key={id}>
-                            <div
-                              className={cn(
-                                'flex w-full gap-2 rounded-lg border p-3',
-                                selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
-                              )}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => patchUrl({ selected: id })}
-                                className="flex min-w-0 flex-1 gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
-                                aria-pressed={selected}
-                              >
-                                <img
-                                  src={coverAssetUrl('faceAssetId' in c ? c.faceAssetId : null)}
-                                  alt=""
-                                  width={64}
-                                  height={64}
-                                  className="size-14 shrink-0 rounded-full object-cover"
-                                />
-                                <div className="min-w-0 flex-1 space-y-1">
-                                  <p className="truncate font-medium">
-                                    {'uname' in c ? (c.uname ?? c.mid) : id}
-                                  </p>
-                                  <p className="text-xs tabular-nums text-muted-foreground">
-                                    粉丝{' '}
-                                    {'latestMetrics' in c
-                                      ? formatCount(c.latestMetrics.followerCount)
-                                      : '—'}
-                                  </p>
-                                </div>
-                              </button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="shrink-0 self-center"
-                                asChild
-                              >
-                                <Link to={`/monitoring/creators/${encodeURIComponent(id)}`}>
-                                  查看详情
-                                </Link>
-                              </Button>
-                            </div>
-                          </li>
-                        );
-                      })}
-
-                    {state.tab === 'dynamics' &&
-                      dynamicsQuery.data?.items.map((d) => {
-                        const id = 'dynamicId' in d ? d.dynamicId : '';
-                        const selected = state.selected === id;
-                        return (
-                          <li key={id}>
-                            <div
-                              className={cn(
-                                'flex w-full gap-2 rounded-lg border p-3',
-                                selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
-                              )}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => patchUrl({ selected: id })}
-                                className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
-                                aria-pressed={selected}
-                              >
-                                <div className="min-w-0 space-y-1">
-                                  <p className="break-all font-medium">{id}</p>
-                                  <p className="text-xs tabular-nums text-muted-foreground">
-                                    赞{' '}
-                                    {'latestMetrics' in d
-                                      ? formatCount(d.latestMetrics.likeCount)
-                                      : '—'}{' '}
-                                    · 评{' '}
-                                    {'latestMetrics' in d
-                                      ? formatUnknownMetric(d.latestMetrics.commentCount)
-                                      : '暂无数据'}
-                                  </p>
-                                </div>
-                              </button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="shrink-0 self-center"
-                                asChild
-                              >
-                                <Link to={`/monitoring/dynamics/${encodeURIComponent(id)}`}>
-                                  查看详情
-                                </Link>
-                              </Button>
-                            </div>
-                          </li>
-                        );
-                      })}
-                  </ul>
-                ) : null}
-
-                <Pagination
-                  page={state.page}
-                  totalPages={totalPages}
-                  disabled={listQuery.isFetching}
-                  onPageChange={(page) => patchUrl({ page })}
-                />
-              </section>
-
-              <Card className="min-w-0 lg:sticky lg:top-20">
-                <CardHeader className="flex-row items-center justify-between space-y-0">
-                  <CardTitle className="text-base">播放与互动趋势</CardTitle>
-                  {state.selected ? (
-                    <Badge
-                      variant="outline"
-                      className="max-w-[12rem] truncate font-normal tabular-nums"
-                    >
-                      {state.selected}
-                    </Badge>
-                  ) : null}
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {!state.selected ? (
-                    <NoSelectionHint message="从左侧列表选择一条记录以查看趋势图。" />
-                  ) : null}
-                  {state.selected && metricsQuery.isLoading ? (
-                    <LoadingListSkeleton rows={2} />
-                  ) : null}
-                  {state.selected && metricsQuery.isError ? (
-                    <ErrorState
-                      title="指标加载失败"
-                      message={
-                        metricsQuery.error instanceof Error
-                          ? metricsQuery.error.message
-                          : '暂时拉不到趋势数据'
-                      }
-                      onRetry={() => void metricsQuery.refetch()}
-                    />
-                  ) : null}
-                  {state.selected && metricsQuery.isSuccess && metricsQuery.data == null ? (
-                    <NoSelectionHint message="未找到该实体的指标序列。" />
-                  ) : null}
-                  {state.selected &&
-                  metricsQuery.isSuccess &&
-                  metricsQuery.data?.kind === 'video' ? (
-                    <MetricCharts kind="video" points={metricsQuery.data.points} />
-                  ) : null}
-                  {state.selected &&
-                  metricsQuery.isSuccess &&
-                  metricsQuery.data?.kind === 'creator' ? (
-                    <MetricCharts kind="creator" points={metricsQuery.data.points} />
-                  ) : null}
-                  {state.selected &&
-                  metricsQuery.isSuccess &&
-                  metricsQuery.data?.kind === 'dynamic' ? (
-                    <MetricCharts kind="dynamic" points={metricsQuery.data.points} />
-                  ) : null}
-                </CardContent>
-              </Card>
+            <div className="grid w-full min-w-0 max-w-sm flex-1 gap-1.5">
+              <Label htmlFor="monitor-q">关键词</Label>
+              <Input
+                id="monitor-q"
+                value={state.q}
+                placeholder="标题 / ID"
+                onChange={(event) => patchUrl({ q: event.target.value, page: 1, selected: null })}
+              />
             </div>
-          </TabsContent>
-        ) : null}
+            <div className="grid w-full min-w-0 max-w-xs gap-1.5">
+              <Label htmlFor="monitor-presence">监控状态</Label>
+              <select
+                id="monitor-presence"
+                className="flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+                value={state.monitor}
+                onChange={(event) =>
+                  patchUrl({
+                    monitor: event.target.value as MonitorPresenceFilter,
+                    page: 1,
+                    selected: null,
+                  })
+                }
+              >
+                {(Object.keys(MONITOR_FILTER_LABEL) as MonitorPresenceFilter[]).map((filter) => (
+                  <option key={filter} value={filter}>
+                    {MONITOR_FILTER_LABEL[filter]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        <TabsContent value={state.tab} className="mt-0 min-w-0">
+          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
+            <section aria-label="实体列表" className="min-w-0 space-y-4">
+              {listQueryState.isLoading ? <LoadingListSkeleton rows={3} /> : null}
+              {listQueryState.isError ? (
+                <ErrorState
+                  message={
+                    listQueryState.error instanceof Error
+                      ? listQueryState.error.message
+                      : '加载失败'
+                  }
+                  onRetry={() => void listQueryState.refetch()}
+                />
+              ) : null}
+              {listQueryState.isSuccess && listQueryState.data.items.length === 0 ? (
+                <EmptyState
+                  title="没有匹配的条目"
+                  description="调整筛选，或新增一个视频 / UP 主监控。历史对象和尚未采样的目标也会出现在这里。"
+                />
+              ) : null}
+
+              {state.tab !== 'dynamics' &&
+              cardsQuery.isSuccess &&
+              cardsQuery.data.items.length > 0 ? (
+                <ul className="min-w-0 space-y-2" role="list">
+                  {cardsQuery.data.items.map((card) => (
+                    <MonitorObjectCard
+                      key={`${card.type}:${card.externalId}`}
+                      card={card}
+                      selected={state.selected === card.externalId}
+                      listQuery={listQuery}
+                      onSelect={() => patchUrl({ selected: card.externalId })}
+                    />
+                  ))}
+                </ul>
+              ) : null}
+
+              {state.tab === 'dynamics' &&
+              dynamicsQuery.isSuccess &&
+              dynamicsQuery.data.items.length > 0 ? (
+                <ul className="min-w-0 space-y-2" role="list">
+                  {dynamicsQuery.data.items.map((item) => {
+                    const selected = state.selected === item.dynamicId;
+                    return (
+                      <li key={item.dynamicId} className="min-w-0">
+                        <div
+                          className={cn(
+                            'flex min-w-0 flex-col gap-2 rounded-lg border p-3 sm:flex-row',
+                            selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
+                          )}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => patchUrl({ selected: item.dynamicId })}
+                            className="min-w-0 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-pressed={selected}
+                          >
+                            <span className="block break-all font-medium">{item.dynamicId}</span>
+                            <span className="text-xs tabular-nums text-muted-foreground">
+                              赞 {formatCount(item.latestMetrics.likeCount)} · 评{' '}
+                              {formatUnknownMetric(item.latestMetrics.commentCount)}
+                            </span>
+                          </button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0 self-center"
+                            asChild
+                          >
+                            <Link to={`/monitoring/dynamics/${encodeURIComponent(item.dynamicId)}`}>
+                              查看详情
+                            </Link>
+                          </Button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+
+              <Pagination
+                page={state.page}
+                totalPages={totalPages}
+                disabled={listQueryState.isFetching}
+                onPageChange={(page) => patchUrl({ page })}
+              />
+            </section>
+
+            <Card className="min-w-0 lg:sticky lg:top-20">
+              <CardHeader className="flex-row items-center justify-between space-y-0">
+                <CardTitle className="text-base">播放与互动趋势</CardTitle>
+                {state.selected ? (
+                  <Badge
+                    variant="outline"
+                    className="max-w-[12rem] truncate font-normal tabular-nums"
+                  >
+                    {state.selected}
+                  </Badge>
+                ) : null}
+              </CardHeader>
+              <CardContent className="min-w-0 space-y-4">
+                {!state.selected ? (
+                  <NoSelectionHint message="从左侧列表选择一条记录以查看趋势图。" />
+                ) : null}
+                {state.selected && selectedCard && !selectedCard.hasEntity ? (
+                  <NoSelectionHint message="尚无采集数据" />
+                ) : null}
+                {state.selected && selectedCard?.hasEntity && !selectedCard.hasSamples ? (
+                  <p className="text-sm text-muted-foreground">尚无采集数据</p>
+                ) : null}
+                {state.selected && metricsQuery.isLoading ? <LoadingListSkeleton rows={2} /> : null}
+                {state.selected && metricsQuery.isError ? (
+                  <ErrorState
+                    title="指标加载失败"
+                    message={
+                      metricsQuery.error instanceof Error
+                        ? metricsQuery.error.message
+                        : '暂时拉不到趋势数据'
+                    }
+                    onRetry={() => void metricsQuery.refetch()}
+                  />
+                ) : null}
+                {state.selected && metricsQuery.isSuccess && metricsQuery.data == null ? (
+                  <NoSelectionHint message="未找到该实体的指标序列。" />
+                ) : null}
+                {state.selected && metricsQuery.isSuccess && metricsQuery.data?.kind === 'video' ? (
+                  <MetricCharts kind="video" points={metricsQuery.data.points} />
+                ) : null}
+                {state.selected &&
+                metricsQuery.isSuccess &&
+                metricsQuery.data?.kind === 'creator' ? (
+                  <MetricCharts kind="creator" points={metricsQuery.data.points} />
+                ) : null}
+                {state.selected &&
+                metricsQuery.isSuccess &&
+                metricsQuery.data?.kind === 'dynamic' ? (
+                  <MetricCharts kind="dynamic" points={metricsQuery.data.points} />
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
       </Tabs>
-    </>
+
+      <RecentCollectorJobs />
+
+      {state.tab === 'dynamics' ? null : (
+        <MonitorAddDialog
+          open={addOpen}
+          type={cardType}
+          onOpenChange={setAddOpen}
+          onCreated={(externalId, message) => {
+            setNotice(message);
+            patchUrl({ q: externalId, page: 1, selected: externalId, tab: state.tab });
+          }}
+        />
+      )}
+    </div>
   );
 }

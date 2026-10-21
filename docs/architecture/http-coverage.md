@@ -1,8 +1,8 @@
 # HTTP API 覆盖
 
-验收库 `wp_r2_11_b094fa3f1e3f` 保留，本文件不执行 DROP DATABASE。
+验收库 `wp_r2_11_1e670962e004` 保留，本文件不执行 DROP DATABASE。
 
-注册 49，清单 49，已执行 49，HTTP 成功 49，断言验收 49。
+注册 51，清单 51，已执行 51，HTTP 成功 51，断言验收 51。
 
 验收结论：通过。每一条注册路由都有一次 HTTP 成功响应，且发出该响应的测试断言已通过。
 
@@ -107,6 +107,23 @@
 - 断言验收：是
 - imports：HTTP 404（拒绝响应，断言通过）
 - imports：HTTP 200（成功响应，断言通过）
+
+## GET `/api/v1/monitor/cards`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- monitor-targets：HTTP 200（成功响应，断言通过）
+- monitor-targets：HTTP 400（拒绝响应，断言通过）
+
+## GET `/api/v1/monitor/cards/:type/:externalId`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- monitor-targets：HTTP 200（成功响应，断言通过）
 
 ## GET `/api/v1/monitor/creators`
 

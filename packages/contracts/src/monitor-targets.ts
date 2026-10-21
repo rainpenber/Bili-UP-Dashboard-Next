@@ -253,6 +253,37 @@ export function parseCreateMonitorTargetRequest(value: unknown): MonitorTargetCr
   };
 }
 
+/**
+ * Wire body for create. Automatic mode omits intervalMinutes so the client
+ * does not pin the legacy 60-minute preset over the collector age policy.
+ * Fixed mode always sends the chosen interval.
+ */
+export function serializeCreateMonitorTargetRequest(request: MonitorTargetCreateRequest): {
+  type: MonitorTargetType;
+  externalId: string;
+  label: string;
+  tags: string[];
+  intervalMode: MonitorIntervalMode;
+  intervalMinutes?: number;
+} {
+  const body: {
+    type: MonitorTargetType;
+    externalId: string;
+    label: string;
+    tags: string[];
+    intervalMode: MonitorIntervalMode;
+    intervalMinutes?: number;
+  } = {
+    type: request.type,
+    externalId: request.externalId,
+    label: request.label,
+    tags: request.tags,
+    intervalMode: request.intervalMode,
+  };
+  if (request.intervalMode === 'fixed') body.intervalMinutes = request.intervalMinutes;
+  return body;
+}
+
 export function parsePatchMonitorTargetRequest(value: unknown): MonitorTargetPatchRequest {
   if (!isRecord(value)) {
     throw new MonitorContractError('invalid_body', '请求体不是合法的监控项更新');
