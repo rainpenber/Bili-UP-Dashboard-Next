@@ -143,4 +143,3 @@ describe('MonitorAddDialog startAt', () => {
     expect(Date.parse(body.startAt)).toBe(new Date(2026, 10, 1, 9, 30, 0).getTime());
   });
 });
-
