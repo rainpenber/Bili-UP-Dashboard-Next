@@ -44,6 +44,11 @@ export {
   type VideoSampleWrite,
 } from './monitor-targets';
 export {
+  writeDynamicSample,
+  writeDynamicSampleWithin,
+  type DynamicSampleWrite,
+} from './dynamic-samples';
+export {
   getMonitorCard,
   listMonitorCards,
   type MonitorCardFilter,
