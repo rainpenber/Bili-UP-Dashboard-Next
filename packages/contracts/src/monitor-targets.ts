@@ -401,9 +401,30 @@ function parseIso(value: unknown, name: string): string | null {
  * Accept only full instants with an explicit timezone (Z or ±HH:MM).
  * Bare local forms like 2026-10-21T12:00:00 are rejected so servers and
  * browsers cannot silently reinterpret Asia/Shanghai business times.
+ * Civil Y-M-D must be a real calendar date (no Date.parse rollover of Feb 30).
  */
 const START_AT_WITH_ZONE =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+
+function assertCivilDate(year: number, month: number, day: number): void {
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    throw new MonitorContractError('invalid_start_at', '开始时间不是合法日历日期');
+  }
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (
+    probe.getUTCFullYear() !== year ||
+    probe.getUTCMonth() !== month - 1 ||
+    probe.getUTCDate() !== day
+  ) {
+    throw new MonitorContractError('invalid_start_at', '开始时间不是合法日历日期');
+  }
+}
+
+function assertCivilTime(hour: number, minute: number, second: number): void {
+  if (hour > 23 || minute > 59 || second > 59) {
+    throw new MonitorContractError('invalid_start_at', '开始时间不是合法时间');
+  }
+}
 
 export function parseMonitorStartAtInput(value: unknown): string | null {
   if (value === null) return null;
@@ -411,12 +432,21 @@ export function parseMonitorStartAtInput(value: unknown): string | null {
     throw new MonitorContractError('invalid_start_at', '开始时间必须是带时区的完整时间');
   }
   const raw = value.trim();
-  if (!START_AT_WITH_ZONE.test(raw)) {
+  const matched = START_AT_WITH_ZONE.exec(raw);
+  if (!matched) {
     throw new MonitorContractError(
       'invalid_start_at',
       '开始时间必须是带明确时区的完整时间（例如 2026-10-21T20:00:00+08:00）',
     );
   }
+  const year = Number(matched[1]);
+  const month = Number(matched[2]);
+  const day = Number(matched[3]);
+  const hour = Number(matched[4]);
+  const minute = Number(matched[5]);
+  const second = Number(matched[6]);
+  assertCivilDate(year, month, day);
+  assertCivilTime(hour, minute, second);
   const ms = Date.parse(raw);
   if (Number.isNaN(ms)) {
     throw new MonitorContractError('invalid_start_at', '开始时间不是合法时间');

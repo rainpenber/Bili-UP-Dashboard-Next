@@ -290,21 +290,53 @@ async function hasRunningJob(tx: Queryable, targetId: string): Promise<boolean> 
 }
 
 /**
- * Drop unexecuted pending jobs for a target, then optionally insert one due job.
- * Running / succeeded / failed history is untouched.
+ * Align pending jobs to a single schedule instant without deleting rows.
+ * Failed retries leave collector_runs pointing at the same pending job id;
+ * DELETE would violate collector_runs_job_id_fkey. Extras (rare) are parked
+ * far ahead with unique scheduled_for so only one effective execution remains.
  */
-async function replacePendingJobs(
+async function realignPendingJobs(
   tx: Queryable,
   targetId: string,
-  scheduledFor: Date | null,
+  scheduledFor: Date,
+  createIfMissing: boolean,
 ): Promise<string | null> {
-  await tx`
-    DELETE FROM collector_jobs
+  const pending = await tx<{ id: string }[]>`
+    SELECT id::text AS id
+    FROM collector_jobs
     WHERE target_id = ${targetId}::uuid AND status = 'pending'
+    ORDER BY scheduled_for ASC, id ASC
+    FOR UPDATE
   `;
-  if (!scheduledFor) return null;
-  return insertJobIfIdle(tx, targetId, scheduledFor);
+  if (pending.length === 0) {
+    if (!createIfMissing) return null;
+    return insertJobIfIdle(tx, targetId, scheduledFor);
+  }
+
+  // Park non-primary pendings first so the primary can take scheduledFor uniquely.
+  for (let i = 1; i < pending.length; i += 1) {
+    const parkAt = new Date(Date.UTC(2099, 0, 1, 0, 0, i));
+    await tx`
+      UPDATE collector_jobs
+      SET scheduled_for = ${parkAt}, updated_at = statement_timestamp()
+      WHERE id = ${pending[i]!.id}::uuid AND status = 'pending'
+    `;
+  }
+
+  const primaryId = pending[0]!.id;
+  await tx`
+    UPDATE collector_jobs
+    SET scheduled_for = ${scheduledFor}, updated_at = statement_timestamp()
+    WHERE id = ${primaryId}::uuid AND status = 'pending'
+  `;
+  return primaryId;
 }
+
+/** Optional test hooks for controlled lock-ordering races. Production omits these. */
+export type MonitorScheduleHooks = {
+  afterTargetLocked?: () => Promise<void>;
+  afterDueTargetsLocked?: () => Promise<void>;
+};
 
 export async function updateMonitorTarget(
   sql: Sql,
@@ -319,6 +351,7 @@ export async function updateMonitorTarget(
     startAt?: Date | null;
   },
   now: Date,
+  hooks?: MonitorScheduleHooks,
 ): Promise<{
   status: UpdateMonitorTargetStatus;
   target: MonitorTargetRow | null;
@@ -328,6 +361,7 @@ export async function updateMonitorTarget(
     const existing = await lockMonitorTarget(tx, id);
     if (!existing) return { status: 'missing', target: null, jobId: null };
     if (existing.deletedAt) return { status: 'deleted', target: existing, jobId: null };
+    if (hooks?.afterTargetLocked) await hooks.afterTargetLocked();
     if (existing.type === 'dynamic' && patch.intervalMode === 'auto') {
       throw new Error('动态只支持固定间隔，不能使用自动频率');
     }
@@ -396,26 +430,11 @@ export async function updateMonitorTarget(
     let jobId: string | null = null;
     const after = mapTarget(row);
     if (reschedule) {
-      // Paused targets keep paused; only enqueue when enabled and due.
-      const scheduleJob = after.enabled && dueNow ? firstRunAt : null;
-      jobId = await replacePendingJobs(tx, id, scheduleJob);
+      // Always realign pendings to firstRunAt (may be future). Only insert when due+enabled.
+      const createIfMissing = after.enabled && dueNow;
+      jobId = await realignPendingJobs(tx, id, firstRunAt, createIfMissing);
     } else if (resume) {
-      if (dueNow) {
-        await tx`
-          UPDATE collector_jobs
-          SET scheduled_for = ${firstRunAt}, updated_at = statement_timestamp()
-          WHERE id = (
-            SELECT id FROM collector_jobs
-            WHERE target_id = ${id}::uuid AND status = 'pending'
-            ORDER BY scheduled_for, id
-            LIMIT 1
-          )
-        `;
-        jobId = await insertJobIfIdle(tx, id, firstRunAt);
-      } else {
-        // Still before startAt: park or remove pending so claim cannot race early.
-        jobId = await replacePendingJobs(tx, id, null);
-      }
+      jobId = await realignPendingJobs(tx, id, firstRunAt, dueNow);
     }
     return { status: 'updated', target: after, jobId };
   });
@@ -438,24 +457,56 @@ export async function softDeleteMonitorTarget(
   return { status: 'deleted', target: existing };
 }
 
-export async function enqueueDueCollectorJobs(sql: Sql): Promise<number> {
-  const rows = await sql<{ id: string }[]>`
-    INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
-    SELECT gen_random_uuid(), t.id, 'pending', 0, t.next_run_at
-    FROM monitor_targets t
-    WHERE t.deleted_at IS NULL
-      AND t.enabled = true
-      AND t.next_run_at IS NOT NULL
-      AND t.next_run_at <= statement_timestamp()
-      AND (t.start_at IS NULL OR t.start_at <= statement_timestamp())
-      AND NOT EXISTS (
-        SELECT 1 FROM collector_jobs j
-        WHERE j.target_id = t.id AND j.status IN ('pending', 'running')
-      )
-    ON CONFLICT (target_id, scheduled_for) DO NOTHING
-    RETURNING id
-  `;
-  return rows.length;
+export async function enqueueDueCollectorJobs(
+  sql: Sql,
+  hooks?: MonitorScheduleHooks,
+): Promise<number> {
+  // Lock due targets first (same order as reschedule/claim) so a concurrent
+  // updateMonitorTarget cannot leave an old-snapshot pending beside a new one.
+  return sql.begin(async (tx) => {
+    const due = await tx<
+      { id: string; next_run_at: Date; start_at: Date | null; enabled: boolean }[]
+    >`
+      SELECT t.id::text AS id, t.next_run_at, t.start_at, t.enabled
+      FROM monitor_targets t
+      WHERE t.deleted_at IS NULL
+        AND t.enabled = true
+        AND t.next_run_at IS NOT NULL
+        AND t.next_run_at <= statement_timestamp()
+        AND (t.start_at IS NULL OR t.start_at <= statement_timestamp())
+        AND NOT EXISTS (
+          SELECT 1 FROM collector_jobs j
+          WHERE j.target_id = t.id AND j.status IN ('pending', 'running')
+        )
+      ORDER BY t.next_run_at ASC, t.id ASC
+      FOR UPDATE OF t
+    `;
+    if (hooks?.afterDueTargetsLocked) await hooks.afterDueTargetsLocked();
+
+    let inserted = 0;
+    for (const row of due) {
+      if (!row.enabled) continue;
+      if (row.next_run_at.getTime() > Date.now()) continue;
+      if (row.start_at && row.start_at.getTime() > Date.now()) continue;
+      const busy = await tx<{ id: string }[]>`
+        SELECT id::text AS id
+        FROM collector_jobs
+        WHERE target_id = ${row.id}::uuid
+          AND status IN ('pending', 'running')
+        LIMIT 1
+      `;
+      if (busy.length > 0) continue;
+      const jobId = crypto.randomUUID();
+      const created = await tx<{ id: string }[]>`
+        INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
+        VALUES (${jobId}::uuid, ${row.id}::uuid, 'pending', 0, ${row.next_run_at})
+        ON CONFLICT (target_id, scheduled_for) DO NOTHING
+        RETURNING id::text AS id
+      `;
+      if (created[0]?.id) inserted += 1;
+    }
+    return inserted;
+  });
 }
 
 export async function claimNextCollectorJob(sql: Sql): Promise<ClaimedCollectorJob | null> {
@@ -814,6 +865,8 @@ export async function recordCollectorSuccess(
 ): Promise<{ runId: string }> {
   const runId = crypto.randomUUID();
   await sql.begin(async (tx) => {
+    // Lock target before job so order matches reschedule (target → job).
+    await lockMonitorTarget(tx, input.targetId);
     const finished = new Date();
     await tx`
       UPDATE collector_jobs
@@ -864,6 +917,8 @@ export async function recordCollectorFailure(
   const terminal = input.attempts >= input.maxAttempts || retryAt === null;
   const runId = crypto.randomUUID();
   await sql.begin(async (tx) => {
+    // Target before job: same order as updateMonitorTarget / hasRunningJob.
+    await lockMonitorTarget(tx, input.targetId);
     const finished = new Date();
     if (terminal) {
       await tx`

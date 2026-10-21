@@ -40,6 +40,7 @@ export {
   type CollectorJobRow,
   type CollectorRunRow,
   type CreatorSampleWrite,
+  type MonitorScheduleHooks,
   type MonitorTargetRow,
   type RequestCollectorRunStatus,
   type SampleSource,

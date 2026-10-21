@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   MonitorContractError,
   parseCreateMonitorTargetRequest,
+  parseMonitorStartAtInput,
   parsePatchMonitorTargetRequest,
   splitTagInput,
 } from './monitor-targets';
@@ -188,5 +189,17 @@ describe('monitor target contracts', () => {
     expect(parsePatchMonitorTargetRequest({ startAt: '2026-12-01T08:00:00.000Z' }).startAt).toBe(
       '2026-12-01T08:00:00.000Z',
     );
+  });
+
+  test('startAt rejects non-calendar days and keeps leap-day boundaries', () => {
+    expect(() => parseMonitorStartAtInput('2027-02-30T18:00:00+08:00')).toThrow(/日历日期/);
+    expect(() => parseMonitorStartAtInput('2027-02-29T18:00:00+08:00')).toThrow(/日历日期/);
+    expect(() => parseMonitorStartAtInput('2027-04-31T12:00:00Z')).toThrow(/日历日期/);
+    expect(() => parseMonitorStartAtInput('2027-02-30T18:00:00+08:00')).toThrow(
+      MonitorContractError,
+    );
+    expect(parseMonitorStartAtInput('2028-02-29T18:00:00+08:00')).toBe('2028-02-29T10:00:00.000Z');
+    expect(parseMonitorStartAtInput('2027-02-28T18:00:00+08:00')).toBe('2027-02-28T10:00:00.000Z');
+    expect(parseMonitorStartAtInput('2027-03-01T00:00:00Z')).toBe('2027-03-01T00:00:00.000Z');
   });
 });

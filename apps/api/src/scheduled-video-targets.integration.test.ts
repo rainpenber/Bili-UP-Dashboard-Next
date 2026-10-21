@@ -4,9 +4,11 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
+  parseMonitorStartAtInput,
   parseMonitorTarget,
   parseMonitorTargetCreateResponse,
   parseOpsOperationList,
+  MonitorContractError,
 } from '@studio/contracts';
 import {
   claimNextCollectorJob,
@@ -14,6 +16,8 @@ import {
   createSql,
   enqueueDueCollectorJobs,
   readDbConfigFromEnv,
+  recordCollectorFailure,
+  updateMonitorTarget,
   writeVideoSample,
   type Sql,
 } from '@studio/db';
@@ -22,6 +26,7 @@ import {
   installOfflineFetchGuard,
   runCollectorOnce,
   type CollectorConfig,
+  type MonitorProvider,
 } from '@studio/monitoring';
 import { createLogger } from '@studio/observability';
 import { createApp } from './app';
@@ -605,5 +610,287 @@ describe('scheduled video targets (WP-R2-17A)', () => {
     const dynamic = parseMonitorTargetCreateResponse(await dynamicRes.json());
     expect(dynamic.target.startAt).toBeNull();
     expect(dynamic.target.intervalMode).toBe('fixed');
+  });
+
+  test('HTTP rejects non-calendar startAt with zero writes', async () => {
+    const before = await db()<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM monitor_targets WHERE external_id = 'BV1xx411c7ac'
+    `;
+    const bad = await postTarget({
+      type: 'video',
+      externalId: 'BV1xx411c7ac',
+      startAt: '2027-02-30T18:00:00+08:00',
+    });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { code: string }).code).toBe('invalid_start_at');
+    const after = await db()<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM monitor_targets WHERE external_id = 'BV1xx411c7ac'
+    `;
+    expect(after[0]?.n).toBe(before[0]?.n);
+
+    const leap = await postTarget({
+      type: 'video',
+      externalId: 'BV1xx411c7ad',
+      startAt: '2028-02-29T18:00:00+08:00',
+    });
+    expect(leap.status).toBe(200);
+    const leapBody = parseMonitorTargetCreateResponse(await leap.json());
+    expect(leapBody.target.startAt).toBe('2028-02-29T10:00:00.000Z');
+    expect(() => parseMonitorStartAtInput('2027-02-29T18:00:00+08:00')).toThrow(
+      MonitorContractError,
+    );
+  });
+
+  test('real collector failure then PATCH startAt keeps runs and succeeds', async () => {
+    const created = parseMonitorTargetCreateResponse(
+      await (await postTarget({ type: 'video', externalId: 'BV1xx411c7ae' })).json(),
+    );
+    await parkExcept(created.target.id);
+    const base = createMonitorProvider('offline', { SOURCE_TIMEZONE: 'Asia/Shanghai' });
+    const failing: MonitorProvider = {
+      ...base,
+      collectVideo: async () => {
+        throw new Error('模拟未发布或网络失败');
+      },
+    };
+    expect(
+      await runCollectorOnce({
+        sql: db(),
+        provider: failing,
+        config: { ...fastConfig('fail-then-reschedule'), maxAttempts: 3, backoffBaseMs: 0 },
+      }),
+    ).toBe('failed');
+
+    const [job] = await db()<{ id: string; status: string }[]>`
+      SELECT id::text AS id, status FROM collector_jobs
+      WHERE target_id = ${created.target.id}::uuid
+      ORDER BY created_at DESC LIMIT 1
+    `;
+    expect(job?.status).toBe('pending');
+    const [runs] = await db()<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM collector_runs
+      WHERE target_id = ${created.target.id}::uuid AND status = 'failed'
+    `;
+    expect(runs?.n).toBe(1);
+    const [successSamples] = await db()<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM video_metric_samples WHERE bvid = 'BV1xx411c7ae'
+    `;
+    expect(successSamples?.n).toBe(0);
+
+    const later = futureIso(6);
+    const patched = await patchTarget(created.target.id, { startAt: later });
+    expect(patched.status).toBe(200);
+    const after = parseMonitorTarget(((await patched.json()) as { target: unknown }).target);
+    expect(after.startAt).toBe(later);
+    expect(after.lastSuccessAt).toBeNull();
+    expect(after.lastError).toContain('模拟');
+
+    const [runsAfter] = await db()<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM collector_runs
+      WHERE target_id = ${created.target.id}::uuid AND status = 'failed'
+    `;
+    expect(runsAfter?.n).toBe(1);
+    const [jobAfter] = await db()<{ id: string; status: string; scheduled_for: Date }[]>`
+      SELECT id::text AS id, status, scheduled_for FROM collector_jobs
+      WHERE id = ${job!.id}::uuid
+    `;
+    expect(jobAfter?.id).toBe(job!.id);
+    expect(jobAfter?.status).toBe('pending');
+    expect(jobAfter?.scheduled_for.toISOString()).toBe(later);
+    expect(await pendingCount(created.target.id)).toBe(1);
+  });
+
+  test('barrier: enqueue waiting on target lock cannot insert old-snapshot pending', async () => {
+    const dueAt = pastIso(1);
+    const created = parseMonitorTargetCreateResponse(
+      await (
+        await postTarget({
+          type: 'video',
+          externalId: 'BV1xx411c7af',
+          startAt: dueAt,
+        })
+      ).json(),
+    );
+    // Ensure due with no pending (realign may have created one when past).
+    await db()`
+      DELETE FROM collector_jobs WHERE target_id = ${created.target.id}::uuid AND status = 'pending'
+      AND NOT EXISTS (SELECT 1 FROM collector_runs r WHERE r.job_id = collector_jobs.id)
+    `;
+    await db()`
+      UPDATE monitor_targets
+      SET start_at = ${new Date(dueAt)}, next_run_at = ${new Date(dueAt)}, enabled = true
+      WHERE id = ${created.target.id}::uuid
+    `;
+    // Drop leftover pending without runs so enqueue sees a due empty target.
+    await db()`
+      DELETE FROM collector_jobs j
+      WHERE j.target_id = ${created.target.id}::uuid
+        AND j.status = 'pending'
+        AND NOT EXISTS (SELECT 1 FROM collector_runs r WHERE r.job_id = j.id)
+    `;
+    expect(await pendingCount(created.target.id)).toBe(0);
+
+    const cfg = readDbConfigFromEnv();
+    const connA = createSql({ ...cfg, database: databaseName });
+    const connB = createSql({ ...cfg, database: databaseName });
+    const watch = createSql({ ...cfg, database: databaseName });
+    try {
+      let releaseBarrier: () => void = () => undefined;
+      const barrier = new Promise<void>((resolve) => {
+        releaseBarrier = resolve;
+      });
+      let locked = false;
+      const updatePromise = updateMonitorTarget(
+        connA,
+        created.target.id,
+        { startAt: null },
+        new Date(),
+        {
+          afterTargetLocked: async () => {
+            locked = true;
+            await barrier;
+          },
+        },
+      );
+
+      // Wait until connA holds the target row lock.
+      for (let i = 0; i < 100 && !locked; i += 1) await Bun.sleep(5);
+      expect(locked).toBe(true);
+
+      const enqueuePromise = enqueueDueCollectorJobs(connB);
+      // Prove connB is waiting on the target lock before we release.
+      let waiting = false;
+      for (let i = 0; i < 80; i += 1) {
+        const locks = await watch<{ n: number }[]>`
+          SELECT count(*)::int AS n
+          FROM pg_locks l
+          JOIN pg_stat_activity a ON a.pid = l.pid
+          WHERE l.granted = false
+            AND a.datname = current_database()
+            AND a.query ILIKE '%monitor_targets%'
+        `;
+        if ((locks[0]?.n ?? 0) > 0) {
+          waiting = true;
+          break;
+        }
+        await Bun.sleep(10);
+      }
+      expect(waiting).toBe(true);
+
+      releaseBarrier();
+      const [updated, enqueued] = await Promise.all([updatePromise, enqueuePromise]);
+      expect(updated.status).toBe('updated');
+      expect(enqueued).toBe(0);
+
+      const pendings = await db()<{ scheduled_for: Date }[]>`
+        SELECT scheduled_for FROM collector_jobs
+        WHERE target_id = ${created.target.id}::uuid AND status = 'pending'
+        ORDER BY scheduled_for
+      `;
+      expect(pendings).toHaveLength(1);
+    } finally {
+      await connA.end({ timeout: 5 });
+      await connB.end({ timeout: 5 });
+      await watch.end({ timeout: 5 });
+    }
+  });
+
+  test('barrier: reschedule vs failure closing share target-first locks without deadlock', async () => {
+    const created = parseMonitorTargetCreateResponse(
+      await (await postTarget({ type: 'video', externalId: 'BV1xx411c7ag' })).json(),
+    );
+    await parkExcept(created.target.id);
+    const [claimed] = await db()<{ id: string }[]>`
+      UPDATE collector_jobs
+      SET status = 'running', started_at = statement_timestamp(), attempts = 1
+      WHERE id = (
+        SELECT id FROM collector_jobs
+        WHERE target_id = ${created.target.id}::uuid AND status = 'pending'
+        ORDER BY scheduled_for LIMIT 1
+      )
+      RETURNING id::text AS id
+    `;
+    expect(claimed?.id).toBeTruthy();
+
+    const cfg = readDbConfigFromEnv();
+    const connA = createSql({ ...cfg, database: databaseName });
+    const connB = createSql({ ...cfg, database: databaseName });
+    const watch = createSql({ ...cfg, database: databaseName });
+    try {
+      let releaseBarrier: () => void = () => undefined;
+      const barrier = new Promise<void>((resolve) => {
+        releaseBarrier = resolve;
+      });
+      let locked = false;
+      // Hold target lock as if mid-reschedule, then failure closing must wait (not deadlock).
+      const reschedulePromise = updateMonitorTarget(
+        connA,
+        created.target.id,
+        { startAt: new Date(futureIso(5)) },
+        new Date(),
+        {
+          afterTargetLocked: async () => {
+            locked = true;
+            await barrier;
+          },
+        },
+      );
+      for (let i = 0; i < 100 && !locked; i += 1) await Bun.sleep(5);
+      expect(locked).toBe(true);
+
+      const failurePromise = recordCollectorFailure(connB, {
+        jobId: claimed!.id,
+        targetId: created.target.id,
+        attempts: 1,
+        maxAttempts: 3,
+        error: 'barrier-failure',
+        durationMs: 1,
+        startedAt: new Date(),
+        retryAt: new Date(Date.now() + 60_000),
+      });
+
+      let waiting = false;
+      for (let i = 0; i < 80; i += 1) {
+        const locks = await watch<{ n: number }[]>`
+          SELECT count(*)::int AS n
+          FROM pg_locks l
+          JOIN pg_stat_activity a ON a.pid = l.pid
+          WHERE l.granted = false AND a.datname = current_database()
+        `;
+        if ((locks[0]?.n ?? 0) > 0) {
+          waiting = true;
+          break;
+        }
+        await Bun.sleep(10);
+      }
+      expect(waiting).toBe(true);
+
+      releaseBarrier();
+      const [rescheduleResult, failureResult] = await Promise.all([
+        reschedulePromise,
+        failurePromise,
+      ]);
+      // Reschedule saw running and rejected with zero schedule change, OR
+      // failure finished first after barrier — either way no hang and one consistent state.
+      expect(rescheduleResult.status === 'running' || rescheduleResult.status === 'updated').toBe(
+        true,
+      );
+      expect(failureResult.terminal).toBe(false);
+
+      const [runningLeft] = await db()<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM collector_jobs
+        WHERE target_id = ${created.target.id}::uuid AND status = 'running'
+      `;
+      expect(runningLeft?.n).toBe(0);
+      const [failedRuns] = await db()<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM collector_runs
+        WHERE job_id = ${claimed!.id}::uuid AND status = 'failed'
+      `;
+      expect(failedRuns?.n).toBe(1);
+    } finally {
+      await connA.end({ timeout: 5 });
+      await connB.end({ timeout: 5 });
+      await watch.end({ timeout: 5 });
+    }
   });
 });
