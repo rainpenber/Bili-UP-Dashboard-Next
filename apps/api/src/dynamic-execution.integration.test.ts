@@ -995,6 +995,23 @@ describe('dynamic target execution', () => {
         })
       ).json(),
     );
+    // Create already inserted one pending; manual must reuse it (one opportunity).
+    const manualReuse = await app!.request(`/api/v1/monitor/targets/${created.target.id}/run`, {
+      method: 'POST',
+    });
+    expect(manualReuse.status).toBe(200);
+    const reuseBody = (await manualReuse.json()) as { created: boolean; job: unknown };
+    expect(reuseBody.created).toBe(false);
+    const reused = parseCollectorJob(reuseBody.job);
+    expect(reused.targetType).toBe('dynamic');
+    expect(reused.externalId).toBe(dynamicId);
+
+    // Finish that opportunity so a true new manual job (and ops run row) can be created.
+    await sql!`
+      UPDATE collector_jobs
+      SET status = 'succeeded', finished_at = statement_timestamp(), updated_at = statement_timestamp()
+      WHERE id = ${reused.id}::uuid
+    `;
     const manual = await app!.request(`/api/v1/monitor/targets/${created.target.id}/run`, {
       method: 'POST',
     });
@@ -1004,6 +1021,7 @@ describe('dynamic target execution', () => {
     const job = parseCollectorJob(body.job);
     expect(job.targetType).toBe('dynamic');
     expect(job.externalId).toBe(dynamicId);
+    expect(job.id).not.toBe(reused.id);
     await apiLogger!.flush();
     const operations = parseOpsOperationList(
       await (
