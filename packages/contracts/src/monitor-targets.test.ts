@@ -185,8 +185,8 @@ describe('monitor target contracts', () => {
       }),
     ).toThrow(/视频/);
     expect(parsePatchMonitorTargetRequest({ startAt: null }).startAt).toBeNull();
-    expect(
-      parsePatchMonitorTargetRequest({ startAt: '2026-12-01T08:00:00.000Z' }).startAt,
-    ).toBe('2026-12-01T08:00:00.000Z');
+    expect(parsePatchMonitorTargetRequest({ startAt: '2026-12-01T08:00:00.000Z' }).startAt).toBe(
+      '2026-12-01T08:00:00.000Z',
+    );
   });
 });

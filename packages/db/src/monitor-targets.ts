@@ -29,18 +29,9 @@ export type MonitorTargetRow = {
 };
 
 export type UpdateMonitorTargetStatus =
-  | 'missing'
-  | 'deleted'
-  | 'updated'
-  | 'already_started'
-  | 'running'
-  | 'invalid_start_type';
+  'missing' | 'deleted' | 'updated' | 'already_started' | 'running' | 'invalid_start_type';
 
-export type RequestCollectorRunStatus =
-  | 'missing'
-  | 'deleted'
-  | 'queued'
-  | 'before_start';
+export type RequestCollectorRunStatus = 'missing' | 'deleted' | 'queued' | 'before_start';
 
 export type CollectorRunRow = {
   id: string;
@@ -144,7 +135,6 @@ export function effectiveFirstRunAt(now: Date, startAt: Date | null): Date {
   if (!startAt) return now;
   return startAt.getTime() > now.getTime() ? startAt : now;
 }
-
 
 export async function getMonitorTarget(
   sql: Queryable,
@@ -277,10 +267,7 @@ async function insertJobIfIdle(
   return inserted[0]?.id ?? null;
 }
 
-async function lockMonitorTarget(
-  tx: Queryable,
-  id: string,
-): Promise<MonitorTargetRow | null> {
+async function lockMonitorTarget(tx: Queryable, id: string): Promise<MonitorTargetRow | null> {
   const rows = await tx<TargetSqlRow[]>`
     SELECT ${tx.unsafe(targetColumns)}
     FROM monitor_targets
@@ -1011,10 +998,7 @@ const jobSelect = `
   ) r ON TRUE
 `;
 
-export async function getCollectorJob(
-  sql: Queryable,
-  id: string,
-): Promise<CollectorJobRow | null> {
+export async function getCollectorJob(sql: Queryable, id: string): Promise<CollectorJobRow | null> {
   const rows = await sql<JobSqlRow[]>`
     ${sql.unsafe(jobSelect)}
     WHERE j.id = ${id}::uuid

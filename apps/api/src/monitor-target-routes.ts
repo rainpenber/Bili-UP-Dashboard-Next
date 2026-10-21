@@ -396,10 +396,7 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
         );
       }
       if (result.status === 'running') {
-        throw new MonitorContractError(
-          'target_running',
-          '该监控项正在采集，不能改计划开始时间',
-        );
+        throw new MonitorContractError('target_running', '该监控项正在采集，不能改计划开始时间');
       }
       if (result.status === 'invalid_start_type') {
         throw new MonitorContractError('invalid_start_at', '只有视频监控支持计划开始时间');

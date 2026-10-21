@@ -229,9 +229,9 @@ describe('scheduled video targets (WP-R2-17A)', () => {
     const earlier = futureIso(3);
     const advance = await patchTarget(created.target.id, { startAt: earlier });
     expect(advance.status).toBe(200);
-    expect(
-      parseMonitorTarget(((await advance.json()) as { target: unknown }).target).startAt,
-    ).toBe(earlier);
+    expect(parseMonitorTarget(((await advance.json()) as { target: unknown }).target).startAt).toBe(
+      earlier,
+    );
 
     const paused = await patchTarget(created.target.id, { enabled: false });
     expect(paused.status).toBe(200);
@@ -324,7 +324,8 @@ describe('scheduled video targets (WP-R2-17A)', () => {
       startAt: futureIso(2),
     });
     expect(creator.status).toBe(400);
-    expect(((await creator.json()) as { code: string }).code).toBe('invalid_start_at');
+    const creatorBody = (await creator.json()) as { code: string };
+    expect(creatorBody.code).toBe('invalid_start_at');
 
     const dynamic = await postTarget({
       type: 'dynamic',
@@ -332,14 +333,17 @@ describe('scheduled video targets (WP-R2-17A)', () => {
       startAt: '2026-10-21T20:00:00+08:00',
     });
     expect(dynamic.status).toBe(400);
+    expect(((await dynamic.json()) as { code: string }).code).toBe('invalid_start_at');
 
     const noZone = await postTarget({
       type: 'video',
-      externalId: 'BV1xx411c7mI',
+      externalId: 'BV1xx411c7aa',
       startAt: '2026-10-21T20:00:00',
     });
     expect(noZone.status).toBe(400);
-    expect(((await noZone.json()) as { code: string }).code).toBe('invalid_start_at');
+    const noZoneBody = (await noZone.json()) as { code: string; error: string };
+    expect(noZoneBody.code).toBe('invalid_start_at');
+    expect(noZoneBody.error).toContain('时区');
   });
 
   test('running and last_success reject reschedule; failed-without-success allows; import samples do not block', async () => {
@@ -580,27 +584,25 @@ describe('scheduled video targets (WP-R2-17A)', () => {
   });
 
   test('video/creator/dynamic immediate create still works without startAt', async () => {
-    const video = parseMonitorTargetCreateResponse(
-      await (await postTarget({ type: 'video', externalId: 'BV1xx411c7mO' })).json(),
-    );
+    const videoRes = await postTarget({ type: 'video', externalId: 'BV1xx411c7ab' });
+    expect(videoRes.status).toBe(200);
+    const video = parseMonitorTargetCreateResponse(await videoRes.json());
     expect(video.created).toBe(true);
     expect(video.target.startAt).toBeNull();
     expect(await pendingCount(video.target.id)).toBe(1);
 
-    const creator = parseMonitorTargetCreateResponse(
-      await (await postTarget({ type: 'creator', externalId: '17002' })).json(),
-    );
+    const creatorRes = await postTarget({ type: 'creator', externalId: '17002' });
+    expect(creatorRes.status).toBe(200);
+    const creator = parseMonitorTargetCreateResponse(await creatorRes.json());
     expect(creator.target.startAt).toBeNull();
 
-    const dynamic = parseMonitorTargetCreateResponse(
-      await (
-        await postTarget({
-          type: 'dynamic',
-          externalId: '966692349750018100',
-          intervalMode: 'fixed',
-        })
-      ).json(),
-    );
+    const dynamicRes = await postTarget({
+      type: 'dynamic',
+      externalId: '966692349750018100',
+      intervalMode: 'fixed',
+    });
+    expect(dynamicRes.status).toBe(200);
+    const dynamic = parseMonitorTargetCreateResponse(await dynamicRes.json());
     expect(dynamic.target.startAt).toBeNull();
     expect(dynamic.target.intervalMode).toBe('fixed');
   });
