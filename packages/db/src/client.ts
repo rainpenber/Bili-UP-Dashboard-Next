@@ -3,10 +3,10 @@ import { buildConnectionString, readDbConfigFromEnv, type DbConfig } from './con
 
 export type Sql = ReturnType<typeof postgres>;
 
-export function createSql(config?: DbConfig): Sql {
+export function createSql(config?: DbConfig, max = 10): Sql {
   const resolved = config ?? readDbConfigFromEnv();
   return postgres(buildConnectionString(resolved), {
-    max: 10,
+    max,
     prepare: false,
   });
 }

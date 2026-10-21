@@ -130,6 +130,25 @@ describe('monitor operation events through the product API', () => {
 
     const restore = freezeDate(new Date('2026-10-21T03:04:05.000Z'));
     try {
+      // Create already left a pending; reuse must not invent a second active job.
+      const reuseRun = await send(
+        app,
+        'POST',
+        `/api/v1/monitor/targets/${targetId}/run`,
+        'req-run-reuse',
+        {},
+      );
+      expect(reuseRun.status).toBe(200);
+      expect(((await reuseRun.json()) as { created: boolean }).created).toBe(false);
+      expect(await eventsFor('req-run-reuse')).toEqual([]);
+
+      if (!sql) throw new Error('sql missing');
+      await sql`
+        UPDATE collector_jobs
+        SET status = 'succeeded', finished_at = statement_timestamp(), updated_at = statement_timestamp()
+        WHERE target_id = ${targetId}::uuid AND status = 'pending'
+      `;
+
       const firstRun = await send(
         app,
         'POST',

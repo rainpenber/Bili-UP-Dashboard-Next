@@ -3,6 +3,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type postgres from 'postgres';
 import type { Sql } from './client';
+import {
+  allocateUniqueScheduledFor,
+  withMonitorTargetAndJobTransaction,
+  withMonitorTargetTransaction,
+  type CollectorTargetTxHooks,
+} from './collector-target-tx';
 import { writeDynamicSampleWithin, type DynamicSampleWrite } from './dynamic-samples';
 import {
   applyTargetSchedule,
@@ -83,33 +89,62 @@ export async function collectorSchemaReady(sql: Queryable): Promise<boolean> {
   return rows[0]?.ready === true;
 }
 
-export async function deferCollectorJob(sql: Queryable, jobId: string, until: Date): Promise<void> {
-  await sql`
-    UPDATE collector_jobs
-    SET status = 'pending',
-        attempts = GREATEST(attempts - 1, 0),
-        scheduled_for = ${until},
-        started_at = NULL,
-        finished_at = NULL,
-        error = NULL,
-        updated_at = statement_timestamp()
-    WHERE id = ${jobId}::uuid
+export async function deferCollectorJob(
+  sql: Sql,
+  jobId: string,
+  until: Date,
+  hooks?: CollectorTargetTxHooks,
+): Promise<{ applied: boolean }> {
+  const job = await sql<{ target_id: string; status: string }[]>`
+    SELECT target_id::text AS target_id, status FROM collector_jobs WHERE id = ${jobId}::uuid
   `;
+  const row = job[0];
+  if (!row) return { applied: false };
+  if (row.status !== 'running') return { applied: false };
+  return withMonitorTargetAndJobTransaction(
+    sql,
+    { targetId: row.target_id, jobId, requireStatuses: ['running'] },
+    async (tx) => {
+      const scheduledFor = await allocateUniqueScheduledFor(tx, row.target_id, until, jobId);
+      await tx`
+        UPDATE collector_jobs
+        SET status = 'pending',
+            attempts = GREATEST(attempts - 1, 0),
+            scheduled_for = ${scheduledFor},
+            started_at = NULL,
+            finished_at = NULL,
+            error = NULL,
+            updated_at = statement_timestamp()
+        WHERE id = ${jobId}::uuid AND status = 'running'
+      `;
+      return { applied: true };
+    },
+    hooks,
+  );
 }
 
 export async function disableMonitorTarget(
-  sql: Queryable,
+  sql: Sql,
   targetId: string,
   error: string,
+  hooks?: CollectorTargetTxHooks,
 ): Promise<void> {
-  await sql`
-    UPDATE monitor_targets
-    SET enabled = false,
-        last_error = ${error},
-        last_run_at = statement_timestamp(),
-        updated_at = statement_timestamp()
-    WHERE id = ${targetId}::uuid AND deleted_at IS NULL
-  `;
+  await withMonitorTargetTransaction(
+    sql,
+    targetId,
+    async (tx, target) => {
+      if (!target || target.deletedAt) return;
+      await tx`
+        UPDATE monitor_targets
+        SET enabled = false,
+            last_error = ${error},
+            last_run_at = statement_timestamp(),
+            updated_at = statement_timestamp()
+        WHERE id = ${targetId}::uuid AND deleted_at IS NULL
+      `;
+    },
+    hooks,
+  );
 }
 
 async function readAccount(sql: Queryable, id: string): Promise<ResolvedBiliAccount | null> {
@@ -380,6 +415,49 @@ async function closeSucceededRun(
   });
 }
 
+/**
+ * Lock target → job before INSERT collector_runs so FK KEY SHARE cannot invert lock order
+ * against a concurrent target-edit barrier (avoids 40P01).
+ */
+async function commitSucceededSample(
+  sql: Sql,
+  input: {
+    jobId: string;
+    targetId: string;
+    startedAt: Date;
+    durationMs: number;
+    schedule: CollectorScheduleWrite | null;
+  },
+  writeSample: (tx: Queryable, runId: string) => Promise<boolean>,
+  hooks?: CollectorTargetTxHooks,
+): Promise<{ inserted: boolean; runId: string }> {
+  return withMonitorTargetAndJobTransaction(
+    sql,
+    { targetId: input.targetId, jobId: input.jobId, requireStatuses: ['running'] },
+    async (tx) => {
+      const runId = crypto.randomUUID();
+      await openSucceededRun(tx, {
+        jobId: input.jobId,
+        targetId: input.targetId,
+        startedAt: input.startedAt,
+        durationMs: input.durationMs,
+        runId,
+      });
+      const inserted = await writeSample(tx, runId);
+      if (hooks?.afterSampleWritten) await hooks.afterSampleWritten();
+      await closeSucceededRun(tx, {
+        jobId: input.jobId,
+        targetId: input.targetId,
+        runId,
+        samplesWritten: inserted ? 1 : 0,
+        schedule: input.schedule,
+      });
+      return { inserted, runId };
+    },
+    hooks,
+  );
+}
+
 export async function commitBilibiliVideo(
   sql: Sql,
   input: {
@@ -390,30 +468,19 @@ export async function commitBilibiliVideo(
     sample: VideoSampleWrite;
     schedule: CollectorScheduleWrite | null;
   },
+  hooks?: CollectorTargetTxHooks,
 ): Promise<{ inserted: boolean; runId: string }> {
-  return sql.begin(async (tx) => {
-    const runId = crypto.randomUUID();
-    await openSucceededRun(tx, {
-      jobId: input.jobId,
-      targetId: input.targetId,
-      startedAt: input.startedAt,
-      durationMs: input.durationMs,
-      runId,
-    });
-    const inserted = await writeVideoSampleWithin(tx, {
-      ...input.sample,
-      collectorRunId: runId,
-      source: input.sample.source ?? 'bilibili',
-    });
-    await closeSucceededRun(tx, {
-      jobId: input.jobId,
-      targetId: input.targetId,
-      runId,
-      samplesWritten: inserted ? 1 : 0,
-      schedule: input.schedule,
-    });
-    return { inserted, runId };
-  });
+  return commitSucceededSample(
+    sql,
+    input,
+    (tx, runId) =>
+      writeVideoSampleWithin(tx, {
+        ...input.sample,
+        collectorRunId: runId,
+        source: input.sample.source ?? 'bilibili',
+      }),
+    hooks,
+  );
 }
 
 export async function commitBilibiliDynamic(
@@ -426,32 +493,21 @@ export async function commitBilibiliDynamic(
     sample: DynamicSampleWrite;
     schedule: CollectorScheduleWrite | null;
   },
+  hooks?: CollectorTargetTxHooks,
 ): Promise<{ inserted: boolean; runId: string }> {
-  return sql.begin(async (tx) => {
-    const runId = crypto.randomUUID();
-    await openSucceededRun(tx, {
-      jobId: input.jobId,
-      targetId: input.targetId,
-      startedAt: input.startedAt,
-      durationMs: input.durationMs,
-      runId,
-    });
-    const inserted = await writeDynamicSampleWithin(tx, {
-      ...input.sample,
-      collectorRunId: runId,
-      source: input.sample.source ?? 'bilibili',
-      sampledAt: input.sample.sampledAt,
-      collectedAt: input.sample.collectedAt,
-    });
-    await closeSucceededRun(tx, {
-      jobId: input.jobId,
-      targetId: input.targetId,
-      runId,
-      samplesWritten: inserted ? 1 : 0,
-      schedule: input.schedule,
-    });
-    return { inserted, runId };
-  });
+  return commitSucceededSample(
+    sql,
+    input,
+    (tx, runId) =>
+      writeDynamicSampleWithin(tx, {
+        ...input.sample,
+        collectorRunId: runId,
+        source: input.sample.source ?? 'bilibili',
+        sampledAt: input.sample.sampledAt,
+        collectedAt: input.sample.collectedAt,
+      }),
+    hooks,
+  );
 }
 
 export async function commitBilibiliCreator(
@@ -464,30 +520,19 @@ export async function commitBilibiliCreator(
     sample: CreatorSampleWrite;
     schedule: CollectorScheduleWrite | null;
   },
+  hooks?: CollectorTargetTxHooks,
 ): Promise<{ inserted: boolean; runId: string }> {
-  return sql.begin(async (tx) => {
-    const runId = crypto.randomUUID();
-    await openSucceededRun(tx, {
-      jobId: input.jobId,
-      targetId: input.targetId,
-      startedAt: input.startedAt,
-      durationMs: input.durationMs,
-      runId,
-    });
-    const inserted = await writeCreatorSampleWithin(tx, {
-      ...input.sample,
-      collectorRunId: runId,
-      source: input.sample.source ?? 'bilibili',
-    });
-    await closeSucceededRun(tx, {
-      jobId: input.jobId,
-      targetId: input.targetId,
-      runId,
-      samplesWritten: inserted ? 1 : 0,
-      schedule: input.schedule,
-    });
-    return { inserted, runId };
-  });
+  return commitSucceededSample(
+    sql,
+    input,
+    (tx, runId) =>
+      writeCreatorSampleWithin(tx, {
+        ...input.sample,
+        collectorRunId: runId,
+        source: input.sample.source ?? 'bilibili',
+      }),
+    hooks,
+  );
 }
 
 export type LegacyVideoRow = {

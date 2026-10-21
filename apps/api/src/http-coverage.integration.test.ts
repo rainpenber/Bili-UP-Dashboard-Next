@@ -826,22 +826,15 @@ describe('HTTP API coverage against isolated Postgres', () => {
       };
       expect(immediate.job.targetId).toBe(runTarget.target.id);
       expect(immediate.job.status).toBe('pending');
-      expect(immediate.created).toBe(true);
-      expect(immediate.job.id).not.toBe(createJobId);
+      // Manual reuses the create-time pending (one opportunity per target).
+      expect(immediate.created).toBe(false);
+      expect(immediate.job.id).toBe(createJobId);
       const repeated = (await expectStatus(
         await api(`/api/v1/monitor/targets/${runTarget.target.id}/run`, { method: 'POST' }),
         200,
       )) as { created: boolean; job: { id: string } };
-      if (repeated.created) {
-        expect(repeated.job.id).not.toBe(immediate.job.id);
-      } else {
-        expect(repeated.job.id).toBe(immediate.job.id);
-      }
-      await db`
-      UPDATE collector_jobs
-      SET scheduled_for = scheduled_for + interval '7 days'
-      WHERE status = 'pending' AND id <> ${immediate.job.id}::uuid
-    `;
+      expect(repeated.created).toBe(false);
+      expect(repeated.job.id).toBe(immediate.job.id);
       const provider = createMonitorProvider('offline', { SOURCE_TIMEZONE: 'Asia/Shanghai' });
       const runOutcomes: string[] = [];
       for (let index = 0; index < 5; index += 1) {
@@ -862,7 +855,7 @@ describe('HTTP API coverage against isolated Postgres', () => {
       const [createJob] = await db<{ status: string }[]>`
       SELECT status FROM collector_jobs WHERE id = ${createJobId}::uuid
     `;
-      expect(createJob?.status).toBe('pending');
+      expect(createJob?.status).toBe('succeeded');
       const [runRow] = await db<{ id: string; samples_written: number }[]>`
       SELECT id::text AS id, samples_written
       FROM collector_runs

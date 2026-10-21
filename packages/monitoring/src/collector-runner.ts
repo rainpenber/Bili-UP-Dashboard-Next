@@ -1,14 +1,14 @@
 import {
   claimNextCollectorJob,
+  commitBilibiliCreator,
   commitBilibiliDynamic,
+  commitBilibiliVideo,
   enqueueDueCollectorJobs,
   readTargetSchedule,
   recordCollectorFailure,
-  recordCollectorSuccess,
   refreshCollectorHeartbeat,
   upsertCollectorHeartbeat,
-  writeCreatorSample,
-  writeVideoSample,
+  type CollectorTargetTxHooks,
   type Sql,
 } from '@studio/db';
 import { createSqlBilibiliEffects } from './bilibili-effects';
@@ -92,6 +92,8 @@ export async function runCollectorOnce(options: {
   instanceId?: string;
   env?: NodeJS.ProcessEnv;
   effects?: BilibiliEffects;
+  /** Test-only commit hooks (production omits). */
+  commitHooks?: CollectorTargetTxHooks;
 }): Promise<CollectorRunOutcome> {
   const log = options.log ?? (() => undefined);
   await enqueueDueCollectorJobs(options.sql);
@@ -138,36 +140,50 @@ export async function runCollectorOnce(options: {
     const sampledAt = truncateToUtcMinute(startedAt);
     if (job.targetType === 'video') {
       const sample = await options.provider.collectVideo(job.externalId, sampledAt);
-      const inserted = await writeVideoSample(options.sql, sample);
-      const committed = await recordCollectorSuccess(options.sql, {
-        jobId: job.id,
-        targetId: job.targetId,
-        samplesWritten: inserted ? 1 : 0,
-        durationMs: Date.now() - startedMs,
-        startedAt,
-        ...(await offlineSchedule(options.sql, job.targetId, startedAt, options.env)),
-      });
+      const schedule = await offlineSchedule(options.sql, job.targetId, startedAt, options.env);
+      const committed = await commitBilibiliVideo(
+        options.sql,
+        {
+          jobId: job.id,
+          targetId: job.targetId,
+          startedAt,
+          durationMs: Date.now() - startedMs,
+          sample: { ...sample, source: 'import' },
+          schedule: 'schedule' in schedule ? schedule.schedule : null,
+        },
+        options.commitHooks,
+      );
       jobLog?.child({ runId: committed.runId })?.info('任务成功', {
         event: 'job.succeeded',
-        context: { samplesWritten: inserted ? 1 : 0 },
+        context: { samplesWritten: committed.inserted ? 1 : 0 },
       });
     } else if (job.targetType === 'creator') {
       const sample = await options.provider.collectCreator(job.externalId, sampledAt);
-      const inserted = await writeCreatorSample(options.sql, sample);
-      const committed = await recordCollectorSuccess(options.sql, {
-        jobId: job.id,
-        targetId: job.targetId,
-        samplesWritten: inserted ? 1 : 0,
-        durationMs: Date.now() - startedMs,
-        startedAt,
-        ...(await offlineSchedule(options.sql, job.targetId, startedAt, options.env)),
-      });
+      const schedule = await offlineSchedule(options.sql, job.targetId, startedAt, options.env);
+      const committed = await commitBilibiliCreator(
+        options.sql,
+        {
+          jobId: job.id,
+          targetId: job.targetId,
+          startedAt,
+          durationMs: Date.now() - startedMs,
+          sample: { ...sample, source: 'import' },
+          schedule: 'schedule' in schedule ? schedule.schedule : null,
+        },
+        options.commitHooks,
+      );
       jobLog?.child({ runId: committed.runId })?.info('任务成功', {
         event: 'job.succeeded',
-        context: { samplesWritten: inserted ? 1 : 0 },
+        context: { samplesWritten: committed.inserted ? 1 : 0 },
       });
     } else if (job.targetType === 'dynamic') {
-      const committed = await commitOfflineDynamic(options, job, startedAt, startedMs);
+      const committed = await commitOfflineDynamic(
+        options,
+        job,
+        startedAt,
+        startedMs,
+        options.commitHooks,
+      );
       jobLog?.child({ runId: committed.runId })?.info('任务成功', {
         event: 'job.succeeded',
         context: { samplesWritten: committed.inserted ? 1 : 0 },
@@ -198,11 +214,24 @@ export async function runCollectorOnce(options: {
       retryAt,
       ...(await offlineSchedule(options.sql, job.targetId, startedAt, options.env)),
     });
-    jobLog?.child({ runId: failed.runId })?.error('任务失败', {
-      event: 'job.failed',
-      err: new Error(message),
-      context: { attempts: job.attempts },
-    });
+    if (!failed.applied) {
+      // Commit already finalized the job; auxiliary/late errors must not invent failure.
+      log(`[collector] 任务已终态，忽略迟到失败 ${job.id} error=${message}`);
+      return 'succeeded';
+    }
+    if (failed.runId) {
+      jobLog?.child({ runId: failed.runId })?.error('任务失败', {
+        event: 'job.failed',
+        err: new Error(message),
+        context: { attempts: job.attempts },
+      });
+    } else {
+      jobLog?.error('任务失败', {
+        event: 'job.failed',
+        err: new Error(message),
+        context: { attempts: job.attempts },
+      });
+    }
     log(`[collector] 任务失败 ${job.id} attempts=${job.attempts} error=${message}`);
     return 'failed';
   }
@@ -217,6 +246,7 @@ async function commitOfflineDynamic(
   job: { id: string; targetId: string; externalId: string; scheduledFor: Date },
   startedAt: Date,
   startedMs: number,
+  hooks?: CollectorTargetTxHooks,
 ): Promise<{ inserted: boolean; runId: string }> {
   const bucket = job.scheduledFor;
   const collected = await options.provider.collectDynamic(job.externalId, bucket);
@@ -224,31 +254,35 @@ async function commitOfflineDynamic(
     throw new Error('动态样本身份与目标不一致');
   }
   const scheduled = await offlineSchedule(options.sql, job.targetId, startedAt, options.env);
-  return commitBilibiliDynamic(options.sql, {
-    jobId: job.id,
-    targetId: job.targetId,
-    startedAt,
-    durationMs: Math.max(0, Date.now() - startedMs),
-    sample: {
-      dynamicId: job.externalId,
-      authorName: collected.authorName,
-      text: collected.text,
-      likeCount: collected.likeCount,
-      repostCount: collected.repostCount,
-      commentCount: collected.commentCount,
-      sampledAt: bucket,
-      rawTime: formatSourceMinute(bucket, collected.sourceTimezone),
-      sourceTimezone: collected.sourceTimezone,
-      timestampPrecision:
-        bucket.getUTCSeconds() === 0 && bucket.getUTCMilliseconds() === 0 ? 'minute' : 'second',
-      source: 'import',
-      accountId: null,
-      collectorRunId: null,
-      collectedAt: startedAt,
-      extra: {},
+  return commitBilibiliDynamic(
+    options.sql,
+    {
+      jobId: job.id,
+      targetId: job.targetId,
+      startedAt,
+      durationMs: Math.max(0, Date.now() - startedMs),
+      sample: {
+        dynamicId: job.externalId,
+        authorName: collected.authorName,
+        text: collected.text,
+        likeCount: collected.likeCount,
+        repostCount: collected.repostCount,
+        commentCount: collected.commentCount,
+        sampledAt: bucket,
+        rawTime: formatSourceMinute(bucket, collected.sourceTimezone),
+        sourceTimezone: collected.sourceTimezone,
+        timestampPrecision:
+          bucket.getUTCSeconds() === 0 && bucket.getUTCMilliseconds() === 0 ? 'minute' : 'second',
+        source: 'import',
+        accountId: null,
+        collectorRunId: null,
+        collectedAt: startedAt,
+        extra: {},
+      },
+      schedule: 'schedule' in scheduled ? scheduled.schedule : null,
     },
-    schedule: 'schedule' in scheduled ? scheduled.schedule : null,
-  });
+    hooks,
+  );
 }
 
 async function offlineSchedule(
