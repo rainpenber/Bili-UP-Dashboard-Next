@@ -1,5 +1,6 @@
 import type { OpsCollectorJob, OpsCollectorJobDetail } from '@studio/contracts';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { EmptyState, ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -72,6 +73,7 @@ function JobRow({ job, onOpen }: { job: OpsCollectorJob; onOpen: (id: string) =>
             {writeLine(job)}
             {' · '}尝试（已开始） {job.attempts}
           </span>
+          <ProjectNames projects={job.projects} />
           {job.error ? (
             <span className="mt-1 block truncate text-xs text-destructive">
               {safeText(job.error)}
@@ -104,6 +106,7 @@ export function OpsJobsPanel({
     { id: string; displayName: string; externalId: string; type: string; deleted: boolean }[]
   >([]);
   const [projectQuery, setProjectQuery] = useState('');
+  const [projectLabel, setProjectLabel] = useState('');
   const [projectOptions, setProjectOptions] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
@@ -179,6 +182,22 @@ export function OpsJobsPanel({
       controller.abort();
     };
   }, [targetQuery, view.type]);
+
+  useEffect(() => {
+    if (!view.projectId) {
+      setProjectLabel('');
+      return;
+    }
+    const controller = new AbortController();
+    fetchOpsProjects(view.projectId, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        const match = result.items.find((item) => item.id === view.projectId);
+        if (match?.name) setProjectLabel(match.name);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [view.projectId]);
 
   useEffect(() => {
     const q = projectQuery.trim();
@@ -327,7 +346,9 @@ export function OpsJobsPanel({
             onChange={(event) => setProjectQuery(event.target.value)}
           />
           {view.projectId ? (
-            <p className="text-xs text-muted-foreground">已关联商单 {view.projectId}</p>
+            <p className="text-xs text-muted-foreground" data-testid="ops-project-filter">
+              已关联商单 {projectLabel || '名称未返回'}
+            </p>
           ) : null}
           {projectOptions.length > 0 ? (
             <ul className="max-h-40 overflow-auto rounded-md border" aria-label="商单候选">
@@ -337,7 +358,8 @@ export function OpsJobsPanel({
                     type="button"
                     className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-muted"
                     onClick={() => {
-                      setProjectQuery(option.name);
+                      setProjectQuery('');
+                      setProjectLabel(option.name);
                       setProjectOptions([]);
                       onChange({ projectId: option.id, page: null });
                     }}
@@ -388,6 +410,24 @@ export function OpsJobsPanel({
           <ErrorState title="采集记录加载失败" message={safeText(error)} />
         </div>
       ) : null}
+      {!loading && !error && list && list.total > 0 && list.items.length === 0 ? (
+        <div data-testid="ops-jobs-page-empty">
+          <EmptyState
+            title="当前页没有记录"
+            description="筛选或刷新之后，这一页已经没有记录。"
+            action={
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => onChange({ page: null })}
+              >
+                返回第 1 页
+              </Button>
+            }
+          />
+        </div>
+      ) : null}
       {!loading && !error && list && list.total === 0 ? (
         <div data-testid="ops-jobs-empty">
           <EmptyState
@@ -409,6 +449,7 @@ export function OpsJobsPanel({
             page={list.page}
             pageSize={list.pageSize}
             total={list.total}
+            unit="条"
             onPage={(page) => onChange({ page })}
           />
         </div>
@@ -457,6 +498,7 @@ export function OpsJobsPanel({
             page={list.page}
             pageSize={list.pageSize}
             total={list.total}
+            unit="个监控对象"
             onPage={(page) => onChange({ page })}
           />
         </div>
@@ -476,18 +518,20 @@ function Pager({
   page,
   pageSize,
   total,
+  unit,
   onPage,
 }: {
   page: number;
   pageSize: number;
   total: number;
+  unit: '条' | '个监控对象';
   onPage: (page: number) => void;
 }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
       <span data-testid="ops-page-status">
-        第 {page} 页，共 {total} 条
+        第 {page} 页，共 {total} {unit}
       </span>
       <Button
         type="button"
@@ -600,6 +644,7 @@ function JobDrawer({
                 {detail.job.targetType === 'creator' ? 'UP 主' : '视频'} {detail.job.externalId}
                 {detail.job.targetDeleted ? ' · 监控项已移除，历史任务仍保留' : ''}
               </p>
+              <ProjectNames projects={detail.job.projects} linked />
               <p className="text-sm">
                 计划 {formatShanghaiDateTime(detail.job.scheduledFor)}
                 {detail.job.startedAt
@@ -614,6 +659,23 @@ function JobDrawer({
               <p className="text-xs text-muted-foreground">
                 日志保留 {detail.logRetention.days} 天。没有关联日志不会改变运行结果。
               </p>
+              <div className="space-y-2" data-testid="ops-job-logs">
+                <h3 className="text-sm font-medium">任务日志</h3>
+                {detail.jobLogs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    没有只属于这一任务、且未挂到某次执行的日志。
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {detail.jobLogs.map((entry) => (
+                      <LogLine key={entry.id} entry={entry} />
+                    ))}
+                  </ul>
+                )}
+                {detail.jobLogsTruncated ? (
+                  <p className="text-xs text-muted-foreground">任务日志只显示最近 20 条。</p>
+                ) : null}
+              </div>
               <div className="space-y-3">
                 <h3 className="text-sm font-medium">已完成执行记录 {detail.attemptTotal}</h3>
                 {detail.attempts.length === 0 ? (
@@ -682,21 +744,7 @@ function JobDrawer({
                       ) : (
                         <ul className="space-y-2">
                           {attempt.logs.map((entry) => (
-                            <li
-                              key={entry.id}
-                              className="break-all rounded-md border px-3 py-2 text-sm"
-                            >
-                              <span className="text-muted-foreground">{entry.level}</span>{' '}
-                              {safeText(entry.message)}
-                              <details className="mt-1">
-                                <summary className="cursor-pointer text-xs text-muted-foreground">
-                                  技术字段
-                                </summary>
-                                <pre className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                                  {safeContext(entry.context)}
-                                </pre>
-                              </details>
-                            </li>
+                            <LogLine key={entry.id} entry={entry} />
                           ))}
                         </ul>
                       )}
@@ -735,5 +783,53 @@ function JobDrawer({
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function ProjectNames({
+  projects,
+  linked = false,
+}: {
+  projects: { id: string; name: string }[];
+  linked?: boolean;
+}) {
+  if (projects.length === 0) return null;
+  const shown = projects.slice(0, 2);
+  const rest = projects.length - shown.length;
+  return (
+    <span
+      className="mt-1 block truncate text-xs text-muted-foreground"
+      data-testid="ops-job-projects"
+    >
+      商单{' '}
+      {shown.map((project, index) => {
+        const name = project.name || project.id;
+        return (
+          <span key={project.id}>
+            {index > 0 ? '、' : null}
+            {linked ? <Link to={`/projects/${project.id}`}>{safeText(name)}</Link> : safeText(name)}
+          </span>
+        );
+      })}
+      {rest > 0 ? ` +${rest}` : ''}
+    </span>
+  );
+}
+
+function LogLine({
+  entry,
+}: {
+  entry: { id: string; level: string; message: string; context: Record<string, unknown> };
+}) {
+  return (
+    <li className="break-all rounded-md border px-3 py-2 text-sm">
+      <span className="text-muted-foreground">{entry.level}</span> {safeText(entry.message)}
+      <details className="mt-1">
+        <summary className="cursor-pointer text-xs text-muted-foreground">技术字段</summary>
+        <pre className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+          {safeContext(entry.context)}
+        </pre>
+      </details>
+    </li>
   );
 }

@@ -33,6 +33,8 @@ describe('ops record contracts', () => {
     });
     expect(resolveOpsRange(null, null, new Date('2026-10-21T02:00:00.000Z')).defaulted).toBe(true);
     expect(() => resolveOpsRange('2026-10-22', '2026-10-21')).toThrow(/invalid range/);
+    expect(() => resolveOpsRange(null, 'abc')).toThrow(/invalid until/);
+    expect(() => resolveOpsRange('2026-02-31', null)).toThrow(/invalid since/);
   });
 
   test('parses a pending job without inventing a run', () => {

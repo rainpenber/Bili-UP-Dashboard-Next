@@ -656,7 +656,7 @@ export async function searchOpsCollectorTargets(
       OR COALESCE(cr.uname, '') ILIKE ${pattern} ESCAPE '\\'
     )
       AND (${input.type}::text IS NULL OR t.type = ${input.type})
-    ORDER BY t.deleted_at NULLS FIRST, t.updated_at DESC, t.id
+    ORDER BY (t.deleted_at IS NOT NULL), t.updated_at DESC, t.id
     LIMIT ${input.limit}
   `;
   return rows.map((row) => ({

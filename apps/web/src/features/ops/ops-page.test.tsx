@@ -498,6 +498,11 @@ describe('ops page', () => {
       startedAt: '2026-10-21T16:10:00.000Z',
       durationMs: 1200,
       samplesWritten: null,
+      projects: [
+        { id: '12121212-1212-4121-8121-121212121211', name: '商单甲' },
+        { id: '12121212-1212-4121-8121-121212121212', name: '商单乙' },
+        { id: '12121212-1212-4121-8121-121212121213', name: '商单丙' },
+      ],
     };
     install((url) => {
       if (url.includes('/summary')) return jsonResponse(healthySummary);
@@ -508,6 +513,20 @@ describe('ops page', () => {
           job: running,
           attempts: [],
           attemptTotal: 0,
+          jobLogs: [
+            {
+              id: '77',
+              ts: '2026-10-21T16:10:00.000Z',
+              level: 'info',
+              service: 'collector',
+              event: 'job.claimed',
+              message: '已领取',
+              requestId: null,
+              runId: null,
+              context: { password: 'secret-job-log', note: 'claim-note' },
+            },
+          ],
+          jobLogsTruncated: true,
         });
       }
       if (url.includes('/collector-jobs'))
@@ -528,5 +547,74 @@ describe('ops page', () => {
     expect(document.body.textContent).toContain('当前第 1 次');
     expect(document.body.textContent).not.toContain('尝试 0');
     expect(document.body.textContent).not.toContain('尝试 1');
+    const jobLogs = screen.getByTestId('ops-job-logs');
+    expect(jobLogs.textContent).toContain('已领取');
+    expect(jobLogs.textContent).toContain('任务日志只显示最近 20 条');
+    expect(jobLogs.textContent).not.toContain('secret-job-log');
+    expect(screen.getAllByTestId('ops-job-projects')[0]?.textContent).toContain(
+      '商单甲、商单乙 +1',
+    );
+  });
+
+  test('counts grouped pages as monitor objects and offers a way back from an empty page', async () => {
+    const calls: string[] = [];
+    install((url) => {
+      calls.push(url);
+      if (url.includes('/summary')) return jsonResponse(healthySummary);
+      if (url.includes('/health')) return jsonResponse(healthy);
+      if (url.includes('group=target')) return jsonResponse(groupList);
+      if (url.includes('page=9')) return jsonResponse({ ...jobList, page: 9, items: [] });
+      if (url.includes('/collector-jobs')) return jsonResponse(jobList);
+      return jsonResponse({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        range,
+        logRetention: retention,
+      });
+    });
+    renderPage('/ops?group=target');
+    expect(await screen.findByText('第 1 页，共 2 个监控对象')).toBeTruthy();
+    expect(screen.queryByText('共 2 条')).toBeNull();
+    cleanup();
+    renderPage('/ops?page=9');
+    expect(await screen.findByText('当前页没有记录')).toBeTruthy();
+    const before = calls.length;
+    fireEvent.click(screen.getByRole('button', { name: '返回第 1 页' }));
+    await waitFor(() => {
+      expect(
+        calls
+          .slice(before)
+          .some((url) => url.includes('/collector-jobs?') && !url.includes('page=9')),
+      ).toBe(true);
+    });
+    expect(await screen.findByText(/尚未写入/)).toBeTruthy();
+  });
+
+  test('shows the commercial project name from the id lookup', async () => {
+    install((url) => {
+      if (url.includes('/summary')) return jsonResponse(healthySummary);
+      if (url.includes('/health')) return jsonResponse(healthy);
+      if (url.includes('/projects?')) {
+        return jsonResponse({
+          items: [{ id: '12121212-1212-4121-8121-121212121211', name: '商单甲' }],
+          limit: 20,
+        });
+      }
+      if (url.includes('/collector-jobs')) return jsonResponse({ ...jobList, items: [], total: 0 });
+      return jsonResponse({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        range,
+        logRetention: retention,
+      });
+    });
+    renderPage('/ops?projectId=12121212-1212-4121-8121-121212121211');
+    const filter = await screen.findByTestId('ops-project-filter');
+    expect(filter.textContent).toContain('商单甲');
+    expect(filter.textContent).not.toContain('12121212-1212-4121-8121-121212121211');
   });
 });

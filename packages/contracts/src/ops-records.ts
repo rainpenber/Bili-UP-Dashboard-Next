@@ -276,8 +276,8 @@ export function resolveOpsRange(
   now = new Date(),
 ): OpsAppliedRange {
   const fallback = opsDefaultRange(now);
-  const resolvedSince = since ?? fallback.since;
-  const resolvedUntil = until ?? fallback.until;
+  const resolvedSince = since === null ? fallback.since : parseDay(since, 'since');
+  const resolvedUntil = until === null ? fallback.until : parseDay(until, 'until');
   if (resolvedSince > resolvedUntil) throw new Error('invalid range');
   return {
     since: resolvedSince,

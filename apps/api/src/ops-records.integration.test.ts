@@ -293,6 +293,51 @@ describe('ops collection records on an isolated database', () => {
       true,
     );
   });
+
+  test('rejects illegal dates, keeps active targets ahead of deleted ones, and shows job logs', async () => {
+    if (!sql || !app) throw new Error('app missing');
+    expect((await app.request('/api/v1/ops/operations?until=abc')).status).toBe(400);
+    expect((await app.request('/api/v1/ops/operations?since=2026-02-31')).status).toBe(400);
+    expect((await app.request('/api/v1/ops/collector-jobs?until=nope')).status).toBe(400);
+    expect((await app.request('/api/v1/ops/collector-jobs?since=2026-13-01')).status).toBe(400);
+    expect(
+      (await app.request('/api/v1/ops/operations?since=2026-10-01&until=2026-10-21')).status,
+    ).toBe(200);
+
+    const activeId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7';
+    const deletedId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa8';
+    await sql`
+      INSERT INTO videos (bvid, title) VALUES
+        ('BV1xx411c7mJ', '排序稿件'),
+        ('BV1xx411c7mK', '排序稿件')
+    `;
+    await sql`
+      INSERT INTO monitor_targets (id, type, external_id, label, interval_minutes, source, deleted_at, updated_at)
+      VALUES
+        (${activeId}::uuid, 'video', 'BV1xx411c7mJ', '在役', 60, 'offline', NULL, '2026-10-01T00:00:00Z'),
+        (${deletedId}::uuid, 'video', 'BV1xx411c7mK', '已删', 60, 'offline', statement_timestamp(), statement_timestamp())
+    `;
+    const searched = (await (
+      await app.request(
+        '/api/v1/ops/collector-targets?q=%E6%8E%92%E5%BA%8F%E7%A8%BF%E4%BB%B6&limit=20',
+      )
+    ).json()) as { items: { id: string; deleted: boolean }[] };
+    expect(searched.items.map((item) => item.id)).toEqual([activeId, deletedId]);
+    expect(searched.items.map((item) => item.deleted)).toEqual([false, true]);
+
+    await sql`
+      INSERT INTO app_logs (level, service, event, message, job_id, run_id, target_id)
+      VALUES (
+        'info', 'collector', 'job.claimed', 'wp-r2-14-claimed',
+        ${RUNNING}::uuid, NULL, ${C}::uuid
+      )
+    `;
+    const runningResponse = await app.request(`/api/v1/ops/collector-jobs/${RUNNING}`);
+    const running = parseOpsCollectorJobDetail(await runningResponse.json());
+    expect(running.jobLogs.map((entry) => entry.event)).toEqual(['job.claimed']);
+    expect(running.jobLogs.every((entry) => entry.runId === null)).toBe(true);
+    expect(running.attempts).toEqual([]);
+  });
 });
 
 async function seed(sql: Sql): Promise<void> {

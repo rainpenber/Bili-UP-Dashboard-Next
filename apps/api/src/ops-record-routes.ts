@@ -451,9 +451,6 @@ export function registerOpsRecordRoutes(app: Hono, db: Sql): void {
         since && since.trim() !== '' ? since.trim() : null,
         until && until.trim() !== '' ? until.trim() : null,
       );
-      if (since && since.trim() !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(since.trim())) {
-        throw new Error('invalid since');
-      }
       const page = parseAttemptPage(c.req.query('page'), 'page', 1, 10000);
       const pageSize = parseAttemptPage(c.req.query('pageSize'), 'pageSize', 20, 50);
       const requestId = c.req.query('requestId')?.trim() || null;
