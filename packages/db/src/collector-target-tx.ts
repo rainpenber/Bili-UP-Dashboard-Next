@@ -16,7 +16,51 @@ export const SUPERSEDED_ACTIVE_JOB_ERROR = '被新的任务安排取代，不再
  */
 export type CollectorTargetTxHooks = {
   afterParentRowsLocked?: () => Promise<void>;
+  /** After sample write inside a success commit, before closing the run — tests only. */
+  afterSampleWritten?: () => Promise<void>;
 };
+
+/** Postgres SQLSTATE when FOR UPDATE NOWAIT cannot take a row lock. */
+export const PG_LOCK_NOT_AVAILABLE = '55P03';
+
+/**
+ * Pick a scheduled_for that does not collide with UNIQUE(target_id, scheduled_for).
+ * Preserves history rows; never parks at a far-future sentinel.
+ */
+export async function allocateUniqueScheduledFor(
+  tx: Queryable,
+  targetId: string,
+  desired: Date,
+  excludeJobId?: string | null,
+): Promise<Date> {
+  for (let n = 0; n < 10_000; n += 1) {
+    const candidate = new Date(desired.getTime() + n);
+    const rows = excludeJobId
+      ? await tx<{ id: string }[]>`
+          SELECT id::text AS id
+          FROM collector_jobs
+          WHERE target_id = ${targetId}::uuid
+            AND scheduled_for = ${candidate}
+            AND id <> ${excludeJobId}::uuid
+          LIMIT 1
+        `
+      : await tx<{ id: string }[]>`
+          SELECT id::text AS id
+          FROM collector_jobs
+          WHERE target_id = ${targetId}::uuid
+            AND scheduled_for = ${candidate}
+          LIMIT 1
+        `;
+    if (rows.length === 0) return candidate;
+  }
+  throw new Error('无法分配不冲突的 scheduled_for');
+}
+
+export function isLockNotAvailableError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = 'code' in error ? String((error as { code?: unknown }).code ?? '') : '';
+  return code === PG_LOCK_NOT_AVAILABLE;
+}
 
 export type LockedMonitorTarget = {
   id: string;

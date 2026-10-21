@@ -68,7 +68,7 @@ export type BilibiliEffects = {
     durationMs: number;
     startedAt: Date;
     retryAt: Date | null;
-  }): Promise<{ runId: string }>;
+  }): Promise<{ runId: string | null; applied: boolean }>;
   audit(input: {
     accountId: string | null;
     runId: string | null;
@@ -193,13 +193,9 @@ export async function runBilibiliJob(options: {
         sample,
         schedule: scheduleFrom(scheduleContext, options.now, fetched.view.pubdate, env),
       });
-      await options.effects.audit({
-        accountId: account?.id ?? null,
-        runId: committed.runId,
-        calls: fetched.calls,
+      await runPostCommitHelpers(options, account, committed.runId, fetched.calls, async () => {
+        await applyOnlineAccountEffect(options, account, fetched.onlineFailure);
       });
-      if (account) await options.effects.markUsed(account.id);
-      await applyOnlineAccountEffect(options, account, fetched.onlineFailure);
       options.logger?.child({ runId: committed.runId })?.info('任务成功', {
         event: 'job.succeeded',
         context: { inserted: committed.inserted },
@@ -238,12 +234,7 @@ export async function runBilibiliJob(options: {
         sample,
         schedule: scheduleFrom(scheduleContext, options.now, null, env),
       });
-      await options.effects.audit({
-        accountId: account?.id ?? null,
-        runId: committed.runId,
-        calls: fetched.calls,
-      });
-      if (account) await options.effects.markUsed(account.id);
+      await runPostCommitHelpers(options, account, committed.runId, fetched.calls);
       options.logger?.child({ runId: committed.runId })?.info('任务成功', {
         event: 'job.succeeded',
         context: { inserted: committed.inserted },
@@ -295,12 +286,7 @@ export async function runBilibiliJob(options: {
       sample,
       schedule: scheduleFrom(scheduleContext, options.now, null, env),
     });
-    await options.effects.audit({
-      accountId: account?.id ?? null,
-      runId: committed.runId,
-      calls: fetched.calls,
-    });
-    if (account) await options.effects.markUsed(account.id);
+    await runPostCommitHelpers(options, account, committed.runId, fetched.calls);
     options.logger?.child({ runId: committed.runId })?.info('任务成功', {
       event: 'job.succeeded',
       context: { inserted: committed.inserted },
@@ -457,16 +443,58 @@ async function handleFailure(
     retryAt,
     ...(schedule ? { schedule } : {}),
   });
+  if (!failed.applied) {
+    // Collection already committed; do not invent a failed run or reactivate the job.
+    log(`[collector] 任务已终态，忽略迟到失败处理 ${options.job.id}`);
+    return 'succeeded';
+  }
   await options.effects.audit({
     accountId: account?.id ?? null,
     runId: failed.runId,
     calls: failure.calls,
   });
-  options.logger?.child({ runId: failed.runId })?.error('任务失败', {
-    event: 'job.failed',
-    err: new Error(message),
-    context: { attempts: options.job.attempts },
-  });
+  if (failed.runId) {
+    options.logger?.child({ runId: failed.runId })?.error('任务失败', {
+      event: 'job.failed',
+      err: new Error(message),
+      context: { attempts: options.job.attempts },
+    });
+  } else {
+    options.logger?.error('任务失败', {
+      event: 'job.failed',
+      err: new Error(message),
+      context: { attempts: options.job.attempts },
+    });
+  }
   log(`[collector] 任务失败 ${options.job.id} ${message}`);
   return 'failed';
+}
+
+/** Audit / markUsed after a successful commit must not rewrite the collection outcome. */
+async function runPostCommitHelpers(
+  options: {
+    effects: BilibiliEffects;
+    logger?: CollectorLogger;
+    job: { id: string };
+  },
+  account: { id: string } | null,
+  runId: string,
+  calls: UpstreamCall[],
+  extra?: () => Promise<void>,
+): Promise<void> {
+  try {
+    await options.effects.audit({
+      accountId: account?.id ?? null,
+      runId,
+      calls,
+    });
+    if (account) await options.effects.markUsed(account.id);
+    if (extra) await extra();
+  } catch (error) {
+    const message = scrubCollectorError(error);
+    options.logger?.warn('提交后辅助操作失败', {
+      event: 'job.post_commit_helper_failed',
+      context: { jobId: options.job.id, runId, error: message },
+    });
+  }
 }

@@ -84,7 +84,7 @@ function effects(patch: Partial<BilibiliEffects> = {}): BilibiliEffects & {
     },
     commitCreator: async () => ({ inserted: true, runId: 'run-c' }),
     commitDynamic: async () => ({ inserted: true, runId: 'run-d' }),
-    failJob: async () => ({ runId: 'run-fail' }),
+    failJob: async () => ({ runId: 'run-fail', applied: true }),
     audit: async () => undefined,
     markUsed: async () => undefined,
   };
@@ -231,6 +231,37 @@ describe('bilibili job orchestration', () => {
     expect(sample?.collectedAt?.toISOString()).toBe('2026-10-19T01:03:00.000Z');
     expect(sample?.onlineViewers).toBe(1234n);
     expect(sample?.onlineViewersRaw).toBe('1234+');
+  });
+
+  test('post-commit audit/markUsed failures keep succeeded and do not call failJob', async () => {
+    let failCalls = 0;
+    const store = effects({
+      audit: async () => {
+        throw new Error('audit-down');
+      },
+      markUsed: async () => {
+        throw new Error('mark-used-down');
+      },
+      failJob: async () => {
+        failCalls += 1;
+        return { runId: 'should-not', applied: true };
+      },
+    });
+    const { logger, events } = capturingLogger();
+    const outcome = await runBilibiliJob({
+      job: job(),
+      provider: provider(async () => view),
+      effects: store,
+      forcedAccountId: null,
+      maxAttempts: 3,
+      now: new Date('2026-10-19T01:03:00.000Z'),
+      logger,
+    });
+    expect(outcome).toBe('succeeded');
+    expect(store.videos.size).toBe(1);
+    expect(failCalls).toBe(0);
+    expect(events.some((row) => row.event === 'job.post_commit_helper_failed')).toBe(true);
+    expect(events.some((row) => row.event === 'job.succeeded')).toBe(true);
   });
 
   test('-404 disables the target and does not retry', async () => {

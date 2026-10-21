@@ -30,7 +30,9 @@ export function createSqlBilibiliEffects(
     clearCircuit: (accountId) => clearCollectorCircuit(sql, accountId),
     expireAccount: (accountId) => markBiliAccountExpired(sql, accountId),
     disableTarget: (targetId, error) => disableMonitorTarget(sql, targetId, error),
-    deferJob: (jobId, until) => deferCollectorJob(sql, jobId, until),
+    async deferJob(jobId, until) {
+      await deferCollectorJob(sql, jobId, until);
+    },
     readSchedule: (targetId) => readTargetSchedule(sql, targetId),
     async cookieHeaderFor(accountId) {
       const secret = await readBiliAccountSecret(sql, accountId);
@@ -51,7 +53,7 @@ export function createSqlBilibiliEffects(
     commitDynamic: (input) => commitBilibiliDynamic(sql, input),
     async failJob(input) {
       const result = await recordCollectorFailure(sql, input);
-      return { runId: result.runId };
+      return { runId: result.runId, applied: result.applied };
     },
     async audit(input) {
       if (input.calls.length === 0) return;

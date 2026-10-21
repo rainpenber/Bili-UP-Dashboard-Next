@@ -24,17 +24,23 @@ WP-R2-17R0。本文件只描述 DB 层共同并发协议，不引入 `startAt`�
 
 ## Claim 与 SKIP LOCKED
 
-字面 `FOR UPDATE OF j SKIP LOCKED` 会在持有 job 锁后再碰目标，与上述顺序冲突。Claim 改为：
+Claim 使用真实 `FOR UPDATE OF j SKIP LOCKED` 选取 due pending，再对目标行 `FOR UPDATE NOWAIT`：
 
-1. 无锁 peek 一批 due pending；
-2. 对每个候选：锁目标 → 收敛 → 条件 `UPDATE` 为 `running`；
-3. 已被拿走或收敛掉的候选直接跳过。
+1. 若目标行锁被占用（例如他事务正在编辑该目标），**立即跳过**该 target，不进入 `Lock`/`transactionid` 等待；
+2. 取得目标锁后收敛冗余 pending，再把本 job 标为 `running`；
+3. 循环时维护本轮已跳过的 target 集合，避免头部被占用的目标饿死后方独立 due 目标。
 
-跨 worker 仍不互相堵在对方的 job 行上；不同目标不共享行锁。
+因此持有目标 A 的锁不得阻塞领取独立目标 B。成功提交路径仍是目标→任务，与 claim 的 job→(NOWAIT)目标配合：claim 从不在持有 job 锁时**等待**目标锁。
+
+## Offline 成功提交
+
+`runCollectorOnce` 的 offline 视频／UP 路径复用 `commitBilibiliVideo`／`commitBilibiliCreator`（同事务写 run+样本+收尾）。提交失败整事务回滚，不得留下无 run 来源的半成功样本。
+
+成功提交之后的 `audit`／`markUsed` 属于辅助操作：失败只记日志，不得再走采集失败／把终态 job 打回 pending。
 
 ## 每目标一个有效执行机会
 
-- **manual**（`requestCollectorRun`）：锁后若已有 pending/running，复用既有 job，不因 `now` 不同再插一条。
+- **manual**（`requestCollectorRun`）：锁后若已有 pending/running，复用既有 job，不因 `now` 不同再插一条；若复用的是 pending，将其 `scheduled_for` 拉到 `now`（与基线「立即采集」一致），仍保持每目标至多一个有效机会。
 - **enqueue**：锁后重读 `next_run_at`；旧快照在等待改期锁后不得插入过期 bucket。
 - **resume**：收敛后至多保留／创建一个 pending。
 - **收敛**（`convergeActiveJobsUnderTargetLock`）：

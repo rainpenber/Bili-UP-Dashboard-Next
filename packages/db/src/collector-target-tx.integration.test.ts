@@ -4,6 +4,7 @@ import { readDbConfigFromEnv } from './config';
 import {
   SUPERSEDED_ACTIVE_JOB_ERROR,
   convergeActiveJobsUnderTargetLock,
+  lockMonitorTargetForUpdate,
   withMonitorTargetTransaction,
 } from './collector-target-tx';
 import {
@@ -58,9 +59,19 @@ describe('WP-R2-17R0 collector target transaction foundation', () => {
     return `BV${suffix}`;
   }
 
-  function extraConn(): Sql {
+  function extraConn(max = 2): Sql {
     const cfg = readDbConfigFromEnv();
-    return createSql({ ...cfg, database: databaseName });
+    // Narrow pool so multi-holder claim tests do not exhaust Postgres slots.
+    return createSql({ ...cfg, database: databaseName }, max);
+  }
+
+  /** Retained DB keeps prior fixtures; claim is global — silence unrelated due work first. */
+  async function silenceOtherClaimables(): Promise<void> {
+    await sql`
+      UPDATE monitor_targets
+      SET enabled = false, updated_at = statement_timestamp()
+      WHERE deleted_at IS NULL AND enabled = true
+    `;
   }
 
   async function waitUntil(predicate: () => Promise<boolean>, label: string): Promise<void> {
@@ -760,5 +771,269 @@ describe('WP-R2-17R0 collector target transaction foundation', () => {
       WHERE target_id = ${created.target.id}::uuid AND status IN ('pending', 'running')
     `;
     expect(active[0]?.n).toBe('1');
+  });
+
+  test('A: claim skips locked earlier target and claims independent B without waiting', async () => {
+    await silenceOtherClaimables();
+    const due = new Date('2026-10-10T00:00:00.000Z');
+    const earlier = await insertMonitorTarget(sql, {
+      id: crypto.randomUUID(),
+      type: 'video',
+      externalId: nextBvid(),
+      label: 'earlier',
+      tags: [],
+      intervalMinutes: 60,
+      now: due,
+    });
+    const later = await insertMonitorTarget(sql, {
+      id: crypto.randomUUID(),
+      type: 'video',
+      externalId: nextBvid(),
+      label: 'later',
+      tags: [],
+      intervalMinutes: 60,
+      now: new Date(due.getTime() + 60_000),
+    });
+    const holder = extraConn();
+    const claimer = extraConn();
+    const watch = extraConn();
+    let release = (): void => undefined;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let hold: Promise<unknown> | null = null;
+    try {
+      let locked = false;
+      hold = withMonitorTargetTransaction(holder, earlier.target.id, async () => {
+        locked = true;
+        await barrier;
+      });
+      await waitUntil(async () => locked, 'hold earlier target');
+
+      const claimStarted = Date.now();
+      const claimPromise = claimNextCollectorJob(claimer);
+      // Poll: must settle with B while A is still held (no lock wait on A).
+      let claimed: Awaited<ReturnType<typeof claimNextCollectorJob>> | 'pending' = 'pending';
+      for (let i = 0; i < 40; i += 1) {
+        const waiting = await countUngrantedLocks(watch);
+        expect(waiting).toBe(0);
+        const raced = await Promise.race([
+          claimPromise.then((value) => ({ done: true as const, value })),
+          Bun.sleep(25).then(() => ({ done: false as const })),
+        ]);
+        if (raced.done) {
+          claimed = raced.value;
+          break;
+        }
+      }
+      expect(claimed).not.toBe('pending');
+      if (claimed === 'pending') throw new Error('claim blocked behind target A');
+      expect(claimed?.targetId).toBe(later.target.id);
+      expect(Date.now() - claimStarted).toBeLessThan(350);
+    } finally {
+      release();
+      if (hold) await hold.catch(() => undefined);
+      await holder.end({ timeout: 5 });
+      await claimer.end({ timeout: 5 });
+      await watch.end({ timeout: 5 });
+    }
+  }, 30_000);
+
+  test('A: sixteen locked earlier targets do not starve a free later target', async () => {
+    await silenceOtherClaimables();
+    const baseDue = new Date('2026-10-11T00:00:00.000Z');
+    const lockedIds: string[] = [];
+    for (let i = 0; i < 16; i += 1) {
+      const created = await insertMonitorTarget(sql, {
+        id: crypto.randomUUID(),
+        type: 'video',
+        externalId: nextBvid(),
+        label: `lock-${i}`,
+        tags: [],
+        intervalMinutes: 60,
+        now: new Date(baseDue.getTime() + i * 1000),
+      });
+      lockedIds.push(created.target.id);
+    }
+    const free = await insertMonitorTarget(sql, {
+      id: crypto.randomUUID(),
+      type: 'video',
+      externalId: nextBvid(),
+      label: 'free-later',
+      tags: [],
+      intervalMinutes: 60,
+      now: new Date(baseDue.getTime() + 20_000),
+    });
+
+    const holder = extraConn(1);
+    const claimer = extraConn(1);
+    let release = (): void => undefined;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let hold: Promise<unknown> | null = null;
+    try {
+      let locked = false;
+      // One transaction holds all 16 earlier targets (ordered), proving skip set > fixed window.
+      hold = holder.begin(async (tx) => {
+        for (const id of [...lockedIds].sort()) {
+          await lockMonitorTargetForUpdate(tx, id);
+        }
+        locked = true;
+        await barrier;
+      });
+      await waitUntil(async () => locked, 'hold 16 targets');
+
+      const claimStarted = Date.now();
+      const claimed = await claimNextCollectorJob(claimer);
+      expect(claimed?.targetId).toBe(free.target.id);
+      expect(Date.now() - claimStarted).toBeLessThan(350);
+      const waiting = await sql<{ n: number }[]>`
+        SELECT count(*)::int AS n
+        FROM pg_locks l
+        JOIN pg_stat_activity a ON a.pid = l.pid
+        WHERE l.granted = false AND a.datname = current_database()
+      `;
+      expect(waiting[0]?.n ?? 0).toBe(0);
+    } finally {
+      release();
+      if (hold) await hold.catch(() => undefined);
+      await claimer.end({ timeout: 5 });
+      await holder.end({ timeout: 5 });
+    }
+  }, 30_000);
+
+  test('B2: late failure and defer do not reactivate a succeeded job', async () => {
+    const seeded = await seedRunningJob({ type: 'video', externalId: nextBvid() });
+    const ok = await recordCollectorSuccess(sql, {
+      jobId: seeded.jobId,
+      targetId: seeded.targetId,
+      samplesWritten: 1,
+      durationMs: 5,
+      startedAt: new Date(),
+      schedule: { minutes: 60, persistMinutes: false },
+    });
+    expect(ok.applied).toBe(true);
+    expect(ok.runId).toBeTruthy();
+
+    const late = await recordCollectorFailure(sql, {
+      jobId: seeded.jobId,
+      targetId: seeded.targetId,
+      attempts: 1,
+      maxAttempts: 3,
+      error: 'late-fail',
+      durationMs: 1,
+      startedAt: new Date(),
+      retryAt: new Date(Date.now() + 60_000),
+    });
+    expect(late.applied).toBe(false);
+    expect(late.runId).toBeNull();
+    expect((await getCollectorJob(sql, seeded.jobId))?.status).toBe('succeeded');
+    const runs = await sql<{ n: string; statuses: string }[]>`
+      SELECT count(*)::text AS n, string_agg(status, ',' ORDER BY finished_at) AS statuses
+      FROM collector_runs WHERE job_id = ${seeded.jobId}::uuid
+    `;
+    expect(runs[0]?.n).toBe('1');
+    expect(runs[0]?.statuses ?? '').toBe('succeeded');
+
+    const deferred = await deferCollectorJob(sql, seeded.jobId, new Date(Date.now() + 120_000));
+    expect(deferred.applied).toBe(false);
+    expect((await getCollectorJob(sql, seeded.jobId))?.status).toBe('succeeded');
+  });
+
+  test('C: defer onto a historical scheduled_for bucket reallocates without 23505', async () => {
+    const seeded = await seedRunningJob({ type: 'video', externalId: nextBvid() });
+    const occupied = new Date('2026-11-01T00:00:00.000Z');
+    await sql`
+      INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for, finished_at, error)
+      VALUES (
+        ${crypto.randomUUID()}::uuid, ${seeded.targetId}::uuid, 'failed', 3, ${occupied},
+        statement_timestamp(), 'historical'
+      )
+    `;
+    const result = await deferCollectorJob(sql, seeded.jobId, occupied);
+    expect(result.applied).toBe(true);
+    const job = await getCollectorJob(sql, seeded.jobId);
+    expect(job?.status).toBe('pending');
+    expect(job?.scheduledFor.getTime()).toBeGreaterThanOrEqual(occupied.getTime());
+    expect(job?.scheduledFor.getTime()).not.toBe(occupied.getTime());
+  });
+
+  test('C: manual run pulls a future pending forward to now without a second job', async () => {
+    const future = new Date(Date.now() + 3_600_000);
+    const created = await insertMonitorTarget(sql, {
+      id: crypto.randomUUID(),
+      type: 'video',
+      externalId: nextBvid(),
+      label: 'manual-forward',
+      tags: [],
+      intervalMinutes: 60,
+      now: future,
+    });
+    const createJobId = created.jobId;
+    if (!createJobId) throw new Error('missing create job');
+    const before = await getCollectorJob(sql, createJobId);
+    expect(before?.scheduledFor.getTime()).toBe(future.getTime());
+
+    const now = new Date();
+    const manual = await requestCollectorRun(sql, created.target.id, now);
+    expect(manual.status).toBe('queued');
+    if (manual.status !== 'queued') throw new Error('expected queued');
+    expect(manual.created).toBe(false);
+    expect(manual.job.id).toBe(createJobId);
+    expect(manual.job.scheduledFor.getTime()).toBeLessThanOrEqual(now.getTime() + 5);
+    const active = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM collector_jobs
+      WHERE target_id = ${created.target.id}::uuid AND status IN ('pending', 'running')
+    `;
+    expect(active[0]?.n).toBe('1');
+  });
+
+  test('B1 atomic commit: afterSampleWritten fault rolls back sample and leaves job running', async () => {
+    const seeded = await seedRunningJob({ type: 'video', externalId: nextBvid() });
+    const bvid = (await getMonitorTarget(sql, seeded.targetId))!.externalId;
+    const fault = commitBilibiliVideo(
+      sql,
+      {
+        jobId: seeded.jobId,
+        targetId: seeded.targetId,
+        startedAt: new Date(),
+        durationMs: 5,
+        schedule: { minutes: 60, persistMinutes: false },
+        sample: {
+          bvid,
+          title: 'atomic',
+          sampledAt: seeded.scheduledFor,
+          rawTime: '2026-10-21 20:00',
+          sourceTimezone: 'Asia/Shanghai',
+          timestampPrecision: 'minute',
+          viewCount: 7n,
+          onlineViewers: null,
+          onlineViewersRaw: null,
+          likeCount: 0n,
+          coinCount: 0n,
+          favoriteCount: 0n,
+          shareCount: 0n,
+          danmakuCount: 0n,
+          commentCount: 0n,
+          source: 'import',
+        },
+      },
+      {
+        afterSampleWritten: async () => {
+          throw new Error('forced-commit-fault');
+        },
+      },
+    );
+    await expect(fault).rejects.toThrow(/forced-commit-fault/);
+    expect((await getCollectorJob(sql, seeded.jobId))?.status).toBe('running');
+    const samples = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM video_metric_samples WHERE bvid = ${bvid}
+    `;
+    expect(samples[0]?.n).toBe('0');
+    const runs = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM collector_runs WHERE job_id = ${seeded.jobId}::uuid
+    `;
+    expect(runs[0]?.n).toBe('0');
   });
 });

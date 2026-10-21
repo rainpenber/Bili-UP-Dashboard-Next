@@ -46,9 +46,11 @@ export {
 } from './monitor-targets';
 export {
   SUPERSEDED_ACTIVE_JOB_ERROR,
+  allocateUniqueScheduledFor,
   convergeActiveJobs,
   convergeActiveJobsUnderTargetLock,
   findActiveJob,
+  isLockNotAvailableError,
   lockCollectorJobForUpdate,
   lockMonitorTargetForUpdate,
   lockMonitorTargetsInOrder,

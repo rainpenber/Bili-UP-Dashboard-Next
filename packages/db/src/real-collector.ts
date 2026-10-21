@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type postgres from 'postgres';
 import type { Sql } from './client';
 import {
+  allocateUniqueScheduledFor,
   withMonitorTargetAndJobTransaction,
   withMonitorTargetTransaction,
   type CollectorTargetTxHooks,
@@ -93,27 +94,30 @@ export async function deferCollectorJob(
   jobId: string,
   until: Date,
   hooks?: CollectorTargetTxHooks,
-): Promise<void> {
-  const job = await sql<{ target_id: string }[]>`
-    SELECT target_id::text AS target_id FROM collector_jobs WHERE id = ${jobId}::uuid
+): Promise<{ applied: boolean }> {
+  const job = await sql<{ target_id: string; status: string }[]>`
+    SELECT target_id::text AS target_id, status FROM collector_jobs WHERE id = ${jobId}::uuid
   `;
-  const targetId = job[0]?.target_id;
-  if (!targetId) return;
-  await withMonitorTargetAndJobTransaction(
+  const row = job[0];
+  if (!row) return { applied: false };
+  if (row.status !== 'running') return { applied: false };
+  return withMonitorTargetAndJobTransaction(
     sql,
-    { targetId, jobId },
+    { targetId: row.target_id, jobId, requireStatuses: ['running'] },
     async (tx) => {
+      const scheduledFor = await allocateUniqueScheduledFor(tx, row.target_id, until, jobId);
       await tx`
         UPDATE collector_jobs
         SET status = 'pending',
             attempts = GREATEST(attempts - 1, 0),
-            scheduled_for = ${until},
+            scheduled_for = ${scheduledFor},
             started_at = NULL,
             finished_at = NULL,
             error = NULL,
             updated_at = statement_timestamp()
-        WHERE id = ${jobId}::uuid
+        WHERE id = ${jobId}::uuid AND status = 'running'
       `;
+      return { applied: true };
     },
     hooks,
   );
@@ -440,6 +444,7 @@ async function commitSucceededSample(
         runId,
       });
       const inserted = await writeSample(tx, runId);
+      if (hooks?.afterSampleWritten) await hooks.afterSampleWritten();
       await closeSucceededRun(tx, {
         jobId: input.jobId,
         targetId: input.targetId,

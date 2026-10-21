@@ -15,16 +15,25 @@
 - `packages/db/src/collector-target-tx.ts`（新）
 - `packages/db/src/monitor-targets.ts`
 - `packages/db/src/real-collector.ts`
-- `packages/db/src/index.ts`
+- `packages/db/src/index.ts` / `client.ts`（`createSql` max）
 - `packages/db/src/collector-target-tx.integration.test.ts`（新，`REQUIRE_POSTGRES=1`）
 - `docs/architecture/collector-target-transaction-boundary.md`
 - 本文件
+
+### 17R0 集中纠正（同 PR，最小 monitoring 适配）
+
+- Claim：`FOR UPDATE OF j SKIP LOCKED` + 目标 `FOR UPDATE NOWAIT` + skip 集合（防头部窗口饥饿）
+- Offline video/creator：`collector-runner` 复用 `commitBilibili*` 共同事务；禁止半成功样本
+- 终态：`recordCollectorFailure`／`deferCollectorJob` 要求 `running`；`applied:false` 不造 run
+- 提交后：`bilibili-job` `runPostCommitHelpers` 吞掉 audit／markUsed，不伪造采集失败
+- Bucket：`allocateUniqueScheduledFor` 用于 defer／retry／resume／manual；manual 复用 pending 并拉到 `now`
+- 仍禁止：migrations、startAt、UI、provider 网络／频率／预算算法、PR #44 路径
 
 禁止：migrations、contracts 字段、API／web、Compose／CI 配置、真实上游、PR #44 cherry-pick。
 
 ## 验收
 
-见集成测试与 CI：死锁屏障（三种 commit）、旧快照 enqueue、双 pending 收敛后下周期、并发 manual／claim、暂停收尾、format／lint／typecheck／build／相关回归。
+见集成测试与 CI：A 非阻塞 claim／16 锁不饿死、B offline 原子性与迟到失败／post-commit 辅助、C bucket 冲突与手动即时、死锁屏障（三种 commit）、旧快照 enqueue、双 pending 收敛后下周期、并发 manual／claim、暂停收尾、format／lint／typecheck／build／相关回归。
 
 ## 下包
 
