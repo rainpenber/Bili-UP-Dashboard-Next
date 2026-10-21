@@ -29,6 +29,11 @@
 - Bucket：`allocateUniqueScheduledFor` 用于 defer／retry／resume／manual；manual 复用 pending 并拉到 `now`
 - 仍禁止：migrations、startAt、UI、provider 网络／频率／预算算法、PR #44 路径
 
+### 17R0-FIX2（同 PR，领取公平性定点）
+
+- Claim 单次安全阀改为 **本次 due 候选数 +1**，不再用固定 64；结束于 claimed／idle
+- 持久回归：64 锁领第 65、70 锁领第 71、markUsed（account 非空）、retry／resume bucket 冲突
+
 禁止：migrations、contracts 字段、API／web、Compose／CI 配置、真实上游、PR #44 cherry-pick。
 
 ## 验收
