@@ -49,9 +49,12 @@ export function readOpsView(params: URLSearchParams): OpsView {
   return {
     tab,
     targetId: params.get('targetId')?.trim() ?? '',
-    targetType: targetType === 'video' || targetType === 'creator' ? targetType : '',
+    targetType:
+      targetType === 'video' || targetType === 'creator' || targetType === 'dynamic'
+        ? targetType
+        : '',
     externalId: params.get('externalId')?.trim() ?? '',
-    type: type === 'video' || type === 'creator' ? type : '',
+    type: type === 'video' || type === 'creator' || type === 'dynamic' ? type : '',
     status: JOB_STATUS.has(status) ? status : '',
     since: day(params.get('since')),
     until: day(params.get('until')),

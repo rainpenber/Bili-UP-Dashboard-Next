@@ -3,6 +3,7 @@ import type {
   ClaimedCollectorJob,
   CollectorScheduleWrite,
   CreatorSampleWrite,
+  DynamicSampleWrite,
   ResolvedBiliAccount,
   TargetScheduleContext,
   VideoSampleWrite,
@@ -47,6 +48,14 @@ export type BilibiliEffects = {
     startedAt: Date;
     durationMs: number;
     sample: CreatorSampleWrite;
+    schedule: CollectorScheduleWrite | null;
+  }): Promise<{ inserted: boolean; runId: string }>;
+  commitDynamic(input: {
+    jobId: string;
+    targetId: string;
+    startedAt: Date;
+    durationMs: number;
+    sample: DynamicSampleWrite;
     schedule: CollectorScheduleWrite | null;
   }): Promise<{ inserted: boolean; runId: string }>;
   failJob(input: {
@@ -199,28 +208,86 @@ export async function runBilibiliJob(options: {
       return 'succeeded';
     }
 
-    const fetched = await options.provider.fetchCreator({
-      mid: options.job.externalId,
+    if (options.job.targetType === 'creator') {
+      const fetched = await options.provider.fetchCreator({
+        mid: options.job.externalId,
+        sampledAt: options.job.scheduledFor,
+        collectedAt: options.now,
+        cookieHeader: cookie,
+        accountKey: accountKey(account),
+      });
+      const sample: CreatorSampleWrite = {
+        mid: fetched.mid,
+        uname: null,
+        sampledAt: options.job.scheduledFor,
+        rawTime: formatSourceMinute(options.job.scheduledFor, 'Asia/Shanghai'),
+        sourceTimezone: 'Asia/Shanghai',
+        timestampPrecision: precisionOf(options.job.scheduledFor),
+        followerCount: fetched.relation.followerCount,
+        followingCount: fetched.relation.followingCount,
+        source: 'bilibili',
+        accountId: account?.id ?? null,
+        collectedAt: options.now,
+        extra: fetched.extra,
+      };
+      const committed = await options.effects.commitCreator({
+        jobId: options.job.id,
+        targetId: options.job.targetId,
+        startedAt,
+        durationMs: Math.max(0, Date.now() - startedMs),
+        sample,
+        schedule: scheduleFrom(scheduleContext, options.now, null, env),
+      });
+      await options.effects.audit({
+        accountId: account?.id ?? null,
+        runId: committed.runId,
+        calls: fetched.calls,
+      });
+      if (account) await options.effects.markUsed(account.id);
+      options.logger?.child({ runId: committed.runId })?.info('任务成功', {
+        event: 'job.succeeded',
+        context: { inserted: committed.inserted },
+      });
+      log(`[collector] 任务成功 ${options.job.id} inserted=${committed.inserted}`);
+      return 'succeeded';
+    }
+
+    const fetched = await options.provider.fetchDynamic({
+      dynamicId: options.job.externalId,
       sampledAt: options.job.scheduledFor,
       collectedAt: options.now,
       cookieHeader: cookie,
       accountKey: accountKey(account),
     });
-    const sample: CreatorSampleWrite = {
-      mid: fetched.mid,
-      uname: null,
+    if (fetched.detail.dynamicId !== options.job.externalId) {
+      throw new Error('动态样本身份与目标不一致');
+    }
+    const detail = fetched.detail;
+    const sample: DynamicSampleWrite = {
+      dynamicId: options.job.externalId,
+      dynamicType: detail.dynamicType,
+      visible: detail.visible,
+      authorMid: detail.authorMid,
+      authorName: detail.authorName,
+      faceUrl: detail.faceUrl,
+      publishedAt: detail.publishedAt,
+      publishedText: detail.publishedText,
+      text: detail.text,
+      majorType: detail.majorType,
+      likeCount: detail.likeCount,
+      repostCount: detail.repostCount,
+      commentCount: detail.commentCount,
       sampledAt: options.job.scheduledFor,
       rawTime: formatSourceMinute(options.job.scheduledFor, 'Asia/Shanghai'),
       sourceTimezone: 'Asia/Shanghai',
       timestampPrecision: precisionOf(options.job.scheduledFor),
-      followerCount: fetched.relation.followerCount,
-      followingCount: fetched.relation.followingCount,
       source: 'bilibili',
       accountId: account?.id ?? null,
+      collectorRunId: null,
       collectedAt: options.now,
       extra: fetched.extra,
     };
-    const committed = await options.effects.commitCreator({
+    const committed = await options.effects.commitDynamic({
       jobId: options.job.id,
       targetId: options.job.targetId,
       startedAt,
@@ -260,12 +327,13 @@ function scheduleFrom(
   env: NodeJS.ProcessEnv,
 ): CollectorScheduleWrite | null {
   if (!context) return null;
+  const type = context.type;
   return decideSchedule(
     {
-      type: context.type,
+      type,
       mode: context.intervalMode,
       fixedMinutes: context.intervalMinutes,
-      pubdate: context.type === 'video' ? pubdate : null,
+      pubdate: type === 'video' ? pubdate : null,
     },
     now,
     readFrequencyPolicy(env),

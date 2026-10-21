@@ -48,7 +48,9 @@ WP-R2-16A。这里只增加「指定一条动态」的上游读取能力。它�
 
 ## 还没有接入的部分
 
-- `monitor_targets` 仍只有视频和 UP 主。`runBilibiliJob` 不调用 `fetchDynamic`。
+16C 已把指定动态接到目标和 worker。下面是 16A 完成时的状态，页面管理仍未做。见 `docs/architecture/dynamic-target-execution.md`。
+
+- `monitor_targets` 在 16A 完成时仍只有视频和 UP 主。当时 `runBilibiliJob` 不调用 `fetchDynamic`。
 - 离线 provider 没有这个方法。`COLLECTOR_PROVIDER=offline` 的行为不变。
 - 不写 `dynamics`、`dynamic_metric_samples`，不改迁移和契约，不加路由或卡片。
 - 不拉动态列表，不发现 UP 主的新动态，不抓评论正文或弹幕，不请求赞与转发名单，也不请求抽奖详情。

@@ -1,9 +1,10 @@
 import type { Sql } from './client';
+import type { MonitorTargetType } from './monitor-targets';
 
 export type OpsJobReadStatus = 'pending' | 'running' | 'succeeded' | 'failed';
 
 export type OpsJobReadFilter = {
-  type: 'video' | 'creator' | null;
+  type: MonitorTargetType | null;
   targetId: string | null;
   externalId: string | null;
   q: string | null;
@@ -26,7 +27,7 @@ export type OpsJobAttemptRead = {
 export type OpsJobRead = {
   id: string;
   targetId: string;
-  targetType: 'video' | 'creator';
+  targetType: MonitorTargetType;
   externalId: string;
   label: string;
   displayName: string;
@@ -46,7 +47,7 @@ export type OpsJobRead = {
 
 export type OpsJobGroupRead = {
   targetId: string;
-  targetType: 'video' | 'creator';
+  targetType: MonitorTargetType;
   externalId: string;
   label: string;
   displayName: string;
@@ -106,7 +107,7 @@ export type OpsOperationRead = {
 type JobSqlRow = {
   id: string;
   target_id: string;
-  target_type: 'video' | 'creator';
+  target_type: MonitorTargetType;
   external_id: string;
   label: string;
   display_name: string;
@@ -136,6 +137,7 @@ const JOB_FROM = `
   JOIN monitor_targets t ON t.id = j.target_id
   LEFT JOIN videos v ON t.type = 'video' AND v.bvid = t.external_id
   LEFT JOIN creators cr ON t.type = 'creator' AND cr.mid::text = t.external_id
+  LEFT JOIN dynamics dyn ON t.type = 'dynamic' AND dyn.dynamic_id = t.external_id
   LEFT JOIN LATERAL (
     SELECT id, status, samples_written, duration_ms, error, started_at, finished_at
     FROM collector_runs
@@ -169,8 +171,18 @@ const JOB_SELECT = `
     t.type AS target_type,
     t.external_id,
     t.label,
-    COALESCE(NULLIF(v.title, ''), NULLIF(cr.uname, ''), NULLIF(t.label, ''), t.external_id) AS display_name,
-    CASE WHEN t.type = 'video' THEN v.cover_url ELSE cr.face_url END AS cover_url,
+    COALESCE(
+      CASE WHEN t.type = 'video' THEN NULLIF(v.title, '') END,
+      CASE WHEN t.type = 'creator' THEN NULLIF(cr.uname, '') END,
+      CASE WHEN t.type = 'dynamic' THEN NULLIF(dyn.metadata->>'text', '') END,
+      NULLIF(t.label, ''),
+      t.external_id
+    ) AS display_name,
+    CASE
+      WHEN t.type = 'video' THEN v.cover_url
+      WHEN t.type = 'creator' THEN cr.face_url
+      ELSE NULL
+    END AS cover_url,
     (t.deleted_at IS NOT NULL) AS target_deleted,
     j.status,
     j.attempts,
@@ -279,6 +291,7 @@ function where(sql: Sql, filter: OpsJobReadFilter) {
       OR t.external_id ILIKE ${pattern} ESCAPE '\\'
       OR COALESCE(v.title, '') ILIKE ${pattern} ESCAPE '\\'
       OR COALESCE(cr.uname, '') ILIKE ${pattern} ESCAPE '\\'
+      OR (t.type = 'dynamic' AND COALESCE(dyn.metadata->>'text', '') ILIKE ${pattern} ESCAPE '\\')
     )
     AND (
       ${filter.projectId}::uuid IS NULL
@@ -621,11 +634,11 @@ export async function readOpsLogRetention(
 
 export async function searchOpsCollectorTargets(
   sql: Sql,
-  input: { q: string; type: 'video' | 'creator' | null; limit: number },
+  input: { q: string; type: MonitorTargetType | null; limit: number },
 ): Promise<
   {
     id: string;
-    type: 'video' | 'creator';
+    type: MonitorTargetType;
     externalId: string;
     label: string;
     displayName: string;
@@ -636,7 +649,7 @@ export async function searchOpsCollectorTargets(
   const rows = await sql<
     {
       id: string;
-      type: 'video' | 'creator';
+      type: MonitorTargetType;
       external_id: string;
       label: string;
       display_name: string;
@@ -644,16 +657,24 @@ export async function searchOpsCollectorTargets(
     }[]
   >`
     SELECT t.id::text AS id, t.type, t.external_id, t.label,
-      COALESCE(NULLIF(v.title, ''), NULLIF(cr.uname, ''), NULLIF(t.label, ''), t.external_id) AS display_name,
+      COALESCE(
+        CASE WHEN t.type = 'video' THEN NULLIF(v.title, '') END,
+        CASE WHEN t.type = 'creator' THEN NULLIF(cr.uname, '') END,
+        CASE WHEN t.type = 'dynamic' THEN NULLIF(dyn.metadata->>'text', '') END,
+        NULLIF(t.label, ''),
+        t.external_id
+      ) AS display_name,
       (t.deleted_at IS NOT NULL) AS deleted
     FROM monitor_targets t
     LEFT JOIN videos v ON t.type = 'video' AND v.bvid = t.external_id
     LEFT JOIN creators cr ON t.type = 'creator' AND cr.mid::text = t.external_id
+    LEFT JOIN dynamics dyn ON t.type = 'dynamic' AND dyn.dynamic_id = t.external_id
     WHERE (
       t.label ILIKE ${pattern} ESCAPE '\\'
       OR t.external_id ILIKE ${pattern} ESCAPE '\\'
       OR COALESCE(v.title, '') ILIKE ${pattern} ESCAPE '\\'
       OR COALESCE(cr.uname, '') ILIKE ${pattern} ESCAPE '\\'
+      OR (t.type = 'dynamic' AND COALESCE(dyn.metadata->>'text', '') ILIKE ${pattern} ESCAPE '\\')
     )
       AND (${input.type}::text IS NULL OR t.type = ${input.type})
     ORDER BY (t.deleted_at IS NOT NULL), t.updated_at DESC, t.id

@@ -35,6 +35,9 @@ function provider(fetchVideo: BilibiliProvider['fetchVideo']): BilibiliProvider 
     fetchDynamic: async () => {
       throw new Error('动态详情尚未接入采集任务');
     },
+    collectDynamic: async () => {
+      throw new Error('unused');
+    },
   };
 }
 
@@ -80,6 +83,7 @@ function effects(patch: Partial<BilibiliEffects> = {}): BilibiliEffects & {
       return { inserted: true, runId: 'run-1' };
     },
     commitCreator: async () => ({ inserted: true, runId: 'run-c' }),
+    commitDynamic: async () => ({ inserted: true, runId: 'run-d' }),
     failJob: async () => ({ runId: 'run-fail' }),
     audit: async () => undefined,
     markUsed: async () => undefined,
@@ -363,5 +367,110 @@ describe('bilibili job orchestration', () => {
     expect(outcome).toBe('deferred');
     expect(store.expired).toEqual(['acc-1']);
     expect(store.videos.size).toBe(0);
+  });
+});
+
+describe('dynamic job dispatch', () => {
+  test('stores scheduledFor and does not fetch a creator or video', async () => {
+    const scheduledFor = new Date('2026-10-21T03:04:05.000Z');
+    const collectedAt = new Date('2026-10-21T03:09:05.000Z');
+    let dynamicCalls = 0;
+    let creatorCalls = 0;
+    const captured: Array<{
+      sampledAt: Date;
+      collectedAt: Date | null;
+      likeCount: bigint | null;
+      commentCount: bigint | null;
+      dynamicId: string;
+      scheduleMinutes: number | undefined;
+    }> = [];
+    const store = effects({
+      readSchedule: async () => ({
+        type: 'dynamic',
+        intervalMode: 'fixed',
+        intervalMinutes: 60,
+        pubdate: new Date('2020-01-01T00:00:00.000Z'),
+      }),
+      commitDynamic: async (input) => {
+        captured.push({
+          sampledAt: input.sample.sampledAt,
+          collectedAt: input.sample.collectedAt,
+          likeCount: input.sample.likeCount,
+          commentCount: input.sample.commentCount,
+          dynamicId: input.sample.dynamicId,
+          scheduleMinutes: input.schedule?.minutes,
+        });
+        expect(input.schedule?.persistMinutes).toBe(false);
+        return { inserted: true, runId: 'run-dyn' };
+      },
+    });
+    const current = provider(async () => {
+      throw new Error('video fetch');
+    });
+    current.fetchCreator = async () => {
+      creatorCalls += 1;
+      throw new Error('creator fetch');
+    };
+    current.fetchDynamic = async (input) => {
+      dynamicCalls += 1;
+      expect(input.dynamicId).toBe('966692349750018048');
+      expect(input.sampledAt.toISOString()).toBe(scheduledFor.toISOString());
+      return {
+        dynamicId: input.dynamicId,
+        sampledAt: new Date('1999-01-01T00:00:00.000Z'),
+        collectedAt: input.collectedAt,
+        detail: {
+          dynamicId: input.dynamicId,
+          dynamicType: 'DYNAMIC_TYPE_WORD',
+          visible: true,
+          authorMid: '42',
+          authorName: '作者',
+          faceUrl: null,
+          publishedAt: null,
+          publishedText: null,
+          text: '正文',
+          majorType: null,
+          likeCount: 0n,
+          commentCount: null,
+          repostCount: 7n,
+        },
+        calls: [
+          {
+            endpoint: 'dynamic_detail',
+            statusCode: 200,
+            bizCode: 0,
+            durationMs: 1,
+            error: null,
+          },
+        ],
+        extra: {},
+      };
+    };
+    const outcome = await runBilibiliJob({
+      job: job({
+        targetType: 'dynamic',
+        externalId: '966692349750018048',
+        scheduledFor,
+      }),
+      provider: current,
+      effects: store,
+      forcedAccountId: null,
+      maxAttempts: 3,
+      now: collectedAt,
+    });
+    expect(outcome).toBe('succeeded');
+    expect(dynamicCalls).toBe(1);
+    expect(creatorCalls).toBe(0);
+    expect(store.videos.size).toBe(0);
+    expect(captured).toEqual([
+      {
+        sampledAt: scheduledFor,
+        collectedAt,
+        likeCount: 0n,
+        commentCount: null,
+        dynamicId: '966692349750018048',
+        scheduleMinutes: 60,
+      },
+    ]);
   });
 });

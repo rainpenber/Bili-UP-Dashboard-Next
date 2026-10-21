@@ -28,7 +28,7 @@ export type OpsCircuit = {
 export type OpsTargetStatus = {
   targetId: string;
   label: string;
-  type: 'video' | 'creator';
+  type: 'video' | 'creator' | 'dynamic';
   lastSuccessAt: string | null;
   lastError: string | null;
 };
@@ -274,7 +274,9 @@ export function parseOpsSummary(value: unknown): OpsSummary {
     targets: row.targets.map((item) => {
       const target = asObject(item, 'target');
       const type = target.type;
-      if (type !== 'video' && type !== 'creator') throw new Error('target type is invalid');
+      if (type !== 'video' && type !== 'creator' && type !== 'dynamic') {
+        throw new Error('target type is invalid');
+      }
       return {
         targetId: asString(target.targetId, 'targetId'),
         label: typeof target.label === 'string' ? target.label : '',

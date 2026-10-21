@@ -391,6 +391,7 @@ describe('monitor targets and offline collector', () => {
         return real.collectVideo(externalId, sampledAt);
       },
       collectCreator: (externalId, sampledAt) => real.collectCreator(externalId, sampledAt),
+      collectDynamic: (externalId, sampledAt) => real.collectDynamic(externalId, sampledAt),
     };
     await runCollectorLoop({
       sql: db,

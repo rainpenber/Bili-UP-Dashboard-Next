@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type postgres from 'postgres';
 import type { Sql } from './client';
+import { writeDynamicSampleWithin, type DynamicSampleWrite } from './dynamic-samples';
 import {
   applyTargetSchedule,
   writeCreatorSampleWithin,
@@ -403,6 +404,44 @@ export async function commitBilibiliVideo(
       ...input.sample,
       collectorRunId: runId,
       source: input.sample.source ?? 'bilibili',
+    });
+    await closeSucceededRun(tx, {
+      jobId: input.jobId,
+      targetId: input.targetId,
+      runId,
+      samplesWritten: inserted ? 1 : 0,
+      schedule: input.schedule,
+    });
+    return { inserted, runId };
+  });
+}
+
+export async function commitBilibiliDynamic(
+  sql: Sql,
+  input: {
+    jobId: string;
+    targetId: string;
+    startedAt: Date;
+    durationMs: number;
+    sample: DynamicSampleWrite;
+    schedule: CollectorScheduleWrite | null;
+  },
+): Promise<{ inserted: boolean; runId: string }> {
+  return sql.begin(async (tx) => {
+    const runId = crypto.randomUUID();
+    await openSucceededRun(tx, {
+      jobId: input.jobId,
+      targetId: input.targetId,
+      startedAt: input.startedAt,
+      durationMs: input.durationMs,
+      runId,
+    });
+    const inserted = await writeDynamicSampleWithin(tx, {
+      ...input.sample,
+      collectorRunId: runId,
+      source: input.sample.source ?? 'bilibili',
+      sampledAt: input.sample.sampledAt,
+      collectedAt: input.sample.collectedAt,
     });
     await closeSucceededRun(tx, {
       jobId: input.jobId,

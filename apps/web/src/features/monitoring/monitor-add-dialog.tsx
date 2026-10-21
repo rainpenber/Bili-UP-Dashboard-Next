@@ -110,18 +110,28 @@ export function MonitorAddDialog({
           <DialogDescription>
             {type === 'video'
               ? '视频默认按发布年龄自动采集：3 天内 15 分钟，14 天内 120 分钟，其后 360 分钟。'
-              : 'UP 主默认自动采集，间隔 240 分钟。'}
-            需要固定间隔时再选择下方频率。不会把 60 分钟当作默认策略。
+              : type === 'creator'
+                ? 'UP 主默认自动采集，间隔 240 分钟。'
+                : '动态使用固定间隔，默认 60 分钟。'}
+            {type === 'dynamic' ? '' : '需要固定间隔时再选择下方频率。不会把 60 分钟当作默认策略。'}
           </DialogDescription>
         </DialogHeader>
         <form className="mt-4 grid gap-3" onSubmit={onSubmit}>
           <div className="grid gap-1.5">
             <Label htmlFor="monitor-add-type">类型</Label>
-            <Input id="monitor-add-type" value={type === 'video' ? '视频' : 'UP 主'} readOnly />
+            <Input
+              id="monitor-add-type"
+              value={type === 'video' ? '视频' : type === 'creator' ? 'UP 主' : '动态'}
+              readOnly
+            />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="monitor-add-identity">
-              {type === 'video' ? 'BV 号或视频长链接' : 'UID 或空间长链接'}
+              {type === 'video'
+                ? 'BV 号或视频长链接'
+                : type === 'creator'
+                  ? 'UID 或空间长链接'
+                  : '动态 id'}
             </Label>
             <Input
               id="monitor-add-identity"
@@ -130,7 +140,9 @@ export function MonitorAddDialog({
               placeholder={
                 type === 'video'
                   ? 'BV… 或 https://www.bilibili.com/video/BV…'
-                  : 'UID 或 https://space.bilibili.com/…'
+                  : type === 'creator'
+                    ? 'UID 或 https://space.bilibili.com/…'
+                    : '十进制动态 id'
               }
               onChange={(event) => setExternalInput(event.target.value)}
             />

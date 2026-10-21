@@ -81,7 +81,9 @@ WP-R2-16B。这一包只给已经存在的 `dynamics` 和 `dynamic_metric_sample
 
 ## 还没有接入的部分
 
-- `monitor_targets` 没有动态类型，调度器不领取动态任务。
+16C 已领取动态任务并调用 `writeDynamicSampleWithin`。下面是 16B 完成时的状态。见 `docs/architecture/dynamic-target-execution.md`。
+
+- `monitor_targets` 在 16B 完成时没有动态类型，当时调度器不领取动态任务。
 - 不调用 16A 的 `fetchDynamic`，不访问 B 站。
 - 不改 `packages/monitoring`、`packages/contracts`、`apps` 的 API 或页面。
 - 历史导入行的 `source` 是 `import`，因为它们来自导入。`collected_at` 保持为空，而不是填上迁移执行的时间。

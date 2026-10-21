@@ -1,5 +1,4 @@
 import {
-  MONITOR_TARGET_TYPES,
   MonitorContractError,
   externalIdError,
   type MonitorIntervalMode,
@@ -52,8 +51,10 @@ export type MonitorCardLatest = {
   followerCount: BigIntString | null;
 };
 
+export type MonitorCardKind = 'video' | 'creator';
+
 export type MonitorCard = {
-  type: MonitorTargetType;
+  type: MonitorCardKind;
   externalId: string;
   title: string | null;
   category: string | null;
@@ -70,7 +71,7 @@ export type MonitorCard = {
 };
 
 export type MonitorCardListQuery = {
-  type: MonitorTargetType;
+  type: MonitorCardKind;
   monitor: MonitorCardFilter;
   page: number;
   pageSize: number;
@@ -124,17 +125,25 @@ export function deriveMonitorCardState(input: {
 }
 
 function emptyMessage(type: MonitorTargetType): string {
-  return type === 'video' ? '请输入 BV 号或视频长链接' : '请输入 UID 或空间长链接';
+  if (type === 'video') return '请输入 BV 号或视频长链接';
+  if (type === 'creator') return '请输入 UID 或空间长链接';
+  return '动态不从卡片添加';
 }
 
 function unsupportedMessage(type: MonitorTargetType): string {
-  return type === 'video'
-    ? '无法识别。请粘贴完整 BV 号，或 www.bilibili.com/video/BV… 长链接。短链不会发起请求。'
-    : '无法识别。请粘贴完整 UID，或 space.bilibili.com/UID 长链接。短链不会发起请求。';
+  if (type === 'video') {
+    return '无法识别。请粘贴完整 BV 号，或 www.bilibili.com/video/BV… 长链接。短链不会发起请求。';
+  }
+  if (type === 'creator') {
+    return '无法识别。请粘贴完整 UID，或 space.bilibili.com/UID 长链接。短链不会发起请求。';
+  }
+  return '动态不从卡片添加';
 }
 
 function mismatchMessage(type: MonitorTargetType): string {
-  return type === 'video' ? '这是 UP 主身份，请到 UP 主页添加' : '这是视频身份，请到视频页添加';
+  if (type === 'video') return '这是 UP 主身份，请到 UP 主页添加';
+  if (type === 'creator') return '这是视频身份，请到视频页添加';
+  return '动态不从卡片添加';
 }
 
 function withProtocol(raw: string): string {
@@ -155,6 +164,7 @@ export function parseMonitorExternalInput(
   type: MonitorTargetType,
   raw: string,
 ): MonitorExternalInput {
+  if (type === 'dynamic') return { ok: false, message: '动态不从卡片添加' };
   const text = raw.trim();
   if (!text) return { ok: false, message: emptyMessage(type) };
   const candidate = withProtocol(text);
@@ -256,13 +266,13 @@ export function parseMonitorCardIdentity(
   type: string,
   externalId: string,
 ): {
-  type: MonitorTargetType;
+  type: 'video' | 'creator';
   externalId: string;
 } {
-  if (!(MONITOR_TARGET_TYPES as readonly string[]).includes(type)) {
+  if (type !== 'video' && type !== 'creator') {
     throw new MonitorContractError('invalid_target_type', '卡片类型只能是视频或 UP 主');
   }
-  const kind = type as MonitorTargetType;
+  const kind = type;
   const id = externalId.trim();
   const idError = externalIdError(kind, id);
   if (idError) throw new MonitorContractError('invalid_external_id', idError);

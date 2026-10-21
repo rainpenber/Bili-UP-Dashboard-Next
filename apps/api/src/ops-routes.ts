@@ -353,7 +353,7 @@ export function createOpsRoutes(db: Sql) {
           {
             id: string;
             label: string;
-            type: 'video' | 'creator';
+            type: 'video' | 'creator' | 'dynamic';
             last_success_at: Date | null;
             last_error: string | null;
           }[]

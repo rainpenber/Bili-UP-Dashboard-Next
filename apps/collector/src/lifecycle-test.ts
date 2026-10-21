@@ -31,5 +31,9 @@ export function applyLifecycleTestProvider(
       await pause();
       return provider.collectCreator(externalId, sampledAt);
     },
+    async collectDynamic(externalId, sampledAt) {
+      await pause();
+      return provider.collectDynamic(externalId, sampledAt);
+    },
   };
 }

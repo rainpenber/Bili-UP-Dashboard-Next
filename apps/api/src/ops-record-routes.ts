@@ -228,7 +228,11 @@ function mapOperation(row: {
   if (!action) return null;
   const context = cleanContext(row.context);
   const targetType =
-    context.targetType === 'video' || context.targetType === 'creator' ? context.targetType : null;
+    context.targetType === 'video' ||
+    context.targetType === 'creator' ||
+    context.targetType === 'dynamic'
+      ? context.targetType
+      : null;
   const externalId =
     typeof context.externalId === 'string' ? scrubString(context.externalId) : null;
   const label = typeof context.label === 'string' ? scrubString(context.label) : null;
@@ -398,13 +402,19 @@ export function registerOpsRecordRoutes(app: Hono, db: Sql): void {
       const q = c.req.query('q')?.trim() ?? '';
       if (q.length === 0) return c.json({ items: [], limit: OPS_TARGET_SEARCH_LIMIT });
       const type = c.req.query('type')?.trim() ?? '';
-      if (type !== '' && type !== 'all' && type !== 'video' && type !== 'creator') {
+      if (
+        type !== '' &&
+        type !== 'all' &&
+        type !== 'video' &&
+        type !== 'creator' &&
+        type !== 'dynamic'
+      ) {
         throw new Error('invalid type');
       }
       const limit = parseSearchLimit(c.req.query('limit'), OPS_TARGET_SEARCH_LIMIT);
       const items = await searchOpsCollectorTargets(db, {
         q: q.slice(0, 200),
-        type: type === '' || type === 'all' ? null : type,
+        type: type === '' || type === 'all' ? null : (type as 'video' | 'creator' | 'dynamic'),
         limit,
       });
       return c.json({

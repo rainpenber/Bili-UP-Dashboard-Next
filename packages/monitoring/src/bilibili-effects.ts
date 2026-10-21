@@ -1,6 +1,7 @@
 import {
   clearCollectorCircuit,
   commitBilibiliCreator,
+  commitBilibiliDynamic,
   commitBilibiliVideo,
   deferCollectorJob,
   disableMonitorTarget,
@@ -47,6 +48,7 @@ export function createSqlBilibiliEffects(
     },
     commitVideo: (input) => commitBilibiliVideo(sql, input),
     commitCreator: (input) => commitBilibiliCreator(sql, input),
+    commitDynamic: (input) => commitBilibiliDynamic(sql, input),
     async failJob(input) {
       const result = await recordCollectorFailure(sql, input);
       return { runId: result.runId };

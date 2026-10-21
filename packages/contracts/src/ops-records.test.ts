@@ -79,5 +79,39 @@ describe('ops record contracts', () => {
     expect(parsed.items[0]?.durationMs).toBeNull();
     expect(parsed.items[0]?.samplesWritten).toBeNull();
     expect(() => parseOpsCollectorJobQuery({ status: 'queued' })).toThrow(/invalid status/);
+    expect(parseOpsCollectorJobQuery({ type: 'dynamic' }).type).toBe('dynamic');
+    expect(() => parseOpsCollectorJobQuery({ type: 'comment' })).toThrow(/invalid type/);
+    const dynamicJob = parseOpsCollectorJobList({
+      mode: 'time',
+      items: [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          targetId: '22222222-2222-4222-8222-222222222222',
+          targetType: 'dynamic',
+          externalId: '966692349750018048',
+          label: '一条动态',
+          displayName: '一条动态',
+          coverUrl: null,
+          targetDeleted: false,
+          status: 'pending',
+          attempts: 0,
+          scheduledFor: '2026-10-21T02:00:00.000Z',
+          startedAt: null,
+          finishedAt: null,
+          durationMs: null,
+          samplesWritten: null,
+          error: null,
+          latestAttempt: null,
+          projects: [],
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      range,
+      logRetention: retention,
+    });
+    expect(dynamicJob.items[0]?.targetType).toBe('dynamic');
+    expect(dynamicJob.items[0]?.externalId).toBe('966692349750018048');
   });
 });

@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readBilibiliRuntimeConfig } from './bilibili-config';
+import { assertDynamicId } from './bilibili-dynamic';
 import { createBilibiliProvider } from './bilibili-provider';
 import type { HttpTransport } from './bilibili-transport';
 import { installOfflineFetchGuard } from './network-guard';
@@ -36,10 +37,24 @@ export type CollectedCreator = {
   followerCount: bigint;
 };
 
+export type CollectedDynamic = {
+  dynamicId: string;
+  sampledAt: Date;
+  rawTime: string;
+  sourceTimezone: string;
+  timestampPrecision: 'minute';
+  likeCount: bigint;
+  repostCount: bigint;
+  commentCount: bigint;
+  authorName: string;
+  text: string;
+};
+
 export interface MonitorProvider {
   readonly id: string;
   collectVideo(externalId: string, sampledAt: Date): Promise<CollectedVideo>;
   collectCreator(externalId: string, sampledAt: Date): Promise<CollectedCreator>;
+  collectDynamic(externalId: string, sampledAt: Date): Promise<CollectedDynamic>;
 }
 
 const bundledFixtureRoot = resolve(
@@ -167,6 +182,25 @@ export function createOfflineProvider(env: NodeJS.ProcessEnv = process.env): Mon
         sourceTimezone: zone,
         timestampPrecision: 'minute',
         followerCount: metric(`${seed}|fans`, 1_000, 1_000_000),
+      };
+    },
+    async collectDynamic(externalId: string, sampledAt: Date): Promise<CollectedDynamic> {
+      const dynamicId = assertDynamicId(externalId);
+      resolveOfflineFixtureRoot(env);
+      const zone = sourceTimezone(env);
+      const minute = truncateToUtcMinute(sampledAt);
+      const seed = `${dynamicId}|${minute.toISOString()}`;
+      return {
+        dynamicId,
+        sampledAt: minute,
+        rawTime: formatSourceMinute(minute, zone),
+        sourceTimezone: zone,
+        timestampPrecision: 'minute',
+        likeCount: metric(`${seed}|like`, 0, 8_000),
+        repostCount: metric(`${seed}|repost`, 0, 1_000),
+        commentCount: metric(`${seed}|comment`, 0, 800),
+        authorName: `离线动态作者 ${dynamicId}`,
+        text: `离线动态 ${dynamicId}`,
       };
     },
   };
