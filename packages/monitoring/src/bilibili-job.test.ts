@@ -264,6 +264,51 @@ describe('bilibili job orchestration', () => {
     expect(events.some((row) => row.event === 'job.succeeded')).toBe(true);
   });
 
+  test('post-commit markUsed failure with account keeps succeeded and does not call failJob', async () => {
+    let failCalls = 0;
+    let markUsedCalls = 0;
+    let auditCalls = 0;
+    let commitCalls = 0;
+    const store = effects({
+      resolveAccount: async () => ({ id: 'acc-mark', status: 'active', mid: '42' }),
+      cookieHeaderFor: async () => 'SESSDATA=test',
+      audit: async () => {
+        auditCalls += 1;
+      },
+      markUsed: async () => {
+        markUsedCalls += 1;
+        throw new Error('mark-used-down');
+      },
+      failJob: async () => {
+        failCalls += 1;
+        return { runId: 'should-not', applied: true };
+      },
+    });
+    const baseCommit = store.commitVideo;
+    store.commitVideo = async (input) => {
+      commitCalls += 1;
+      return baseCommit(input);
+    };
+    const { logger, events } = capturingLogger();
+    const outcome = await runBilibiliJob({
+      job: job({ accountId: 'acc-mark' }),
+      provider: provider(async () => view),
+      effects: store,
+      forcedAccountId: null,
+      maxAttempts: 3,
+      now: new Date('2026-10-19T01:03:00.000Z'),
+      logger,
+    });
+    expect(outcome).toBe('succeeded');
+    expect(auditCalls).toBe(1);
+    expect(markUsedCalls).toBe(1);
+    expect(commitCalls).toBe(1);
+    expect(store.videos.size).toBe(1);
+    expect(failCalls).toBe(0);
+    expect(events.some((row) => row.event === 'job.post_commit_helper_failed')).toBe(true);
+    expect(events.some((row) => row.event === 'job.succeeded')).toBe(true);
+  });
+
   test('-404 disables the target and does not retry', async () => {
     const store = effects();
     let calls = 0;

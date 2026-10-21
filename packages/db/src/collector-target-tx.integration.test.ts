@@ -903,6 +903,141 @@ describe('WP-R2-17R0 collector target transaction foundation', () => {
     }
   }, 30_000);
 
+  test('A: 64 locked earlier targets do not starve due candidate 65', async () => {
+    await silenceOtherClaimables();
+    const baseDue = new Date('2026-10-12T00:00:00.000Z');
+    const lockedIds: string[] = [];
+    for (let i = 0; i < 64; i += 1) {
+      const created = await insertMonitorTarget(sql, {
+        id: crypto.randomUUID(),
+        type: 'video',
+        externalId: nextBvid(),
+        label: `lock64-${i}`,
+        tags: [],
+        intervalMinutes: 60,
+        now: new Date(baseDue.getTime() + i * 1000),
+      });
+      lockedIds.push(created.target.id);
+    }
+    const free = await insertMonitorTarget(sql, {
+      id: crypto.randomUUID(),
+      type: 'video',
+      externalId: nextBvid(),
+      label: 'free-65',
+      tags: [],
+      intervalMinutes: 60,
+      now: new Date(baseDue.getTime() + 70_000),
+    });
+
+    const holder = extraConn(1);
+    const claimer = extraConn(1);
+    const watch = extraConn(1);
+    let release = (): void => undefined;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let hold: Promise<unknown> | null = null;
+    try {
+      let locked = false;
+      hold = holder.begin(async (tx) => {
+        for (const id of [...lockedIds].sort()) {
+          await lockMonitorTargetForUpdate(tx, id);
+        }
+        locked = true;
+        await barrier;
+      });
+      await waitUntil(async () => locked, 'hold 64 targets');
+
+      const claimPromise = claimNextCollectorJob(claimer);
+      let claimed: Awaited<ReturnType<typeof claimNextCollectorJob>> | 'pending' = 'pending';
+      for (let i = 0; i < 200; i += 1) {
+        expect(await countUngrantedLocks(watch)).toBe(0);
+        const raced = await Promise.race([
+          claimPromise.then((value) => ({ done: true as const, value })),
+          Bun.sleep(25).then(() => ({ done: false as const })),
+        ]);
+        if (raced.done) {
+          claimed = raced.value;
+          break;
+        }
+      }
+      expect(claimed).not.toBe('pending');
+      if (claimed === 'pending') throw new Error('claim did not settle while 64 targets held');
+      expect(claimed?.targetId).toBe(free.target.id);
+      expect(claimed?.id).toBeTruthy();
+
+      const running = await sql<{ n: string; target_id: string }[]>`
+        SELECT count(*)::text AS n, max(target_id::text) AS target_id
+        FROM collector_jobs
+        WHERE status = 'running'
+          AND target_id = ANY(${[...lockedIds, free.target.id]}::uuid[])
+      `;
+      expect(running[0]?.n).toBe('1');
+      expect(running[0]?.target_id).toBe(free.target.id);
+    } finally {
+      release();
+      if (hold) await hold.catch(() => undefined);
+      await claimer.end({ timeout: 5 });
+      await holder.end({ timeout: 5 });
+      await watch.end({ timeout: 5 });
+    }
+  }, 60_000);
+
+  test('A: due-budget safety valve still claims when locked heads exceed former fixed 64', async () => {
+    await silenceOtherClaimables();
+    const baseDue = new Date('2026-10-13T00:00:00.000Z');
+    const lockedIds: string[] = [];
+    for (let i = 0; i < 70; i += 1) {
+      const created = await insertMonitorTarget(sql, {
+        id: crypto.randomUUID(),
+        type: 'video',
+        externalId: nextBvid(),
+        label: `lock70-${i}`,
+        tags: [],
+        intervalMinutes: 60,
+        now: new Date(baseDue.getTime() + i * 1000),
+      });
+      lockedIds.push(created.target.id);
+    }
+    const free = await insertMonitorTarget(sql, {
+      id: crypto.randomUUID(),
+      type: 'video',
+      externalId: nextBvid(),
+      label: 'free-71',
+      tags: [],
+      intervalMinutes: 60,
+      now: new Date(baseDue.getTime() + 80_000),
+    });
+
+    const holder = extraConn(1);
+    const claimer = extraConn(1);
+    let release = (): void => undefined;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let hold: Promise<unknown> | null = null;
+    try {
+      let locked = false;
+      hold = holder.begin(async (tx) => {
+        for (const id of [...lockedIds].sort()) {
+          await lockMonitorTargetForUpdate(tx, id);
+        }
+        locked = true;
+        await barrier;
+      });
+      await waitUntil(async () => locked, 'hold 70 targets');
+
+      const claimed = await claimNextCollectorJob(claimer);
+      expect(claimed?.targetId).toBe(free.target.id);
+      expect(await countUngrantedLocks(sql)).toBe(0);
+    } finally {
+      release();
+      if (hold) await hold.catch(() => undefined);
+      await claimer.end({ timeout: 5 });
+      await holder.end({ timeout: 5 });
+    }
+  }, 60_000);
+
   test('B2: late failure and defer do not reactivate a succeeded job', async () => {
     const seeded = await seedRunningJob({ type: 'video', externalId: nextBvid() });
     const ok = await recordCollectorSuccess(sql, {
@@ -957,6 +1092,109 @@ describe('WP-R2-17R0 collector target transaction foundation', () => {
     expect(job?.status).toBe('pending');
     expect(job?.scheduledFor.getTime()).toBeGreaterThanOrEqual(occupied.getTime());
     expect(job?.scheduledFor.getTime()).not.toBe(occupied.getTime());
+  });
+
+  test('C: retry onto a historical scheduled_for bucket reallocates without 23505', async () => {
+    const seeded = await seedRunningJob({ type: 'video', externalId: nextBvid() });
+    const occupied = new Date('2026-11-02T00:00:00.000Z');
+    const historicalJobId = crypto.randomUUID();
+    const historicalRunId = crypto.randomUUID();
+    await sql`
+      INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for, finished_at, error)
+      VALUES (
+        ${historicalJobId}::uuid, ${seeded.targetId}::uuid, 'failed', 3, ${occupied},
+        statement_timestamp(), 'historical-retry-bucket'
+      )
+    `;
+    await sql`
+      INSERT INTO collector_runs (
+        id, job_id, target_id, status, samples_written, duration_ms, error, started_at, finished_at
+      ) VALUES (
+        ${historicalRunId}::uuid, ${historicalJobId}::uuid, ${seeded.targetId}::uuid,
+        'failed', 0, 1, 'historical-retry-bucket', statement_timestamp(), statement_timestamp()
+      )
+    `;
+
+    const failed = await recordCollectorFailure(sql, {
+      jobId: seeded.jobId,
+      targetId: seeded.targetId,
+      attempts: 1,
+      maxAttempts: 3,
+      error: 'transient-retry',
+      durationMs: 4,
+      startedAt: new Date(),
+      retryAt: occupied,
+    });
+    expect(failed.applied).toBe(true);
+    expect(failed.terminal).toBe(false);
+    expect(failed.runId).toBeTruthy();
+
+    const job = await getCollectorJob(sql, seeded.jobId);
+    expect(job?.status).toBe('pending');
+    expect(job?.scheduledFor.getTime()).not.toBe(occupied.getTime());
+    expect(job?.scheduledFor.getTime()).toBeGreaterThan(occupied.getTime());
+
+    const historical = await getCollectorJob(sql, historicalJobId);
+    expect(historical?.status).toBe('failed');
+    expect(historical?.scheduledFor.getTime()).toBe(occupied.getTime());
+    const histRuns = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM collector_runs WHERE id = ${historicalRunId}::uuid
+    `;
+    expect(histRuns[0]?.n).toBe('1');
+  });
+
+  test('C: resume onto a historical scheduled_for bucket reallocates without 23505', async () => {
+    const pauseAt = new Date('2026-10-21T10:00:00.000Z');
+    const created = await insertMonitorTarget(sql, {
+      id: crypto.randomUUID(),
+      type: 'video',
+      externalId: nextBvid(),
+      label: 'resume-bucket',
+      tags: [],
+      intervalMinutes: 60,
+      now: pauseAt,
+    });
+    await updateMonitorTarget(sql, created.target.id, { enabled: false }, pauseAt);
+    const createJobId = created.jobId!;
+    // Drop the create pending so resume inserts a fresh opportunity at resumeNow.
+    await sql`DELETE FROM collector_jobs WHERE id = ${createJobId}::uuid AND status = 'pending'`;
+
+    const occupied = new Date('2026-11-03T12:00:00.000Z');
+    const historicalJobId = crypto.randomUUID();
+    const historicalRunId = crypto.randomUUID();
+    await sql`
+      INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for, finished_at, error)
+      VALUES (
+        ${historicalJobId}::uuid, ${created.target.id}::uuid, 'failed', 3, ${occupied},
+        statement_timestamp(), 'historical-resume-bucket'
+      )
+    `;
+    await sql`
+      INSERT INTO collector_runs (
+        id, job_id, target_id, status, samples_written, duration_ms, error, started_at, finished_at
+      ) VALUES (
+        ${historicalRunId}::uuid, ${historicalJobId}::uuid, ${created.target.id}::uuid,
+        'failed', 0, 1, 'historical-resume-bucket', statement_timestamp(), statement_timestamp()
+      )
+    `;
+
+    const resumed = await updateMonitorTarget(sql, created.target.id, { enabled: true }, occupied);
+    expect(resumed.status).toBe('updated');
+    expect(resumed.jobId).toBeTruthy();
+    expect(resumed.jobId).not.toBe(historicalJobId);
+
+    const fresh = await getCollectorJob(sql, resumed.jobId!);
+    expect(fresh?.status).toBe('pending');
+    expect(fresh?.scheduledFor.getTime()).not.toBe(occupied.getTime());
+    expect(fresh?.scheduledFor.getTime()).toBeGreaterThan(occupied.getTime());
+
+    const historical = await getCollectorJob(sql, historicalJobId);
+    expect(historical?.status).toBe('failed');
+    expect(historical?.scheduledFor.getTime()).toBe(occupied.getTime());
+    const histRuns = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM collector_runs WHERE id = ${historicalRunId}::uuid
+    `;
+    expect(histRuns[0]?.n).toBe('1');
   });
 
   test('C: manual run pulls a future pending forward to now without a second job', async () => {

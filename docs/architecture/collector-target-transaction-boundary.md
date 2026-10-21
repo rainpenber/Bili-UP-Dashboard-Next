@@ -28,7 +28,7 @@ Claim 使用真实 `FOR UPDATE OF j SKIP LOCKED` 选取 due pending，再对目�
 
 1. 若目标行锁被占用（例如他事务正在编辑该目标），**立即跳过**该 target，不进入 `Lock`/`transactionid` 等待；
 2. 取得目标锁后收敛冗余 pending，再把本 job 标为 `running`；
-3. 循环时维护本轮已跳过的 target 集合，避免头部被占用的目标饿死后方独立 due 目标。
+3. 循环时维护本轮已跳过的 target 集合，并按 **本次 due 候选总数（+1）** 作为单次调用安全阀——结束于已领取或已无候选，而不是固定次数（旧的 64 会在前 64 长期持锁时饿死第 65 个）。
 
 因此持有目标 A 的锁不得阻塞领取独立目标 B。成功提交路径仍是目标→任务，与 claim 的 job→(NOWAIT)目标配合：claim 从不在持有 job 锁时**等待**目标锁。
 

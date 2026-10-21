@@ -423,14 +423,34 @@ type ClaimAttempt =
   | { status: 'idle' }
   | { status: 'skip_target'; targetId: string };
 
+/** Due pending jobs on enabled, non-deleted targets — bound for one claim call. */
+async function countDueClaimCandidates(sql: Sql): Promise<number> {
+  const rows = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n
+    FROM collector_jobs j
+    JOIN monitor_targets t ON t.id = j.target_id
+    WHERE j.status = 'pending'
+      AND j.scheduled_for <= statement_timestamp()
+      AND t.enabled = true
+      AND t.deleted_at IS NULL
+  `;
+  return rows[0]?.n ?? 0;
+}
+
 /**
  * Claim with real `FOR UPDATE OF j SKIP LOCKED`, then target `FOR UPDATE NOWAIT`.
  * Holding a lock on target A must not block claiming an independent due target B.
- * Busy targets are skipped (not waited on); the loop is not capped at a fixed 16-row window.
+ * Busy targets are skipped (not waited on). The per-call attempt budget equals the
+ * current due-candidate count (+1), so long-held locks cannot exhaust a fixed constant
+ * before a free later target is reached; the loop still ends on claimed/idle.
  */
 export async function claimNextCollectorJob(sql: Sql): Promise<ClaimedCollectorJob | null> {
   const skipTargets = new Set<string>();
-  for (let i = 0; i < 64; i += 1) {
+  // Safety valve: scale with this call's due set. A fixed N (e.g. 64) starves target N+1
+  // when the first N stay locked. dueBudget+1 cannot starve a free candidate inside the set.
+  const dueBudget = await countDueClaimCandidates(sql);
+  const maxAttempts = dueBudget + 1;
+  for (let i = 0; i < maxAttempts; i += 1) {
     const attempt = await tryClaimNextCollectorJob(sql, skipTargets);
     if (attempt.status === 'claimed') return attempt.job;
     if (attempt.status === 'idle') return null;
