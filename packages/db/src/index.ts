@@ -109,3 +109,27 @@ export {
   dropIsolatedTestDatabase,
 } from './test-isolated-db';
 export { assertIntegrationSql, isPostgresRequiredEnv } from './require-postgres';
+export {
+  countOpsCollectorJobGroups,
+  countOpsCollectorJobs,
+  countOpsJobAttempts,
+  countOpsOperations,
+  listOpsCollectorJobGroups,
+  listOpsCollectorJobs,
+  listOpsJobAttempts,
+  listOpsJobLevelLogs,
+  listOpsLogsForRuns,
+  listOpsOperations,
+  listOpsRequestsForRuns,
+  readOpsCollectorJob,
+  readOpsLogRetention,
+  searchOpsCollectorTargets,
+  searchOpsProjects,
+  type OpsAttemptRead,
+  type OpsJobGroupRead,
+  type OpsJobRead,
+  type OpsJobReadFilter,
+  type OpsLogRead,
+  type OpsOperationRead,
+  type OpsRequestRead,
+} from './ops-records';

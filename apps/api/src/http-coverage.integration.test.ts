@@ -1789,6 +1789,35 @@ describe('HTTP API coverage against isolated Postgres', () => {
       expect(bundle.run?.id).toBe(run.id);
       expect(bundle.schemaVersion.length).toBeGreaterThan(0);
       expect(JSON.stringify(bundle)).not.toContain('supersecret');
+      const [coverageJob] = await db<{ id: string }[]>`
+        SELECT job_id::text AS id FROM collector_runs WHERE id = ${run.id}::uuid
+      `;
+      if (!coverageJob) throw new Error('expected a collector job');
+      const jobList = (await expectStatus(
+        await api(`/api/v1/ops/collector-jobs?targetId=${run.target_id}&pageSize=20`),
+        200,
+      )) as { mode: string; items: { id: string }[]; total: number };
+      expect(jobList.mode).toBe('time');
+      expect(jobList.items.some((item) => item.id === coverageJob.id)).toBe(true);
+      const grouped = (await expectStatus(
+        await api('/api/v1/ops/collector-jobs?group=target&jobsPerGroup=2&pageSize=5'),
+        200,
+      )) as { mode: string; total: number };
+      expect(grouped.mode).toBe('target');
+      expect(grouped.total).toBeGreaterThan(0);
+      const jobDetail = (await expectStatus(
+        await api(`/api/v1/ops/collector-jobs/${coverageJob.id}`),
+        200,
+      )) as { job: { id: string }; attempts: { id: string }[] };
+      expect(jobDetail.job.id).toBe(coverageJob.id);
+      expect(jobDetail.attempts.every((attempt) => attempt.id.length > 0)).toBe(true);
+      await expectStatus(await api('/api/v1/ops/collector-targets?q=B'), 200);
+      await expectStatus(
+        await api('/api/v1/ops/operations?since=2020-01-01&until=2099-01-01'),
+        200,
+      );
+      await expectStatus(await api('/api/v1/ops/projects?q=a'), 200);
+
       await expectStatus(await api('/api/v1/ops/debug/bundle'), 400);
       await expectStatus(await api('/api/v1/ops/metadata/runs/not-a-uuid'), 400);
     },

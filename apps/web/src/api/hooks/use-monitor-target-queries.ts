@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createMonitorTarget,
   deleteMonitorTarget,
-  fetchMonitorJobs,
   fetchMonitorTargets,
   patchMonitorTarget,
   runMonitorTarget,
@@ -11,22 +10,12 @@ import type { MonitorTargetPatchRequest } from '@studio/contracts';
 
 export const monitorTargetKeys = {
   targets: (page: number) => ['monitor', 'targets', page] as const,
-  jobs: (page: number) => ['monitor', 'jobs', page] as const,
 };
 
 export function useMonitorTargetsQuery(page: number, enabled: boolean) {
   return useQuery({
     queryKey: monitorTargetKeys.targets(page),
     queryFn: () => fetchMonitorTargets(page),
-    enabled,
-    refetchInterval: enabled ? 4000 : false,
-  });
-}
-
-export function useMonitorJobsQuery(page: number, enabled: boolean) {
-  return useQuery({
-    queryKey: monitorTargetKeys.jobs(page),
-    queryFn: () => fetchMonitorJobs(page),
     enabled,
     refetchInterval: enabled ? 4000 : false,
   });

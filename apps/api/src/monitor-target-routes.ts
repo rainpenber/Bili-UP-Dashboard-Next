@@ -11,6 +11,7 @@ import {
 } from '@studio/contracts';
 import {
   getCollectorJob,
+  getMonitorTarget,
   insertMonitorTarget,
   listCollectorJobs,
   listMonitorTargets,
@@ -21,6 +22,7 @@ import {
   type MonitorTargetRow,
   type Sql,
 } from '@studio/db';
+import type { StudioLogger } from '@studio/observability';
 import type { Hono } from 'hono';
 
 function iso(value: Date | null): string | null {
@@ -79,6 +81,150 @@ function statusForCode(code: string): 400 | 404 | 409 {
   return 400;
 }
 
+type OperationEvent = {
+  event: string;
+  message: string;
+  targetId: string;
+  context: Record<string, unknown>;
+};
+
+function isLogger(value: unknown): value is StudioLogger {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    'info' in value &&
+    'flush' in value &&
+    typeof (value as { info?: unknown }).info === 'function' &&
+    typeof (value as { flush?: unknown }).flush === 'function',
+  );
+}
+
+function contextLogger(c: { get?: (key: string) => unknown }): StudioLogger | null {
+  if (!c.get) return null;
+  try {
+    const value = c.get('log');
+    return isLogger(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function requestIdFrom(c: { get?: (key: string) => unknown }): string | null {
+  if (!c.get) return null;
+  try {
+    const value = c.get('requestId');
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function identity(target: MonitorTargetRow): Record<string, unknown> {
+  return {
+    targetType: target.type,
+    externalId: target.externalId,
+    label: target.label,
+    source: 'api',
+  };
+}
+
+function sameTags(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function patchEvents(
+  before: MonitorTargetRow,
+  after: MonitorTargetRow,
+  patch: {
+    enabled?: boolean;
+    intervalMinutes?: number;
+    intervalMode?: 'auto' | 'fixed';
+    tags?: string[];
+    label?: string;
+  },
+): OperationEvent[] {
+  const events: OperationEvent[] = [];
+  const base = identity(after);
+  if (patch.enabled !== undefined && before.enabled !== after.enabled) {
+    const action = after.enabled ? 'resume' : 'pause';
+    events.push({
+      event: after.enabled ? 'monitor.target.resumed' : 'monitor.target.paused',
+      message: after.enabled ? '已恢复监控' : '已暂停监控',
+      targetId: after.id,
+      context: {
+        ...base,
+        action,
+        changes: { enabled: { before: before.enabled, after: after.enabled } },
+      },
+    });
+  }
+  const intervalChanges: Record<string, { before: string | number; after: string | number }> = {};
+  if (patch.intervalMinutes !== undefined && before.intervalMinutes !== after.intervalMinutes) {
+    intervalChanges.intervalMinutes = {
+      before: before.intervalMinutes,
+      after: after.intervalMinutes,
+    };
+  }
+  if (patch.intervalMode !== undefined && before.intervalMode !== after.intervalMode) {
+    intervalChanges.intervalMode = { before: before.intervalMode, after: after.intervalMode };
+  }
+  if (Object.keys(intervalChanges).length > 0) {
+    events.push({
+      event: 'monitor.target.interval',
+      message: '已调整采集频率',
+      targetId: after.id,
+      context: { ...base, action: 'interval', changes: intervalChanges },
+    });
+  }
+  if (patch.label !== undefined && before.label !== after.label) {
+    events.push({
+      event: 'monitor.target.renamed',
+      message: '已调整名称',
+      targetId: after.id,
+      context: {
+        ...base,
+        action: 'rename',
+        changes: { label: { before: before.label, after: after.label } },
+      },
+    });
+  }
+  if (patch.tags !== undefined && !sameTags(before.tags, after.tags)) {
+    events.push({
+      event: 'monitor.target.tags',
+      message: '已调整标签',
+      targetId: after.id,
+      context: {
+        ...base,
+        action: 'tags',
+        changes: { tags: { before: before.tags, after: after.tags } },
+      },
+    });
+  }
+  return events;
+}
+
+async function recordOperations(
+  log: StudioLogger | null,
+  requestId: string | null,
+  events: OperationEvent[],
+): Promise<void> {
+  if (!log || events.length === 0) return;
+  try {
+    for (const event of events) {
+      log.info(event.message, {
+        event: event.event,
+        targetId: event.targetId,
+        ...(requestId ? { requestId } : {}),
+        context: event.context,
+      });
+    }
+    await log.flush();
+  } catch {
+    // The product write already committed. Logging is not a transaction, so a sink
+    // failure must not turn that write into an error or invent a success row.
+  }
+}
+
 function jsonError(err: unknown): {
   status: 400 | 404 | 409 | 500;
   body: { error: string; code: string };
@@ -130,6 +276,24 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
         intervalMode: request.intervalMode,
         now,
       });
+      if (result.created) {
+        await recordOperations(contextLogger(c), requestIdFrom(c), [
+          {
+            event: 'monitor.target.created',
+            message: '已添加监控项',
+            targetId: result.target.id,
+            context: {
+              ...identity(result.target),
+              action: 'create',
+              changes: {
+                label: { before: null, after: result.target.label },
+                intervalMinutes: { before: null, after: result.target.intervalMinutes },
+                enabled: { before: null, after: result.target.enabled },
+              },
+            },
+          },
+        ]);
+      }
       return c.json({
         target: toMonitorTarget(result.target),
         created: result.created,
@@ -149,12 +313,20 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
         throw new MonitorContractError('invalid_body', '请求体不是合法的监控项更新');
       });
       const patch = parsePatchMonitorTargetRequest(body);
+      const before = await getMonitorTarget(db, id);
       const result = await updateMonitorTarget(db, id, patch, new Date());
       if (result.status === 'missing') {
         throw new MonitorContractError('target_not_found', '监控项不存在');
       }
       if (result.status === 'deleted' || !result.target) {
         throw new MonitorContractError('target_deleted', '监控项已删除');
+      }
+      if (before && !before.deletedAt) {
+        await recordOperations(
+          contextLogger(c),
+          requestIdFrom(c),
+          patchEvents(before, result.target, patch),
+        );
       }
       return c.json({ target: toMonitorTarget(result.target) });
     } catch (err) {
@@ -173,6 +345,18 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
       if (result.status === 'deleted' || !result.target) {
         throw new MonitorContractError('target_deleted', '监控项已删除');
       }
+      await recordOperations(contextLogger(c), requestIdFrom(c), [
+        {
+          event: 'monitor.target.removed',
+          message: '已移除监控项',
+          targetId: result.target.id,
+          context: {
+            ...identity(result.target),
+            action: 'remove',
+            changes: { deleted: { before: false, after: true } },
+          },
+        },
+      ]);
       return c.json({ target: toMonitorTarget(result.target), deleted: true });
     } catch (err) {
       const failure = jsonError(err);
@@ -192,6 +376,24 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
       }
       const job = await getCollectorJob(db, result.job.id);
       if (!job) throw new MonitorContractError('target_not_found', '采集任务不存在');
+      if (result.created) {
+        const target = await getMonitorTarget(db, id);
+        await recordOperations(contextLogger(c), requestIdFrom(c), [
+          {
+            event: 'monitor.target.run',
+            message: '已请求一次采集',
+            targetId: id,
+            context: {
+              targetType: target?.type ?? job.targetType,
+              externalId: target?.externalId ?? job.externalId,
+              label: target?.label ?? '',
+              source: 'api',
+              action: 'run',
+              changes: { jobId: { before: null, after: job.id } },
+            },
+          },
+        ]);
+      }
       return c.json({
         job: toCollectorJob(job),
         created: result.created,

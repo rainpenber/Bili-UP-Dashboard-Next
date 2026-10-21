@@ -22,6 +22,7 @@ import { VIDEO_PARTITION_JOINS, VIDEO_PARTITION_NAME_SQL, type Sql } from '@stud
 import { readMetadataRun } from '@studio/monitoring';
 import { scrubString, scrubValue } from '@studio/observability';
 import { Hono } from 'hono';
+import { registerOpsRecordRoutes } from './ops-record-routes';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STALE_MS = 30_000;
@@ -532,8 +533,12 @@ export function createOpsRoutes(db: Sql) {
       const service = parseService(c.req.query('service'));
       const runId = parseUuid(c.req.query('runId'), 'runId');
       const requestId = parseSearch(c.req.query('requestId'));
+      const targetId = parseUuid(c.req.query('targetId'), 'targetId');
       const q = parseSearch(c.req.query('q'));
       const since = parseIsoDateParam(c.req.query('since'), 'since');
+      const until = parseIsoDateParam(c.req.query('until'), 'until');
+      const includeHttp = c.req.query('includeHttp') === '1';
+      const attention = c.req.query('attention') === '1' && level === null;
       const pattern = q ? ilikePattern(q) : null;
       const cursor = decodeOpsCursor(c.req.query('cursor'));
       const cursorTs = cursorPart(cursor, 'ts');
@@ -557,10 +562,19 @@ export function createOpsRoutes(db: Sql) {
         SELECT id::text AS id, ts, level, service, event, message, request_id, run_id::text AS run_id, context
         FROM app_logs
         WHERE (${level}::text IS NULL OR level = ${level})
+          AND (${attention}::boolean = false OR level IN ('warn', 'error'))
           AND (${service}::text IS NULL OR service = ${service})
           AND (${runId}::uuid IS NULL OR run_id = ${runId}::uuid)
           AND (${requestId}::text IS NULL OR request_id = ${requestId})
           AND (${since}::timestamptz IS NULL OR ts >= ${since})
+          AND (${until}::timestamptz IS NULL OR ts <= ${until})
+          AND (${includeHttp}::boolean OR event IS DISTINCT FROM 'http.request')
+          AND (
+            ${targetId}::uuid IS NULL
+            OR target_id = ${targetId}::uuid
+            OR job_id IN (SELECT id FROM collector_jobs WHERE target_id = ${targetId}::uuid)
+            OR run_id IN (SELECT id FROM collector_runs WHERE target_id = ${targetId}::uuid)
+          )
           AND (
             ${pattern}::text IS NULL
             OR message ILIKE ${pattern} ESCAPE '\\'
@@ -576,10 +590,34 @@ export function createOpsRoutes(db: Sql) {
       const hasMore = rows.length > limit;
       const items = (hasMore ? rows.slice(0, limit) : rows).map(mapLog);
       const last = items.at(-1);
-      const body: OpsPage<OpsLog> = {
+      const totals = await db<{ count: number }[]>`
+        SELECT count(*)::int AS count
+        FROM app_logs
+        WHERE (${level}::text IS NULL OR level = ${level})
+          AND (${attention}::boolean = false OR level IN ('warn', 'error'))
+          AND (${service}::text IS NULL OR service = ${service})
+          AND (${runId}::uuid IS NULL OR run_id = ${runId}::uuid)
+          AND (${requestId}::text IS NULL OR request_id = ${requestId})
+          AND (${since}::timestamptz IS NULL OR ts >= ${since})
+          AND (${until}::timestamptz IS NULL OR ts <= ${until})
+          AND (${includeHttp}::boolean OR event IS DISTINCT FROM 'http.request')
+          AND (
+            ${targetId}::uuid IS NULL
+            OR target_id = ${targetId}::uuid
+            OR job_id IN (SELECT id FROM collector_jobs WHERE target_id = ${targetId}::uuid)
+            OR run_id IN (SELECT id FROM collector_runs WHERE target_id = ${targetId}::uuid)
+          )
+          AND (
+            ${pattern}::text IS NULL
+            OR message ILIKE ${pattern} ESCAPE '\\'
+            OR COALESCE(event, '') ILIKE ${pattern} ESCAPE '\\'
+          )
+      `;
+      const body: OpsPage<OpsLog> & { total: number } = {
         items,
         nextCursor: hasMore && last ? encodeOpsCursor({ ts: last.ts, id: last.id }) : null,
         limit,
+        total: count(totals[0]?.count),
       };
       return send(c, body);
     }),
@@ -693,6 +731,7 @@ export function createOpsRoutes(db: Sql) {
     }),
   );
 
+  registerOpsRecordRoutes(app, db);
   return app;
 }
 

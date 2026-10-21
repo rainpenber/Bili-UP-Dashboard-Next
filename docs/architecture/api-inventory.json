@@ -2,8 +2,8 @@
   "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
   "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 51,
-  "wiredRouteCount": 33,
+  "apiRouteCount": 56,
+  "wiredRouteCount": 38,
   "unwiredImplementedRouteCount": 18,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes adds a fixed POST list.",
@@ -898,6 +898,111 @@
       "wired": true,
       "notes": "Unknown asset id still returns HTTP 200 and a placeholder SVG. A stored file is served with an immutable cache, ETag and Content-Length.",
       "storedEntity": "static_assets plus file under the assets root"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/collector-jobs",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-record-routes.ts",
+      "sourceLine": 1,
+      "registration": "registerOpsRecordRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": "packages/contracts/src/ops-records.ts#parseOpsCollectorJobQuery",
+      "responseContract": "packages/contracts/src/ops-records.ts#parseOpsCollectorJobList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsCollectorJobs",
+          "evidence": "/api/v1/ops/collector-jobs?"
+        }
+      ],
+      "wired": true,
+      "notes": "One row per collector job. Filters use Asia/Shanghai calendar days. group=target pages targets, then returns a bounded number of newest matching jobs per target."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/collector-jobs/:id",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-record-routes.ts",
+      "sourceLine": 1,
+      "registration": "registerOpsRecordRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": "attemptPage, attemptPageSize",
+      "responseContract": "packages/contracts/src/ops-records.ts#parseOpsCollectorJobDetail",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsCollectorJob",
+          "evidence": "/api/v1/ops/collector-jobs/${jobId}"
+        }
+      ],
+      "wired": true,
+      "notes": "Attempts, request audit, and logs are limited to runs of this job. Missing logs do not change the run status."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/collector-targets",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-record-routes.ts",
+      "sourceLine": 1,
+      "registration": "registerOpsRecordRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": "q, type, limit",
+      "responseContract": "packages/contracts/src/ops-records.ts#parseOpsCollectorTargetSearch",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsCollectorTargets",
+          "evidence": "/api/v1/ops/collector-targets?"
+        }
+      ],
+      "wired": true,
+      "notes": "Bounded target search. An empty q returns no rows."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/operations",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-record-routes.ts",
+      "sourceLine": 1,
+      "registration": "registerOpsRecordRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": "action, targetId, requestId, since, until, page, pageSize",
+      "responseContract": "packages/contracts/src/ops-records.ts#parseOpsOperationList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsOperations",
+          "evidence": "/api/v1/ops/operations?"
+        }
+      ],
+      "wired": true,
+      "notes": "Structured monitor.target.* events already stored in app_logs. Historical actions are not backfilled. Actor is null when it was not recorded."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/projects",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-record-routes.ts",
+      "sourceLine": 1,
+      "registration": "registerOpsRecordRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": "q, limit",
+      "responseContract": "packages/contracts/src/ops-records.ts#parseOpsProjectSearch",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsProjects",
+          "evidence": "/api/v1/ops/projects?"
+        }
+      ],
+      "wired": true,
+      "notes": "Bounded commercial project name search for the collection-record filter."
     },
     {
       "method": "GET",

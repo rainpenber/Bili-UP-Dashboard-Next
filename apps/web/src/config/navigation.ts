@@ -66,7 +66,7 @@ export const settingsNav: NavItem[] = [
   {
     to: '/ops',
     label: '运维诊断',
-    description: '采集心跳、运行记录、请求审计和日志',
+    description: '采集记录、操作记录和系统日志',
     icon: ScrollText,
     implemented: true,
   },

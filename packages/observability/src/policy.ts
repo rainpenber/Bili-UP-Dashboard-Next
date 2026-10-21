@@ -23,6 +23,14 @@ export const PERSISTED_INFO_EVENTS = [
   'legacy.sync.started',
   'legacy.sync.finished',
   'legacy.sync.failed',
+  'monitor.target.created',
+  'monitor.target.paused',
+  'monitor.target.resumed',
+  'monitor.target.interval',
+  'monitor.target.renamed',
+  'monitor.target.tags',
+  'monitor.target.removed',
+  'monitor.target.run',
 ] as const;
 
 export type PersistedInfoEvent = (typeof PERSISTED_INFO_EVENTS)[number];
