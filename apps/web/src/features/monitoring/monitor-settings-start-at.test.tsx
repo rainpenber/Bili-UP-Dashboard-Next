@@ -127,30 +127,24 @@ describe('monitor startAt display and reschedule', () => {
     expect(canRescheduleMonitorStartAt(pending)).toBe(true);
     expect(rescheduleStartAtBlockedReason(pending)).toBeNull();
 
-    const previous = process.env.TZ;
-    process.env.TZ = 'Asia/Shanghai';
+    const expectedUtc = new Date(2026, 10, 1, 9, 30, 0).toISOString();
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    try {
-      render(
-        <QueryClientProvider client={client}>
-          <MonitorSettingsDialog card={pending} open onOpenChange={() => undefined} />
-        </QueryClientProvider>,
-      );
-      expect(screen.getByTestId('monitor-settings-start-at-display').textContent).toBe(
-        '未设置（立即开始）',
-      );
-      fireEvent.change(screen.getByTestId('monitor-settings-start-at-input'), {
-        target: { value: '2026-11-01T09:30' },
-      });
-      fireEvent.click(screen.getByRole('button', { name: '保存' }));
-      await waitFor(() => expect(patches).toHaveLength(1));
-      expect(patches[0]).toMatchObject({ startAt: '2026-11-01T01:30:00.000Z' });
-    } finally {
-      if (previous === undefined) delete process.env.TZ;
-      else process.env.TZ = previous;
-    }
+    render(
+      <QueryClientProvider client={client}>
+        <MonitorSettingsDialog card={pending} open onOpenChange={() => undefined} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId('monitor-settings-start-at-display').textContent).toBe(
+      '未设置（立即开始）',
+    );
+    fireEvent.change(screen.getByTestId('monitor-settings-start-at-input'), {
+      target: { value: '2026-11-01T09:30' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(patches).toHaveLength(1));
+    expect(patches[0]).toMatchObject({ startAt: expectedUtc });
 
     cleanup();
     const started = baseCard(

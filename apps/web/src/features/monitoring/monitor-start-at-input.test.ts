@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { datetimeLocalToOffsetIso } from '@/lib/datetime-local';
 import { resolveOptionalVideoStartAt } from '@/features/monitoring/monitor-start-at-input';
 
 describe('resolveOptionalVideoStartAt', () => {
@@ -8,18 +9,11 @@ describe('resolveOptionalVideoStartAt', () => {
     expect(resolveOptionalVideoStartAt('video', '   ')).toEqual({ ok: true });
   });
 
-  test('valid local value returns offset ISO', () => {
-    const previous = process.env.TZ;
-    process.env.TZ = 'Asia/Shanghai';
-    try {
-      expect(resolveOptionalVideoStartAt('video', '2026-11-01T09:30')).toEqual({
-        ok: true,
-        startAt: '2026-11-01T09:30:00+08:00',
-      });
-    } finally {
-      if (previous === undefined) delete process.env.TZ;
-      else process.env.TZ = previous;
-    }
+  test('valid local value returns offset ISO for the runtime zone', () => {
+    expect(resolveOptionalVideoStartAt('video', '2026-11-01T09:30')).toEqual({
+      ok: true,
+      startAt: datetimeLocalToOffsetIso('2026-11-01T09:30'),
+    });
   });
 
   test('illegal input returns readable error and does not yield startAt', () => {

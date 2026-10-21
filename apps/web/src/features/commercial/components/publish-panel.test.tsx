@@ -73,8 +73,7 @@ function targetPayload(startAt: string) {
 
 describe('PublishPanel scheduled monitor', () => {
   test('creates a scheduled video monitor and shows the planned instant', async () => {
-    const previous = process.env.TZ;
-    process.env.TZ = 'Asia/Shanghai';
+    const expectedUtc = new Date(2026, 10, 1, 9, 30, 0).toISOString();
     const posts: unknown[] = [];
     globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'POST') {
@@ -82,7 +81,7 @@ describe('PublishPanel scheduled monitor', () => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              ...targetPayload('2026-11-01T01:30:00.000Z'),
+              ...targetPayload(expectedUtc),
               created: true,
               code: 'created',
               message: '已添加监控项',
@@ -94,29 +93,24 @@ describe('PublishPanel scheduled monitor', () => {
       return Promise.resolve(new Response('{}', { status: 404 }));
     }) as typeof fetch;
 
-    try {
-      renderPanel();
-      fireEvent.change(screen.getByTestId('publish-monitor-bvid'), {
-        target: { value: 'BV1xx411c7mD' },
-      });
-      fireEvent.change(screen.getByTestId('publish-monitor-start-at'), {
-        target: { value: '2026-11-01T09:30' },
-      });
-      fireEvent.click(screen.getByRole('button', { name: '按此时间创建定时监控' }));
-      await waitFor(() => expect(posts).toHaveLength(1));
-      expect(posts[0]).toMatchObject({
-        type: 'video',
-        externalId: 'BV1xx411c7mD',
-        startAt: '2026-11-01T01:30:00.000Z',
-      });
-      const status = await screen.findByTestId('publish-monitor-status');
-      expect(status.textContent).toContain('已加入定时监控');
-      expect(status.textContent).toContain('开始采集');
-      expect(status.textContent).not.toContain('投稿');
-    } finally {
-      if (previous === undefined) delete process.env.TZ;
-      else process.env.TZ = previous;
-    }
+    renderPanel();
+    fireEvent.change(screen.getByTestId('publish-monitor-bvid'), {
+      target: { value: 'BV1xx411c7mD' },
+    });
+    fireEvent.change(screen.getByTestId('publish-monitor-start-at'), {
+      target: { value: '2026-11-01T09:30' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '按此时间创建定时监控' }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({
+      type: 'video',
+      externalId: 'BV1xx411c7mD',
+      startAt: expectedUtc,
+    });
+    const status = await screen.findByTestId('publish-monitor-status');
+    expect(status.textContent).toContain('已加入定时监控');
+    expect(status.textContent).toContain('开始采集');
+    expect(status.textContent).not.toContain('投稿');
   });
 
   test('repeat submit returns existing target without implying a second create', async () => {
