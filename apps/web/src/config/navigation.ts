@@ -41,10 +41,10 @@ export const primaryNav: NavItem[] = [
   },
   {
     to: '/content',
-    label: '内容与工具',
-    description: '素材与辅助工具（后续里程碑）',
+    label: '观众反应模拟',
+    description: '本地字幕解析与提示词组合（内部模拟，非真实观众数据）',
     icon: Wrench,
-    implemented: false,
+    implemented: true,
   },
   {
     to: '/integrations',
