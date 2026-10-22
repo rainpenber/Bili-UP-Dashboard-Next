@@ -13,8 +13,8 @@ type PrimaryAction = {
 };
 
 /**
- * UP 主网格卡片：大圆形头像 + 名称/粉丝与两键同一横行（垂直居中）。
- * 与视频网格同一 flex 骨架；不伪造封面。
+ * UP 主网格卡片：大圆形头像；名称独占一行；粉丝摘要整行可读；
+ * 两键落在下一行右侧（无 mt-auto 空底行）。不伪造封面。
  */
 export function CreatorGridCard({
   card,
@@ -76,11 +76,11 @@ export function CreatorGridCard({
         </span>
       </button>
 
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <button
           type="button"
           onClick={onSelect}
-          className="flex min-w-0 flex-1 flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-w-0 flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-pressed={selected}
           aria-label={`选择 UP 主 ${card.displayName} 详情区`}
         >
@@ -92,13 +92,18 @@ export function CreatorGridCard({
               testId="creator-grid-state-badge"
               failureTestId="creator-grid-failure-dot"
             />
-            <span className="min-w-0 flex-1 truncate text-sm font-medium" title={card.displayName}>
+            <span
+              className="min-w-0 flex-1 truncate text-sm font-medium"
+              title={card.displayName}
+              data-testid="creator-grid-title"
+            >
               {card.displayName}
             </span>
           </span>
           <span
             className="block truncate text-xs tabular-nums text-muted-foreground"
             data-testid="creator-grid-metrics"
+            title={metricsLine}
           >
             {metricsLine}
           </span>

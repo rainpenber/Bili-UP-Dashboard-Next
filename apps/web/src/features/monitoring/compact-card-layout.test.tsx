@@ -218,24 +218,23 @@ describe('WP-R2-16G compact card layout', () => {
     expect(within(actions).getByRole('button', { name: '暂停' })).toBeTruthy();
   });
 
-  test('grid video: actions share info row, pin stays on cover, two buttons only', () => {
+  test('grid video: title and metrics are full-width rows; actions sit with meta, pin on cover', () => {
     let selected = 0;
+    const longName = '超级超级超级超级超级超级长的视频标题用来验证单行省略与悬停全名';
     wrap(
       <MonitorObjectCard
         card={videoCard({
-          monitorState: 'active',
-          target: {
-            id: '11111111-1111-4111-8111-111111111111',
-            label: '视频',
-            tags: [],
-            enabled: true,
-            intervalMinutes: 15,
-            intervalMode: 'auto',
-            startAt: null,
-            nextRunAt: null,
-            lastRunAt: null,
-            lastSuccessAt: '2026-10-21T00:00:00.000Z',
-            lastError: null,
+          displayName: longName,
+          title: longName,
+          monitorState: 'unmonitored',
+          target: null,
+          latest: {
+            sampledAt: '2026-10-21T00:00:00.000Z',
+            viewCount: '13631',
+            onlineViewers: '3',
+            onlineViewersRaw: '3',
+            likeCount: '9',
+            followerCount: null,
           },
         })}
         selected={false}
@@ -249,17 +248,70 @@ describe('WP-R2-16G compact card layout', () => {
     );
     const card = screen.getByTestId('monitor-object-card');
     expect(within(card).getByTestId('video-grid-cover').className).toContain('aspect-[16/9]');
+    const title = within(card).getByTestId('video-grid-title');
+    expect(title.getAttribute('title')).toBe(longName);
+    expect(title.className).toContain('truncate');
+    const metrics = within(card).getByTestId('video-grid-metrics');
+    expect(metrics.textContent).toMatch(/播放/);
+    expect(metrics.textContent).toMatch(/在线/);
+    // 标题/指标不与两键同处一侧挤压：动作组不含标题节点
     const actions = within(card).getByTestId('monitor-card-actions');
-    expect(actions.className).toContain('justify-end');
+    expect(actions.contains(title)).toBe(false);
+    expect(actions.contains(metrics)).toBe(false);
     expect(actions.className).not.toContain('mt-auto');
     expect(within(actions).getByRole('link', { name: /详情/ })).toBeTruthy();
-    expect(within(actions).getByRole('button', { name: '暂停' })).toBeTruthy();
+    expect(within(actions).getByRole('button', { name: '开始监控' })).toBeTruthy();
     expect(within(actions).queryByTestId('video-pin-button')).toBeNull();
     const pin = within(card).getByTestId('video-pin-button');
     fireEvent.click(pin);
     expect(selected).toBe(0);
     fireEvent.click(within(card).getByTestId('video-grid-cover'));
     expect(selected).toBe(1);
+  });
+
+  test('grid creator and dynamic keep full-width title/metrics away from action strip', () => {
+    wrap(
+      <MonitorObjectCard
+        card={creatorCard({ displayName: '很长的UP主名称用于截断验证' })}
+        selected={false}
+        listQuery="tab=creators&view=grid"
+        presentation="grid"
+        onSelect={() => undefined}
+      />,
+      [{ path: '/monitoring/creators/:mid', element: <div /> }],
+    );
+    const creator = screen.getByTestId('monitor-object-card');
+    const creatorTitle = within(creator).getByTestId('creator-grid-title');
+    const creatorMetrics = within(creator).getByTestId('creator-grid-metrics');
+    expect(creatorTitle.className).toContain('truncate');
+    expect(creatorMetrics.textContent).toMatch(/粉丝/);
+    expect(within(creator).getByTestId('monitor-card-actions').contains(creatorTitle)).toBe(false);
+    expect(within(creator).getByTestId('monitor-card-actions').contains(creatorMetrics)).toBe(
+      false,
+    );
+
+    cleanup();
+    wrap(
+      <DynamicObjectCard
+        item={dynamicItem()}
+        selected={false}
+        listQuery="tab=dynamics&view=grid"
+        presentation="grid"
+        onSelect={() => undefined}
+      />,
+      [{ path: '/monitoring/dynamics/:id', element: <div /> }],
+    );
+    const dyn = screen.getByTestId('dynamic-list-item');
+    expect(dyn.getAttribute('data-presentation')).toBe('grid');
+    const dynTitle = within(dyn).getByTestId('dynamic-card-title');
+    const dynMetrics = within(dyn).getByTestId('dynamic-card-metrics');
+    expect(dynTitle.getAttribute('title')).toBe('966692349750018048');
+    expect(dynMetrics.textContent).toMatch(/赞/);
+    expect(dynMetrics.textContent).not.toMatch(/\d{2}:\d{2}/);
+    expect(dynMetrics.getAttribute('title') ?? '').toMatch(/赞/);
+    const dynActions = within(dyn).getByTestId('dynamic-monitor-controls');
+    expect(dynActions.contains(dynTitle)).toBe(false);
+    expect(dynActions.contains(dynMetrics)).toBe(false);
   });
 
   test('dynamic list/grid: no cover, two actions beside info, truncate title', () => {

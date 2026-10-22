@@ -18,8 +18,8 @@ type PrimaryAction = {
 };
 
 /**
- * 视频网格卡片：整宽 16:9 封面 + 信息与两键同一横行（垂直居中）。
- * 列表（分栏）与 UP 主卡片不走这里。
+ * 视频网格卡片：整宽 16:9 封面；标题与播放/在线各占整行保证窄四列可读；
+ * 分类/更新与两键共下一行（无 mt-auto 空底行）。列表分栏不走这里。
  */
 export function VideoGridCard({
   card,
@@ -47,6 +47,7 @@ export function VideoGridCard({
   const category = card.category?.trim() || '未分类';
   const updateText = formatVideoGridUpdateText(card.latest.sampledAt);
   const metricsLine = card.hasSamples ? formatVideoGridMetricsLine(card.latest) : '尚无采集数据';
+  const metaFull = `分类：${category} · 更新：${updateText}`;
 
   return (
     <div
@@ -87,12 +88,11 @@ export function VideoGridCard({
         />
       </div>
 
-      {/* 四列网格卡片窄（~240px）：不 wrap，信息块 min-w-0 收缩；手机单列足够宽 */}
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <button
           type="button"
           onClick={onSelect}
-          className="flex min-w-0 flex-1 flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-w-0 flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-pressed={selected}
           aria-label={`选择视频 ${card.displayName} 详情区`}
         >
@@ -104,50 +104,61 @@ export function VideoGridCard({
               testId="video-grid-state-badge"
               failureTestId="video-grid-failure-dot"
             />
-            <span className="min-w-0 flex-1 truncate text-sm font-medium" title={card.displayName}>
+            <span
+              className="min-w-0 flex-1 truncate text-sm font-medium"
+              title={card.displayName}
+              data-testid="video-grid-title"
+            >
               {card.displayName}
             </span>
           </span>
           <span
             className="block truncate text-xs tabular-nums text-muted-foreground"
             data-testid="video-grid-metrics"
+            title={metricsLine}
           >
             {metricsLine}
           </span>
-          <span
-            className="block truncate text-xs text-muted-foreground"
+        </button>
+
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onSelect}
+            className="min-w-0 flex-1 truncate rounded-md text-left text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-pressed={selected}
+            aria-label={`选择视频 ${card.displayName} 分类与更新`}
             data-testid="video-grid-meta"
-            title={`分类：${category} 更新：${updateText}`}
+            title={metaFull}
           >
             分类：{category}
             <span className="mx-1 text-border">·</span>
             更新：{updateText}
-          </span>
-        </button>
-
-        <div
-          data-testid="monitor-card-actions"
-          className="flex shrink-0 items-center justify-end gap-1.5"
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <Button type="button" size="sm" variant="outline" asChild>
-            <Link to={detailHref} aria-label={`查看 ${card.displayName} 详情`}>
-              详情
-            </Link>
-          </Button>
-          {primary ? (
-            <Button
-              type="button"
-              size="sm"
-              variant={primary.variant ?? 'default'}
-              disabled={primary.disabled ?? pending}
-              aria-label={primary.label}
-              onClick={primary.onClick}
-            >
-              {primary.label}
+          </button>
+          <div
+            data-testid="monitor-card-actions"
+            className="flex shrink-0 items-center justify-end gap-1.5"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <Button type="button" size="sm" variant="outline" asChild>
+              <Link to={detailHref} aria-label={`查看 ${card.displayName} 详情`}>
+                详情
+              </Link>
             </Button>
-          ) : null}
+            {primary ? (
+              <Button
+                type="button"
+                size="sm"
+                variant={primary.variant ?? 'default'}
+                disabled={primary.disabled ?? pending}
+                aria-label={primary.label}
+                onClick={primary.onClick}
+              >
+                {primary.label}
+              </Button>
+            ) : null}
+          </div>
         </div>
       </div>
 
