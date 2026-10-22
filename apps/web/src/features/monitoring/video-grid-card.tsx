@@ -1,19 +1,13 @@
 import { Link } from 'react-router-dom';
 import type { MonitorCard } from '@studio/contracts';
 import { coverAssetUrl } from '@/api/monitor-client';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
 import {
   formatVideoGridMetricsLine,
   formatVideoGridUpdateText,
 } from '@/features/monitoring/video-card-metrics';
 import { cn } from '@/lib/utils';
-
-const STATE_LABEL = {
-  unmonitored: '未监控',
-  active: '监控中',
-  paused: '已暂停',
-} as const;
 
 type PrimaryAction = {
   label: string;
@@ -80,28 +74,13 @@ export function VideoGridCard({
           data-testid="video-grid-cover"
         />
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="relative inline-flex shrink-0">
-            <Badge
-              variant={
-                card.monitorState === 'active'
-                  ? 'success'
-                  : card.monitorState === 'paused'
-                    ? 'warning'
-                    : 'secondary'
-              }
-              className="px-1.5 py-0 text-[10px] leading-4"
-              data-testid="video-grid-state-badge"
-            >
-              {STATE_LABEL[card.monitorState]}
-            </Badge>
-            {failed ? (
-              <span
-                className="absolute -right-1 -top-1 size-2 rounded-full border border-background bg-destructive"
-                data-testid="video-grid-failure-dot"
-                aria-label="最近采集失败"
-              />
-            ) : null}
-          </span>
+          <MonitorStateBadge
+            state={card.monitorState}
+            failed={failed}
+            badgeClassName="px-1.5 py-0 text-[10px] leading-4"
+            testId="video-grid-state-badge"
+            failureTestId="video-grid-failure-dot"
+          />
           <span className="min-w-0 flex-1 truncate text-sm font-medium" title={card.displayName}>
             {card.displayName}
           </span>

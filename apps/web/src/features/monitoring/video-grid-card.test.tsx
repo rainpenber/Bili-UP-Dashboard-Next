@@ -154,7 +154,8 @@ describe('video grid card', () => {
     expect(selected).toBe(1);
   });
 
-  test('list presentation keeps disclosure and more actions', () => {
+  test('list presentation uses two buttons and no disclosure or more', () => {
+    let selected = 0;
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -168,7 +169,9 @@ describe('video grid card', () => {
               selected={false}
               listQuery=""
               presentation="list"
-              onSelect={() => undefined}
+              onSelect={() => {
+                selected += 1;
+              }}
             />
           ),
         },
@@ -181,10 +184,18 @@ describe('video grid card', () => {
       </QueryClientProvider>,
     );
     const card = screen.getByTestId('monitor-object-card');
-    expect(within(card).getByRole('button', { name: '更多' })).toBeTruthy();
-    expect(within(card).getByRole('button', { name: '监控详情' })).toBeTruthy();
-    expect(within(card).getByRole('link', { name: '查看详情' })).toBeTruthy();
+    expect(within(card).getByRole('button', { name: /详情/ })).toBeTruthy();
+    expect(within(card).getByRole('button', { name: '暂停' })).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: '更多' })).toBeNull();
+    expect(within(card).queryByRole('button', { name: '监控详情' })).toBeNull();
+    expect(within(card).queryByRole('link', { name: '查看详情' })).toBeNull();
     expect(within(card).queryByTestId('video-grid-cover')).toBeNull();
+    const title = within(card).getByTitle('很长很长的视频标题用来验证单行截断');
+    expect(title.className).toContain('truncate');
+    fireEvent.click(within(card).getByRole('button', { name: /详情/ }));
+    expect(selected).toBe(1);
+    fireEvent.click(within(card).getByRole('button', { name: '暂停' }));
+    expect(selected).toBe(1);
   });
 
   test('detail layout surfaces settings, collect, logs, remove, and project', () => {

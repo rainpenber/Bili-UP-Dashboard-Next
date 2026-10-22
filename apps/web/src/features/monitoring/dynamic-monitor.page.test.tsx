@@ -1,8 +1,15 @@
+import { mock } from 'bun:test';
+
+mock.module('echarts-for-react', () => ({
+  default: () => <div data-testid="mock-echart" />,
+}));
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { MonitoringPage } from '@/features/monitoring/monitoring-page';
+import { MonitoringDynamicDetailPage } from '@/pages/monitoring-dynamic-detail-page';
 
 const originalFetch = globalThis.fetch;
 
@@ -103,6 +110,7 @@ function renderDynamics(path = '/monitoring?tab=dynamics') {
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/monitoring" element={<MonitoringPage />} />
+          <Route path="/monitoring/dynamics/:id" element={<MonitoringDynamicDetailPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -252,10 +260,52 @@ describe('dynamic monitor page', () => {
     await waitFor(() => expect(controls.getAttribute('data-monitor-state')).toBe('active'));
   });
 
-  test('expand shows recent collect logs from the ops read API', async () => {
+  test('detail page shows recent collect logs from the ops read API', async () => {
     install((url) => {
+      if (url.includes(`/dynamics/${DYNAMIC_ID}`) && url.includes('/metrics')) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes(`/dynamics/${DYNAMIC_ID}`)) {
+        return jsonResponse({
+          dynamicId: DYNAMIC_ID,
+          mid: '1',
+          category: null,
+          monitoringEnabled: true,
+          archivedAt: null,
+          deletedAt: null,
+          metadata: {},
+          target: { ...activeTarget(true), lastError: '动态详情不可用' },
+        });
+      }
       if (url.includes('/dynamics') && !url.includes('/metrics')) {
-        return jsonResponse(list([dynamicItem({ target: activeTarget(true) })]));
+        return jsonResponse(
+          list([
+            dynamicItem({
+              target: { ...activeTarget(true), lastError: '动态详情不可用' },
+            }),
+          ]),
+        );
+      }
+      if (url.includes('/targets/of/')) {
+        return jsonResponse({
+          id: TARGET_ID,
+          type: 'dynamic',
+          externalId: DYNAMIC_ID,
+          label: DYNAMIC_ID,
+          tags: [],
+          enabled: true,
+          intervalMinutes: 60,
+          intervalMode: 'fixed',
+          startAt: null,
+          nextRunAt: null,
+          lastRunAt: null,
+          lastSuccessAt: '2026-10-21T08:00:00.000Z',
+          lastError: '动态详情不可用',
+          source: 'manual',
+          createdAt: '2026-10-21T00:00:00.000Z',
+          updatedAt: '2026-10-21T00:00:00.000Z',
+          deletedAt: null,
+        });
       }
       if (url.includes('/collector-jobs')) {
         return jsonResponse({
@@ -293,8 +343,16 @@ describe('dynamic monitor page', () => {
       return jsonResponse(list([]));
     });
     renderDynamics();
+    const card = await screen.findByTestId('dynamic-list-item');
+    expect(within(card).getByTestId('dynamic-card-failure-dot')).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: '监控详情' })).toBeNull();
+    expect(card.textContent).not.toContain('最近失败：');
+    fireEvent.click(within(card).getByRole('link', { name: /详情/ }));
+    expect(await screen.findByTestId('dynamic-detail-page')).toBeTruthy();
     const controls = await screen.findByTestId('dynamic-monitor-controls');
-    fireEvent.click(within(controls).getByRole('button', { name: '监控详情' }));
+    expect(within(controls).getByTestId('dynamic-last-failure').textContent).toContain(
+      '动态详情不可用',
+    );
     const logs = await screen.findByTestId('dynamic-collect-logs');
     expect(logs.textContent).toContain('失败');
     expect(logs.textContent).toContain('动态详情不可用');

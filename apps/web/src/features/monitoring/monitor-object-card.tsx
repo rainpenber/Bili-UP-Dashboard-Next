@@ -7,20 +7,15 @@ import {
 } from '@studio/contracts';
 import { coverAssetUrl, formatCount } from '@/api/monitor-client';
 import { useMonitorTargetMutations } from '@/api/hooks/use-monitor-target-queries';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { CreatorGridCard } from '@/features/monitoring/creator-grid-card';
 import { formatVideoCardMetricsSummary } from '@/features/monitoring/video-card-metrics';
 import { MonitorSettingsDialog } from '@/features/monitoring/monitor-settings-dialog';
+import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
 import { VideoGridCard } from '@/features/monitoring/video-grid-card';
 import { formatStartAtDisplay } from '@/lib/datetime-local';
 import { formatFullLocalTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
-
-const STATE_LABEL = {
-  unmonitored: '未监控',
-  active: '监控中',
-  paused: '已暂停',
-} as const;
 
 function whenText(value: string | null): string {
   return value ? formatFullLocalTime(value) : '暂无';
@@ -92,14 +87,13 @@ export function MonitorCardControls({
   listQuery: string;
   includeDetailLink?: boolean;
   layout?: 'card' | 'detail';
-  /** 列表沿用横向操作；网格在卡片不够宽时把操作收成右列。 */
+  /** 列表沿用横向操作；网格走专用卡片骨架。 */
   presentation?: 'list' | 'grid';
   selected?: boolean;
   onSelect?: () => void;
 }) {
   const mutations = useMonitorTargetMutations();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -135,12 +129,13 @@ export function MonitorCardControls({
   const detailKind = card.type === 'video' ? 'videos' : 'creators';
   const detailsId = `monitor-details-${card.type}-${card.externalId}`;
   const failed = failureLine(card);
+  const failedDot = card.execution === 'failed';
   const showMore = Boolean(card.target) || card.projects.length > 0;
-  /** 详情页直接摊开次要入口，不再藏进「更多」 */
+  /** 详情页 / 分栏右侧面板直接摊开次要入口 */
   const detailSecondaryOpen = layout === 'detail' && showMore;
   const showLogsOnBar = layout === 'detail' && Boolean(card.target);
-  const span = layout === 'card' ? 'col-span-2' : '';
   const useVideoGrid = layout === 'card' && presentation === 'grid' && card.type === 'video';
+  const useCreatorGrid = layout === 'card' && presentation === 'grid' && card.type === 'creator';
 
   const primaryAction =
     card.monitorState === 'unmonitored'
@@ -193,6 +188,112 @@ export function MonitorCardControls({
     );
   }
 
+  if (useCreatorGrid) {
+    return (
+      <CreatorGridCard
+        card={card}
+        selected={selected}
+        listQuery={listQuery}
+        pending={pending}
+        notice={notice}
+        error={error}
+        primary={primaryAction ? { ...primaryAction, disabled: pending } : null}
+        {...(onSelect ? { onSelect } : {})}
+      />
+    );
+  }
+
+  /** 分栏卡片：详情选中右侧面板，不跳转详情页 */
+  if (layout === 'card') {
+    const metricsLine = card.hasSamples
+      ? card.type === 'video'
+        ? formatVideoCardMetricsSummary(card.latest)
+        : `粉丝 ${formatCount(card.latest.followerCount)}`
+      : '尚无采集数据';
+
+    return (
+      <div
+        className={cn(
+          'flex min-w-0 max-w-full flex-col gap-2 rounded-lg border p-3',
+          selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
+        )}
+        data-testid="monitor-card-controls"
+        data-presentation="list"
+        data-monitor-state={card.monitorState}
+        data-execution={card.execution}
+        data-external-id={card.externalId}
+        data-target-id={card.target?.id ?? ''}
+        data-pending={pending ? 'true' : 'false'}
+        aria-busy={pending}
+      >
+        <button
+          type="button"
+          onClick={onSelect}
+          className="flex min-w-0 gap-3 rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-pressed={selected}
+          aria-label={`选择${card.type === 'video' ? '视频' : ' UP 主'} ${card.displayName}`}
+        >
+          <img
+            src={coverAssetUrl(card.imageAssetId)}
+            alt=""
+            width={96}
+            height={54}
+            className={cn(
+              'shrink-0 object-cover',
+              card.type === 'creator' ? 'size-14 rounded-full' : 'size-16 rounded',
+            )}
+          />
+          <span className="min-w-0 flex-1 space-y-1">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <MonitorStateBadge
+                state={card.monitorState}
+                failed={failedDot}
+                badgeClassName="px-1.5 py-0 text-[10px] leading-4"
+                failureTestId="monitor-list-failure-dot"
+              />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium" title={card.displayName}>
+                {card.displayName}
+              </span>
+            </span>
+            <span
+              className="block truncate text-xs tabular-nums text-muted-foreground"
+              data-testid="monitor-list-metrics"
+            >
+              {metricsLine}
+            </span>
+          </span>
+        </button>
+        <div
+          data-testid="monitor-card-actions"
+          className="flex flex-wrap items-center justify-end gap-2"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-label={`查看 ${card.displayName} 详情`}
+            onClick={() => onSelect?.()}
+          >
+            详情
+          </Button>
+          {primary}
+        </div>
+        {notice ? (
+          <p role="status" className="break-words text-xs text-muted-foreground">
+            {notice}
+          </p>
+        ) : null}
+        {error ? (
+          <p role="alert" className="break-words text-xs text-destructive">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   const detailLink = includeDetailLink ? (
     <Button type="button" size="sm" variant="outline" asChild>
       <Link
@@ -217,46 +318,6 @@ export function MonitorCardControls({
       </Link>
     </Button>
   ) : null;
-
-  const moreButton =
-    layout === 'card' && showMore ? (
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        aria-expanded={moreOpen}
-        aria-label="更多"
-        onClick={() => {
-          setMoreOpen((open) => !open);
-          setConfirmRemove(false);
-        }}
-      >
-        更多
-      </Button>
-    ) : null;
-
-  const stateBadge = (
-    <button
-      type="button"
-      className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      aria-label={`监控状态：${STATE_LABEL[card.monitorState]}`}
-      aria-expanded={detailsOpen}
-      aria-controls={detailsId}
-      onClick={() => setDetailsOpen((open) => !open)}
-    >
-      <Badge
-        variant={
-          card.monitorState === 'active'
-            ? 'success'
-            : card.monitorState === 'paused'
-              ? 'warning'
-              : 'secondary'
-        }
-      >
-        {STATE_LABEL[card.monitorState]}
-      </Badge>
-    </button>
-  );
 
   const detailsToggle = (
     <Button
@@ -315,7 +376,6 @@ export function MonitorCardControls({
             mutations.remove.mutate(card.target!.id, {
               onSuccess: () => {
                 setConfirmRemove(false);
-                setMoreOpen(false);
                 setNotice('已移除监控');
               },
             })
@@ -348,15 +408,7 @@ export function MonitorCardControls({
 
   return (
     <div
-      className={
-        layout === 'card'
-          ? cn(
-              'grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg border p-3',
-              presentation === 'grid' && '@container',
-              selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
-            )
-          : 'flex min-w-0 max-w-full flex-col gap-2'
-      }
+      className="flex min-w-0 max-w-full flex-col gap-2"
       data-testid="monitor-card-controls"
       data-monitor-state={card.monitorState}
       data-execution={card.execution}
@@ -366,70 +418,27 @@ export function MonitorCardControls({
       data-details-open={detailsOpen ? 'true' : 'false'}
       aria-busy={pending}
     >
-      {layout === 'card' ? (
+      <div
+        data-testid="monitor-detail-bar"
+        className="flex min-w-0 flex-wrap items-center gap-2"
+      >
         <button
           type="button"
-          onClick={onSelect}
-          className="col-start-1 row-start-1 flex min-w-0 gap-3 rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-pressed={selected}
+          className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`监控状态：${card.monitorState === 'active' ? '监控中' : card.monitorState === 'paused' ? '已暂停' : '未监控'}`}
+          aria-expanded={detailsOpen}
+          aria-controls={detailsId}
+          onClick={() => setDetailsOpen((open) => !open)}
         >
-          <img
-            src={coverAssetUrl(card.imageAssetId)}
-            alt=""
-            width={96}
-            height={54}
-            className={cn(
-              'shrink-0 object-cover',
-              card.type === 'creator' ? 'size-14 rounded-full' : 'size-16 rounded',
-            )}
-          />
-          <span className="min-w-0 flex-1 space-y-1">
-            <span className="line-clamp-2 break-words font-medium leading-snug">
-              {card.displayName}
-            </span>
-            <span className="block truncate text-xs text-muted-foreground">
-              {card.externalId}
-              {card.type === 'video' ? ` · ${card.category ?? '未分类'}` : ''}
-            </span>
-            <span className="block truncate text-xs tabular-nums text-muted-foreground">
-              {card.hasSamples
-                ? card.type === 'video'
-                  ? formatVideoCardMetricsSummary(card.latest)
-                  : `粉丝 ${formatCount(card.latest.followerCount)}`
-                : '尚无采集数据'}
-            </span>
-          </span>
+          <MonitorStateBadge state={card.monitorState} failed={failedDot} />
         </button>
-      ) : null}
-      <div
-        data-testid={layout === 'detail' ? 'monitor-detail-bar' : 'monitor-card-actions'}
-        className={
-          layout === 'card'
-            ? presentation === 'grid'
-              ? 'col-start-2 row-start-1 flex w-max max-w-[8.75rem] flex-col items-stretch justify-center gap-1.5 self-center justify-self-end @[40rem]:max-w-none @[40rem]:flex-row @[40rem]:flex-wrap @[40rem]:items-center @[40rem]:justify-end'
-              : 'col-start-2 row-start-1 flex w-max max-w-[8.75rem] flex-col items-stretch justify-center gap-1.5 self-center justify-self-end sm:max-w-none sm:flex-row sm:flex-wrap sm:items-center sm:justify-end'
-            : 'flex min-w-0 flex-wrap items-center gap-2'
-        }
-      >
-        {layout === 'detail' ? stateBadge : null}
-        {layout === 'detail' ? primary : <div className="sm:order-4">{primary}</div>}
-        {layout === 'detail' ? detailsToggle : null}
+        {primary}
+        {detailsToggle}
         {showLogsOnBar ? logsLink : null}
-        {layout === 'detail' ? moreButton : null}
-        {layout === 'card' ? <div className="sm:order-3">{detailLink}</div> : null}
-        {layout === 'card' ? <div className="sm:order-2">{moreButton}</div> : null}
-        {layout === 'card' ? (
-          <div className="flex flex-col items-stretch gap-1 sm:order-1 sm:flex-row sm:items-center">
-            <div className="flex justify-end">{stateBadge}</div>
-            {detailsToggle}
-          </div>
-        ) : null}
+        {detailLink}
       </div>
       {failed ? (
-        <p
-          data-testid="monitor-last-failure"
-          className={cn('break-words text-xs text-destructive', span)}
-        >
+        <p data-testid="monitor-last-failure" className="break-words text-xs text-destructive">
           {failed}
         </p>
       ) : null}
@@ -437,10 +446,7 @@ export function MonitorCardControls({
         <div
           id={detailsId}
           data-testid="monitor-frequency-details"
-          className={cn(
-            'grid gap-1 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground',
-            span,
-          )}
+          className="grid gap-1 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
         >
           <p>频率：{monitorFrequencyText(card)}</p>
           {card.type === 'video' ? (
@@ -454,27 +460,14 @@ export function MonitorCardControls({
         </div>
       ) : null}
       {notice ? (
-        <p role="status" className={cn('break-words text-xs text-muted-foreground', span)}>
+        <p role="status" className="break-words text-xs text-muted-foreground">
           {notice}
         </p>
       ) : null}
       {error ? (
-        <p role="alert" className={cn('break-words text-xs text-destructive', span)}>
+        <p role="alert" className="break-words text-xs text-destructive">
           {error}
         </p>
-      ) : null}
-      {moreOpen && layout === 'card' && showMore ? (
-        <div
-          className={cn('flex flex-wrap items-center gap-2', span)}
-          role="group"
-          aria-label="更多操作"
-        >
-          {settingsButton}
-          {logsLink}
-          <ProjectJump projects={card.projects} />
-          {runButton}
-          {removeControls}
-        </div>
       ) : null}
       {detailSecondaryOpen ? (
         <div
