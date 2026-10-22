@@ -2,6 +2,7 @@ import {
   MonitorContractError,
   parseCollectorJob,
   parseCreateMonitorTargetRequest,
+  parseFirstAccessInterventionList,
   parseMonitorListQuery,
   parseMonitorTarget,
   parseMonitorTargetId,
@@ -14,6 +15,7 @@ import {
   getMonitorTarget,
   insertMonitorTarget,
   listCollectorJobs,
+  listFirstAccessInterventions,
   listMonitorTargets,
   requestCollectorRun,
   softDeleteMonitorTarget,
@@ -82,7 +84,8 @@ function statusForCode(code: string): 400 | 404 | 409 {
     code === 'target_deleted' ||
     code === 'target_already_started' ||
     code === 'target_running' ||
-    code === 'run_before_start'
+    code === 'run_before_start' ||
+    code === 'awaiting_manual_retry'
   ) {
     return 409;
   }
@@ -411,6 +414,12 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
       if (result.status === 'invalid_start_type') {
         throw new MonitorContractError('invalid_start_at', '只有视频监控支持计划开始时间');
       }
+      if (result.status === 'awaiting_manual_retry') {
+        throw new MonitorContractError(
+          'awaiting_manual_retry',
+          '首次采集已达上限待人工介入，请使用手动采集重试，不能仅启用',
+        );
+      }
       if (before && !before.deletedAt) {
         await recordOperations(
           contextLogger(c),
@@ -519,6 +528,31 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
         totalPages,
         items: listed.items.map(toCollectorJob),
       });
+    } catch (err) {
+      const failure = jsonError(err);
+      return c.json(failure.body, failure.status);
+    }
+  });
+
+  /**
+   * Durable first-access wait / manual-intervention facts for Hermes.
+   * Pure read from target+job state; repeating does not invent new facts.
+   */
+  app.get('/first-access-interventions', async (c) => {
+    try {
+      const rows = await listFirstAccessInterventions(db);
+      const body = parseFirstAccessInterventionList({
+        items: rows.map((row) => ({
+          id: row.id,
+          targetId: row.targetId,
+          bvid: row.bvid,
+          status: row.status,
+          failureCount: row.failureCount,
+          reason: row.reason,
+          failedAt: row.failedAt.toISOString(),
+        })),
+      });
+      return c.json(body);
     } catch (err) {
       const failure = jsonError(err);
       return c.json(failure.body, failure.status);

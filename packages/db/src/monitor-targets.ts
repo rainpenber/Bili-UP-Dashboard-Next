@@ -9,6 +9,7 @@ import {
   type CollectorTargetTxHooks,
   type LockedMonitorTarget,
 } from './collector-target-tx';
+import { isFirstAccessAwaitingManualError } from './first-access';
 import { partitionNameFromLabels } from './partitions';
 
 type Queryable = postgres.Sql | postgres.TransactionSql;
@@ -319,7 +320,14 @@ function asLockedTarget(target: MonitorTargetRow): LockedMonitorTarget {
 }
 
 export type UpdateMonitorTargetStatus =
-  'missing' | 'deleted' | 'updated' | 'already_started' | 'running' | 'invalid_start_type';
+  | 'missing'
+  | 'deleted'
+  | 'updated'
+  | 'already_started'
+  | 'running'
+  | 'invalid_start_type'
+  /** Halted first-access: refuse bare enable; caller must use manual-run. */
+  | 'awaiting_manual_retry';
 
 /**
  * Align the single effective pending to scheduledFor without deleting jobs that
@@ -399,7 +407,6 @@ export async function updateMonitorTarget(
       }
     }
 
-    const enabled = patch.enabled ?? null;
     const interval = patch.intervalMinutes ?? null;
     const intervalMode = patch.intervalMode ?? null;
     const label = patch.label ?? null;
@@ -411,6 +418,21 @@ export async function updateMonitorTarget(
     const dueNow = firstRunAt.getTime() <= now.getTime();
 
     // Resume respects max(now, startAt). Pause never auto-resumes on reschedule.
+    // First-access awaiting-manual: refuse bare enable (no enabled=true without pending).
+    // Use POST .../run to open a new bounded round. startAt reschedule may re-enable.
+    const firstAccessHalted =
+      existing.type === 'video' &&
+      existing.lastSuccessAt === null &&
+      isFirstAccessAwaitingManualError(existing.lastError);
+    if (resume && firstAccessHalted && !reschedule) {
+      return {
+        status: 'awaiting_manual_retry',
+        target: asMonitorTargetRow(existing),
+        jobId: null,
+      };
+    }
+    const enabled =
+      reschedule && firstAccessHalted && patch.enabled !== false ? true : (patch.enabled ?? null);
     let nextRunAt: Date | null = existing.nextRunAt;
     let touchSchedule = false;
     if (reschedule) {
@@ -906,6 +928,8 @@ export type TargetScheduleContext = {
   intervalMode: 'auto' | 'fixed';
   intervalMinutes: number;
   pubdate: Date | null;
+  /** Null until the first successful collect for this target. */
+  lastSuccessAt: Date | null;
 };
 
 export type CollectorScheduleWrite = {
@@ -923,9 +947,10 @@ export async function readTargetSchedule(
       interval_mode: 'auto' | 'fixed';
       interval_minutes: number;
       pubdate: Date | null;
+      last_success_at: Date | null;
     }[]
   >`
-    SELECT t.type, t.interval_mode, t.interval_minutes,
+    SELECT t.type, t.interval_mode, t.interval_minutes, t.last_success_at,
       CASE WHEN t.type = 'video' THEN v.pubdate ELSE NULL END AS pubdate
     FROM monitor_targets t
     LEFT JOIN videos v ON t.type = 'video' AND v.bvid = t.external_id
@@ -938,6 +963,7 @@ export async function readTargetSchedule(
     intervalMode: row.interval_mode,
     intervalMinutes: row.interval_minutes,
     pubdate: row.pubdate,
+    lastSuccessAt: row.last_success_at,
   };
 }
 
@@ -949,6 +975,11 @@ export async function applyTargetSchedule(
     success: boolean;
     error: string | null;
     schedule: CollectorScheduleWrite | null;
+    /**
+     * Terminal first-access: clear cursor and disable the target in the same
+     * write so enqueue/claim stop without a second transaction.
+     */
+    haltAutoSchedule?: boolean;
   },
 ): Promise<void> {
   const minutes = input.schedule?.minutes ?? null;
@@ -966,6 +997,18 @@ export async function applyTargetSchedule(
           next_run_at = ${input.finished} + (
             COALESCE(${minutes}::int, interval_minutes) * interval '1 minute'
           ),
+          updated_at = ${input.finished}
+      WHERE id = ${input.targetId}::uuid
+    `;
+    return;
+  }
+  if (input.haltAutoSchedule) {
+    await tx`
+      UPDATE monitor_targets
+      SET last_run_at = ${input.finished},
+          last_error = ${input.error},
+          next_run_at = NULL,
+          enabled = false,
           updated_at = ${input.finished}
       WHERE id = ${input.targetId}::uuid
     `;
@@ -1061,9 +1104,20 @@ export async function recordCollectorFailure(
     startedAt: Date;
     retryAt: Date | null;
     schedule?: CollectorScheduleWrite;
+    /**
+     * Terminal first-access: clear next_run_at and disable in this transaction.
+     * Skipped when a newer manual pending/running already exists under the lock.
+     */
+    haltAutoSchedule?: boolean;
   },
   hooks?: CollectorTargetTxHooks,
-): Promise<{ terminal: boolean; runId: string | null; applied: boolean }> {
+): Promise<{
+  terminal: boolean;
+  runId: string | null;
+  applied: boolean;
+  /** True when halt ran (disabled). False when a newer manual round blocked halt. */
+  halted?: boolean;
+}> {
   const retryAt = input.retryAt;
   const terminal = input.attempts >= input.maxAttempts || retryAt === null;
   const runId = crypto.randomUUID();
@@ -1086,9 +1140,11 @@ export async function recordCollectorFailure(
         terminal: lockedJob.status === 'failed' || lockedJob.status === 'succeeded' || terminal,
         runId: null,
         applied: false,
+        halted: false,
       };
     }
     const finished = new Date();
+    let halted = false;
     if (terminal) {
       await tx`
         UPDATE collector_jobs
@@ -1098,13 +1154,48 @@ export async function recordCollectorFailure(
             updated_at = ${finished}
         WHERE id = ${input.jobId}::uuid
       `;
-      await applyTargetSchedule(tx, {
-        targetId: input.targetId,
-        finished,
-        success: false,
-        error: input.error,
-        schedule: input.schedule ?? null,
-      });
+      // Concurrent manual-run may already hold a newer pending under the same target lock
+      // once it commits; re-check before disabling so we do not stop the new round.
+      const newerActive = await tx<{ id: string }[]>`
+        SELECT id::text AS id
+        FROM collector_jobs
+        WHERE target_id = ${input.targetId}::uuid
+          AND id <> ${input.jobId}::uuid
+          AND status IN ('pending', 'running')
+        LIMIT 1
+        FOR UPDATE
+      `;
+      const skipHalt = input.haltAutoSchedule === true && newerActive.length > 0;
+      if (input.haltAutoSchedule === true && !skipHalt) {
+        await applyTargetSchedule(tx, {
+          targetId: input.targetId,
+          finished,
+          success: false,
+          error: input.error,
+          schedule: input.schedule ?? null,
+          haltAutoSchedule: true,
+        });
+        halted = true;
+      } else if (skipHalt) {
+        // Newer manual round already exists: record this job's failure only; do not
+        // disable or clear the cursor out from under the active opportunity.
+        await tx`
+          UPDATE monitor_targets
+          SET last_run_at = ${finished},
+              last_error = ${input.error},
+              updated_at = ${finished}
+          WHERE id = ${input.targetId}::uuid
+        `;
+      } else {
+        await applyTargetSchedule(tx, {
+          targetId: input.targetId,
+          finished,
+          success: false,
+          error: input.error,
+          schedule: input.schedule ?? null,
+          haltAutoSchedule: false,
+        });
+      }
     } else {
       if (!retryAt) throw new Error('重试时间缺失');
       const scheduledFor = await allocateUniqueScheduledFor(
@@ -1147,8 +1238,13 @@ export async function recordCollectorFailure(
         ${finished}
       )
     `;
-    return { terminal, runId, applied: true };
-  })) as { terminal: boolean; runId: string | null; applied: boolean };
+    return { terminal, runId, applied: true, halted };
+  })) as {
+    terminal: boolean;
+    runId: string | null;
+    applied: boolean;
+    halted?: boolean;
+  };
 }
 
 type JobSqlRow = {
@@ -1277,6 +1373,21 @@ export async function requestCollectorRun(
     }
     if (isFutureStart(target.startAt, now)) {
       return { status: 'before_start' as const, jobId: null, created: false as const };
+    }
+
+    // First-access terminal disables the target to block auto enqueue/claim. An explicit
+    // manual-run re-enables only that case so a new bounded round can be claimed.
+    if (
+      !target.enabled &&
+      target.type === 'video' &&
+      target.lastSuccessAt === null &&
+      isFirstAccessAwaitingManualError(target.lastError)
+    ) {
+      await tx`
+        UPDATE monitor_targets
+        SET enabled = true, updated_at = statement_timestamp()
+        WHERE id = ${targetId}::uuid AND deleted_at IS NULL
+      `;
     }
 
     await convergeActiveJobsUnderTargetLock(tx, target);

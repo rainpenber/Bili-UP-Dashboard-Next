@@ -34,6 +34,7 @@ MONITOR_DATA_SOURCE=collector MONITOR_PROVIDER=offline bun run apps/collector/sr
 - `PATCH /api/v1/monitor/targets/:id`
 - `DELETE /api/v1/monitor/targets/:id`
 - `POST /api/v1/monitor/targets/:id/run`
+- `GET /api/v1/monitor/first-access-interventions`
 - `GET /api/v1/monitor/jobs`
 - `GET /api/v1/monitor/cards?type=video|creator&monitor=all|active|paused|unmonitored`
 - `GET /api/v1/monitor/cards/:type/:externalId`

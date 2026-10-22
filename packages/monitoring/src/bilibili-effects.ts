@@ -52,8 +52,23 @@ export function createSqlBilibiliEffects(
     commitCreator: (input) => commitBilibiliCreator(sql, input),
     commitDynamic: (input) => commitBilibiliDynamic(sql, input),
     async failJob(input) {
-      const result = await recordCollectorFailure(sql, input);
-      return { runId: result.runId, applied: result.applied };
+      const result = await recordCollectorFailure(sql, {
+        jobId: input.jobId,
+        targetId: input.targetId,
+        attempts: input.attempts,
+        maxAttempts: input.maxAttempts,
+        error: input.error,
+        durationMs: input.durationMs,
+        startedAt: input.startedAt,
+        retryAt: input.retryAt,
+        ...(input.schedule ? { schedule: input.schedule } : {}),
+        ...(input.haltAutoSchedule ? { haltAutoSchedule: true } : {}),
+      });
+      return {
+        runId: result.runId,
+        applied: result.applied,
+        ...(result.halted !== undefined ? { halted: result.halted } : {}),
+      };
     },
     async audit(input) {
       if (input.calls.length === 0) return;

@@ -11,6 +11,8 @@ import type {
 import {
   circuitCooldownMs,
   circuitIsOpen,
+  FIRST_ACCESS_MAX_ATTEMPTS,
+  formatFirstAccessError,
   planBilibiliFailure,
   BilibiliFailure,
 } from './bilibili-failure';
@@ -68,7 +70,9 @@ export type BilibiliEffects = {
     durationMs: number;
     startedAt: Date;
     retryAt: Date | null;
-  }): Promise<{ runId: string | null; applied: boolean }>;
+    /** Terminal first-access: clear next_run_at + disable in the fail transaction. */
+    haltAutoSchedule?: boolean;
+  }): Promise<{ runId: string | null; applied: boolean; halted?: boolean }>;
   audit(input: {
     accountId: string | null;
     runId: string | null;
@@ -302,6 +306,7 @@ export async function runBilibiliJob(options: {
       startedMs,
       log,
       scheduleFrom(scheduleContext, options.now, scheduleContext?.pubdate ?? null, env),
+      scheduleContext,
     );
   }
 }
@@ -374,6 +379,7 @@ async function handleFailure(
   startedMs: number,
   log: (line: string) => void,
   schedule: CollectorScheduleWrite | null,
+  scheduleContext: TargetScheduleContext | null,
 ): Promise<'succeeded' | 'failed' | 'deferred'> {
   const failure =
     error instanceof BilibiliFailure
@@ -386,7 +392,7 @@ async function handleFailure(
           bizCode: null,
           calls: [],
         });
-  const message = scrubCollectorError(failure);
+  const scrubbed = scrubCollectorError(failure);
   if (failure.kind === 'dry_run') {
     const plan = planBilibiliFailure({
       kind: 'dry_run',
@@ -395,17 +401,33 @@ async function handleFailure(
       now: options.now,
     });
     if (plan.action === 'dry_run') {
-      log(`[collector] ${message}`);
+      log(`[collector] ${scrubbed}`);
       await options.effects.deferJob(options.job.id, plan.deferUntil);
       return 'deferred';
     }
   }
+  // First-access wait: never-succeeded video + upstream-confirmed inaccessible only.
+  // Network / auth / risk / rate-limit and already-succeeded videos keep prior paths.
+  const firstAccessWait =
+    failure.kind === 'not_found' &&
+    options.job.targetType === 'video' &&
+    scheduleContext !== null &&
+    scheduleContext.lastSuccessAt === null;
   const plan = planBilibiliFailure({
     kind: failure.kind,
     attempts: options.job.attempts,
-    maxAttempts: options.maxAttempts,
+    maxAttempts: firstAccessWait ? FIRST_ACCESS_MAX_ATTEMPTS : options.maxAttempts,
     now: options.now,
+    firstAccessWait,
   });
+  const message =
+    plan.action === 'first_access_retry'
+      ? formatFirstAccessError({
+          upstreamMessage: scrubbed,
+          attempts: options.job.attempts,
+          terminal: plan.terminal,
+        })
+      : scrubbed;
   if (plan.action === 'expire') {
     if (account) await options.effects.expireAccount(account.id);
     await options.effects.audit({
@@ -431,22 +453,42 @@ async function handleFailure(
       context: { accountId: account.id, resumeAt: plan.resumeAt.toISOString() },
     });
   }
-  const retryAt = plan.action === 'retry' || plan.action === 'circuit' ? plan.retryAt : null;
+  const retryAt =
+    plan.action === 'retry' || plan.action === 'circuit' || plan.action === 'first_access_retry'
+      ? plan.retryAt
+      : null;
+  const haltAutoSchedule = plan.action === 'first_access_retry' && plan.terminal;
   const failed = await options.effects.failJob({
     jobId: options.job.id,
     targetId: options.job.targetId,
     attempts: options.job.attempts,
-    maxAttempts: options.maxAttempts,
+    maxAttempts:
+      plan.action === 'first_access_retry' ? FIRST_ACCESS_MAX_ATTEMPTS : options.maxAttempts,
     error: message,
     durationMs: Math.max(0, Date.now() - startedMs),
     startedAt,
     retryAt,
+    ...(haltAutoSchedule ? { haltAutoSchedule: true } : {}),
     ...(schedule ? { schedule } : {}),
   });
   if (!failed.applied) {
     // Collection already committed; do not invent a failed run or reactivate the job.
     log(`[collector] 任务已终态，忽略迟到失败处理 ${options.job.id}`);
     return 'succeeded';
+  }
+  // Halt (disable + clear cursor) is applied inside failJob's locked transaction.
+  if (haltAutoSchedule && failed.halted !== false) {
+    options.logger?.warn('首次采集达到上限，待人工介入', {
+      event: 'monitor.target.first_access_exhausted',
+      context: {
+        targetId: options.job.targetId,
+        jobId: options.job.id,
+        externalId: options.job.externalId,
+        attempts: options.job.attempts,
+        maxAttempts: FIRST_ACCESS_MAX_ATTEMPTS,
+        halted: failed.halted === true,
+      },
+    });
   }
   await options.effects.audit({
     accountId: account?.id ?? null,
@@ -456,14 +498,14 @@ async function handleFailure(
   if (failed.runId) {
     options.logger?.child({ runId: failed.runId })?.error('任务失败', {
       event: 'job.failed',
-      err: new Error(message),
       context: { attempts: options.job.attempts },
+      err: new Error(message),
     });
   } else {
     options.logger?.error('任务失败', {
       event: 'job.failed',
-      err: new Error(message),
       context: { attempts: options.job.attempts },
+      err: new Error(message),
     });
   }
   log(`[collector] 任务失败 ${options.job.id} ${message}`);

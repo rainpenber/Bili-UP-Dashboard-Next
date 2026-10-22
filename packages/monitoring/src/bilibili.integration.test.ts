@@ -197,7 +197,7 @@ describe('bilibili collector against postgres', () => {
     expect(offlineRow?.source).toBe('import');
   });
 
-  test('-404 disables the target and -352 survives in collector_circuits', async () => {
+  test('already-succeeded -404 disables; -352 survives in collector_circuits', async () => {
     if (!sql) return;
     const db = sql;
     const missing = await insertMonitorTarget(db, {
@@ -209,6 +209,12 @@ describe('bilibili collector against postgres', () => {
       intervalMinutes: 60,
       now: new Date(),
     });
+    // Simulate a prior successful collect so -404 keeps the immediate-disable path.
+    await db`
+      UPDATE monitor_targets
+      SET last_success_at = statement_timestamp() - interval '1 hour'
+      WHERE id = ${missing.target.id}::uuid
+    `;
     await db`
       UPDATE collector_jobs SET scheduled_for = statement_timestamp() + interval '3 days'
       WHERE status = 'pending' AND target_id <> ${missing.target.id}::uuid
@@ -235,6 +241,7 @@ describe('bilibili collector against postgres', () => {
     `;
     expect(target?.enabled).toBe(false);
     expect(target?.last_error ?? '').toContain('-404');
+    expect(target?.last_error ?? '').not.toContain('first_access');
 
     const key = randomBytes(32);
     const secret = encryptCookieJar({ session: 'fixture' }, key);

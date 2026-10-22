@@ -134,6 +134,18 @@ export {
 } from './test-isolated-db';
 export { assertIntegrationSql, isPostgresRequiredEnv } from './require-postgres';
 export {
+  FIRST_ACCESS_AWAITING_MANUAL_MARKER,
+  FIRST_ACCESS_MAX_ATTEMPTS,
+  FIRST_ACCESS_RETRY_MINUTES,
+  FIRST_ACCESS_WAITING_MARKER,
+  isFirstAccessAwaitingManualError,
+  isFirstAccessWaitingError,
+  listFirstAccessInterventions,
+  parseFirstAccessFailureCount,
+  type FirstAccessInterventionRow,
+  type FirstAccessInterventionStatus,
+} from './first-access';
+export {
   countOpsCollectorJobGroups,
   countOpsCollectorJobs,
   countOpsJobAttempts,
