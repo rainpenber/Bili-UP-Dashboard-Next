@@ -17,4 +17,10 @@ describe('web app shell', () => {
     expect(projects?.implemented).toBe(true);
     expect(integrations?.implemented).toBe(true);
   });
+
+  test('audience reaction tool is implemented under /content', () => {
+    const content = primaryNav.find((n) => n.to === '/content');
+    expect(content?.implemented).toBe(true);
+    expect(content?.label).toBe('观众反应模拟');
+  });
 });
