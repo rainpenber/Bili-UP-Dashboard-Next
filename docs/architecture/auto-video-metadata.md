@@ -12,12 +12,12 @@ WP-R2-MON-03。复用 WP-R2-08 的 `startMetadataBackfill` / `refreshVideo`、`s
 
 ## 幂等
 
-| 条件 | 行为 |
-| --- | --- |
-| 已有 `cover_asset_id` | 跳过入队；刷新执行时也不再下载图片 |
-| 同 bvid 已有 `running` 且 `report.requestedIds` 含该 bvid | 跳过 |
-| 全局已有其它 `running` 批次 | 写入 `videos.metadata.auto_metadata_refresh='queued'`，采集轮询时 `drainDeferredAutoVideoMetadataRefresh` 再试 |
-| 同 bvid 并发两次入队 | 至多一条活跃 `running` 刷新项 |
+| 条件                                                      | 行为                                                                                                           |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 已有 `cover_asset_id`                                     | 跳过入队；刷新执行时也不再下载图片                                                                             |
+| 同 bvid 已有 `running` 且 `report.requestedIds` 含该 bvid | 跳过                                                                                                           |
+| 全局已有其它 `running` 批次                               | 写入 `videos.metadata.auto_metadata_refresh='queued'`，采集轮询时 `drainDeferredAutoVideoMetadataRefresh` 再试 |
+| 同 bvid 并发两次入队                                      | 至多一条活跃 `running` 刷新项                                                                                  |
 
 ## 隔离
 

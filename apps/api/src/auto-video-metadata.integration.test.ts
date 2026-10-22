@@ -113,7 +113,10 @@ function metricTransport(): HttpTransport {
   };
 }
 
-function combinedTransport(imageHits: { count: number }, imageMode: 'ok' | '404' | 'gif' = 'ok'): {
+function combinedTransport(
+  imageHits: { count: number },
+  imageMode: 'ok' | '404' | 'gif' = 'ok',
+): {
   transport: HttpTransport;
   download: BinaryTransport;
   detailHits: { count: number };
@@ -568,10 +571,11 @@ describe('WP-R2-MON-03 auto video metadata after first collect', () => {
     await blocker.done;
 
     const drainedPending: Promise<void>[] = [];
+    const { gate: _gate, ...drainDeps } = deps;
+    void _gate;
     const started = await drainDeferredAutoVideoMetadataRefresh(
       {
-        ...deps,
-        gate: undefined,
+        ...drainDeps,
         onBackfill: (task) => {
           drainedPending.push(task);
         },
