@@ -121,6 +121,16 @@ export {
   seedCommercialFixtures,
 } from './commercial-fixtures';
 export {
+  commercialIngressContentHash,
+  instantiateDefaultWorkflow,
+  loadPublishedDefaultTemplate,
+  sourceAdvisoryLockKeys,
+  stableJsonStringify,
+  type CommercialIngressSql,
+  type DefaultTemplateRef,
+  type InstantiatedWorkflow,
+} from './commercial-ingress';
+export {
   acquireLegacySyncLock,
   countExistingFollowerSamples,
   countExistingVideoSamples,

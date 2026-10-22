@@ -1742,6 +1742,75 @@ describe('HTTP API coverage against isolated Postgres', () => {
   );
 
   testChecked(
+    'commercial ingress upsert, batch, dry-run, and source lookup',
+    'commercial',
+    async () => {
+      const {
+        parseCommercialIngressBatchResponse,
+        parseCommercialIngressUpsertResponse,
+        parseCommercialSourceLookupResponse,
+      } = await import('@studio/contracts');
+      const sourceId = `http-cover-${randomUUID().slice(0, 8)}`;
+      const item = {
+        sourceKey: { namespace: 'hermes.fixture', sourceId },
+        originKind: 'fixture',
+        sourceUpdatedAt: '2026-10-22T00:00:00.000Z',
+        name: 'HTTP coverage ingress',
+        netAmount: '10.00',
+        rebateAmount: null,
+        sourceStatus: '跟进中',
+        sourceNotes: null,
+        payload: { title: 'HTTP coverage ingress', fixture: true },
+        evidence: { kind: 'http-coverage' },
+      };
+      const dry = parseCommercialIngressUpsertResponse(
+        await expectStatus(
+          await api('/api/v1/commercial/ingress/upsert', json('POST', { item, dryRun: true })),
+          200,
+        ),
+      );
+      expect(dry.result.outcome).toBe('would_create');
+      const created = parseCommercialIngressUpsertResponse(
+        await expectStatus(
+          await api('/api/v1/commercial/ingress/upsert', json('POST', { item })),
+          200,
+        ),
+      );
+      expect(created.result.outcome).toBe('created');
+      const batch = parseCommercialIngressBatchResponse(
+        await expectStatus(
+          await api(
+            '/api/v1/commercial/ingress/batch',
+            json('POST', {
+              items: [
+                {
+                  ...item,
+                  sourceKey: { namespace: 'hermes.fixture', sourceId: `${sourceId}-b` },
+                },
+              ],
+            }),
+          ),
+          200,
+        ),
+      );
+      expect(batch.results[0]?.outcome).toBe('created');
+      const lookup = parseCommercialSourceLookupResponse(
+        await expectStatus(
+          await api(`/api/v1/commercial/ingress/by-source/hermes.fixture/${sourceId}`),
+          200,
+        ),
+      );
+      expect(lookup.projectId).toBe(created.result.projectId!);
+      expect(created.result.projectId).toBeTruthy();
+      await expectStatus(
+        await api('/api/v1/commercial/projects?originKind=fixture&limit=1&offset=0'),
+        200,
+      );
+    },
+    60_000,
+  );
+
+  testChecked(
     'ops reads isolated logs with filters, pages, links, and redaction',
     'ops',
     async () => {

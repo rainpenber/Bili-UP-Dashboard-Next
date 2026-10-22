@@ -23,11 +23,14 @@ const ITEM_B = 'f0a10001-0001-4001-8001-0000000000b9';
 const CLOSED_ITEM = 'f0a10001-0001-4001-8001-0000000000c1';
 
 const READ = {
+  updatedAt: '2026-05-01T00:00:00.000000Z',
   userDeadlineAt: null,
   blockedSinceAt: null,
   archivedAt: null,
   stageEnteredAt: '2026-05-01T00:00:00.000000Z',
   businessClosedAt: null,
+  originKind: 'fixture',
+  source: null,
 };
 
 function openItem(id: string, title: string, extra: Record<string, unknown> = {}) {
@@ -92,7 +95,7 @@ function installApi(mode: 'ok' | 'missing' | 'http500' | 'empty' | 'detail404' =
         });
       }
       if (mode === 'empty') {
-        return new Response(JSON.stringify({ items: [] }), {
+        return new Response(JSON.stringify({ items: [], total: 0, limit: null, offset: 0 }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         });
@@ -130,7 +133,8 @@ function installApi(mode: 'ok' | 'missing' | 'http500' | 'empty' | 'detail404' =
       };
       const missingItem = { ...itemA } as Record<string, unknown>;
       delete missingItem.openItems;
-      const body = mode === 'missing' ? { items: [missingItem] } : { items: [itemA, itemB] };
+      const items = mode === 'missing' ? [missingItem] : [itemA, itemB];
+      const body = { items, total: items.length, limit: null, offset: 0 };
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'content-type': 'application/json' },

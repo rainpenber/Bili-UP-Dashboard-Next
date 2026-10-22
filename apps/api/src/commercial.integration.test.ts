@@ -178,11 +178,13 @@ describe('commercial read API', () => {
         rebate_amount: string | null;
         overall_stage: string;
         created_at: string;
+        updated_at: string;
         user_deadline_at: string | null;
         blocked_since_at: string | null;
         archived_at: string | null;
         stage_entered_at: string;
         business_closed_at: string | null;
+        origin_kind: string | null;
       }[]
     >`
       SELECT
@@ -192,11 +194,13 @@ describe('commercial read API', () => {
         rebate_amount::text AS rebate_amount,
         overall_stage,
         to_char(created_at AT TIME ZONE 'UTC', ${STAMP}) AS created_at,
+        to_char(updated_at AT TIME ZONE 'UTC', ${STAMP}) AS updated_at,
         to_char(user_deadline_at AT TIME ZONE 'UTC', ${STAMP}) AS user_deadline_at,
         to_char(blocked_since_at AT TIME ZONE 'UTC', ${STAMP}) AS blocked_since_at,
         to_char(archived_at AT TIME ZONE 'UTC', ${STAMP}) AS archived_at,
         to_char(stage_entered_at AT TIME ZONE 'UTC', ${STAMP}) AS stage_entered_at,
-        to_char(business_closed_at AT TIME ZONE 'UTC', ${STAMP}) AS business_closed_at
+        to_char(business_closed_at AT TIME ZONE 'UTC', ${STAMP}) AS business_closed_at,
+        origin_kind
       FROM commercial_projects
       ORDER BY created_at ASC, id ASC
     `;
@@ -239,6 +243,9 @@ describe('commercial read API', () => {
       itemsByProject.set(item.project_id, list);
     }
 
+    expect(body.total).toBe(projects.length);
+    expect(body.limit).toBeNull();
+    expect(body.offset).toBe(0);
     expect(body.items.map((item) => item.id)).toEqual(projects.map((project) => project.id));
     for (const [index, project] of projects.entries()) {
       const item = body.items[index];
@@ -254,11 +261,19 @@ describe('commercial read API', () => {
         anyNodeBlocked: projectNodes.some((node) => node.status === 'blocked'),
         blockingReason: blockingReason(projectItems, projectNodes),
         createdAt: project.created_at,
+        updatedAt: project.updated_at,
         userDeadlineAt: project.user_deadline_at,
         blockedSinceAt: project.blocked_since_at,
         archivedAt: project.archived_at,
         stageEnteredAt: project.stage_entered_at,
         businessClosedAt: project.business_closed_at,
+        originKind:
+          project.origin_kind === 'real' ||
+          project.origin_kind === 'fixture' ||
+          project.origin_kind === 'manual'
+            ? project.origin_kind
+            : null,
+        source: null,
         blockedNodeNames: blockedNames(projectNodes),
         openItems: projectItems.map((row) => ({
           id: row.id,

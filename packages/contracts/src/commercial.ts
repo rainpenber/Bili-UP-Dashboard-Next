@@ -93,6 +93,26 @@ export type CommercialOpenItemRead = {
   updatedAt: string;
 };
 
+export const COMMERCIAL_ORIGIN_KINDS = ['real', 'fixture', 'manual'] as const;
+export type CommercialOriginKind = (typeof COMMERCIAL_ORIGIN_KINDS)[number];
+
+export function isCommercialOriginKind(value: unknown): value is CommercialOriginKind {
+  return (
+    typeof value === 'string' && (COMMERCIAL_ORIGIN_KINDS as readonly string[]).includes(value)
+  );
+}
+
+/** Read-only source binding summary. Full payload lives on the ingress lookup route. */
+export type CommercialProjectSourceSummary = {
+  namespace: string;
+  sourceId: string;
+  sourceUpdatedAt: string;
+  importedAt: string;
+  contentHash: string;
+  sourceStatus: string | null;
+  sourceNotes: string | null;
+};
+
 export type CommercialProjectListItem = {
   id: string;
   name: string;
@@ -108,6 +128,8 @@ export type CommercialProjectListItem = {
   blockingReason: string | null;
   /** commercial_projects.created_at. Always stored. */
   createdAt: string;
+  /** commercial_projects.updated_at. Concurrency token for ingress updates. */
+  updatedAt: string;
   /** commercial_projects.user_deadline_at. Null when no external deadline was stored. */
   userDeadlineAt: string | null;
   /** commercial_projects.blocked_since_at. Null when no block start was stored. */
@@ -118,6 +140,13 @@ export type CommercialProjectListItem = {
   stageEnteredAt: string;
   /** commercial_projects.business_closed_at. */
   businessClosedAt: string | null;
+  /**
+   * Declared origin. Null means unclassified (not mass-labeled as fixture or real).
+   * Fixture IDs are marked explicitly; missing real ingress stays empty.
+   */
+  originKind: CommercialOriginKind | null;
+  /** Present when a commercial_project_sources row is bound. */
+  source: CommercialProjectSourceSummary | null;
   /** Names of blocked nodes only, same layout order as currentStageNames. */
   blockedNodeNames: string[];
   /** Every open_items row for this project, including closed and cancelled. */
@@ -126,6 +155,10 @@ export type CommercialProjectListItem = {
 
 export type CommercialProjectListResponse = {
   items: CommercialProjectListItem[];
+  /** Total rows matching the query before limit/offset. */
+  total: number;
+  limit: number | null;
+  offset: number;
 };
 
 export type CommercialPublishStatus = {
@@ -335,6 +368,29 @@ function parsePublish(value: unknown): CommercialPublishStatus {
   };
 }
 
+function parseOriginKind(value: unknown): CommercialOriginKind | null {
+  if (value === null) return null;
+  if (!isCommercialOriginKind(value)) throw new Error('originKind is invalid');
+  return value;
+}
+
+function parseSourceSummary(value: unknown): CommercialProjectSourceSummary | null {
+  if (value === null) return null;
+  const record = asRecord(value, 'source');
+  if (typeof record.contentHash !== 'string' || record.contentHash.length === 0) {
+    throw new Error('source.contentHash must be a non-empty string');
+  }
+  return {
+    namespace: parseName(record.namespace, 'source.namespace'),
+    sourceId: parseName(record.sourceId, 'source.sourceId'),
+    sourceUpdatedAt: parseIso(record.sourceUpdatedAt, 'source.sourceUpdatedAt'),
+    importedAt: parseIso(record.importedAt, 'source.importedAt'),
+    contentHash: record.contentHash,
+    sourceStatus: parseNullableText(record.sourceStatus, 'source.sourceStatus'),
+    sourceNotes: parseNullableText(record.sourceNotes, 'source.sourceNotes'),
+  };
+}
+
 function parseListItem(value: unknown): CommercialProjectListItem {
   const record = asRecord(value, 'project list item');
   if (!isOverallStage(record.overallStage)) throw new Error('overallStage is invalid');
@@ -351,20 +407,43 @@ function parseListItem(value: unknown): CommercialProjectListItem {
     anyNodeBlocked: record.anyNodeBlocked,
     blockingReason: parseBlockingReason(record.blockingReason),
     createdAt: parseIso(record.createdAt, 'createdAt'),
+    updatedAt: parseIso(record.updatedAt, 'updatedAt'),
     userDeadlineAt: parseNullableIso(record.userDeadlineAt, 'userDeadlineAt'),
     blockedSinceAt: parseNullableIso(record.blockedSinceAt, 'blockedSinceAt'),
     archivedAt: parseNullableIso(record.archivedAt, 'archivedAt'),
     stageEnteredAt: parseIso(record.stageEnteredAt, 'stageEnteredAt'),
     businessClosedAt: parseNullableIso(record.businessClosedAt, 'businessClosedAt'),
+    originKind: parseOriginKind(record.originKind),
+    source: parseSourceSummary(record.source),
     blockedNodeNames: parseStageNames(record.blockedNodeNames, 'blockedNodeNames'),
     openItems: parseOpenItems(record.openItems),
   };
 }
 
+function parseLimit(value: unknown): number | null {
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error('limit must be a non-negative integer or null');
+  }
+  return value;
+}
+
+function parseNonNegativeInt(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative integer`);
+  }
+  return value;
+}
+
 export function parseCommercialProjectList(value: unknown): CommercialProjectListResponse {
   const record = asRecord(value, 'project list');
   if (!Array.isArray(record.items)) throw new Error('items must be an array');
-  return { items: record.items.map((item) => parseListItem(item)) };
+  return {
+    items: record.items.map((item) => parseListItem(item)),
+    total: parseNonNegativeInt(record.total, 'total'),
+    limit: parseLimit(record.limit),
+    offset: parseNonNegativeInt(record.offset, 'offset'),
+  };
 }
 
 export function parseCommercialProjectDetail(value: unknown): CommercialProjectDetail {

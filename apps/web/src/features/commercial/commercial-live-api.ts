@@ -58,8 +58,17 @@ function parseRead<T>(parse: (value: unknown) => T, value: unknown): T {
   }
 }
 
-export function fetchLiveProjectList(): Promise<CommercialProjectListResponse> {
-  return getJson('/api/v1/commercial/projects').then((body) =>
+export type LiveProjectListParams = {
+  originKind?: 'real' | 'fixture' | 'manual' | 'unclassified' | '';
+};
+
+export function fetchLiveProjectList(
+  params: LiveProjectListParams = {},
+): Promise<CommercialProjectListResponse> {
+  const search = new URLSearchParams();
+  if (params.originKind) search.set('originKind', params.originKind);
+  const qs = search.toString();
+  return getJson('/api/v1/commercial/projects' + (qs ? `?${qs}` : '')).then((body) =>
     parseRead(parseCommercialProjectList, body),
   );
 }

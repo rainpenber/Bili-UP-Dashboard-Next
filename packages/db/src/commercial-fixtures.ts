@@ -347,22 +347,22 @@ async function alignFixtureBlockPins(sql: Sql, pins: FixtureBlockPin[]): Promise
 
 export async function seedCommercialFixtures(sql: Sql): Promise<void> {
   await sql`
-    INSERT INTO commercial_projects (id, name, net_amount, rebate_amount, overall_stage, user_deadline_at, archived_at, business_closed_at)
+    INSERT INTO commercial_projects (id, name, net_amount, rebate_amount, overall_stage, user_deadline_at, archived_at, business_closed_at, origin_kind)
     VALUES
-      (${FIXTURE_PROJECT_IDS.outlineDebate}, '大纲方向拉扯样例', 12000, 800, 'pre_publish', ${'2026-07-01T00:00:00.000Z'}, NULL, NULL),
-      (${FIXTURE_PROJECT_IDS.productionParallel}, '制作并行样例', 28000, 1200, 'pre_publish', ${'2026-07-15T00:00:00.000Z'}, NULL, NULL),
-      (${FIXTURE_PROJECT_IDS.publishedOpen}, '已上线未收尾样例', 45000, 3500, 'published_winding_down', ${'2026-06-01T00:00:00.000Z'}, NULL, NULL),
-      (${FIXTURE_PROJECT_IDS.clientBlocking}, '甲方卡文案确认样例', 18000, 600, 'pre_publish', ${'2026-08-01T00:00:00.000Z'}, NULL, NULL),
-      (${FIXTURE_PROJECT_IDS.hermesPending}, 'Hermes 待审写入样例', 22000, 900, 'pre_publish', ${'2026-08-10T00:00:00.000Z'}, NULL, NULL),
-      (${FIXTURE_PROJECT_IDS.archived}, '已归档历史商单样例', 15000, 500, 'archived', ${'2025-12-01T00:00:00.000Z'}, ${'2026-01-15T00:00:00.000Z'}, NULL),
-      (${FIXTURE_PROJECT_IDS.multiBlock}, '多节点并行阻塞样例', 32000, 1400, 'pre_publish', ${'2026-08-20T00:00:00.000Z'}, NULL, NULL),
-      (${FIXTURE_PROJECT_IDS.optionalNa}, '可选节点不适用样例', 38000, 2000, 'published_winding_down', ${'2026-05-15T00:00:00.000Z'}, NULL, NULL),
-      (${FIXTURE_PROJECT_IDS.freshInquiryOnly}, '新询单仅询单完成样例', 8000, 0, 'pre_publish', ${'2026-09-01T00:00:00.000Z'}, NULL, NULL),
-      (${FIXTURE_PROJECT_IDS.settlementOverdue}, '结算跟进逾期样例', 52000, 4200, 'published_winding_down', ${'2026-04-01T00:00:00.000Z'}, NULL, NULL),
-      (${FIXTURE_PROJECT_IDS.publishReady}, '审核已过待发片样例', 36000, 1800, 'pre_publish', ${'2026-07-20T00:00:00.000Z'}, NULL, NULL),
-      (${FIXTURE_PROJECT_IDS.businessClosed}, '商单已结案样例', 48000, 3000, 'closed', ${'2026-03-01T00:00:00.000Z'}, NULL, ${'2026-06-10T00:00:00.000Z'}),
-      (${FIXTURE_PROJECT_IDS.rebateDispute}, '返点争议卡结算样例', 41000, 6500, 'published_winding_down', ${'2026-05-25T00:00:00.000Z'}, NULL, NULL)
-    ON CONFLICT (id) DO NOTHING
+      (${FIXTURE_PROJECT_IDS.outlineDebate}, '大纲方向拉扯样例', 12000, 800, 'pre_publish', ${'2026-07-01T00:00:00.000Z'}, NULL, NULL, 'fixture'),
+      (${FIXTURE_PROJECT_IDS.productionParallel}, '制作并行样例', 28000, 1200, 'pre_publish', ${'2026-07-15T00:00:00.000Z'}, NULL, NULL, 'fixture'),
+      (${FIXTURE_PROJECT_IDS.publishedOpen}, '已上线未收尾样例', 45000, 3500, 'published_winding_down', ${'2026-06-01T00:00:00.000Z'}, NULL, NULL, 'fixture'),
+      (${FIXTURE_PROJECT_IDS.clientBlocking}, '甲方卡文案确认样例', 18000, 600, 'pre_publish', ${'2026-08-01T00:00:00.000Z'}, NULL, NULL, 'fixture'),
+      (${FIXTURE_PROJECT_IDS.hermesPending}, 'Hermes 待审写入样例', 22000, 900, 'pre_publish', ${'2026-08-10T00:00:00.000Z'}, NULL, NULL, 'fixture'),
+      (${FIXTURE_PROJECT_IDS.archived}, '已归档历史商单样例', 15000, 500, 'archived', ${'2025-12-01T00:00:00.000Z'}, ${'2026-01-15T00:00:00.000Z'}, NULL, 'fixture'),
+      (${FIXTURE_PROJECT_IDS.multiBlock}, '多节点并行阻塞样例', 32000, 1400, 'pre_publish', ${'2026-08-20T00:00:00.000Z'}, NULL, NULL, 'fixture'),
+      (${FIXTURE_PROJECT_IDS.optionalNa}, '可选节点不适用样例', 38000, 2000, 'published_winding_down', ${'2026-05-15T00:00:00.000Z'}, NULL, NULL, 'fixture'),
+      (${FIXTURE_PROJECT_IDS.freshInquiryOnly}, '新询单仅询单完成样例', 8000, 0, 'pre_publish', ${'2026-09-01T00:00:00.000Z'}, NULL, NULL, 'fixture'),
+      (${FIXTURE_PROJECT_IDS.settlementOverdue}, '结算跟进逾期样例', 52000, 4200, 'published_winding_down', ${'2026-04-01T00:00:00.000Z'}, NULL, NULL, 'fixture'),
+      (${FIXTURE_PROJECT_IDS.publishReady}, '审核已过待发片样例', 36000, 1800, 'pre_publish', ${'2026-07-20T00:00:00.000Z'}, NULL, NULL, 'fixture'),
+      (${FIXTURE_PROJECT_IDS.businessClosed}, '商单已结案样例', 48000, 3000, 'closed', ${'2026-03-01T00:00:00.000Z'}, NULL, ${'2026-06-10T00:00:00.000Z'}, 'fixture'),
+      (${FIXTURE_PROJECT_IDS.rebateDispute}, '返点争议卡结算样例', 41000, 6500, 'published_winding_down', ${'2026-05-25T00:00:00.000Z'}, NULL, NULL, 'fixture')
+    ON CONFLICT (id) DO UPDATE SET origin_kind = EXCLUDED.origin_kind
   `;
 
   for (const projectId of FIXTURE_PROJECT_ID_LIST) {
