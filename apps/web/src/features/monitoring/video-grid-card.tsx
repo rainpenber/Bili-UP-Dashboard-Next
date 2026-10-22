@@ -87,11 +87,12 @@ export function VideoGridCard({
         />
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-2">
+      {/* 四列网格卡片窄（~240px）：不 wrap，信息块 min-w-0 收缩；手机单列足够宽 */}
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <button
           type="button"
           onClick={onSelect}
-          className="flex min-w-0 flex-1 basis-[10rem] flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-w-0 flex-1 flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-pressed={selected}
           aria-label={`选择视频 ${card.displayName} 详情区`}
         >
@@ -126,7 +127,7 @@ export function VideoGridCard({
 
         <div
           data-testid="monitor-card-actions"
-          className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2"
+          className="flex shrink-0 items-center justify-end gap-1.5"
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >

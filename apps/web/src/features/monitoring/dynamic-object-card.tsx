@@ -59,11 +59,19 @@ export function DynamicObjectCard({
           selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
         )}
       >
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-2">
+        <div
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-2',
+            presentation === 'list' && 'flex-wrap gap-x-2 gap-y-2',
+          )}
+        >
           <button
             type="button"
             onClick={onSelect}
-            className="flex min-w-0 flex-1 basis-[10rem] flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              'flex min-w-0 flex-1 flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              presentation === 'list' && 'basis-[10rem]',
+            )}
             aria-pressed={selected}
             aria-label={`选择动态 ${item.dynamicId}`}
           >
