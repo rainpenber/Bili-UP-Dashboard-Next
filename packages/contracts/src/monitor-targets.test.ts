@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   MonitorContractError,
   parseCreateMonitorTargetRequest,
+  parseFirstAccessInterventionList,
   parseMonitorStartAtInput,
   parsePatchMonitorTargetRequest,
   splitTagInput,
@@ -200,5 +201,36 @@ describe('monitor target contracts', () => {
     );
     expect(parseMonitorStartAtInput('2028-02-29T18:00:00+08:00')).toBe('2028-02-29T10:00:00.000Z');
     expect(parseMonitorStartAtInput('2027-02-28T18:00:00+08:00')).toBe('2027-02-28T10:00:00.000Z');
+  });
+
+  test('parses first-access intervention list for Hermes handoff', () => {
+    const listed = parseFirstAccessInterventionList({
+      items: [
+        {
+          id: '00000000-0000-4000-8000-000000000001',
+          targetId: '00000000-0000-4000-8000-000000000002',
+          bvid: 'BV1xx411c7mD',
+          status: 'awaiting_manual',
+          failureCount: 3,
+          reason: 'view 业务码 -404；达到上限待人工介入 [first_access_awaiting_manual]',
+          failedAt: '2026-10-22T00:00:00.000Z',
+        },
+        {
+          id: '00000000-0000-4000-8000-000000000003',
+          targetId: '00000000-0000-4000-8000-000000000004',
+          bvid: 'BV1xx411c7mE',
+          status: 'waiting_confirmation',
+          failureCount: 1,
+          reason: '暂不可访问 [first_access_waiting]',
+          failedAt: '2026-10-22T00:05:00.000Z',
+        },
+      ],
+    });
+    expect(listed.items).toHaveLength(2);
+    expect(listed.items[0]?.status).toBe('awaiting_manual');
+    expect(listed.items[1]?.failureCount).toBe(1);
+    expect(() => parseFirstAccessInterventionList({ items: [{ id: 'x' }] })).toThrow(
+      MonitorContractError,
+    );
   });
 });

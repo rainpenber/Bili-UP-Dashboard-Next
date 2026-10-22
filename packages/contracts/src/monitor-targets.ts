@@ -684,3 +684,65 @@ export function splitTagInput(raw: string): string[] {
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
 }
+
+/** First-collect inaccessible wait vs manual-intervention handoff (WP-R2-17A2). */
+export const FIRST_ACCESS_INTERVENTION_STATUSES = [
+  'waiting_confirmation',
+  'awaiting_manual',
+] as const;
+export type FirstAccessInterventionStatus = (typeof FIRST_ACCESS_INTERVENTION_STATUSES)[number];
+
+export type FirstAccessIntervention = {
+  /** Stable round id = collector_jobs.id for this bounded attempt series. */
+  id: string;
+  targetId: string;
+  bvid: string;
+  status: FirstAccessInterventionStatus;
+  failureCount: number;
+  reason: string;
+  failedAt: string;
+};
+
+export type FirstAccessInterventionList = {
+  items: FirstAccessIntervention[];
+};
+
+export function parseFirstAccessIntervention(value: unknown): FirstAccessIntervention {
+  if (!isRecord(value)) {
+    throw new MonitorContractError('invalid_body', '首次采集介入事项不完整');
+  }
+  if (
+    typeof value.id !== 'string' ||
+    typeof value.targetId !== 'string' ||
+    typeof value.bvid !== 'string' ||
+    typeof value.reason !== 'string' ||
+    typeof value.failedAt !== 'string' ||
+    typeof value.failureCount !== 'number' ||
+    !Number.isInteger(value.failureCount) ||
+    value.failureCount < 1
+  ) {
+    throw new MonitorContractError('invalid_body', '首次采集介入事项不完整');
+  }
+  if (
+    value.status !== 'waiting_confirmation' &&
+    value.status !== 'awaiting_manual'
+  ) {
+    throw new MonitorContractError('invalid_body', '首次采集介入事项状态不正确');
+  }
+  return {
+    id: value.id,
+    targetId: value.targetId,
+    bvid: value.bvid,
+    status: value.status,
+    failureCount: value.failureCount,
+    reason: value.reason,
+    failedAt: value.failedAt,
+  };
+}
+
+export function parseFirstAccessInterventionList(value: unknown): FirstAccessInterventionList {
+  if (!isRecord(value) || !Array.isArray(value.items)) {
+    throw new MonitorContractError('invalid_body', '首次采集介入列表不完整');
+  }
+  return { items: value.items.map((item) => parseFirstAccessIntervention(item)) };
+}

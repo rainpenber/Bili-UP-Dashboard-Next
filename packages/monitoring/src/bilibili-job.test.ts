@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import type { ClaimedCollectorJob, VideoSampleWrite } from '@studio/db';
-import { BilibiliFailure, planBilibiliFailure, retryDelayMinutes } from './bilibili-failure';
+import {
+  BilibiliFailure,
+  FIRST_ACCESS_RETRY_MINUTES,
+  planBilibiliFailure,
+  retryDelayMinutes,
+} from './bilibili-failure';
 import type { CollectorLogger } from './collector-log';
 import type { BilibiliEffects } from './bilibili-job';
 import { runBilibiliJob } from './bilibili-job';
@@ -75,6 +80,7 @@ function effects(patch: Partial<BilibiliEffects> = {}): BilibiliEffects & {
       intervalMode: 'auto',
       intervalMinutes: 60,
       pubdate: null,
+      lastSuccessAt: null,
     }),
     commitVideo: async (input) => {
       const key = `${input.sample.bvid}|${input.sample.sampledAt.toISOString()}`;
@@ -199,6 +205,39 @@ describe('bilibili failure plans', () => {
       expect(limited.resumeAt.toISOString()).toBe('2026-10-19T01:00:00.000Z');
     }
   });
+
+  test('first-access not_found waits five minutes then terminals at three', () => {
+    const now = new Date('2026-10-19T00:00:00.000Z');
+    const first = planBilibiliFailure({
+      kind: 'not_found',
+      attempts: 1,
+      maxAttempts: 3,
+      now,
+      firstAccessWait: true,
+    });
+    expect(first).toMatchObject({ action: 'first_access_retry', terminal: false });
+    if (first.action === 'first_access_retry') {
+      expect(first.retryAt?.toISOString()).toBe(
+        new Date(now.getTime() + FIRST_ACCESS_RETRY_MINUTES * 60_000).toISOString(),
+      );
+    }
+    const third = planBilibiliFailure({
+      kind: 'not_found',
+      attempts: 3,
+      maxAttempts: 3,
+      now,
+      firstAccessWait: true,
+    });
+    expect(third).toMatchObject({
+      action: 'first_access_retry',
+      terminal: true,
+      retryAt: null,
+    });
+    expect(planBilibiliFailure({ kind: 'not_found', attempts: 1, maxAttempts: 3, now })).toEqual({
+      action: 'disable',
+      terminal: true,
+    });
+  });
 });
 
 describe('bilibili job orchestration', () => {
@@ -309,8 +348,96 @@ describe('bilibili job orchestration', () => {
     expect(events.some((row) => row.event === 'job.succeeded')).toBe(true);
   });
 
-  test('-404 disables the target and does not retry', async () => {
-    const store = effects();
+  test('never-succeeded video -404 schedules first-access retry instead of disable', async () => {
+    const failCalls: Array<{ retryAt: Date | null; error: string; haltAutoSchedule?: boolean }> =
+      [];
+    const store = effects({
+      failJob: async (input) => {
+        failCalls.push({
+          retryAt: input.retryAt,
+          error: input.error,
+          ...(input.haltAutoSchedule ? { haltAutoSchedule: true } : {}),
+        });
+        return { runId: 'run-fail', applied: true };
+      },
+    });
+    let calls = 0;
+    const current = provider(async () => {
+      calls += 1;
+      throw new BilibiliFailure({
+        message: 'view 业务码 -404',
+        kind: 'not_found',
+        endpoint: 'view',
+        statusCode: 200,
+        bizCode: -404,
+        calls: [],
+      });
+    });
+    const outcome = await runBilibiliJob({
+      job: job({ attempts: 1 }),
+      provider: current,
+      effects: store,
+      forcedAccountId: null,
+      maxAttempts: 3,
+      now: new Date('2026-10-19T00:00:00.000Z'),
+    });
+    expect(outcome).toBe('failed');
+    expect(store.disabled).toEqual([]);
+    expect(failCalls).toHaveLength(1);
+    expect(failCalls[0]?.retryAt?.toISOString()).toBe('2026-10-19T00:05:00.000Z');
+    expect(failCalls[0]?.error).toContain('[first_access_waiting]');
+    expect(failCalls[0]?.error).toContain('失败 1/3 次');
+    expect(calls).toBe(1);
+  });
+
+  test('never-succeeded video -404 third failure disables for manual intervention', async () => {
+    const failCalls: Array<{ retryAt: Date | null; error: string; haltAutoSchedule?: boolean }> =
+      [];
+    const store = effects({
+      failJob: async (input) => {
+        failCalls.push({
+          retryAt: input.retryAt,
+          error: input.error,
+          ...(input.haltAutoSchedule ? { haltAutoSchedule: true } : {}),
+        });
+        return { runId: 'run-fail', applied: true };
+      },
+    });
+    const current = provider(async () => {
+      throw new BilibiliFailure({
+        message: 'view 业务码 -404',
+        kind: 'not_found',
+        endpoint: 'view',
+        statusCode: 200,
+        bizCode: -404,
+        calls: [],
+      });
+    });
+    const outcome = await runBilibiliJob({
+      job: job({ attempts: 3 }),
+      provider: current,
+      effects: store,
+      forcedAccountId: null,
+      maxAttempts: 3,
+      now: new Date('2026-10-19T00:00:00.000Z'),
+    });
+    expect(outcome).toBe('failed');
+    expect(store.disabled).toEqual(['target-1']);
+    expect(failCalls[0]?.retryAt).toBeNull();
+    expect(failCalls[0]?.haltAutoSchedule).toBe(true);
+    expect(failCalls[0]?.error).toContain('[first_access_awaiting_manual]');
+  });
+
+  test('already-succeeded video -404 disables the target and does not retry', async () => {
+    const store = effects({
+      readSchedule: async () => ({
+        type: 'video',
+        intervalMode: 'auto',
+        intervalMinutes: 60,
+        pubdate: new Date('2026-10-01T00:00:00.000Z'),
+        lastSuccessAt: new Date('2026-10-18T00:00:00.000Z'),
+      }),
+    });
     let calls = 0;
     const current = provider(async () => {
       calls += 1;
@@ -466,6 +593,7 @@ describe('dynamic job dispatch', () => {
         intervalMode: 'fixed',
         intervalMinutes: 60,
         pubdate: new Date('2020-01-01T00:00:00.000Z'),
+        lastSuccessAt: null,
       }),
       commitDynamic: async (input) => {
         captured.push({

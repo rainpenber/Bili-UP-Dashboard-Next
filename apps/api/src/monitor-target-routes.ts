@@ -2,6 +2,7 @@ import {
   MonitorContractError,
   parseCollectorJob,
   parseCreateMonitorTargetRequest,
+  parseFirstAccessInterventionList,
   parseMonitorListQuery,
   parseMonitorTarget,
   parseMonitorTargetId,
@@ -14,6 +15,7 @@ import {
   getMonitorTarget,
   insertMonitorTarget,
   listCollectorJobs,
+  listFirstAccessInterventions,
   listMonitorTargets,
   requestCollectorRun,
   softDeleteMonitorTarget,
@@ -519,6 +521,31 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
         totalPages,
         items: listed.items.map(toCollectorJob),
       });
+    } catch (err) {
+      const failure = jsonError(err);
+      return c.json(failure.body, failure.status);
+    }
+  });
+
+  /**
+   * Durable first-access wait / manual-intervention facts for Hermes.
+   * Pure read from target+job state; repeating does not invent new facts.
+   */
+  app.get('/first-access-interventions', async (c) => {
+    try {
+      const rows = await listFirstAccessInterventions(db);
+      const body = parseFirstAccessInterventionList({
+        items: rows.map((row) => ({
+          id: row.id,
+          targetId: row.targetId,
+          bvid: row.bvid,
+          status: row.status,
+          failureCount: row.failureCount,
+          reason: row.reason,
+          failedAt: row.failedAt.toISOString(),
+        })),
+      });
+      return c.json(body);
     } catch (err) {
       const failure = jsonError(err);
       return c.json(failure.body, failure.status);
