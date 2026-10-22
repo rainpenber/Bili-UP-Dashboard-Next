@@ -1090,6 +1090,22 @@ describe('HTTP API coverage against isolated Postgres', () => {
       expect(cached.bvid).toBe('BV1metarefaa');
       expect(injectedUrls.length).toBe(callsAfterSuccess);
 
+      const pinned = (await expectStatus(
+        await api('/api/v1/monitor/videos/BV1metarefaa/pin', json('PATCH', { pinned: true })),
+        200,
+      )) as { bvid: string; pinned: boolean; pinnedAt: string | null };
+      expect(pinned).toMatchObject({ bvid: 'BV1metarefaa', pinned: true });
+      expect(pinned.pinnedAt).toBeTruthy();
+      const unpinned = (await expectStatus(
+        await api('/api/v1/monitor/videos/BV1metarefaa/pin', json('PATCH', { pinned: false })),
+        200,
+      )) as { bvid: string; pinned: boolean; pinnedAt: string | null };
+      expect(unpinned).toEqual({ bvid: 'BV1metarefaa', pinned: false, pinnedAt: null });
+      await expectStatus(
+        await api('/api/v1/monitor/videos/BV1missngA11/pin', json('PATCH', { pinned: true })),
+        404,
+      );
+
       const failed = await api(
         '/api/v1/monitor/videos/BV1metafaaax/refresh',
         json('POST', { force: true }),

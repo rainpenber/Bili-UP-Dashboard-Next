@@ -1,5 +1,6 @@
 import {
   bigintToJson,
+  MonitorContractError,
   parseCreatorMid,
   parseCreatorVideosLimit,
   parseCreatorVideosOffset,
@@ -7,6 +8,9 @@ import {
   parseMetricsLimit,
   parseMonitorPage,
   parseMonitorPageSize,
+  parsePinVideoRequest,
+  parsePinVideoResponse,
+  parseVideoBvidParam,
   MONITOR_MAX_METRICS_LIMIT,
   type Paginated,
   type CreatorListItem,
@@ -21,7 +25,12 @@ import {
   type DynamicMetricPoint,
   type VideoCreatorSummary,
 } from '@studio/contracts';
-import { VIDEO_PARTITION_JOINS, VIDEO_PARTITION_NAME_SQL, type Sql } from '@studio/db';
+import {
+  setVideoPinned,
+  VIDEO_PARTITION_JOINS,
+  VIDEO_PARTITION_NAME_SQL,
+  type Sql,
+} from '@studio/db';
 import {
   BackfillConflict,
   MetadataRequestError,
@@ -765,6 +774,35 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
       return c.json({ dynamicId, limit, items });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
+    }
+  });
+
+  app.patch('/videos/:bvid/pin', async (c) => {
+    try {
+      const bvid = parseVideoBvidParam(c.req.param('bvid'));
+      const body = parsePinVideoRequest(await readJsonBody(c.req.raw));
+      const updated = await setVideoPinned(db, bvid, body.pinned);
+      if (!updated) {
+        return c.json({ error: '未找到该视频', code: 'not_found' }, 404);
+      }
+      return c.json(
+        parsePinVideoResponse({
+          bvid: updated.bvid,
+          pinned: updated.pinnedAt != null,
+          pinnedAt: updated.pinnedAt ? updated.pinnedAt.toISOString() : null,
+        }),
+      );
+    } catch (err) {
+      if (err instanceof MonitorContractError) {
+        return c.json({ error: err.message, code: err.code }, 400);
+      }
+      if (err instanceof SyntaxError) {
+        return c.json({ error: '请求体不是合法 JSON', code: 'invalid_body' }, 400);
+      }
+      return c.json(
+        { error: err instanceof Error ? err.message : '请求无法处理', code: 'internal' },
+        500,
+      );
     }
   });
 

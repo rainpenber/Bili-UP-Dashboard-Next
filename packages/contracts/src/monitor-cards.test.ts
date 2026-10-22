@@ -4,7 +4,10 @@ import {
   parseCreateMonitorTargetRequest,
   parseMonitorCard,
   parseMonitorCardIdentity,
+  parseMonitorCardListQuery,
   parseMonitorExternalInput,
+  parsePinVideoRequest,
+  parseVideoBvidParam,
   serializeCreateMonitorTargetRequest,
 } from './index';
 
@@ -126,6 +129,7 @@ describe('monitor card contracts', () => {
         displayName: 'BV1xx411c7mD',
         hasEntity: true,
         hasSamples: false,
+        pinned: false,
         monitorState: 'unmonitored',
         execution: 'none',
         target: null,
@@ -141,5 +145,29 @@ describe('monitor card contracts', () => {
         monitoringEnabled: true,
       }),
     ).toThrow(/monitoringEnabled/);
+  });
+
+  test('defaults video sort to published_desc and rejects invalid sort', () => {
+    expect(parseMonitorCardListQuery({ type: 'video', page: '1', pageSize: '8' }).sort).toBe(
+      'published_desc',
+    );
+    expect(
+      parseMonitorCardListQuery({
+        type: 'video',
+        page: '1',
+        pageSize: '8',
+        sort: 'published_asc',
+      }).sort,
+    ).toBe('published_asc');
+    expect(() =>
+      parseMonitorCardListQuery({ type: 'video', page: '1', pageSize: '8', sort: 'views' }),
+    ).toThrow(/排序/);
+  });
+
+  test('pin body and bvid reuse existing validation', () => {
+    expect(parsePinVideoRequest({ pinned: true })).toEqual({ pinned: true });
+    expect(() => parsePinVideoRequest({ pinned: 'yes' })).toThrow(/pinned/);
+    expect(parseVideoBvidParam('BV1xx411c7mD')).toBe('BV1xx411c7mD');
+    expect(() => parseVideoBvidParam('not-a-bvid')).toThrow(/BV/);
   });
 });

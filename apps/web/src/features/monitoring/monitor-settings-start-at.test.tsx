@@ -31,6 +31,7 @@ function baseCard(
     displayName: '计划视频',
     hasEntity: true,
     hasSamples: false,
+    pinned: false,
     monitorState: 'active',
     execution: 'waiting',
     target: {

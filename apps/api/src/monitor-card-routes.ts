@@ -33,6 +33,7 @@ export function toMonitorCard(row: MonitorCardRow): MonitorCard {
     displayName: monitorCardDisplayName(row.title, row.targetLabel, row.externalId),
     hasEntity: row.hasEntity,
     hasSamples: row.hasSamples,
+    pinned: row.pinned,
     monitorState: derived.monitorState,
     execution: derived.execution,
     target:
@@ -84,8 +85,12 @@ export function registerMonitorCardRoutes(app: Hono, db: Sql): void {
         pageSize: c.req.query('pageSize'),
         q: c.req.query('q'),
         category: c.req.query('category'),
+        sort: c.req.query('sort'),
       });
-      const listed = await listMonitorCards(db, query);
+      const listed = await listMonitorCards(db, {
+        ...query,
+        sort: query.type === 'video' ? query.sort : null,
+      });
       const totalPages = Math.max(1, Math.ceil(listed.totalItems / query.pageSize));
       return c.json(
         parseMonitorCardList({

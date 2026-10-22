@@ -40,6 +40,7 @@ function card(patch: Record<string, unknown> = {}) {
     displayName: '离线视频',
     hasEntity: true,
     hasSamples: true,
+    pinned: false,
     monitorState: 'active',
     execution: 'waiting',
     target: {

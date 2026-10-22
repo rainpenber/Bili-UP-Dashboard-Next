@@ -27,12 +27,20 @@ import {
   writeMonitorSearchParams,
   type MonitorPresenceFilter,
   type MonitorTab,
+  type MonitorVideoSort,
   type MonitorView,
 } from '@/features/monitoring/monitor-url-state';
 import { OfflineEnvironmentBadge } from '@/features/monitoring/offline-environment-badge';
 import { formatUnknownMetric } from '@/lib/format-compact-number';
 import { formatFullLocalTime, formatShortTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 const TAB_LABEL: Record<MonitorTab, string> = {
   videos: '视频',
@@ -45,6 +53,11 @@ const MONITOR_FILTER_LABEL: Record<MonitorPresenceFilter, string> = {
   active: '监控中',
   paused: '已暂停',
   unmonitored: '未监控',
+};
+
+const VIDEO_SORT_LABEL: Record<MonitorVideoSort, string> = {
+  published_desc: '最新发布',
+  published_asc: '最早发布',
 };
 
 function MonitorLayoutToggle({
@@ -108,6 +121,7 @@ export function MonitoringPage() {
     monitor: state.monitor,
     q: state.q,
     category: state.category,
+    ...(state.tab === 'videos' ? { sort: state.sort } : {}),
     enabled: state.tab === 'videos' || state.tab === 'creators',
   });
   const dynamicsQuery = useDynamicsQuery(state.page, state.tab === 'dynamics');
@@ -213,6 +227,29 @@ export function MonitoringPage() {
                 ))}
               </select>
             </div>
+            {state.tab === 'videos' ? (
+              <div className="grid w-full min-w-0 max-w-xs gap-1.5">
+                <Label htmlFor="monitor-video-sort">排序</Label>
+                <Select
+                  value={state.sort}
+                  onValueChange={(value) => {
+                    if (value !== 'published_desc' && value !== 'published_asc') return;
+                    patchUrl({ sort: value, page: 1, selected: null });
+                  }}
+                >
+                  <SelectTrigger id="monitor-video-sort" aria-label="排序" className="w-full">
+                    <SelectValue placeholder="排序" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(VIDEO_SORT_LABEL) as MonitorVideoSort[]).map((sort) => (
+                      <SelectItem key={sort} value={sort}>
+                        {VIDEO_SORT_LABEL[sort]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <MonitorLayoutToggle value={state.view} onValueChange={(view) => patchUrl({ view })} />
           </div>
         )}

@@ -21,6 +21,11 @@ export type MonitorCardState = (typeof MONITOR_CARD_STATES)[number];
 export const MONITOR_EXECUTION_STATES = ['waiting', 'running', 'failed', 'none'] as const;
 export type MonitorExecutionState = (typeof MONITOR_EXECUTION_STATES)[number];
 
+/** Video card list sort only. Creators ignore this and keep sampled_at order. */
+export const MONITOR_CARD_SORTS = ['published_desc', 'published_asc'] as const;
+export type MonitorCardSort = (typeof MONITOR_CARD_SORTS)[number];
+export const DEFAULT_MONITOR_CARD_SORT: MonitorCardSort = 'published_desc';
+
 const MAX_QUERY_LENGTH = 120;
 const MAX_CATEGORY_LENGTH = 80;
 
@@ -65,6 +70,8 @@ export type MonitorCard = {
   displayName: string;
   hasEntity: boolean;
   hasSamples: boolean;
+  /** True when videos.pinned_at is set. Always false for creator cards. */
+  pinned: boolean;
   monitorState: MonitorCardState;
   execution: MonitorExecutionState;
   target: MonitorCardTarget | null;
@@ -79,6 +86,18 @@ export type MonitorCardListQuery = {
   pageSize: number;
   q: string | null;
   category: string | null;
+  /** Only applied for type=video. Creators keep sampled_at order. */
+  sort: MonitorCardSort;
+};
+
+export type PinVideoRequest = {
+  pinned: boolean;
+};
+
+export type PinVideoResponse = {
+  bvid: string;
+  pinned: boolean;
+  pinnedAt: string | null;
 };
 
 export type MonitorExternalInput =
@@ -258,6 +277,7 @@ export function parseMonitorCardListQuery(input: {
   pageSize?: string | undefined;
   q?: string | undefined;
   category?: string | undefined;
+  sort?: string | undefined;
 }): MonitorCardListQuery {
   if (input.type !== 'video' && input.type !== 'creator') {
     throw new MonitorContractError('invalid_target_type', '卡片类型只能是视频或 UP 主');
@@ -278,6 +298,10 @@ export function parseMonitorCardListQuery(input: {
       message.includes('pageSize') ? '每页条数不正确' : '页码不正确',
     );
   }
+  const sortRaw = input.sort ?? DEFAULT_MONITOR_CARD_SORT;
+  if (!(MONITOR_CARD_SORTS as readonly string[]).includes(sortRaw)) {
+    throw new MonitorContractError('invalid_sort', '排序参数不正确');
+  }
   return {
     type: input.type,
     monitor: monitor as MonitorCardFilter,
@@ -285,7 +309,36 @@ export function parseMonitorCardListQuery(input: {
     pageSize,
     q: boundedText(input.q, MAX_QUERY_LENGTH, 'invalid_query', '搜索词过长'),
     category: boundedText(input.category, MAX_CATEGORY_LENGTH, 'invalid_category', '分类筛选过长'),
+    sort: sortRaw as MonitorCardSort,
   };
+}
+
+export function parsePinVideoRequest(value: unknown): PinVideoRequest {
+  if (!isRecord(value) || typeof value.pinned !== 'boolean') {
+    throw new MonitorContractError('invalid_body', '请提供 pinned 布尔值');
+  }
+  return { pinned: value.pinned };
+}
+
+export function parsePinVideoResponse(value: unknown): PinVideoResponse {
+  if (!isRecord(value) || typeof value.bvid !== 'string' || typeof value.pinned !== 'boolean') {
+    throw new MonitorContractError('invalid_body', '置顶响应不完整');
+  }
+  const pinnedAt = value.pinnedAt;
+  if (pinnedAt !== null && typeof pinnedAt !== 'string') {
+    throw new MonitorContractError('invalid_body', '置顶响应不完整');
+  }
+  const idError = externalIdError('video', value.bvid);
+  if (idError) throw new MonitorContractError('invalid_external_id', idError);
+  return { bvid: value.bvid, pinned: value.pinned, pinnedAt };
+}
+
+/** Reuses video external-id rules for /videos/:bvid/pin. */
+export function parseVideoBvidParam(raw: string): string {
+  const bvid = raw.trim();
+  const idError = externalIdError('video', bvid);
+  if (idError) throw new MonitorContractError('invalid_external_id', idError);
+  return bvid;
 }
 
 export function parseMonitorCardIdentity(
@@ -418,6 +471,12 @@ export function parseMonitorCard(value: unknown): MonitorCard {
   if ('monitoringEnabled' in value) {
     throw new MonitorContractError('invalid_body', '监控卡片不能携带旧的 monitoringEnabled');
   }
+  if (typeof value.pinned !== 'boolean') {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  if (value.type === 'creator' && value.pinned) {
+    throw new MonitorContractError('invalid_body', 'UP 主卡片不能置顶');
+  }
   return {
     type: value.type,
     externalId: value.externalId,
@@ -428,6 +487,7 @@ export function parseMonitorCard(value: unknown): MonitorCard {
     displayName: value.displayName,
     hasEntity: value.hasEntity,
     hasSamples: value.hasSamples,
+    pinned: value.pinned,
     monitorState: value.monitorState as MonitorCardState,
     execution: value.execution as MonitorExecutionState,
     target: parseTarget(value.target),

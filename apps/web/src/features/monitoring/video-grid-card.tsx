@@ -3,6 +3,7 @@ import type { MonitorCard } from '@studio/contracts';
 import { coverAssetUrl } from '@/api/monitor-client';
 import { Button } from '@/components/ui/button';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
+import { VideoPinButton } from '@/features/monitoring/video-pin-button';
 import {
   formatVideoGridMetricsLine,
   formatVideoGridUpdateText,
@@ -29,6 +30,7 @@ export function VideoGridCard({
   error,
   primary,
   onSelect,
+  onPinError,
 }: {
   card: MonitorCard;
   selected: boolean;
@@ -38,6 +40,7 @@ export function VideoGridCard({
   error: string | null;
   primary: PrimaryAction | null;
   onSelect?: (() => void) | undefined;
+  onPinError: (message: string) => void;
 }) {
   const failed = card.execution === 'failed';
   const detailHref = `/monitoring/videos/${encodeURIComponent(card.externalId)}?from=${encodeURIComponent(listQuery)}`;
@@ -57,22 +60,39 @@ export function VideoGridCard({
       data-execution={card.execution}
       data-external-id={card.externalId}
       data-target-id={card.target?.id ?? ''}
+      data-pinned={card.pinned ? 'true' : 'false'}
       data-pending={pending ? 'true' : 'false'}
       aria-busy={pending}
     >
+      <div className="relative min-w-0">
+        <button
+          type="button"
+          onClick={onSelect}
+          className="block w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-pressed={selected}
+          aria-label={`选择视频 ${card.displayName}`}
+        >
+          <img
+            src={coverAssetUrl(card.imageAssetId)}
+            alt=""
+            className="aspect-[16/9] w-full rounded-md object-cover"
+            data-testid="video-grid-cover"
+          />
+        </button>
+        <VideoPinButton
+          bvid={card.externalId}
+          pinned={card.pinned}
+          onError={onPinError}
+          className="absolute right-1.5 top-1.5 z-10"
+        />
+      </div>
       <button
         type="button"
         onClick={onSelect}
         className="flex min-w-0 flex-1 flex-col gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-pressed={selected}
-        aria-label={`选择视频 ${card.displayName}`}
+        aria-label={`选择视频 ${card.displayName} 详情区`}
       >
-        <img
-          src={coverAssetUrl(card.imageAssetId)}
-          alt=""
-          className="aspect-[16/9] w-full rounded-md object-cover"
-          data-testid="video-grid-cover"
-        />
         <span className="flex min-w-0 items-center gap-1.5">
           <MonitorStateBadge
             state={card.monitorState}
