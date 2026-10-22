@@ -2,11 +2,11 @@
   "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
   "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 61,
+  "apiRouteCount": 64,
   "wiredRouteCount": 42,
-  "unwiredImplementedRouteCount": 19,
+  "unwiredImplementedRouteCount": 22,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
-  "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes adds a fixed POST list.",
+  "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes and registerCommercialIngressRoutes add fixed POST/GET lists.",
   "processRegistration": {
     "productionEntry": "apps/api/src/index.ts uses createApp({ skipDb: true }) and then mountApiRoutes once.",
     "libraryEntry": "apps/api/src/app.ts calls the same mountApiRoutes when skipDb is false. The coverage suite uses skipDb true plus mountApiRoutes, matching the process entry. One process does not mount both copies.",
@@ -96,12 +96,60 @@
         {
           "file": "apps/web/src/features/commercial/commercial-live-api.ts",
           "symbol": "fetchLiveProjectList",
-          "evidence": "getJson('/api/v1/commercial/projects')"
+          "evidence": "'/api/v1/commercial/projects'"
         }
       ],
       "wired": true,
-      "notes": "Home and project list read this route. The payload adds open_items rows and existing project timestamps. There is no separate open-items collection route.",
-      "storedEntity": "commercial_projects (amounts, overall_stage, created_at, user_deadline_at, blocked_since_at, archived_at, stage_entered_at, business_closed_at), wf_nodes names for current and blocked status, open_items rows, and the same blocking-title projection as project detail"
+      "notes": "Home and project list read this route. Supports originKind (real|fixture|manual|unclassified), limit, offset. Response adds total/limit/offset plus originKind/source/updatedAt. There is no separate open-items collection route.",
+      "storedEntity": "commercial_projects (amounts, overall_stage, origin_kind, created_at, updated_at, user_deadline_at, blocked_since_at, archived_at, stage_entered_at, business_closed_at), optional commercial_project_sources summary, wf_nodes names for current and blocked status, open_items rows, and the same blocking-title projection as project detail"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/ingress/upsert",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-ingress.ts",
+      "sourceLine": 491,
+      "registration": "registerCommercialIngressRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-ingress.ts#parseCommercialIngressUpsertRequest",
+      "responseContract": "packages/contracts/src/commercial-ingress.ts#parseCommercialIngressUpsertResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "WP-R2-19A single upsert. dryRun true leaves no project/source/audit rows. Creates copy published default template with not_reached nodes. Updates require expectedUpdatedAt. No force bypass. Does not infer workflow status from sourceStatus.",
+      "storedEntity": "commercial_projects, project_workflows, wf_nodes/edges/packages, commercial_project_sources, domain_audit_events"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/ingress/batch",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-ingress.ts",
+      "sourceLine": 523,
+      "registration": "registerCommercialIngressRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-ingress.ts#parseCommercialIngressBatchRequest",
+      "responseContract": "packages/contracts/src/commercial-ingress.ts#parseCommercialIngressBatchResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "WP-R2-19A batch upsert (max 100). Same service as single upsert. Duplicate sourceKey rejected. Full batch one transaction with stable namespace/sourceId lock order.",
+      "storedEntity": "Same as single ingress upsert"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/ingress/by-source/:namespace/:sourceId",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-ingress.ts",
+      "sourceLine": 556,
+      "registration": "registerCommercialIngressRoutes",
+      "readWrite": "read",
+      "area": "commercial",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial-ingress.ts#parseCommercialSourceLookupResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "WP-R2-19A source lookup by exact namespace+sourceId. Returns payload/evidence JSONB objects and projectUpdatedAt for optimistic lock.",
+      "storedEntity": "commercial_project_sources, commercial_projects.updated_at"
     },
     {
       "method": "GET",

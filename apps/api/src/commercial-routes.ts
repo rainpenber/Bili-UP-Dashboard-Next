@@ -1,4 +1,5 @@
 import {
+  isCommercialOriginKind,
   isOpenItemActor,
   isOpenItemImpact,
   isOpenItemLifecycle,
@@ -12,8 +13,10 @@ import {
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
   type CommercialOpenItemRead,
+  type CommercialOriginKind,
   type CommercialProjectDetail,
   type CommercialProjectListItem,
+  type CommercialProjectSourceSummary,
   type OverallStage,
   type PublishSource,
   type WfNodeKind,
@@ -21,10 +24,12 @@ import {
 } from '@studio/contracts';
 import type { Sql } from '@studio/db';
 import { Hono } from 'hono';
+import { registerCommercialIngressRoutes } from './commercial-ingress';
 import { COMMERCIAL_UPDATED_AT_FORMAT } from './commercial-timestamp';
 import { registerCommercialWriteRoutes } from './commercial-write';
 
 const DEFAULT_FLOW_SLUG = 'default_sponsorship';
+const LIST_MAX_LIMIT = 200;
 
 type ProjectCoreRow = {
   id: string;
@@ -37,11 +42,20 @@ type ProjectCoreRow = {
   any_node_blocked: boolean;
   blocking_reason: string | null;
   created_at: string;
+  updated_at: string;
   user_deadline_at: string | null;
   blocked_since_at: string | null;
   archived_at: string | null;
   stage_entered_at: string;
   business_closed_at: string | null;
+  origin_kind: string | null;
+  source_namespace: string | null;
+  source_id: string | null;
+  source_updated_at: string | null;
+  source_imported_at: string | null;
+  source_content_hash: string | null;
+  source_status: string | null;
+  source_notes: string | null;
 };
 
 type OpenItemRow = {
@@ -135,6 +149,33 @@ function toOpenItem(row: OpenItemRow): CommercialOpenItemRead {
   };
 }
 
+function originKind(value: string | null): CommercialOriginKind | null {
+  if (value === null) return null;
+  if (!isCommercialOriginKind(value)) throw new Error(`unexpected origin_kind ${value}`);
+  return value;
+}
+
+function toSourceSummary(row: ProjectCoreRow): CommercialProjectSourceSummary | null {
+  if (
+    row.source_namespace === null ||
+    row.source_id === null ||
+    row.source_updated_at === null ||
+    row.source_imported_at === null ||
+    row.source_content_hash === null
+  ) {
+    return null;
+  }
+  return {
+    namespace: row.source_namespace,
+    sourceId: row.source_id,
+    sourceUpdatedAt: row.source_updated_at,
+    importedAt: row.source_imported_at,
+    contentHash: row.source_content_hash,
+    sourceStatus: row.source_status,
+    sourceNotes: row.source_notes,
+  };
+}
+
 function toListItem(
   row: ProjectCoreRow,
   openItems: CommercialOpenItemRead[],
@@ -149,14 +190,59 @@ function toListItem(
     anyNodeBlocked: row.any_node_blocked,
     blockingReason: row.blocking_reason,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
     userDeadlineAt: row.user_deadline_at,
     blockedSinceAt: row.blocked_since_at,
     archivedAt: row.archived_at,
     stageEnteredAt: row.stage_entered_at,
     businessClosedAt: row.business_closed_at,
+    originKind: originKind(row.origin_kind),
+    source: toSourceSummary(row),
     blockedNodeNames: stageNames(row.blocked_node_names),
     openItems,
   };
+}
+
+type ProjectListQuery = {
+  originKind: CommercialOriginKind | null;
+  unclassifiedOnly: boolean;
+  limit: number | null;
+  offset: number;
+};
+
+function parseProjectListQuery(
+  search: Record<string, string>,
+): ProjectListQuery | { error: string } {
+  const originRaw = search.originKind;
+  let origin: CommercialOriginKind | null = null;
+  let unclassifiedOnly = false;
+  if (originRaw === 'unclassified') {
+    unclassifiedOnly = true;
+  } else if (originRaw !== undefined) {
+    if (!isCommercialOriginKind(originRaw)) {
+      return { error: 'originKind must be real, fixture, manual, or unclassified' };
+    }
+    origin = originRaw;
+  }
+  const limitRaw = search.limit;
+  const offsetRaw = search.offset;
+  let limit: number | null = null;
+  let offset = 0;
+  if (limitRaw !== undefined) {
+    const parsed = Number(limitRaw);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > LIST_MAX_LIMIT) {
+      return { error: `limit must be an integer from 1 to ${LIST_MAX_LIMIT}` };
+    }
+    limit = parsed;
+  }
+  if (offsetRaw !== undefined) {
+    const parsed = Number(offsetRaw);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      return { error: 'offset must be a non-negative integer' };
+    }
+    offset = parsed;
+  }
+  return { originKind: origin, unclassifiedOnly, limit, offset };
 }
 
 const BLOCKING_REASON_SQL = `
@@ -253,9 +339,13 @@ function itemsByProject(rows: OpenItemRow[]): Map<string, CommercialOpenItemRead
   return grouped;
 }
 
-async function readProjectCores(db: Sql, projectId: string | null): Promise<ProjectCoreRow[]> {
-  if (projectId === null) {
-    return db<ProjectCoreRow[]>`
+async function readProjectCores(
+  db: Sql,
+  projectId: string | null,
+  query: ProjectListQuery | null = null,
+): Promise<{ rows: ProjectCoreRow[]; total: number }> {
+  if (projectId !== null) {
+    const rows = await db<ProjectCoreRow[]>`
       SELECT
         p.id,
         p.name,
@@ -282,50 +372,159 @@ async function readProjectCores(db: Sql, projectId: string | null): Promise<Proj
         ) AS any_node_blocked,
         ${db.unsafe(BLOCKING_REASON_SQL)} AS blocking_reason,
         to_char(p.created_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS created_at,
+        to_char(p.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at,
         to_char(p.user_deadline_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS user_deadline_at,
         to_char(p.blocked_since_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS blocked_since_at,
         to_char(p.archived_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS archived_at,
         to_char(p.stage_entered_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS stage_entered_at,
-        to_char(p.business_closed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS business_closed_at
+        to_char(p.business_closed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS business_closed_at,
+        p.origin_kind,
+        s.namespace AS source_namespace,
+        s.source_id AS source_id,
+        to_char(s.source_updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS source_updated_at,
+        to_char(s.imported_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS source_imported_at,
+        s.content_hash AS source_content_hash,
+        s.source_status AS source_status,
+        s.source_notes AS source_notes
       FROM commercial_projects p
-      ORDER BY p.created_at ASC, p.id ASC
+      LEFT JOIN commercial_project_sources s ON s.project_id = p.id
+      WHERE p.id = ${projectId}
     `;
+    return { rows, total: rows.length };
   }
-  return db<ProjectCoreRow[]>`
-    SELECT
-      p.id,
-      p.name,
-      p.net_amount::text AS net_amount,
-      p.rebate_amount::text AS rebate_amount,
-      p.overall_stage,
-      ARRAY(
-        SELECT n.name
-        FROM wf_nodes n
-        WHERE n.project_id = p.id
-          AND n.status IN ('in_progress', 'blocked')
-        ORDER BY n.pos_y, n.pos_x, n.id
-      ) AS current_stage_names,
-      ARRAY(
-        SELECT n.name
-        FROM wf_nodes n
-        WHERE n.project_id = p.id
-          AND n.status = 'blocked'
-        ORDER BY n.pos_y, n.pos_x, n.id
-      ) AS blocked_node_names,
-      EXISTS (
-        SELECT 1 FROM wf_nodes n
-        WHERE n.project_id = p.id AND n.status = 'blocked'
-      ) AS any_node_blocked,
-      ${db.unsafe(BLOCKING_REASON_SQL)} AS blocking_reason,
-      to_char(p.created_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS created_at,
-      to_char(p.user_deadline_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS user_deadline_at,
-      to_char(p.blocked_since_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS blocked_since_at,
-      to_char(p.archived_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS archived_at,
-      to_char(p.stage_entered_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS stage_entered_at,
-      to_char(p.business_closed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS business_closed_at
+
+  const originKindFilter = query?.originKind ?? null;
+  const unclassifiedOnly = query?.unclassifiedOnly ?? false;
+  const limit = query?.limit ?? null;
+  const offset = query?.offset ?? 0;
+
+  const [countRow] = await db<{ c: string }[]>`
+    SELECT count(*)::text AS c
     FROM commercial_projects p
-    WHERE p.id = ${projectId}
+    WHERE (
+      ${originKindFilter}::text IS NULL
+      OR p.origin_kind = ${originKindFilter}
+    )
+    AND (
+      ${unclassifiedOnly}::boolean = FALSE
+      OR p.origin_kind IS NULL
+    )
   `;
+  const total = Number(countRow?.c ?? 0);
+
+  const rows =
+    limit === null
+      ? await db<ProjectCoreRow[]>`
+          SELECT
+            p.id,
+            p.name,
+            p.net_amount::text AS net_amount,
+            p.rebate_amount::text AS rebate_amount,
+            p.overall_stage,
+            ARRAY(
+              SELECT n.name
+              FROM wf_nodes n
+              WHERE n.project_id = p.id
+                AND n.status IN ('in_progress', 'blocked')
+              ORDER BY n.pos_y, n.pos_x, n.id
+            ) AS current_stage_names,
+            ARRAY(
+              SELECT n.name
+              FROM wf_nodes n
+              WHERE n.project_id = p.id
+                AND n.status = 'blocked'
+              ORDER BY n.pos_y, n.pos_x, n.id
+            ) AS blocked_node_names,
+            EXISTS (
+              SELECT 1 FROM wf_nodes n
+              WHERE n.project_id = p.id AND n.status = 'blocked'
+            ) AS any_node_blocked,
+            ${db.unsafe(BLOCKING_REASON_SQL)} AS blocking_reason,
+            to_char(p.created_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS created_at,
+            to_char(p.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at,
+            to_char(p.user_deadline_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS user_deadline_at,
+            to_char(p.blocked_since_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS blocked_since_at,
+            to_char(p.archived_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS archived_at,
+            to_char(p.stage_entered_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS stage_entered_at,
+            to_char(p.business_closed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS business_closed_at,
+            p.origin_kind,
+            s.namespace AS source_namespace,
+            s.source_id AS source_id,
+            to_char(s.source_updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS source_updated_at,
+            to_char(s.imported_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS source_imported_at,
+            s.content_hash AS source_content_hash,
+            s.source_status AS source_status,
+            s.source_notes AS source_notes
+          FROM commercial_projects p
+          LEFT JOIN commercial_project_sources s ON s.project_id = p.id
+          WHERE (
+            ${originKindFilter}::text IS NULL
+            OR p.origin_kind = ${originKindFilter}
+          )
+          AND (
+            ${unclassifiedOnly}::boolean = FALSE
+            OR p.origin_kind IS NULL
+          )
+          ORDER BY p.created_at ASC, p.id ASC
+          OFFSET ${offset}
+        `
+      : await db<ProjectCoreRow[]>`
+          SELECT
+            p.id,
+            p.name,
+            p.net_amount::text AS net_amount,
+            p.rebate_amount::text AS rebate_amount,
+            p.overall_stage,
+            ARRAY(
+              SELECT n.name
+              FROM wf_nodes n
+              WHERE n.project_id = p.id
+                AND n.status IN ('in_progress', 'blocked')
+              ORDER BY n.pos_y, n.pos_x, n.id
+            ) AS current_stage_names,
+            ARRAY(
+              SELECT n.name
+              FROM wf_nodes n
+              WHERE n.project_id = p.id
+                AND n.status = 'blocked'
+              ORDER BY n.pos_y, n.pos_x, n.id
+            ) AS blocked_node_names,
+            EXISTS (
+              SELECT 1 FROM wf_nodes n
+              WHERE n.project_id = p.id AND n.status = 'blocked'
+            ) AS any_node_blocked,
+            ${db.unsafe(BLOCKING_REASON_SQL)} AS blocking_reason,
+            to_char(p.created_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS created_at,
+            to_char(p.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at,
+            to_char(p.user_deadline_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS user_deadline_at,
+            to_char(p.blocked_since_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS blocked_since_at,
+            to_char(p.archived_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS archived_at,
+            to_char(p.stage_entered_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS stage_entered_at,
+            to_char(p.business_closed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS business_closed_at,
+            p.origin_kind,
+            s.namespace AS source_namespace,
+            s.source_id AS source_id,
+            to_char(s.source_updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS source_updated_at,
+            to_char(s.imported_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS source_imported_at,
+            s.content_hash AS source_content_hash,
+            s.source_status AS source_status,
+            s.source_notes AS source_notes
+          FROM commercial_projects p
+          LEFT JOIN commercial_project_sources s ON s.project_id = p.id
+          WHERE (
+            ${originKindFilter}::text IS NULL
+            OR p.origin_kind = ${originKindFilter}
+          )
+          AND (
+            ${unclassifiedOnly}::boolean = FALSE
+            OR p.origin_kind IS NULL
+          )
+          ORDER BY p.created_at ASC, p.id ASC
+          LIMIT ${limit}
+          OFFSET ${offset}
+        `;
+
+  return { rows, total };
 }
 
 export function createCommercialRoutes(db: Sql) {
@@ -333,11 +532,16 @@ export function createCommercialRoutes(db: Sql) {
 
   app.get('/projects', async (c) => {
     try {
-      const rows = await readProjectCores(db, null);
+      const parsedQuery = parseProjectListQuery(c.req.query());
+      if ('error' in parsedQuery) return c.json({ error: parsedQuery.error }, 400);
+      const { rows, total } = await readProjectCores(db, null, parsedQuery);
       const grouped = itemsByProject(await readOpenItems(db, null));
       return c.json(
         parseCommercialProjectList({
           items: rows.map((row) => toListItem(row, grouped.get(row.id) ?? [])),
+          total,
+          limit: parsedQuery.limit,
+          offset: parsedQuery.offset,
         }),
       );
     } catch (err) {
@@ -445,7 +649,7 @@ export function createCommercialRoutes(db: Sql) {
     const projectId = c.req.param('projectId');
     if (!isUuidString(projectId)) return c.json({ error: 'invalid project id' }, 400);
     try {
-      const rows = await readProjectCores(db, projectId);
+      const { rows } = await readProjectCores(db, projectId);
       const row = rows[0];
       if (!row) return c.json({ error: 'project not found' }, 404);
       const publishes = await db<
@@ -545,5 +749,6 @@ export function createCommercialRoutes(db: Sql) {
   });
 
   registerCommercialWriteRoutes(app, db);
+  registerCommercialIngressRoutes(app, db);
   return app;
 }

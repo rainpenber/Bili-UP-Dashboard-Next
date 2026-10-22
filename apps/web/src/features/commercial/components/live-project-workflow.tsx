@@ -218,6 +218,24 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
       />
       <div className="space-y-4">
         <ProgressSummary facts={facts} nodes={timelineNodes} />
+        {detailQuery.data?.source || detailQuery.data?.originKind ? (
+          <p className="text-sm text-muted-foreground" data-testid="project-source-meta">
+            来源{' '}
+            {detailQuery.data.originKind === 'fixture'
+              ? '样例'
+              : detailQuery.data.originKind === 'real'
+                ? '真实接入'
+                : detailQuery.data.originKind === 'manual'
+                  ? '手工'
+                  : '未分类'}
+            {detailQuery.data.source
+              ? ` · ${detailQuery.data.source.namespace}/${detailQuery.data.source.sourceId}`
+              : null}
+            {detailQuery.data.source?.sourceStatus
+              ? ` · 源状态「${detailQuery.data.source.sourceStatus}」（仅事实，不推断流程）`
+              : null}
+          </p>
+        ) : null}
         <OpenItemsReadout items={detailQuery.data?.openItems ?? []} />
         <ProgressTimeline
           nodes={timelineNodes}

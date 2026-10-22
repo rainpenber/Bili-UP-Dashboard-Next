@@ -181,7 +181,7 @@ describe('ops API', () => {
       const bundle = parseOpsDebugBundle(JSON.parse(bundleText) as unknown);
       expect(bundle.run?.id).toBe(runId);
       expect(bundle.video?.bvid).toBe('BV1xx411c7mD');
-      expect(bundle.schemaVersion.startsWith('015_')).toBe(true);
+      expect(bundle.schemaVersion.startsWith('016_')).toBe(true);
 
       const live = parseOpsHealth(await (await app.request('/api/v1/ops/health')).json());
       expect(live.stale).toBe(false);

@@ -15,11 +15,14 @@ const ITEM_ID = 'f0a10001-0001-4001-8001-0000000000a4';
 
 const READ_FIELDS = {
   createdAt: '2026-05-01T00:00:00.000000Z',
+  updatedAt: '2026-05-01T00:00:00.000000Z',
   userDeadlineAt: null,
   blockedSinceAt: null,
   archivedAt: null,
   stageEnteredAt: '2026-05-01T00:00:00.000000Z',
   businessClosedAt: null,
+  originKind: 'fixture' as const,
+  source: null as null,
   blockedNodeNames: [] as string[],
   openItems: [] as unknown[],
   blockingReason: null as string | null,
@@ -29,14 +32,18 @@ function listItem(overrides: Record<string, unknown>) {
   return { ...READ_FIELDS, ...overrides };
 }
 
+function listResponse(items: unknown[]) {
+  return { items, total: items.length, limit: null, offset: 0 };
+}
+
 describe('commercial read contracts', () => {
   test('node kinds are only stage and merge', () => {
     expect([...WF_NODE_KINDS]).toEqual(['stage', 'merge']);
   });
 
   test('parses a project list item', () => {
-    const parsed = parseCommercialProjectList({
-      items: [
+    const parsed = parseCommercialProjectList(
+      listResponse([
         listItem({
           id: PROJECT_ID,
           name: '甲方卡文案确认样例',
@@ -68,13 +75,17 @@ describe('commercial read contracts', () => {
             },
           ],
         }),
-      ],
-    });
+      ]),
+    );
     expect(parsed.items[0]?.netAmount).toBe('18000.00');
     expect(parsed.items[0]?.currentStageNames).toEqual(['文案', '预拍摄']);
     expect(parsed.items[0]?.openItems[0]?.plannedAt).toBeNull();
     expect(parsed.items[0]?.openItems[0]?.nextActor).toBe('client');
     expect(parsed.items[0]?.userDeadlineAt).toBe('2026-08-01T00:00:00.000000Z');
+    expect(parsed.items[0]?.originKind).toBe('fixture');
+    expect(parsed.total).toBe(1);
+    expect(parsed.limit).toBeNull();
+    expect(parsed.offset).toBe(0);
   });
 
   test('rejects a list item that omits open items or a stored timestamp', () => {
@@ -89,21 +100,21 @@ describe('commercial read contracts', () => {
     });
     const withoutItems = { ...base } as Record<string, unknown>;
     delete withoutItems.openItems;
-    expect(() => parseCommercialProjectList({ items: [withoutItems] })).toThrow(/openItems/);
+    expect(() => parseCommercialProjectList(listResponse([withoutItems]))).toThrow(/openItems/);
     const withoutCreated = { ...base } as Record<string, unknown>;
     delete withoutCreated.createdAt;
-    expect(() => parseCommercialProjectList({ items: [withoutCreated] })).toThrow(/createdAt/);
+    expect(() => parseCommercialProjectList(listResponse([withoutCreated]))).toThrow(/createdAt/);
     expect(() =>
-      parseCommercialProjectList({
-        items: [listItem({ ...base, openItems: [{ id: ITEM_ID }] })],
-      }),
+      parseCommercialProjectList(
+        listResponse([listItem({ ...base, openItems: [{ id: ITEM_ID }] })]),
+      ),
     ).toThrow(/nextActor|title|open item/);
   });
 
   test('rejects a numeric amount and an unknown node kind', () => {
     expect(() =>
-      parseCommercialProjectList({
-        items: [
+      parseCommercialProjectList(
+        listResponse([
           listItem({
             id: PROJECT_ID,
             name: '样例',
@@ -113,8 +124,8 @@ describe('commercial read contracts', () => {
             currentStageNames: [],
             anyNodeBlocked: false,
           }),
-        ],
-      }),
+        ]),
+      ),
     ).toThrow(/netAmount/);
 
     expect(() =>

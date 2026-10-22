@@ -5,14 +5,15 @@ import {
   fetchLiveProjectList,
   fetchLiveProjectWorkflow,
   retryCommercialRead,
+  type LiveProjectListParams,
 } from './commercial-live-api';
 
 export const liveCommercialProjectsKey = ['commercial', 'projects'] as const;
 
-export function useLiveCommercialProjectsQuery() {
+export function useLiveCommercialProjectsQuery(params: LiveProjectListParams = {}) {
   return useQuery({
-    queryKey: liveCommercialProjectsKey,
-    queryFn: fetchLiveProjectList,
+    queryKey: [...liveCommercialProjectsKey, params.originKind ?? ''] as const,
+    queryFn: () => fetchLiveProjectList(params),
     retry: retryCommercialRead,
     retryDelay: 0,
   });
