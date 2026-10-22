@@ -96,7 +96,7 @@ export function VideoGridCard({
             </Badge>
             {failed ? (
               <span
-                className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-destructive"
+                className="absolute -right-1 -top-1 size-2 rounded-full border border-background bg-destructive"
                 data-testid="video-grid-failure-dot"
                 aria-label="最近采集失败"
               />
