@@ -45,6 +45,26 @@ export const defaultForm = (): StoredForm => ({
   templateId: 'danmaku',
 });
 
+/** 浏览器草稿后端（默认同 localStorage；测试可注入） */
+export type DraftStorage = {
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+  removeItem: (key: string) => void;
+};
+
+let draftStorageOverride: DraftStorage | null = null;
+
+/** 仅测试使用：注入/清除草稿存储，避免 mock happy-dom Storage 原型 */
+export function setDraftStorageForTests(storage: DraftStorage | null): void {
+  draftStorageOverride = storage;
+}
+
+function resolveDraftStorage(): DraftStorage | null {
+  if (draftStorageOverride) return draftStorageOverride;
+  if (typeof localStorage === 'undefined') return null;
+  return localStorage;
+}
+
 export function isTemplateId(id: unknown): id is TemplateId {
   return id === 'comment' || id === 'danmaku';
 }
@@ -89,7 +109,8 @@ export function parseStoredForm(raw: unknown): StoredForm {
 }
 
 export function loadForm(): LoadFormResult {
-  if (typeof localStorage === 'undefined') {
+  const storage = resolveDraftStorage();
+  if (!storage) {
     return {
       ok: true,
       form: defaultForm(),
@@ -98,7 +119,7 @@ export function loadForm(): LoadFormResult {
   }
   let raw: string | null;
   try {
-    raw = localStorage.getItem(STORAGE_KEY);
+    raw = storage.getItem(STORAGE_KEY);
   } catch {
     // 读失败但写可能仍可用：必须 ok:false 以阻止页面挂载时用空白表单覆盖原草稿
     return {
@@ -126,7 +147,8 @@ export function loadForm(): LoadFormResult {
 }
 
 export function saveForm(data: StoredForm): SaveFormResult {
-  if (typeof localStorage === 'undefined') {
+  const storage = resolveDraftStorage();
+  if (!storage) {
     return { ok: false, error: '当前环境无 localStorage，无法保存草稿' };
   }
   try {
@@ -138,7 +160,7 @@ export function saveForm(data: StoredForm): SaveFormResult {
       reference_comments: data.reference_comments,
       templateId: normalizeTemplateId(data.templateId),
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
+    storage.setItem(STORAGE_KEY, JSON.stringify(safe));
     return { ok: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -153,11 +175,12 @@ export function saveForm(data: StoredForm): SaveFormResult {
 }
 
 export function clearStoredForm(): SaveFormResult {
-  if (typeof localStorage === 'undefined') {
+  const storage = resolveDraftStorage();
+  if (!storage) {
     return { ok: false, error: '当前环境无 localStorage' };
   }
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    storage.removeItem(STORAGE_KEY);
     return { ok: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

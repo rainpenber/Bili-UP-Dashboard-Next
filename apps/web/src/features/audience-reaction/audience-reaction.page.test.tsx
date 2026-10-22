@@ -1,21 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { AudienceReactionPage } from '@/pages/audience-reaction-page';
-import { STORAGE_KEY } from './storage';
-import {
-  installGetItemThrowForKey,
-  installSetItemCaptureForKey,
-  readViaStoragePrototype,
-  restoreLocalStorageMethods,
-} from './storage-test-utils';
-
-beforeEach(() => {
-  restoreLocalStorageMethods();
-});
+import { STORAGE_KEY, setDraftStorageForTests } from './storage';
+import { createMemoryDraftStorage } from './storage-test-utils';
 
 afterEach(() => {
   cleanup();
-  restoreLocalStorageMethods();
+  setDraftStorageForTests(null);
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch {
@@ -76,29 +67,19 @@ describe('AudienceReactionPage', () => {
       reference_comments: '',
       templateId: 'danmaku',
     });
-    localStorage.setItem(STORAGE_KEY, legacy);
+    const mem = createMemoryDraftStorage({
+      initial: { [STORAGE_KEY]: legacy },
+      throwOnGetKey: STORAGE_KEY,
+    });
+    setDraftStorageForTests(mem);
 
-    const uninstallGet = installGetItemThrowForKey(STORAGE_KEY);
-    const { writes, uninstall: uninstallSet } = installSetItemCaptureForKey(STORAGE_KEY);
-
-    try {
-      expect(() => localStorage.getItem(STORAGE_KEY)).toThrow(/blocked read/);
-      render(<AudienceReactionPage />);
-      expect(await screen.findByText(/不会覆盖已有草稿/)).toBeTruthy();
-      await new Promise((r) => setTimeout(r, 80));
-      expect(writes.length).toBe(0);
-      expect((screen.getByLabelText('商品') as HTMLInputElement).value).toBe('');
-      expect(readViaStoragePrototype(STORAGE_KEY)).toBe(legacy);
-    } finally {
-      uninstallGet();
-      uninstallSet();
-      restoreLocalStorageMethods();
-    }
-
-    expect(localStorage.getItem(STORAGE_KEY)).toBe(legacy);
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).product).toBe(
-      'Legacy acceptance product',
-    );
+    render(<AudienceReactionPage />);
+    expect(await screen.findByText(/不会覆盖已有草稿/)).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(mem.writes.length).toBe(0);
+    expect((screen.getByLabelText('商品') as HTMLInputElement).value).toBe('');
+    expect(mem.raw[STORAGE_KEY]).toBe(legacy);
+    expect(JSON.parse(mem.raw[STORAGE_KEY]!).product).toBe('Legacy acceptance product');
   });
 
   test('imports subtitle, previews placeholders, and switches templates', async () => {

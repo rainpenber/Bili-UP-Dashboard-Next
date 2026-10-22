@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import {
   STORAGE_KEY,
   clearStoredForm,
@@ -8,19 +8,12 @@ import {
   loadForm,
   parseStoredForm,
   saveForm,
+  setDraftStorageForTests,
 } from './storage';
-import {
-  installGetItemThrowForKey,
-  readViaStoragePrototype,
-  restoreLocalStorageMethods,
-} from './storage-test-utils';
-
-beforeEach(() => {
-  restoreLocalStorageMethods();
-});
+import { createMemoryDraftStorage } from './storage-test-utils';
 
 afterEach(() => {
-  restoreLocalStorageMethods();
+  setDraftStorageForTests(null);
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch {
@@ -122,21 +115,19 @@ describe('localStorage load/save', () => {
       reference_comments: '',
       templateId: 'danmaku',
     });
-    localStorage.setItem(STORAGE_KEY, legacy);
-    const uninstall = installGetItemThrowForKey(STORAGE_KEY);
-    try {
-      expect(() => localStorage.getItem(STORAGE_KEY)).toThrow(/blocked read/);
-      const loaded = loadForm();
-      expect(loaded.ok).toBe(false);
-      if (loaded.ok === false) {
-        expect(loaded.preservedRaw).toBe(true);
-        expect(loaded.error).toMatch(/不会覆盖已有草稿/);
-      }
-      expect(readViaStoragePrototype(STORAGE_KEY)).toBe(legacy);
-    } finally {
-      uninstall();
+    const mem = createMemoryDraftStorage({
+      initial: { [STORAGE_KEY]: legacy },
+      throwOnGetKey: STORAGE_KEY,
+    });
+    setDraftStorageForTests(mem);
+    const loaded = loadForm();
+    expect(loaded.ok).toBe(false);
+    if (loaded.ok === false) {
+      expect(loaded.preservedRaw).toBe(true);
+      expect(loaded.error).toMatch(/不会覆盖已有草稿/);
     }
-    expect(localStorage.getItem(STORAGE_KEY)).toBe(legacy);
+    expect(mem.raw[STORAGE_KEY]).toBe(legacy);
+    expect(mem.writes.length).toBe(0);
   });
 
   it('clearStoredForm removes draft', () => {
