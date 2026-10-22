@@ -255,13 +255,15 @@ export function MonitoringPage() {
             ) : null}
             {state.tab === 'videos' ? (
               <div className="grid w-full min-w-0 max-w-xs gap-1.5">
-                <Label id="monitor-only-mine-label">本人视频</Label>
+                <p id="monitor-only-mine-group" className="text-sm font-medium leading-none">
+                  本人视频
+                </p>
                 <Toggle
                   id="monitor-only-mine"
                   variant="outline"
                   pressed={state.onlyMine}
-                  aria-labelledby="monitor-only-mine-label"
                   aria-label="只看我的"
+                  aria-describedby="monitor-only-mine-group"
                   data-testid="monitor-only-mine"
                   className="w-full justify-center"
                   onPressedChange={(pressed) =>
@@ -506,10 +508,12 @@ export function MonitoringPage() {
               category: '',
               q: '',
               monitor: enabled ? 'active' : 'paused',
+              onlyMine: false,
             });
             void dynamicsQuery.refetch();
             return;
           }
+          // onlyMine can hide a newly added/upserted non-owner video; clear it like category.
           patchUrl({
             q: externalId,
             page: 1,
@@ -517,6 +521,7 @@ export function MonitoringPage() {
             tab: state.tab,
             category: '',
             monitor: enabled ? 'active' : 'paused',
+            onlyMine: false,
           });
         }}
       />

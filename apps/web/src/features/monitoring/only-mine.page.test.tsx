@@ -88,6 +88,7 @@ function wrap(ui: ReactNode, entry: string) {
 describe('WP-R2-MON-04 onlyMine UI', () => {
   test('toggle writes URL, resets page/selection, and refetches with onlyMine', async () => {
     const cardUrls: string[] = [];
+    const catalog = [card(BVID, MINE), card(OTHER, '1000000000000001')];
     globalThis.fetch = ((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url.includes('/settings/owner-account')) {
@@ -103,7 +104,7 @@ describe('WP-R2-MON-04 onlyMine UI', () => {
         cardUrls.push(url);
         const params = new URL(url, 'http://localhost').searchParams;
         const onlyMine = params.get('onlyMine') === '1';
-        const items = onlyMine ? [card(BVID)] : [card(BVID), card(OTHER, '1')];
+        const items = onlyMine ? catalog.filter((item) => item.mid === MINE) : catalog;
         return Promise.resolve(jsonResponse(list(items, items.length)));
       }
       if (url.includes('/api/v1/monitor/dynamics')) return Promise.resolve(jsonResponse(list([])));
@@ -117,7 +118,8 @@ describe('WP-R2-MON-04 onlyMine UI', () => {
       <MonitoringPage />,
       '/monitoring?tab=videos&page=2&selected=BV1yy411c7mD&q=test&monitor=active&view=grid&sort=published_asc',
     );
-    const toggle = await screen.findByTestId('monitor-only-mine');
+    expect(screen.getByText('本人视频')).toBeTruthy();
+    const toggle = await screen.findByRole('button', { name: '只看我的' });
     expect(toggle.getAttribute('data-state')).toBe('off');
     expect(await screen.findByText(/狐正正/)).toBeTruthy();
 
