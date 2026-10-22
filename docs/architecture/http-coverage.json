@@ -1,594 +1,1721 @@
 {
-  "databaseName": null,
+  "databaseName": "wp_r2_11_ecd3a2759890",
   "retainedDatabase": true,
-  "registeredCount": 58,
-  "inventoryCount": 58,
-  "executedCount": 0,
-  "httpSuccessCount": 0,
-  "acceptedCount": 0,
-  "acceptancePassed": false,
+  "registeredCount": 57,
+  "inventoryCount": 57,
+  "executedCount": 57,
+  "httpSuccessCount": 57,
+  "acceptedCount": 57,
+  "acceptancePassed": true,
   "upstreamFetchCount": 0,
-  "injectedTransportCalls": 0,
+  "injectedTransportCalls": 8,
   "routes": [
     {
       "method": "DELETE",
       "path": "/api/v1/monitor/targets/:id",
       "readWrite": "write",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 409,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/health",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "health",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/assets/:assetId",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "assets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "assets",
+          "status": 304,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "assets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "assets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/commercial/projects",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/commercial/projects/:projectId",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/commercial/projects/:projectId/workflow",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/commercial/templates/default",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/imports/:batchId",
       "readWrite": "read",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "imports",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/cards",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/cards/:type/:externalId",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/creators",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/creators/:mid",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/creators/:mid/metrics",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/creators/:mid/videos",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/dynamics",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/dynamics/:id",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/dynamics/:id/metrics",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/first-access-interventions",
       "readWrite": "read",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/jobs",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/metadata/runs/:id",
       "readWrite": "read",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/targets",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
-    },
-    {
-      "method": "GET",
-      "path": "/api/v1/monitor/targets/of/:type/:externalId",
-      "readWrite": "read",
-      "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/videos",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/videos/:bvid",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/monitor/videos/:bvid/metrics",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/collector-jobs",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/collector-jobs/:id",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/collector-targets",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/debug/bundle",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/health",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/logs",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/metadata/runs/:id",
       "readWrite": "read",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/operations",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/projects",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/requests",
       "readWrite": "read",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/runs",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/runs/:id",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/ops/summary",
       "readWrite": "read",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "GET",
       "path": "/health",
       "readWrite": "read",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "health",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "PATCH",
       "path": "/api/v1/monitor/targets/:id",
       "readWrite": "write",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/advance",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 409,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/block",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/complete",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/plan",
       "readWrite": "write",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 409,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/publish",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/rollback",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/skip",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 409,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/step",
       "readWrite": "write",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 409,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/unblock",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId/cancel",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 409,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId/close",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/stages/:stageId/step",
       "readWrite": "write",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/imports/csv",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "imports",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/monitor/creators/:mid/refresh",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/monitor/metadata/refresh",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 202,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 409,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 202,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 202,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/monitor/targets",
       "readWrite": "write",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/monitor/targets/:id/run",
       "readWrite": "write",
       "frontendCaller": true,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 409,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     },
     {
       "method": "POST",
       "path": "/api/v1/monitor/videos/:bvid/refresh",
       "readWrite": "write",
       "frontendCaller": false,
-      "executed": false,
-      "httpSuccess": false,
-      "accepted": false,
-      "cases": []
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
     }
   ]
 }
