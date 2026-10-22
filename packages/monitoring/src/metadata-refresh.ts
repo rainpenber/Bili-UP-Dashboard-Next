@@ -124,6 +124,10 @@ type ReportItem = {
 type StoredReport = {
   heartbeatAt: string;
   items: ReportItem[];
+  /** Ids claimed for this run; used for per-bvid active-refresh idempotency. */
+  requestedIds?: string[];
+  /** True when the run was started by first-collect auto completion. */
+  auto?: boolean;
   abortedBizCode?: number | null;
   abortedReason?: string;
 };
@@ -425,7 +429,14 @@ async function applyVideoDetail(
   const coverUrl = detail.pic ? httpsUrl(detail.pic) : null;
   let assetId: string | null = null;
   let picFailed = false;
-  if (coverUrl && deps.assetsRoot && deps.download) {
+  const existingCover = await sql<{ cover_asset_id: string | null }[]>`
+    SELECT cover_asset_id FROM videos WHERE bvid = ${bvid}
+  `;
+  const priorAssetId = existingCover[0]?.cover_asset_id ?? null;
+  if (priorAssetId) {
+    // Already have a stored cover: never re-download (content-addressed asset stays).
+    assetId = priorAssetId;
+  } else if (coverUrl && deps.assetsRoot && deps.download) {
     try {
       const image = await fetchImage(deps, coverUrl);
       const stored = await storeImageBytes(sql, {
@@ -513,7 +524,7 @@ async function applyVideoDetail(
         cid = COALESCE(EXCLUDED.cid, videos.cid),
         pubdate = COALESCE(EXCLUDED.pubdate, videos.pubdate),
         mid = COALESCE(EXCLUDED.mid, videos.mid),
-        metadata = videos.metadata || EXCLUDED.metadata,
+        metadata = (videos.metadata || EXCLUDED.metadata) - 'auto_metadata_refresh',
         updated_at = now()
     `;
     if (detail.tags) {
@@ -739,7 +750,14 @@ export async function reapStaleBackfillRuns(
 
 async function claimRun(
   sql: Sql,
-  input: { kind: MetadataKind; mode: MetadataMode; requested: number; now: Date },
+  input: {
+    kind: MetadataKind;
+    mode: MetadataMode;
+    requested: number;
+    ids: string[];
+    now: Date;
+    auto?: boolean;
+  },
 ): Promise<{ id: string } | { conflictId: string }> {
   return sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext('metadata-backfill'))`;
@@ -759,7 +777,12 @@ async function claimRun(
     const conflict = running[0];
     if (conflict) return { conflictId: conflict.id };
     const id = crypto.randomUUID();
-    const report: StoredReport = { heartbeatAt: input.now.toISOString(), items: [] };
+    const report: StoredReport = {
+      heartbeatAt: input.now.toISOString(),
+      items: [],
+      requestedIds: input.ids,
+      ...(input.auto ? { auto: true } : {}),
+    };
     await tx`
       INSERT INTO backfill_runs (
         id, kind, mode, status, requested, succeeded, failed, skipped, started_at, report
@@ -813,11 +836,16 @@ async function saveProgress(
 
 async function executeRun(
   deps: MetadataRefreshDeps,
-  run: { id: string; kind: MetadataKind; ids: string[]; force: boolean },
+  run: { id: string; kind: MetadataKind; ids: string[]; force: boolean; auto?: boolean },
 ): Promise<void> {
   const now = () => deps.now?.() ?? new Date();
   if (deps.gate) await deps.gate();
-  const report: StoredReport = { heartbeatAt: now().toISOString(), items: [] };
+  const report: StoredReport = {
+    heartbeatAt: now().toISOString(),
+    items: [],
+    requestedIds: run.ids,
+    ...(run.auto ? { auto: true } : {}),
+  };
   const counts = { succeeded: 0, failed: 0, skipped: 0 };
   const finishStatus = (failedAll: boolean) => (failedAll ? 'failed' : 'succeeded');
   try {
@@ -889,6 +917,8 @@ export async function startMetadataBackfill(
     allMissing?: boolean;
     limit?: number | null;
     force?: boolean;
+    /** Marks the run as first-collect auto completion (audit only). */
+    auto?: boolean;
   },
 ): Promise<{ backfillRunId: string; requested: number; done: Promise<void> }> {
   const resolved = await resolveMetadataIds(deps.sql, input);
@@ -897,14 +927,21 @@ export async function startMetadataBackfill(
     kind: input.kind,
     mode: resolved.mode,
     requested: resolved.ids.length,
+    ids: resolved.ids,
     now,
+    ...(input.auto ? { auto: true } : {}),
   });
   if ('conflictId' in claimed) throw new BackfillConflict(claimed.conflictId);
   deps.backfillRunId = claimed.id;
   deps.logger?.info('元数据批次开始', {
     event: 'backfill.started',
     runId: claimed.id,
-    context: { kind: input.kind, mode: resolved.mode, requested: resolved.ids.length },
+    context: {
+      kind: input.kind,
+      mode: resolved.mode,
+      requested: resolved.ids.length,
+      ...(input.auto ? { auto: true } : {}),
+    },
   });
   await deps.logger?.flush();
   const done = executeRun(deps, {
@@ -912,8 +949,23 @@ export async function startMetadataBackfill(
     kind: input.kind,
     ids: resolved.ids,
     force: input.force === true,
+    ...(input.auto ? { auto: true } : {}),
   });
   return { backfillRunId: claimed.id, requested: resolved.ids.length, done };
+}
+
+/** True when a running video backfill already claimed this bvid. */
+export async function hasActiveVideoMetadataRefresh(sql: Sql, bvid: string): Promise<boolean> {
+  await reapStaleBackfillRuns(sql);
+  const rows = await sql<{ id: string }[]>`
+    SELECT id::text AS id
+    FROM backfill_runs
+    WHERE status = 'running'
+      AND kind = 'video'
+      AND report->'requestedIds' ? ${bvid}
+    LIMIT 1
+  `;
+  return rows.length > 0;
 }
 
 export async function readMetadataRun(sql: Sql, id: string): Promise<MetadataRunView | null> {

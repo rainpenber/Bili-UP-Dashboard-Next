@@ -1,11 +1,16 @@
+import { resolve } from 'node:path';
 import { collectorSchemaReady, createSql } from '@studio/db';
 import {
   assertProviderCanStart,
+  createLiveBilibiliTransport,
+  createLiveImageTransport,
   createMonitorProvider,
   installOfflineFetchGuard,
+  readBilibiliRuntimeConfig,
   readCollectorConfig,
   readCollectorProviderKind,
   runCollectorLoop,
+  type AutoMetadataRefreshDeps,
 } from '@studio/monitoring';
 import {
   applyLifecycleTestSink,
@@ -137,7 +142,35 @@ if (lifecycleTestEnabled(process.env)) {
   });
 }
 
-logger.info('采集器启动', { event: 'service.started' });
+const assetsRootRaw = process.env.MONITOR_ASSETS_ROOT?.trim() || '';
+const assetsRoot = assetsRootRaw ? resolve(assetsRootRaw) : null;
+const biliConfig = readBilibiliRuntimeConfig(process.env);
+const autoMetadata: AutoMetadataRefreshDeps | undefined =
+  providerKind === 'bilibili' && assetsRoot
+    ? {
+        sql,
+        transport: createLiveBilibiliTransport(biliConfig.timeoutMs),
+        download: createLiveImageTransport(biliConfig.timeoutMs),
+        assetsRoot,
+        env: process.env,
+        logger,
+        onBackfill: (task) => {
+          void task.catch((error: unknown) => {
+            logger.warn('自动元数据补全后台任务失败', {
+              event: 'metadata.auto_background_failed',
+              context: {
+                error: scrubString(error instanceof Error ? error.message : String(error)),
+              },
+            });
+          });
+        },
+      }
+    : undefined;
+
+logger.info('采集器启动', {
+  event: 'service.started',
+  context: { autoMetadata: Boolean(autoMetadata) },
+});
 try {
   loopPromise = runCollectorLoop({
     sql,
@@ -148,6 +181,7 @@ try {
       logger.info(line, { event: 'collector.line' });
     },
     logger,
+    ...(autoMetadata ? { autoMetadata } : {}),
   });
   await loopPromise;
 } catch (error) {

@@ -89,6 +89,14 @@ function accountKey(account: ResolvedBiliAccount | null): string {
   return account?.id ?? 'anonymous';
 }
 
+export type AutoVideoMetadataHook = {
+  /**
+   * After every successful video collect, attempt auto metadata enqueue.
+   * Idempotent (has cover / active run → skip). Must not throw into the job path.
+   */
+  afterVideoCollectSuccess(bvid: string): Promise<void>;
+};
+
 export async function runBilibiliJob(options: {
   job: ClaimedCollectorJob;
   provider: BilibiliProvider;
@@ -99,6 +107,8 @@ export async function runBilibiliJob(options: {
   env?: NodeJS.ProcessEnv;
   log?: (line: string) => void;
   logger?: CollectorLogger;
+  /** Optional auto metadata refresh when cover/metadata still missing (WP-R2-MON-03). */
+  autoVideoMetadata?: AutoVideoMetadataHook;
 }): Promise<'succeeded' | 'failed' | 'deferred'> {
   const log = options.log ?? (() => undefined);
   const startedAt = options.now;
@@ -199,6 +209,10 @@ export async function runBilibiliJob(options: {
       });
       await runPostCommitHelpers(options, account, committed.runId, fetched.calls, async () => {
         await applyOnlineAccountEffect(options, account, fetched.onlineFailure);
+        // Every successful video collect may enqueue; skip is decided by cover/active/busy.
+        if (options.autoVideoMetadata) {
+          await options.autoVideoMetadata.afterVideoCollectSuccess(fetched.bvid);
+        }
       });
       options.logger?.child({ runId: committed.runId })?.info('任务成功', {
         event: 'job.succeeded',

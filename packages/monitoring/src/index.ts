@@ -35,3 +35,4 @@ export * from './image-asset';
 export * from './view-detail';
 export * from './webui-import';
 export * from './metadata-refresh';
+export * from './auto-video-metadata';
