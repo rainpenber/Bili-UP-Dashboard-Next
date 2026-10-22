@@ -88,6 +88,7 @@ const VIDEO_BV = /BV[1-9A-HJ-NP-Za-km-z]{10}/;
 const SHORT_HOST = /(^|\.)b23\.tv$/i;
 const SPACE_HOST = /^space\.bilibili\.com$/i;
 const VIDEO_HOST = /^(?:www\.|m\.)?bilibili\.com$/i;
+const DYNAMIC_HOST = /^t\.bilibili\.com$/i;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -129,7 +130,7 @@ export function deriveMonitorCardState(input: {
 function emptyMessage(type: MonitorTargetType): string {
   if (type === 'video') return '请输入 BV 号或视频长链接';
   if (type === 'creator') return '请输入 UID 或空间长链接';
-  return '动态不从卡片添加';
+  return '请输入动态 id 或 t.bilibili.com 链接';
 }
 
 function unsupportedMessage(type: MonitorTargetType): string {
@@ -139,18 +140,18 @@ function unsupportedMessage(type: MonitorTargetType): string {
   if (type === 'creator') {
     return '无法识别。请粘贴完整 UID，或 space.bilibili.com/UID 长链接。短链不会发起请求。';
   }
-  return '动态不从卡片添加';
+  return '无法识别。请粘贴十进制动态 id，或 https://t.bilibili.com/<id> 长链接。短链不会发起请求。';
 }
 
 function mismatchMessage(type: MonitorTargetType): string {
   if (type === 'video') return '这是 UP 主身份，请到 UP 主页添加';
   if (type === 'creator') return '这是视频身份，请到视频页添加';
-  return '动态不从卡片添加';
+  return '这不是动态身份，请粘贴动态 id 或 t.bilibili.com 链接';
 }
 
 function withProtocol(raw: string): string {
   if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return raw;
-  if (/^(?:www\.|m\.|space\.)?bilibili\.com\//i.test(raw)) return `https://${raw}`;
+  if (/^(?:www\.|m\.|space\.|t\.)?bilibili\.com\//i.test(raw)) return `https://${raw}`;
   return raw;
 }
 
@@ -166,7 +167,6 @@ export function parseMonitorExternalInput(
   type: MonitorTargetType,
   raw: string,
 ): MonitorExternalInput {
-  if (type === 'dynamic') return { ok: false, message: '动态不从卡片添加' };
   const text = raw.trim();
   if (!text) return { ok: false, message: emptyMessage(type) };
   const candidate = withProtocol(text);
@@ -174,6 +174,7 @@ export function parseMonitorExternalInput(
   if (!looksLikeUrl) {
     const idError = externalIdError(type, text);
     if (!idError) return { ok: true, externalId: text };
+    if (type === 'dynamic') return { ok: false, message: idError };
     const other = type === 'video' ? 'creator' : 'video';
     if (!externalIdError(other, text)) return { ok: false, message: mismatchMessage(type) };
     return { ok: false, message: idError };
@@ -192,13 +193,31 @@ export function parseMonitorExternalInput(
   if (rejectShortLink(host)) {
     return {
       ok: false,
-      message: '暂不支持短链，也不会为识别它访问网络。请粘贴完整 BV/UID 或标准长链接。',
+      message:
+        type === 'dynamic'
+          ? '暂不支持短链，也不会为识别它访问网络。请粘贴十进制动态 id 或 t.bilibili.com 长链接。'
+          : '暂不支持短链，也不会为识别它访问网络。请粘贴完整 BV/UID 或标准长链接。',
     };
+  }
+  if (DYNAMIC_HOST.test(host)) {
+    const match = url.pathname.match(/^\/([1-9]\d*)(?:\/|$)/);
+    if (!match?.[1]) return { ok: false, message: unsupportedMessage(type) };
+    if (type !== 'dynamic') {
+      return { ok: false, message: '这是动态身份，请到动态页添加' };
+    }
+    const idError = externalIdError('dynamic', match[1]);
+    if (idError) return { ok: false, message: idError };
+    return { ok: true, externalId: match[1] };
   }
   if (SPACE_HOST.test(host)) {
     const match = url.pathname.match(/^\/(\d+)(?:\/|$)/);
     if (!match?.[1]) return { ok: false, message: unsupportedMessage(type) };
-    if (type !== 'creator') return { ok: false, message: mismatchMessage(type) };
+    if (type !== 'creator') {
+      return {
+        ok: false,
+        message: type === 'dynamic' ? '这是 UP 主身份，请到 UP 主页添加' : mismatchMessage(type),
+      };
+    }
     const idError = externalIdError('creator', match[1]);
     if (idError) return { ok: false, message: idError };
     return { ok: true, externalId: match[1] };
@@ -206,7 +225,12 @@ export function parseMonitorExternalInput(
   if (VIDEO_HOST.test(host)) {
     const match = url.pathname.match(/^\/video\/(BV[1-9A-HJ-NP-Za-km-z]{10})(?:\/|$)/);
     if (!match?.[1]) return { ok: false, message: unsupportedMessage(type) };
-    if (type !== 'video') return { ok: false, message: mismatchMessage(type) };
+    if (type !== 'video') {
+      return {
+        ok: false,
+        message: type === 'dynamic' ? '这是视频身份，请到视频页添加' : mismatchMessage(type),
+      };
+    }
     if (!VIDEO_BV.test(match[1]) || externalIdError('video', match[1])) {
       return { ok: false, message: 'BV 号格式不正确' };
     }

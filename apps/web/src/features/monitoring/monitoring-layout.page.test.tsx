@@ -292,14 +292,15 @@ describe('monitoring layout toggle', () => {
     install([], []);
     renderAt('/monitoring?tab=dynamics&view=grid&page=1');
     expect(
-      await screen.findByText('动态只浏览已有互动数据，启动监控不在这个页面提供。'),
+      await screen.findByText('动态可新增监控、暂停与恢复。无监控目标时仍可浏览已有互动指标。'),
     ).toBeTruthy();
     const layout = screen.getByTestId('monitor-layout');
     expect(layout.getAttribute('data-view')).toBe('split');
     expect(layout.className).toContain('lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]');
     expect(screen.queryByRole('radio', { name: '分栏' })).toBeNull();
     expect(screen.queryByRole('radio', { name: '网格' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '新增监控' })).toBeNull();
+    expect(screen.getByRole('button', { name: '新增监控' })).toBeTruthy();
+    expect(screen.queryByText(/不在这个页面提供/)).toBeNull();
     expect(screen.getByText('从左侧列表选择一条记录以查看趋势图。')).toBeTruthy();
     expect(screen.getByRole('link', { name: '查看采集记录' })).toBeTruthy();
   });

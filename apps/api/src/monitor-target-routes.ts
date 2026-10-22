@@ -1,5 +1,7 @@
 import {
   MonitorContractError,
+  externalIdError,
+  isMonitorTargetType,
   parseCollectorJob,
   parseCreateMonitorTargetRequest,
   parseFirstAccessInterventionList,
@@ -11,6 +13,7 @@ import {
   type MonitorTarget,
 } from '@studio/contracts';
 import {
+  findMonitorTargetByIdentity,
   getCollectorJob,
   getMonitorTarget,
   insertMonitorTarget,
@@ -288,6 +291,25 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
         totalPages,
         items: listed.items.map(toMonitorTarget),
       });
+    } catch (err) {
+      const failure = jsonError(err);
+      return c.json(failure.body, failure.status);
+    }
+  });
+
+  /** Minimal identity lookup for pages that are not on the video/creator cards API. */
+  app.get('/targets/of/:type/:externalId', async (c) => {
+    try {
+      const typeRaw = c.req.param('type');
+      if (!isMonitorTargetType(typeRaw)) {
+        throw new MonitorContractError('invalid_target_type', '监控类型只能是视频、UP 主或动态');
+      }
+      const externalId = decodeURIComponent(c.req.param('externalId')).trim();
+      const idError = externalIdError(typeRaw, externalId);
+      if (idError) throw new MonitorContractError('invalid_external_id', idError);
+      const row = await findMonitorTargetByIdentity(db, typeRaw, externalId);
+      if (!row) return c.json({ error: '未找到该监控项', code: 'not_found' }, 404);
+      return c.json({ target: toMonitorTarget(row) });
     } catch (err) {
       const failure = jsonError(err);
       return c.json(failure.body, failure.status);

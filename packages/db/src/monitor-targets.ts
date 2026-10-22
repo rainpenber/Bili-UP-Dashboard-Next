@@ -160,6 +160,24 @@ export async function getMonitorTarget(
   return row ? mapTarget(row) : null;
 }
 
+/** Active (non-deleted) target for a type + external id pair. */
+export async function findMonitorTargetByIdentity(
+  sql: Queryable,
+  type: MonitorTargetType,
+  externalId: string,
+): Promise<MonitorTargetRow | null> {
+  const rows = await sql<TargetSqlRow[]>`
+    SELECT ${sql.unsafe(targetColumns)}
+    FROM monitor_targets
+    WHERE "type" = ${type}
+      AND external_id = ${externalId}
+      AND deleted_at IS NULL
+    LIMIT 1
+  `;
+  const row = rows[0];
+  return row ? mapTarget(row) : null;
+}
+
 export async function insertMonitorTarget(
   sql: Sql,
   input: {

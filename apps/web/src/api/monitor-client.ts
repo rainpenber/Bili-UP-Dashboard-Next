@@ -2,6 +2,7 @@ import type {
   CreatorListItem,
   CreatorVideoList,
   DynamicListItem,
+  DynamicTargetRef,
   Paginated,
   VideoDetail,
   VideoListItem,
@@ -90,6 +91,7 @@ export type DynamicDetail = {
   archivedAt: string | null;
   deletedAt: string | null;
   metadata: Record<string, unknown>;
+  target: DynamicTargetRef | null;
 };
 
 export function fetchVideo(bvid: string): Promise<VideoDetail> {

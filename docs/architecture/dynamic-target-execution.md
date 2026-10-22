@@ -30,6 +30,8 @@ WP-R2-16C。这一包把一条已经指定的动态接进现有采集流水线�
 
 这次任务的 `collector_requests` 和 `app_logs` 带有本轮的 job 或 run。`GET /api/v1/ops/collector-jobs?type=dynamic`、任务详情、运行详情和操作记录接受 `dynamic`，不会把它显示成 UP 主。动态 id 即使和某位 UP 主的 mid 相同，运维投影也只在 `type = 'dynamic'` 时读取 `dynamics`，封面留空，不使用 UP 主头像。
 
-## 还没有做的部分
+## 还没有做的部分（16C 当时）
 
 页面上仍然不能新增、暂停或恢复一条动态。监控卡片接口继续只接受视频和 UP 主。没有新动态发现，也没有把动态 id 当成 UP 主去拉粉丝。验收使用新建且保留的 `wp_r2_16c_*` 逻辑库，不访问 B 站。
+
+页面新增 / 启停 / 详情与日志见 WP-R2-16D 与 `docs/architecture/dynamic-monitor-page.md`。卡片 API 仍只接受视频和 UP 主。

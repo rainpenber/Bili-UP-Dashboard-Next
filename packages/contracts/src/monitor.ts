@@ -42,6 +42,16 @@ export type CreatorListItem = {
   };
 };
 
+/** Active monitor_targets row for a dynamic, when one exists. */
+export type DynamicTargetRef = {
+  id: string;
+  enabled: boolean;
+  intervalMinutes: number;
+  intervalMode: 'auto' | 'fixed';
+  lastSuccessAt: string | null;
+  lastError: string | null;
+};
+
 export type DynamicListItem = {
   dynamicId: string;
   mid: BigIntString | null;
@@ -49,6 +59,8 @@ export type DynamicListItem = {
   monitoringEnabled: boolean;
   archivedAt: string | null;
   deletedAt: string | null;
+  /** Joined from monitor_targets (type=dynamic). Null when unmonitored. */
+  target: DynamicTargetRef | null;
   latestMetrics: {
     sampledAt: string | null;
     likeCount: BigIntString | null;

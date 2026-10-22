@@ -28,9 +28,17 @@ describe('monitor card contracts', () => {
       ok: true,
       externalId: '80486',
     });
-    const dynamic = parseMonitorExternalInput('dynamic', '12345');
-    expect(dynamic.ok).toBe(false);
-    if (!dynamic.ok) expect(dynamic.message).toContain('动态');
+    expect(parseMonitorExternalInput('dynamic', '12345')).toEqual({
+      ok: true,
+      externalId: '12345',
+    });
+    expect(
+      parseMonitorExternalInput('dynamic', 'https://t.bilibili.com/966692349750018048?tab=2'),
+    ).toEqual({ ok: true, externalId: '966692349750018048' });
+    expect(parseMonitorExternalInput('dynamic', 't.bilibili.com/966692349750018048')).toEqual({
+      ok: true,
+      externalId: '966692349750018048',
+    });
     expect(() => parseMonitorCardIdentity('dynamic', '12345')).toThrow(/视频或 UP 主/);
   });
 
@@ -44,6 +52,15 @@ describe('monitor card contracts', () => {
     if (!mismatch.ok) expect(mismatch.message).toContain('UP 主');
     const av = parseMonitorExternalInput('video', 'https://www.bilibili.com/video/av170001');
     expect(av.ok).toBe(false);
+    expect(parseMonitorExternalInput('dynamic', '  ').ok).toBe(false);
+    expect(parseMonitorExternalInput('dynamic', '0').ok).toBe(false);
+    expect(parseMonitorExternalInput('dynamic', '01').ok).toBe(false);
+    expect(parseMonitorExternalInput('dynamic', 'https://b23.tv/abcdef').ok).toBe(false);
+    expect(parseMonitorExternalInput('dynamic', 'https://space.bilibili.com/12345').ok).toBe(false);
+    expect(
+      parseMonitorExternalInput('dynamic', 'https://www.bilibili.com/video/BV1xx411c7mD').ok,
+    ).toBe(false);
+    expect(parseMonitorExternalInput('video', 'https://t.bilibili.com/12345').ok).toBe(false);
   });
 
   test('automatic create does not send the legacy 60 minute preset', () => {
