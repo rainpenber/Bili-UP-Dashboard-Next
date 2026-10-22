@@ -4,7 +4,6 @@ import { Columns2, LayoutGrid } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { useDynamicsQuery, useEntityMetricsQuery } from '@/api/hooks/use-monitor-queries';
 import { useMonitorCardsQuery } from '@/api/hooks/use-monitor-card-queries';
-import { formatCount } from '@/api/monitor-client';
 import {
   EmptyState,
   ErrorState,
@@ -19,10 +18,10 @@ import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { DynamicMonitorControls } from '@/features/monitoring/dynamic-monitor-controls';
+import { DynamicObjectCard } from '@/features/monitoring/dynamic-object-card';
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
 import { MonitorAddDialog } from '@/features/monitoring/monitor-add-dialog';
-import { MonitorObjectCard } from '@/features/monitoring/monitor-object-card';
+import { MonitorCardControls, MonitorObjectCard } from '@/features/monitoring/monitor-object-card';
 import {
   parseMonitorSearchParams,
   writeMonitorSearchParams,
@@ -124,7 +123,7 @@ export function MonitoringPage() {
 
   const listQueryState = state.tab === 'dynamics' ? dynamicsQuery : cardsQuery;
   const totalPages = listQueryState.data?.totalPages ?? 1;
-  const layoutView = state.tab === 'dynamics' ? 'split' : state.view;
+  const layoutView = state.view;
   const gridLayout = layoutView === 'grid';
 
   return (
@@ -163,9 +162,12 @@ export function MonitoringPage() {
         </TabsList>
 
         {state.tab === 'dynamics' ? (
-          <p className="text-sm text-muted-foreground">
-            动态可新增监控、暂停与恢复。无监控目标时仍可浏览已有互动指标。
-          </p>
+          <div className="flex min-w-0 flex-wrap items-end gap-4 rounded-lg border bg-muted/20 p-4">
+            <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+              动态可新增监控、暂停与恢复。无监控目标时仍可浏览已有互动指标。
+            </p>
+            <MonitorLayoutToggle value={state.view} onValueChange={(view) => patchUrl({ view })} />
+          </div>
         ) : (
           <div className="flex min-w-0 flex-wrap gap-4 rounded-lg border bg-muted/20 p-4">
             {state.tab === 'videos' ? (
@@ -278,43 +280,26 @@ export function MonitoringPage() {
               {state.tab === 'dynamics' &&
               dynamicsQuery.isSuccess &&
               dynamicsQuery.data.items.length > 0 ? (
-                <ul className="min-w-0 space-y-2" role="list" data-testid="dynamic-card-list">
-                  {dynamicsQuery.data.items.map((item) => {
-                    const selected = state.selected === item.dynamicId;
-                    return (
-                      <li key={item.dynamicId} className="min-w-0" data-testid="dynamic-list-item">
-                        <div
-                          className={cn(
-                            'flex min-w-0 flex-col gap-2 rounded-lg border p-3',
-                            selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
-                          )}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => patchUrl({ selected: item.dynamicId })}
-                            className="min-w-0 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            aria-pressed={selected}
-                          >
-                            <span className="block break-all font-medium">{item.dynamicId}</span>
-                            <span className="text-xs tabular-nums text-muted-foreground">
-                              赞 {formatCount(item.latestMetrics.likeCount)} · 评{' '}
-                              {formatUnknownMetric(item.latestMetrics.commentCount)} · 转{' '}
-                              {formatUnknownMetric(item.latestMetrics.repostCount)}
-                              {item.latestMetrics.sampledAt
-                                ? ` · ${formatShortTime(item.latestMetrics.sampledAt)}`
-                                : ''}
-                            </span>
-                          </button>
-                          <DynamicMonitorControls
-                            dynamicId={item.dynamicId}
-                            target={item.target}
-                            listQuery={listQuery}
-                            layout="card"
-                          />
-                        </div>
-                      </li>
-                    );
-                  })}
+                <ul
+                  className={cn(
+                    'min-w-0',
+                    gridLayout
+                      ? 'grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+                      : 'space-y-2',
+                  )}
+                  role="list"
+                  data-testid="dynamic-card-list"
+                >
+                  {dynamicsQuery.data.items.map((item) => (
+                    <DynamicObjectCard
+                      key={item.dynamicId}
+                      item={item}
+                      presentation={gridLayout ? 'grid' : 'list'}
+                      selected={state.selected === item.dynamicId}
+                      listQuery={listQuery}
+                      onSelect={() => patchUrl({ selected: item.dynamicId })}
+                    />
+                  ))}
                 </ul>
               ) : null}
 
@@ -352,6 +337,16 @@ export function MonitoringPage() {
                         : '从左侧列表选择一条记录以查看趋势图。'
                     }
                   />
+                ) : null}
+                {!gridLayout && selectedCard ? (
+                  <div data-testid="monitor-split-detail-panel">
+                    <MonitorCardControls
+                      card={selectedCard}
+                      listQuery={listQuery}
+                      layout="detail"
+                      includeDetailLink
+                    />
+                  </div>
                 ) : null}
                 {state.selected && selectedCard && !selectedCard.hasEntity ? (
                   <NoSelectionHint message="尚无采集数据" />

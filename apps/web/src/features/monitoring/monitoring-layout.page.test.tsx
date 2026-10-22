@@ -170,9 +170,9 @@ describe('monitoring layout toggle', () => {
       .getAllByTestId('monitor-object-card')
       .find((node) => node.getAttribute('data-external-id') === BVID);
     expect(selected?.getAttribute('data-presentation')).toBe('list');
-    expect(within(selected!).getByTestId('monitor-card-actions').className).toContain(
-      'sm:flex-row',
-    );
+    expect(within(selected!).getByTestId('monitor-card-actions').className).toContain('flex-wrap');
+    expect(within(selected!).getByRole('button', { name: /详情/ })).toBeTruthy();
+    expect(within(selected!).queryByRole('button', { name: '更多' })).toBeNull();
 
     fireEvent.click(screen.getByRole('radio', { name: '分栏' }));
     expect(layout.getAttribute('data-view')).toBe('split');
@@ -291,20 +291,23 @@ describe('monitoring layout toggle', () => {
     expect(screen.getByTestId('monitor-layout').getAttribute('data-view')).toBe('grid');
   });
 
-  test('dynamics stay in the side-by-side list even when the url asks for grid', async () => {
+  test('dynamics honor the grid layout toggle from the url and filter bar', async () => {
     install([], []);
     renderAt('/monitoring?tab=dynamics&view=grid&page=1');
     expect(
       await screen.findByText('动态可新增监控、暂停与恢复。无监控目标时仍可浏览已有互动指标。'),
     ).toBeTruthy();
     const layout = screen.getByTestId('monitor-layout');
-    expect(layout.getAttribute('data-view')).toBe('split');
-    expect(layout.className).toContain('lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]');
-    expect(screen.queryByRole('radio', { name: '分栏' })).toBeNull();
-    expect(screen.queryByRole('radio', { name: '网格' })).toBeNull();
+    expect(layout.getAttribute('data-view')).toBe('grid');
+    expect(layout.className).not.toContain('lg:grid-cols-');
+    expect(screen.getByRole('radio', { name: '分栏' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: '网格' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '新增监控' })).toBeTruthy();
     expect(screen.queryByText(/不在这个页面提供/)).toBeNull();
-    expect(screen.getByText('从左侧列表选择一条记录以查看趋势图。')).toBeTruthy();
+    expect(screen.getByText('从上方卡片选择一条记录以查看趋势图。')).toBeTruthy();
     expect(screen.getByRole('link', { name: '查看采集记录' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: '分栏' }));
+    expect(screen.getByTestId('monitor-layout').getAttribute('data-view')).toBe('split');
+    expect(screen.getByTestId('monitor-layout').className).toContain('lg:grid-cols-');
   });
 });

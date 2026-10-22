@@ -8,20 +8,16 @@ import {
 } from '@studio/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { useMonitorTargetMutations } from '@/api/hooks/use-monitor-target-queries';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
 import { fetchOpsCollectorJobs } from '@/features/ops/ops-client';
 import { formatShanghaiDateTime, jobStatusLabel } from '@/features/ops/ops-format';
 import { formatFullLocalTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
 
-const STATE_LABEL = {
-  unmonitored: '未监控',
-  active: '监控中',
-  paused: '已暂停',
-} as const;
-
-function monitorStateFromTarget(target: DynamicTargetRef | null): keyof typeof STATE_LABEL {
+function monitorStateFromTarget(
+  target: DynamicTargetRef | null,
+): 'unmonitored' | 'active' | 'paused' {
   if (!target) return 'unmonitored';
   return target.enabled ? 'active' : 'paused';
 }
@@ -113,6 +109,10 @@ export function DynamicMonitorControls({
     (mutations.run.error instanceof Error && mutations.run.error.message) ||
     null;
   const detailsId = `dynamic-monitor-details-${dynamicId}`;
+  const failed = Boolean(target?.lastError?.trim());
+  const detailHref = `/monitoring/dynamics/${encodeURIComponent(dynamicId)}${
+    listQuery ? `?from=${encodeURIComponent(listQuery)}` : ''
+  }`;
 
   const start = () => {
     setNotice(null);
@@ -130,41 +130,35 @@ export function DynamicMonitorControls({
     });
   };
 
-  const primary =
-    monitorState === 'unmonitored' ? (
-      <Button type="button" size="sm" disabled={pending} onClick={start}>
-        开始监控
-      </Button>
-    ) : monitorState === 'active' && target ? (
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        disabled={pending}
-        onClick={() => mutations.patch.mutate({ id: target.id, patch: { enabled: false } })}
-      >
-        暂停
-      </Button>
-    ) : monitorState === 'paused' && target ? (
-      <Button
-        type="button"
-        size="sm"
-        disabled={pending}
-        onClick={() => mutations.patch.mutate({ id: target.id, patch: { enabled: true } })}
-      >
-        恢复
-      </Button>
-    ) : null;
+  const primaryAction =
+    monitorState === 'unmonitored'
+      ? { label: '开始监控', onClick: start, variant: 'default' as const }
+      : monitorState === 'active' && target
+        ? {
+            label: '暂停',
+            onClick: () => mutations.patch.mutate({ id: target.id, patch: { enabled: false } }),
+            variant: 'outline' as const,
+          }
+        : monitorState === 'paused' && target
+          ? {
+              label: '恢复',
+              onClick: () => mutations.patch.mutate({ id: target.id, patch: { enabled: true } }),
+              variant: 'default' as const,
+            }
+          : null;
 
-  const stateBadge = (
-    <Badge
-      variant={
-        monitorState === 'active' ? 'success' : monitorState === 'paused' ? 'warning' : 'secondary'
-      }
+  const primary = primaryAction ? (
+    <Button
+      type="button"
+      size="sm"
+      variant={primaryAction.variant}
+      disabled={pending}
+      aria-label={primaryAction.label}
+      onClick={primaryAction.onClick}
     >
-      {STATE_LABEL[monitorState]}
-    </Badge>
-  );
+      {primaryAction.label}
+    </Button>
+  ) : null;
 
   const logsLink = target ? (
     <Button type="button" size="sm" variant="outline" asChild>
@@ -184,12 +178,42 @@ export function DynamicMonitorControls({
     </Button>
   );
 
+  if (layout === 'card') {
+    return (
+      <div
+        className="mt-auto flex flex-wrap items-center justify-end gap-2"
+        data-testid="dynamic-monitor-controls"
+        data-monitor-state={monitorState}
+        data-external-id={dynamicId}
+        data-target-id={target?.id ?? ''}
+        data-pending={pending ? 'true' : 'false'}
+        aria-busy={pending}
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        <Button type="button" size="sm" variant="outline" asChild>
+          <Link to={detailHref} aria-label={`查看动态 ${dynamicId} 详情`}>
+            详情
+          </Link>
+        </Button>
+        {primary}
+        {notice ? (
+          <p role="status" className="basis-full break-words text-xs text-muted-foreground">
+            {notice}
+          </p>
+        ) : null}
+        {error ? (
+          <p role="alert" className="basis-full break-words text-xs text-destructive">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div
-      className={cn(
-        'flex min-w-0 max-w-full flex-col gap-2',
-        layout === 'card' && 'rounded-md bg-muted/20 p-2',
-      )}
+      className={cn('flex min-w-0 max-w-full flex-col gap-2')}
       data-testid="dynamic-monitor-controls"
       data-monitor-state={monitorState}
       data-external-id={dynamicId}
@@ -198,7 +222,7 @@ export function DynamicMonitorControls({
       aria-busy={pending}
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        {stateBadge}
+        <MonitorStateBadge state={monitorState} failed={failed} />
         {primary}
         <Button
           type="button"
@@ -210,18 +234,7 @@ export function DynamicMonitorControls({
         >
           监控详情
         </Button>
-        {layout === 'detail' ? logsLink : null}
-        {layout === 'card' ? (
-          <Button type="button" size="sm" variant="outline" asChild>
-            <Link
-              to={`/monitoring/dynamics/${encodeURIComponent(dynamicId)}${
-                listQuery ? `?from=${encodeURIComponent(listQuery)}` : ''
-              }`}
-            >
-              查看详情
-            </Link>
-          </Button>
-        ) : null}
+        {logsLink}
       </div>
       {notice ? (
         <p role="status" className="break-words text-xs text-muted-foreground">
@@ -245,13 +258,14 @@ export function DynamicMonitorControls({
           </p>
           <p className="tabular-nums">上一次成功采集：{whenText(target?.lastSuccessAt ?? null)}</p>
           {target?.lastError ? (
-            <p className="break-words text-destructive">最近失败：{target.lastError}</p>
+            <p className="break-words text-destructive" data-testid="dynamic-last-failure">
+              最近失败：{target.lastError}
+            </p>
           ) : null}
           <div>
             <p className="mb-1 font-medium text-foreground">最近采集记录</p>
             <RecentCollectLogs targetId={target?.id ?? null} externalId={dynamicId} />
           </div>
-          {layout === 'card' ? <div className="pt-1">{logsLink}</div> : null}
         </div>
       ) : null}
     </div>
