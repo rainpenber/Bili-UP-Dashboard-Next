@@ -301,6 +301,7 @@ describe('historical dynamic sample upgrade', () => {
       '012_dynamic_monitor_targets',
       '013_monitor_target_start_at',
       '014_video_pinned_at',
+      '015_studio_owner_account',
     ]);
     const creators = await snapshotRows(db, 'creators', 'mid');
     const dynamics = await snapshotRows(db, 'dynamics', 'dynamic_id');

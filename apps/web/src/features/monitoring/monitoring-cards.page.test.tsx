@@ -147,6 +147,16 @@ function renderAt(path: string) {
 function install(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    // Monitoring page always loads studio owner for「只看我的」; keep mocks valid.
+    if (url.includes('/settings/owner-account')) {
+      return Promise.resolve(
+        jsonResponse({
+          mid: '3493141386627335',
+          displayName: '狐正正',
+          updatedAt: '2026-10-22T00:00:00.000Z',
+        }),
+      );
+    }
     return Promise.resolve(handler(url, init));
   }) as typeof fetch;
 }
