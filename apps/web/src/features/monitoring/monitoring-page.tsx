@@ -101,7 +101,8 @@ export function MonitoringPage() {
   };
 
   const cardType = state.tab === 'creators' ? 'creator' : 'video';
-  const addType = state.tab === 'creators' ? 'creator' : state.tab === 'dynamics' ? 'dynamic' : 'video';
+  const addType =
+    state.tab === 'creators' ? 'creator' : state.tab === 'dynamics' ? 'dynamic' : 'video';
   const cardsQuery = useMonitorCardsQuery({
     type: cardType,
     page: state.page,

@@ -47,9 +47,7 @@ export function fetchMonitorTargetByIdentity(
   type: MonitorTargetType,
   externalId: string,
 ): Promise<MonitorTarget | null> {
-  return requestJson(
-    `/targets/of/${encodeURIComponent(type)}/${encodeURIComponent(externalId)}`,
-  )
+  return requestJson(`/targets/of/${encodeURIComponent(type)}/${encodeURIComponent(externalId)}`)
     .then((body) => {
       if (typeof body !== 'object' || body === null || !('target' in body)) {
         throw new MonitorRequestError('监控项响应不完整', 500, null);

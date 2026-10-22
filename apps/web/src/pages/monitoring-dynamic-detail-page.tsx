@@ -44,8 +44,7 @@ export function MonitoringDynamicDetailPage() {
   const targetQuery = useMonitorTargetByIdentityQuery('dynamic', id);
   const metricsQuery = useDynamicMetricsDetailQuery(id);
 
-  const target =
-    detailQuery.data?.target ?? toTargetRef(targetQuery.data) ?? null;
+  const target = detailQuery.data?.target ?? toTargetRef(targetQuery.data ?? null) ?? null;
   const monitorToolbar =
     detailQuery.isLoading && targetQuery.isLoading ? (
       <LoadingListSkeleton rows={1} />

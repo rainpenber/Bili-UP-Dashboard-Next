@@ -21,9 +21,7 @@ const STATE_LABEL = {
   paused: '已暂停',
 } as const;
 
-function monitorStateFromTarget(
-  target: DynamicTargetRef | null,
-): keyof typeof STATE_LABEL {
+function monitorStateFromTarget(target: DynamicTargetRef | null): keyof typeof STATE_LABEL {
   if (!target) return 'unmonitored';
   return target.enabled ? 'active' : 'paused';
 }
@@ -243,9 +241,7 @@ export function DynamicMonitorControls({
         >
           <p>
             频率：
-            {target
-              ? `固定间隔 · 每 ${target.intervalMinutes} 分钟`
-              : '未设置频率'}
+            {target ? `固定间隔 · 每 ${target.intervalMinutes} 分钟` : '未设置频率'}
           </p>
           <p className="tabular-nums">上一次成功采集：{whenText(target?.lastSuccessAt ?? null)}</p>
           {target?.lastError ? (
