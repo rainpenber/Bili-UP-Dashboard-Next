@@ -560,6 +560,60 @@ describe('HTTP API coverage against isolated Postgres', () => {
       expect(card.externalId).toBe('240240');
       expect(card.hasEntity).toBe(false);
       await expectStatus(await api('/api/v1/monitor/cards?type=dynamic'), 400);
+      const byIdentity = (await expectStatus(
+        await api('/api/v1/monitor/targets/of/creator/240240'),
+        200,
+      )) as { target: { id: string; type: string; externalId: string; enabled: boolean } };
+      expect(byIdentity.target).toMatchObject({
+        id: creator.target.id,
+        type: 'creator',
+        externalId: '240240',
+        enabled: true,
+      });
+      await expectStatus(await api('/api/v1/monitor/targets/of/dynamic/999999999999999999'), 404);
+      const dynamicTarget = parseMonitorTargetCreateResponse(
+        await expectStatus(
+          await api(
+            '/api/v1/monitor/targets',
+            json('POST', {
+              type: 'dynamic',
+              externalId: '966692349750018048',
+              intervalMode: 'fixed',
+              intervalMinutes: 60,
+            }),
+          ),
+          200,
+        ),
+      );
+      expect(dynamicTarget.created).toBe(true);
+      expect(dynamicTarget.target).toMatchObject({
+        type: 'dynamic',
+        externalId: '966692349750018048',
+        intervalMode: 'fixed',
+        intervalMinutes: 60,
+        enabled: true,
+      });
+      const dynamicLookup = (await expectStatus(
+        await api('/api/v1/monitor/targets/of/dynamic/966692349750018048'),
+        200,
+      )) as { target: { id: string; enabled: boolean } };
+      expect(dynamicLookup.target.id).toBe(dynamicTarget.target.id);
+      const pausedDynamic = (await expectStatus(
+        await api(
+          `/api/v1/monitor/targets/${dynamicTarget.target.id}`,
+          json('PATCH', { enabled: false }),
+        ),
+        200,
+      )) as { target: { enabled: boolean } };
+      expect(pausedDynamic.target.enabled).toBe(false);
+      const resumedDynamic = (await expectStatus(
+        await api(
+          `/api/v1/monitor/targets/${dynamicTarget.target.id}`,
+          json('PATCH', { enabled: true }),
+        ),
+        200,
+      )) as { target: { enabled: boolean } };
+      expect(resumedDynamic.target.enabled).toBe(true);
       const fixed = parseMonitorTargetCreateResponse(
         await expectStatus(
           await api(

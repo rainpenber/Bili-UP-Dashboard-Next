@@ -43,6 +43,23 @@ export function fetchMonitorTargets(page = 1): Promise<Paginated<MonitorTarget>>
   return requestJson(`/targets?page=${page}&pageSize=8`).then(parseMonitorTargetList);
 }
 
+export function fetchMonitorTargetByIdentity(
+  type: MonitorTargetType,
+  externalId: string,
+): Promise<MonitorTarget | null> {
+  return requestJson(`/targets/of/${encodeURIComponent(type)}/${encodeURIComponent(externalId)}`)
+    .then((body) => {
+      if (typeof body !== 'object' || body === null || !('target' in body)) {
+        throw new MonitorRequestError('监控项响应不完整', 500, null);
+      }
+      return parseMonitorTarget((body as { target: unknown }).target);
+    })
+    .catch((error) => {
+      if (error instanceof MonitorRequestError && error.status === 404) return null;
+      throw error;
+    });
+}
+
 export function fetchMonitorJobs(page = 1): Promise<Paginated<CollectorJob>> {
   return requestJson(`/jobs?page=${page}&pageSize=8`).then(parseCollectorJobList);
 }

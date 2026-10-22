@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { DynamicMonitorControls } from '@/features/monitoring/dynamic-monitor-controls';
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
 import { MonitorAddDialog } from '@/features/monitoring/monitor-add-dialog';
 import { MonitorObjectCard } from '@/features/monitoring/monitor-object-card';
@@ -31,6 +32,7 @@ import {
 } from '@/features/monitoring/monitor-url-state';
 import { OfflineEnvironmentBadge } from '@/features/monitoring/offline-environment-badge';
 import { formatUnknownMetric } from '@/lib/format-compact-number';
+import { formatFullLocalTime, formatShortTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
 
 const TAB_LABEL: Record<MonitorTab, string> = {
@@ -99,6 +101,8 @@ export function MonitoringPage() {
   };
 
   const cardType = state.tab === 'creators' ? 'creator' : 'video';
+  const addType =
+    state.tab === 'creators' ? 'creator' : state.tab === 'dynamics' ? 'dynamic' : 'video';
   const cardsQuery = useMonitorCardsQuery({
     type: cardType,
     page: state.page,
@@ -110,6 +114,8 @@ export function MonitoringPage() {
   const dynamicsQuery = useDynamicsQuery(state.page, state.tab === 'dynamics');
   const selectedCard =
     cardsQuery.data?.items.find((item) => item.externalId === state.selected) ?? null;
+  const selectedDynamic =
+    dynamicsQuery.data?.items.find((item) => item.dynamicId === state.selected) ?? null;
   const metricsQuery = useEntityMetricsQuery(
     state.tab,
     state.tab === 'dynamics' ? state.selected : selectedCard?.hasEntity ? state.selected : null,
@@ -125,16 +131,14 @@ export function MonitoringPage() {
     <div data-testid="monitoring-page" className="min-w-0 max-w-full overflow-x-hidden">
       <PageHeader
         title="监控中心"
-        description="按视频、UP 主和动态查看对象。视频与 UP 主可在此新增、暂停和恢复监控。"
+        description="按视频、UP 主和动态查看对象。可在此新增、暂停和恢复监控。"
         crumbs={[{ label: '工作室', to: '/' }, { label: '监控' }]}
         actions={
           <>
             <OfflineEnvironmentBadge />
-            {state.tab === 'dynamics' ? null : (
-              <Button type="button" onClick={() => setAddOpen(true)}>
-                新增监控
-              </Button>
-            )}
+            <Button type="button" onClick={() => setAddOpen(true)}>
+              新增监控
+            </Button>
           </>
         }
       />
@@ -160,7 +164,7 @@ export function MonitoringPage() {
 
         {state.tab === 'dynamics' ? (
           <p className="text-sm text-muted-foreground">
-            动态只浏览已有互动数据，启动监控不在这个页面提供。
+            动态可新增监控、暂停与恢复。无监控目标时仍可浏览已有互动指标。
           </p>
         ) : (
           <div className="flex min-w-0 flex-wrap gap-4 rounded-lg border bg-muted/20 p-4">
@@ -237,7 +241,11 @@ export function MonitoringPage() {
               {listQueryState.isSuccess && listQueryState.data.items.length === 0 ? (
                 <EmptyState
                   title="没有匹配的条目"
-                  description="调整筛选，或新增一个视频 / UP 主监控。历史对象和尚未采样的目标也会出现在这里。"
+                  description={
+                    state.tab === 'dynamics'
+                      ? '还没有动态样本。可先新增一条动态监控，或等待采集写入后再回来查看。'
+                      : '调整筛选，或新增一个视频 / UP 主监控。历史对象和尚未采样的目标也会出现在这里。'
+                  }
                 />
               ) : null}
 
@@ -270,39 +278,39 @@ export function MonitoringPage() {
               {state.tab === 'dynamics' &&
               dynamicsQuery.isSuccess &&
               dynamicsQuery.data.items.length > 0 ? (
-                <ul className="min-w-0 space-y-2" role="list">
+                <ul className="min-w-0 space-y-2" role="list" data-testid="dynamic-card-list">
                   {dynamicsQuery.data.items.map((item) => {
                     const selected = state.selected === item.dynamicId;
                     return (
-                      <li key={item.dynamicId} className="min-w-0">
+                      <li key={item.dynamicId} className="min-w-0" data-testid="dynamic-list-item">
                         <div
                           className={cn(
-                            'flex min-w-0 flex-col gap-2 rounded-lg border p-3 sm:flex-row',
+                            'flex min-w-0 flex-col gap-2 rounded-lg border p-3',
                             selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
                           )}
                         >
                           <button
                             type="button"
                             onClick={() => patchUrl({ selected: item.dynamicId })}
-                            className="min-w-0 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="min-w-0 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             aria-pressed={selected}
                           >
                             <span className="block break-all font-medium">{item.dynamicId}</span>
                             <span className="text-xs tabular-nums text-muted-foreground">
                               赞 {formatCount(item.latestMetrics.likeCount)} · 评{' '}
-                              {formatUnknownMetric(item.latestMetrics.commentCount)}
+                              {formatUnknownMetric(item.latestMetrics.commentCount)} · 转{' '}
+                              {formatUnknownMetric(item.latestMetrics.repostCount)}
+                              {item.latestMetrics.sampledAt
+                                ? ` · ${formatShortTime(item.latestMetrics.sampledAt)}`
+                                : ''}
                             </span>
                           </button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="shrink-0 self-center"
-                            asChild
-                          >
-                            <Link to={`/monitoring/dynamics/${encodeURIComponent(item.dynamicId)}`}>
-                              查看详情
-                            </Link>
-                          </Button>
+                          <DynamicMonitorControls
+                            dynamicId={item.dynamicId}
+                            target={item.target}
+                            listQuery={listQuery}
+                            layout="card"
+                          />
                         </div>
                       </li>
                     );
@@ -323,7 +331,9 @@ export function MonitoringPage() {
               className={cn('min-w-0', gridLayout ? 'w-full' : 'lg:sticky lg:top-20')}
             >
               <CardHeader className="flex-row items-center justify-between space-y-0">
-                <CardTitle className="text-base">播放与互动趋势</CardTitle>
+                <CardTitle className="text-base">
+                  {state.tab === 'dynamics' ? '互动趋势' : '播放与互动趋势'}
+                </CardTitle>
                 {state.selected ? (
                   <Badge
                     variant="outline"
@@ -348,6 +358,40 @@ export function MonitoringPage() {
                 ) : null}
                 {state.selected && selectedCard?.hasEntity && !selectedCard.hasSamples ? (
                   <p className="text-sm text-muted-foreground">尚无采集数据</p>
+                ) : null}
+                {state.selected && state.tab === 'dynamics' && selectedDynamic ? (
+                  <dl className="grid gap-1 text-sm text-muted-foreground">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      <span>
+                        点赞{' '}
+                        <span className="font-medium text-foreground tabular-nums">
+                          {formatUnknownMetric(selectedDynamic.latestMetrics.likeCount)}
+                        </span>
+                      </span>
+                      <span>
+                        评论{' '}
+                        <span className="font-medium text-foreground tabular-nums">
+                          {formatUnknownMetric(selectedDynamic.latestMetrics.commentCount)}
+                        </span>
+                      </span>
+                      <span>
+                        转发{' '}
+                        <span className="font-medium text-foreground tabular-nums">
+                          {formatUnknownMetric(selectedDynamic.latestMetrics.repostCount)}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="tabular-nums">
+                      最近采集：
+                      {selectedDynamic.latestMetrics.sampledAt ? (
+                        <span title={formatFullLocalTime(selectedDynamic.latestMetrics.sampledAt)}>
+                          {formatShortTime(selectedDynamic.latestMetrics.sampledAt)}
+                        </span>
+                      ) : (
+                        '暂无'
+                      )}
+                    </div>
+                  </dl>
                 ) : null}
                 {state.selected && metricsQuery.isLoading ? <LoadingListSkeleton rows={2} /> : null}
                 {state.selected && metricsQuery.isError ? (
@@ -389,24 +433,34 @@ export function MonitoringPage() {
         </Button>
       </div>
 
-      {state.tab === 'dynamics' ? null : (
-        <MonitorAddDialog
-          open={addOpen}
-          type={cardType}
-          onOpenChange={setAddOpen}
-          onCreated={({ externalId, message, enabled }) => {
-            setNotice(message);
+      <MonitorAddDialog
+        open={addOpen}
+        type={addType}
+        onOpenChange={setAddOpen}
+        onCreated={({ externalId, message, enabled }) => {
+          setNotice(message);
+          if (state.tab === 'dynamics') {
             patchUrl({
-              q: externalId,
               page: 1,
               selected: externalId,
-              tab: state.tab,
+              tab: 'dynamics',
               category: '',
+              q: '',
               monitor: enabled ? 'active' : 'paused',
             });
-          }}
-        />
-      )}
+            void dynamicsQuery.refetch();
+            return;
+          }
+          patchUrl({
+            q: externalId,
+            page: 1,
+            selected: externalId,
+            tab: state.tab,
+            category: '',
+            monitor: enabled ? 'active' : 'paused',
+          });
+        }}
+      />
     </div>
   );
 }

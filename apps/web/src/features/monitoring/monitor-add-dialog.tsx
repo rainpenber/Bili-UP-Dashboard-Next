@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import {
+  DYNAMIC_DEFAULT_INTERVAL_MINUTES,
   MONITOR_INTERVAL_MINUTES,
   parseCreateMonitorTargetRequest,
   parseMonitorExternalInput,
@@ -32,6 +33,19 @@ const INTERVAL_LABEL: Record<MonitorIntervalMinutes, string> = {
   1440: '每天',
 };
 
+function defaultsFor(type: MonitorTargetType): {
+  intervalMode: 'auto' | 'fixed';
+  intervalMinutes: MonitorIntervalMinutes;
+} {
+  if (type === 'dynamic') {
+    return {
+      intervalMode: 'fixed',
+      intervalMinutes: DYNAMIC_DEFAULT_INTERVAL_MINUTES as MonitorIntervalMinutes,
+    };
+  }
+  return { intervalMode: 'auto', intervalMinutes: 15 };
+}
+
 export function MonitorAddDialog({
   open,
   type,
@@ -43,24 +57,36 @@ export function MonitorAddDialog({
   onOpenChange: (open: boolean) => void;
   onCreated: (result: { externalId: string; message: string; enabled: boolean }) => void;
 }) {
+  const initial = defaultsFor(type);
   const [externalInput, setExternalInput] = useState('');
   const [label, setLabel] = useState('');
   const [tags, setTags] = useState('');
-  const [intervalMode, setIntervalMode] = useState<'auto' | 'fixed'>('auto');
-  const [intervalMinutes, setIntervalMinutes] = useState<MonitorIntervalMinutes>(15);
+  const [intervalMode, setIntervalMode] = useState<'auto' | 'fixed'>(initial.intervalMode);
+  const [intervalMinutes, setIntervalMinutes] = useState<MonitorIntervalMinutes>(
+    initial.intervalMinutes,
+  );
   const [startAtLocal, setStartAtLocal] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const mutations = useMonitorTargetMutations();
 
   const reset = () => {
+    const next = defaultsFor(type);
     setExternalInput('');
     setLabel('');
     setTags('');
-    setIntervalMode('auto');
-    setIntervalMinutes(15);
+    setIntervalMode(next.intervalMode);
+    setIntervalMinutes(next.intervalMinutes);
     setStartAtLocal('');
     setFormError(null);
   };
+
+  useEffect(() => {
+    if (!open) return;
+    const next = defaultsFor(type);
+    setIntervalMode(next.intervalMode);
+    setIntervalMinutes(next.intervalMinutes);
+    setFormError(null);
+  }, [open, type]);
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -75,12 +101,13 @@ export function MonitorAddDialog({
       setFormError(startAtResolved.message);
       return;
     }
+    const effectiveMode = type === 'dynamic' ? 'fixed' : intervalMode;
     try {
       const request = parseCreateMonitorTargetRequest({
         type,
         externalId: parsedId.externalId,
-        intervalMode,
-        ...(intervalMode === 'fixed' ? { intervalMinutes } : {}),
+        intervalMode: effectiveMode,
+        ...(effectiveMode === 'fixed' ? { intervalMinutes } : {}),
         ...(label.trim() ? { label } : {}),
         ...(tags.trim() ? { tags: splitTagInput(tags) } : {}),
         ...(startAtResolved.startAt !== undefined ? { startAt: startAtResolved.startAt } : {}),
@@ -140,7 +167,7 @@ export function MonitorAddDialog({
                 ? 'BV 号或视频长链接'
                 : type === 'creator'
                   ? 'UID 或空间长链接'
-                  : '动态 id'}
+                  : '动态 id 或链接'}
             </Label>
             <Input
               id="monitor-add-identity"
@@ -151,7 +178,7 @@ export function MonitorAddDialog({
                   ? 'BV… 或 https://www.bilibili.com/video/BV…'
                   : type === 'creator'
                     ? 'UID 或 https://space.bilibili.com/…'
-                    : '十进制动态 id'
+                    : '十进制 id 或 https://t.bilibili.com/…'
               }
               onChange={(event) => setExternalInput(event.target.value)}
             />
@@ -171,19 +198,7 @@ export function MonitorAddDialog({
               </p>
             </div>
           ) : null}
-          <div className="grid gap-1.5">
-            <Label htmlFor="monitor-add-mode">频率</Label>
-            <select
-              id="monitor-add-mode"
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={intervalMode}
-              onChange={(event) => setIntervalMode(event.target.value as 'auto' | 'fixed')}
-            >
-              <option value="auto">自动</option>
-              <option value="fixed">固定</option>
-            </select>
-          </div>
-          {intervalMode === 'fixed' ? (
+          {type === 'dynamic' ? (
             <div className="grid gap-1.5">
               <Label htmlFor="monitor-add-interval">固定间隔</Label>
               <select
@@ -201,7 +216,41 @@ export function MonitorAddDialog({
                 ))}
               </select>
             </div>
-          ) : null}
+          ) : (
+            <>
+              <div className="grid gap-1.5">
+                <Label htmlFor="monitor-add-mode">频率</Label>
+                <select
+                  id="monitor-add-mode"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={intervalMode}
+                  onChange={(event) => setIntervalMode(event.target.value as 'auto' | 'fixed')}
+                >
+                  <option value="auto">自动</option>
+                  <option value="fixed">固定</option>
+                </select>
+              </div>
+              {intervalMode === 'fixed' ? (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="monitor-add-interval">固定间隔</Label>
+                  <select
+                    id="monitor-add-interval"
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={String(intervalMinutes)}
+                    onChange={(event) =>
+                      setIntervalMinutes(Number(event.target.value) as MonitorIntervalMinutes)
+                    }
+                  >
+                    {MONITOR_INTERVAL_MINUTES.map((minutes) => (
+                      <option key={minutes} value={minutes}>
+                        {INTERVAL_LABEL[minutes]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+            </>
+          )}
           <div className="grid gap-1.5">
             <Label htmlFor="monitor-add-label">名称（可选）</Label>
             <Input

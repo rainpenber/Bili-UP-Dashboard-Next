@@ -13,6 +13,7 @@ import {
   type CreatorVideoItem,
   type CreatorVideoList,
   type DynamicListItem,
+  type DynamicTargetRef,
   type VideoDetail,
   type VideoListItem,
   type VideoMetricPoint,
@@ -93,6 +94,28 @@ function refreshDepsFor(
     return { ...base, logger: candidate as StudioLogger };
   }
   return base;
+}
+
+function toDynamicTargetRef(row: {
+  target_id: string | null;
+  target_enabled: boolean | null;
+  target_interval_minutes: number | null;
+  target_interval_mode: 'auto' | 'fixed' | null;
+  target_last_success_at: Date | null;
+  target_last_error: string | null;
+}): DynamicTargetRef | null {
+  if (!row.target_id || row.target_enabled == null || row.target_interval_minutes == null) {
+    return null;
+  }
+  const intervalMode = row.target_interval_mode ?? 'fixed';
+  return {
+    id: row.target_id,
+    enabled: row.target_enabled,
+    intervalMinutes: row.target_interval_minutes,
+    intervalMode,
+    lastSuccessAt: row.target_last_success_at?.toISOString() ?? null,
+    lastError: row.target_last_error,
+  };
 }
 
 export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions = {}) {
@@ -605,15 +628,26 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
           like_count: bigint | null;
           repost_count: bigint | null;
           comment_count: bigint | null;
+          target_id: string | null;
+          target_enabled: boolean | null;
+          target_interval_minutes: number | null;
+          target_interval_mode: 'auto' | 'fixed' | null;
+          target_last_success_at: Date | null;
+          target_last_error: string | null;
         }[]
       >`
         SELECT d.dynamic_id, d.mid, d.category, d.monitoring_enabled, d.archived_at, d.deleted_at,
-          m.sampled_at, m.like_count, m.repost_count, m.comment_count
+          m.sampled_at, m.like_count, m.repost_count, m.comment_count,
+          t.id::text AS target_id, t.enabled AS target_enabled,
+          t.interval_minutes AS target_interval_minutes, t.interval_mode AS target_interval_mode,
+          t.last_success_at AS target_last_success_at, t.last_error AS target_last_error
         FROM dynamics d
         LEFT JOIN LATERAL (
           SELECT sampled_at, like_count, repost_count, comment_count
           FROM dynamic_metric_samples s WHERE s.dynamic_id = d.dynamic_id ORDER BY sampled_at DESC LIMIT 1
         ) m ON TRUE
+        LEFT JOIN monitor_targets t
+          ON t.type = 'dynamic' AND t.external_id = d.dynamic_id AND t.deleted_at IS NULL
         WHERE
           (${status} = 'all' OR (${status} = 'active' AND d.deleted_at IS NULL AND d.archived_at IS NULL)
             OR (${status} = 'archived' AND d.archived_at IS NOT NULL AND d.deleted_at IS NULL)
@@ -628,6 +662,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
         monitoringEnabled: r.monitoring_enabled,
         archivedAt: r.archived_at?.toISOString() ?? null,
         deletedAt: r.deleted_at?.toISOString() ?? null,
+        target: toDynamicTargetRef(r),
         latestMetrics: {
           sampledAt: r.sampled_at?.toISOString() ?? null,
           likeCount: bigintToJson(r.like_count),
@@ -658,10 +693,22 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
         archived_at: Date | null;
         deleted_at: Date | null;
         metadata: Record<string, unknown>;
+        target_id: string | null;
+        target_enabled: boolean | null;
+        target_interval_minutes: number | null;
+        target_interval_mode: 'auto' | 'fixed' | null;
+        target_last_success_at: Date | null;
+        target_last_error: string | null;
       }[]
     >`
-      SELECT dynamic_id, mid, category, monitoring_enabled, archived_at, deleted_at, metadata
-      FROM dynamics WHERE dynamic_id = ${dynamicId}
+      SELECT d.dynamic_id, d.mid, d.category, d.monitoring_enabled, d.archived_at, d.deleted_at, d.metadata,
+        t.id::text AS target_id, t.enabled AS target_enabled,
+        t.interval_minutes AS target_interval_minutes, t.interval_mode AS target_interval_mode,
+        t.last_success_at AS target_last_success_at, t.last_error AS target_last_error
+      FROM dynamics d
+      LEFT JOIN monitor_targets t
+        ON t.type = 'dynamic' AND t.external_id = d.dynamic_id AND t.deleted_at IS NULL
+      WHERE d.dynamic_id = ${dynamicId}
     `;
     const row = rows[0];
     if (!row) return c.json({ error: 'not found' }, 404);
@@ -673,6 +720,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
       archivedAt: row.archived_at?.toISOString() ?? null,
       deletedAt: row.deleted_at?.toISOString() ?? null,
       metadata: row.metadata,
+      target: toDynamicTargetRef(row),
     });
   });
 

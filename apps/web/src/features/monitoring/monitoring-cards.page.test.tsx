@@ -366,6 +366,7 @@ describe('monitoring cards', () => {
               monitoringEnabled: false,
               archivedAt: null,
               deletedAt: null,
+              target: null,
               latestMetrics: {
                 sampledAt: null,
                 likeCount: '1',
@@ -415,9 +416,10 @@ describe('monitoring cards', () => {
     fireEvent.mouseDown(dynamicsTab);
     fireEvent.click(dynamicsTab);
     expect(await screen.findByText('dyn-1')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '新增监控' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '开始监控' })).toBeNull();
+    expect(screen.getByRole('button', { name: '新增监控' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '开始监控' })).toBeTruthy();
     expect(screen.getByRole('link', { name: '查看采集记录' })).toBeTruthy();
+    expect(screen.queryByText(/不在这个页面提供/)).toBeNull();
   });
 
   test('shows loading, empty, and error states', async () => {

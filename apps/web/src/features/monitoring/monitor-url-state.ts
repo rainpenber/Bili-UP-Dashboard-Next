@@ -76,7 +76,10 @@ export function monitorListHref(state: MonitorUrlState): string {
   return `/monitoring?${params.toString()}`;
 }
 
-export function detailReturnHref(kind: 'videos' | 'creators', from: string | null): string {
+export function detailReturnHref(
+  kind: 'videos' | 'creators' | 'dynamics',
+  from: string | null,
+): string {
   if (!from) return `/monitoring?tab=${kind}`;
   return `/monitoring?${from}`;
 }

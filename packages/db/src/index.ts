@@ -18,6 +18,7 @@ export {
   countSamplesAt,
   effectiveFirstRunAt,
   enqueueDueCollectorJobs,
+  findMonitorTargetByIdentity,
   getCollectorJob,
   getMonitorTarget,
   insertMonitorTarget,
