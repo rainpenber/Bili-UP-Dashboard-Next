@@ -199,6 +199,9 @@ describe('monitoring layout toggle', () => {
     expect(within(gridCard!).getByTestId('monitor-card-actions').className).toContain(
       'justify-end',
     );
+    expect(within(gridCard!).getByTestId('monitor-card-actions').className).not.toContain(
+      'mt-auto',
+    );
     expect(within(gridCard!).getByRole('link', { name: /详情/ })).toBeTruthy();
     expect(within(gridCard!).queryByRole('button', { name: '更多' })).toBeNull();
     const search = router.state.location.search;
