@@ -2,8 +2,8 @@
   "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
   "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 57,
-  "wiredRouteCount": 38,
+  "apiRouteCount": 58,
+  "wiredRouteCount": 39,
   "unwiredImplementedRouteCount": 19,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes adds a fixed POST list.",
@@ -445,6 +445,28 @@
       "wired": true,
       "notes": "Active monitor targets. Deleted rows stay out unless includeDeleted=1.",
       "query": "page, pageSize, includeDeleted",
+      "storedEntity": "monitor_targets"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/targets/of/:type/:externalId",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 301,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseMonitorTarget",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "fetchMonitorTargetByIdentity",
+          "evidence": "/targets/of/"
+        }
+      ],
+      "wired": true,
+      "notes": "Active target by type plus external id. Used by the dynamic detail page when cards do not cover dynamics.",
       "storedEntity": "monitor_targets"
     },
     {
