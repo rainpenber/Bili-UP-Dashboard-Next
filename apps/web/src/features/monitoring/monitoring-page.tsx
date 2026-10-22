@@ -256,7 +256,7 @@ export function MonitoringPage() {
                   className={cn(
                     'min-w-0',
                     gridLayout
-                      ? 'grid grid-cols-[repeat(auto-fit,minmax(min(100%,26rem),1fr))] gap-3'
+                      ? 'grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
                       : 'space-y-2',
                   )}
                   role="list"
