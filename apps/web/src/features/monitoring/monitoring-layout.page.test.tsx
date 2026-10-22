@@ -188,15 +188,18 @@ describe('monitoring layout toggle', () => {
     expect(pressed('网格')).toBe(true);
     expect(pressed('分栏')).toBe(false);
     expect(layout.className).not.toContain('lg:grid-cols-');
-    expect(screen.getByTestId('monitor-card-list').className).toContain('auto-fit');
+    expect(screen.getByTestId('monitor-card-list').className).toContain('xl:grid-cols-4');
+    expect(screen.getByTestId('monitor-card-list').className).toContain('sm:grid-cols-2');
     const gridCard = screen
       .getAllByTestId('monitor-object-card')
       .find((node) => node.getAttribute('data-external-id') === BVID);
     expect(gridCard?.getAttribute('data-presentation')).toBe('grid');
-    expect(within(gridCard!).getByTestId('monitor-card-actions').className).not.toContain(
-      'sm:flex-row',
+    expect(within(gridCard!).getByTestId('video-grid-cover').className).toContain('aspect-[16/9]');
+    expect(within(gridCard!).getByTestId('monitor-card-actions').className).toContain(
+      'justify-end',
     );
-    expect(within(gridCard!).getByTestId('monitor-card-actions').className).toContain('@[40rem]:');
+    expect(within(gridCard!).getByRole('link', { name: /详情/ })).toBeTruthy();
+    expect(within(gridCard!).queryByRole('button', { name: '更多' })).toBeNull();
     const search = router.state.location.search;
     expect(search).toContain('view=grid');
     expect(search).toContain('tab=videos');
@@ -249,7 +252,7 @@ describe('monitoring layout toggle', () => {
     const gridCard = screen
       .getAllByTestId('monitor-object-card')
       .find((node) => node.getAttribute('data-external-id') === BVID);
-    fireEvent.click(within(gridCard!).getByRole('link', { name: '查看详情' }));
+    fireEvent.click(within(gridCard!).getByRole('link', { name: /详情/ }));
     expect(router.state.location.pathname).toBe(`/monitoring/videos/${BVID}`);
     expect(decodeURIComponent(router.state.location.search)).toContain('view=grid');
     expect(decodeURIComponent(router.state.location.search)).toContain('page=2');
@@ -263,7 +266,7 @@ describe('monitoring layout toggle', () => {
     const returned = screen
       .getAllByTestId('monitor-object-card')
       .find((node) => node.getAttribute('data-external-id') === BVID);
-    fireEvent.click(within(returned!).getByRole('link', { name: '查看详情' }));
+    fireEvent.click(within(returned!).getByRole('link', { name: /详情/ }));
     await screen.findByRole('link', { name: '返回列表' });
     await router.navigate(-1);
     expect(router.state.location.pathname).toBe('/monitoring');

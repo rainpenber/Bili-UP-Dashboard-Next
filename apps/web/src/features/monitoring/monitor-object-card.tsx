@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatVideoCardMetricsSummary } from '@/features/monitoring/video-card-metrics';
 import { MonitorSettingsDialog } from '@/features/monitoring/monitor-settings-dialog';
+import { VideoGridCard } from '@/features/monitoring/video-grid-card';
 import { formatStartAtDisplay } from '@/lib/datetime-local';
 import { formatFullLocalTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
@@ -135,34 +136,62 @@ export function MonitorCardControls({
   const detailsId = `monitor-details-${card.type}-${card.externalId}`;
   const failed = failureLine(card);
   const showMore = Boolean(card.target) || card.projects.length > 0;
+  /** 详情页直接摊开次要入口，不再藏进「更多」 */
+  const detailSecondaryOpen = layout === 'detail' && showMore;
   const showLogsOnBar = layout === 'detail' && Boolean(card.target);
   const span = layout === 'card' ? 'col-span-2' : '';
+  const useVideoGrid = layout === 'card' && presentation === 'grid' && card.type === 'video';
 
-  const primary =
-    card.monitorState === 'unmonitored' ? (
-      <Button type="button" size="sm" disabled={pending} onClick={start}>
-        开始监控
-      </Button>
-    ) : card.monitorState === 'active' && card.target ? (
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        disabled={pending}
-        onClick={() => mutations.patch.mutate({ id: card.target!.id, patch: { enabled: false } })}
-      >
-        暂停
-      </Button>
-    ) : card.monitorState === 'paused' && card.target ? (
-      <Button
-        type="button"
-        size="sm"
-        disabled={pending}
-        onClick={() => mutations.patch.mutate({ id: card.target!.id, patch: { enabled: true } })}
-      >
-        恢复
-      </Button>
-    ) : null;
+  const primaryAction =
+    card.monitorState === 'unmonitored'
+      ? {
+          label: '开始监控',
+          onClick: start,
+          variant: 'default' as const,
+        }
+      : card.monitorState === 'active' && card.target
+        ? {
+            label: '暂停',
+            onClick: () =>
+              mutations.patch.mutate({ id: card.target!.id, patch: { enabled: false } }),
+            variant: 'outline' as const,
+          }
+        : card.monitorState === 'paused' && card.target
+          ? {
+              label: '恢复',
+              onClick: () =>
+                mutations.patch.mutate({ id: card.target!.id, patch: { enabled: true } }),
+              variant: 'default' as const,
+            }
+          : null;
+
+  const primary = primaryAction ? (
+    <Button
+      type="button"
+      size="sm"
+      variant={primaryAction.variant}
+      disabled={pending}
+      aria-label={primaryAction.label}
+      onClick={primaryAction.onClick}
+    >
+      {primaryAction.label}
+    </Button>
+  ) : null;
+
+  if (useVideoGrid) {
+    return (
+      <VideoGridCard
+        card={card}
+        selected={selected}
+        listQuery={listQuery}
+        pending={pending}
+        notice={notice}
+        error={error}
+        primary={primaryAction ? { ...primaryAction, disabled: pending } : null}
+        onSelect={onSelect}
+      />
+    );
+  }
 
   const detailLink = includeDetailLink ? (
     <Button type="button" size="sm" variant="outline" asChild>
@@ -182,26 +211,29 @@ export function MonitorCardControls({
           targetType: card.type,
           externalId: card.externalId,
         }).toString()}`}
+        aria-label="查看日志"
       >
         查看日志
       </Link>
     </Button>
   ) : null;
 
-  const moreButton = showMore ? (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      aria-expanded={moreOpen}
-      onClick={() => {
-        setMoreOpen((open) => !open);
-        setConfirmRemove(false);
-      }}
-    >
-      更多
-    </Button>
-  ) : null;
+  const moreButton =
+    layout === 'card' && showMore ? (
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        aria-expanded={moreOpen}
+        aria-label="更多"
+        onClick={() => {
+          setMoreOpen((open) => !open);
+          setConfirmRemove(false);
+        }}
+      >
+        更多
+      </Button>
+    ) : null;
 
   const stateBadge = (
     <button
@@ -233,11 +265,86 @@ export function MonitorCardControls({
       variant="ghost"
       aria-expanded={detailsOpen}
       aria-controls={detailsId}
+      aria-label="监控详情"
       onClick={() => setDetailsOpen((open) => !open)}
     >
       监控详情
     </Button>
   );
+
+  const settingsButton = card.target ? (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      disabled={pending}
+      aria-label="监控设置"
+      onClick={() => setSettingsOpen(true)}
+    >
+      监控设置
+    </Button>
+  ) : null;
+
+  const runButton = card.target ? (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      disabled={pending}
+      aria-label="立即采集"
+      onClick={() =>
+        mutations.run.mutate(card.target!.id, {
+          onSuccess: () => setNotice('已触发立即采集'),
+        })
+      }
+    >
+      立即采集
+    </Button>
+  ) : null;
+
+  const removeControls = card.target ? (
+    confirmRemove ? (
+      <>
+        <Button
+          type="button"
+          size="sm"
+          variant="destructive"
+          disabled={pending}
+          aria-label="确认移除"
+          onClick={() =>
+            mutations.remove.mutate(card.target!.id, {
+              onSuccess: () => {
+                setConfirmRemove(false);
+                setMoreOpen(false);
+                setNotice('已移除监控');
+              },
+            })
+          }
+        >
+          确认移除
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          aria-label="取消移除"
+          onClick={() => setConfirmRemove(false)}
+        >
+          取消
+        </Button>
+      </>
+    ) : (
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        aria-label="移除"
+        onClick={() => setConfirmRemove(true)}
+      >
+        移除
+      </Button>
+    )
+  ) : null;
 
   return (
     <div
@@ -356,75 +463,30 @@ export function MonitorCardControls({
           {error}
         </p>
       ) : null}
-      {moreOpen && showMore ? (
+      {moreOpen && layout === 'card' && showMore ? (
         <div
           className={cn('flex flex-wrap items-center gap-2', span)}
           role="group"
           aria-label="更多操作"
         >
-          {card.target ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={pending}
-              onClick={() => setSettingsOpen(true)}
-            >
-              监控设置
-            </Button>
-          ) : null}
-          {layout === 'card' ? logsLink : null}
+          {settingsButton}
+          {logsLink}
           <ProjectJump projects={card.projects} />
-          {card.target ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={pending}
-              onClick={() => mutations.run.mutate(card.target!.id)}
-            >
-              立即采集
-            </Button>
-          ) : null}
-          {card.target ? (
-            confirmRemove ? (
-              <>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="destructive"
-                  disabled={pending}
-                  onClick={() =>
-                    mutations.remove.mutate(card.target!.id, {
-                      onSuccess: () => {
-                        setConfirmRemove(false);
-                        setMoreOpen(false);
-                      },
-                    })
-                  }
-                >
-                  确认移除
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setConfirmRemove(false)}
-                >
-                  取消
-                </Button>
-              </>
-            ) : (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => setConfirmRemove(true)}
-              >
-                移除
-              </Button>
-            )
-          ) : null}
+          {runButton}
+          {removeControls}
+        </div>
+      ) : null}
+      {detailSecondaryOpen ? (
+        <div
+          className="flex flex-wrap items-center gap-2"
+          role="group"
+          aria-label="详情页监控操作"
+          data-testid="monitor-detail-secondary-actions"
+        >
+          {settingsButton}
+          {runButton}
+          <ProjectJump projects={card.projects} />
+          {removeControls}
         </div>
       ) : null}
       {settingsOpen && card.target ? (
@@ -449,7 +511,7 @@ export function MonitorObjectCard({
 }) {
   return (
     <li
-      className="min-w-0 max-w-full"
+      className={cn('min-w-0 max-w-full', presentation === 'grid' && 'h-full')}
       data-testid="monitor-object-card"
       data-presentation={presentation}
       data-monitor-state={card.monitorState}
