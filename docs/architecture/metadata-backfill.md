@@ -34,6 +34,8 @@ WP-R2-08。采集频率、熔断和样本表结构不变。这一层只补标题
 | `POST /api/v1/monitor/metadata/refresh`                                        | body `{ kind, ids?, allMissing?, force? }`，返回 `202 { backfillRunId, requested }`。同一时刻只有一个 `running` 批次，冲突返回 409      |
 | `GET /api/v1/monitor/metadata/runs/:id` 与 `GET /api/v1/ops/metadata/runs/:id` | `status` / `requested` / `succeeded` / `failed` / `skipped` / `report`                                                                  |
 
+视频目标**首次采集成功**且仍缺 `cover_asset_id` 时，采集器会自动入队同一条 refresh 能力（见 [auto-video-metadata.md](./auto-video-metadata.md)），不改本表接口契约。
+
 视频成功后写入 `title`、`description`、`duration_seconds`、`cid`、`pubdate`、`tid`、`tid_v2`、`cover_url`，`video_tags` 先删后插并保留接口顺序，然后 `metadata_state='ok'`、`metadata_source='bilibili'`。`tname` / `tname_v2` 为空时 `partition_name` 保持空，不填「未知」。缺 `cid` 就留空。
 
 `-352` / `-412` / `-509` 把整个批次标成 `aborted` 并停止后续条目。`-404` 只让该条 `metadata_state='failed'`。错误经 `scrubString` 截断到 500 字。`running` 且 10 分钟没有心跳的批次在下次领取或查询时标成 `aborted`。

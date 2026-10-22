@@ -11,6 +11,11 @@ import {
   type CollectorTargetTxHooks,
   type Sql,
 } from '@studio/db';
+import {
+  drainDeferredAutoVideoMetadataRefresh,
+  enqueueAutoVideoMetadataRefresh,
+  type AutoMetadataRefreshDeps,
+} from './auto-video-metadata';
 import { createSqlBilibiliEffects } from './bilibili-effects';
 import { runBilibiliJob, type BilibiliEffects } from './bilibili-job';
 import { decideSchedule, readFrequencyPolicy } from './frequency';
@@ -94,9 +99,21 @@ export async function runCollectorOnce(options: {
   effects?: BilibiliEffects;
   /** Test-only commit hooks (production omits). */
   commitHooks?: CollectorTargetTxHooks;
+  /**
+   * When set, first successful video collect enqueues existing metadata refresh,
+   * and each poll drains at most one deferred auto refresh.
+   */
+  autoMetadata?: AutoMetadataRefreshDeps;
 }): Promise<CollectorRunOutcome> {
   const log = options.log ?? (() => undefined);
   await enqueueDueCollectorJobs(options.sql);
+  if (options.autoMetadata) {
+    try {
+      await drainDeferredAutoVideoMetadataRefresh(options.autoMetadata, 1);
+    } catch {
+      // Deferred drain must never block claiming the next metric job.
+    }
+  }
   const job = await claimNextCollectorJob(options.sql);
   if (!job) return 'idle';
   const jobLog = options.logger?.child({ jobId: job.id, targetId: job.targetId });
@@ -125,6 +142,7 @@ export async function runCollectorOnce(options: {
         createSqlBilibiliEffects(options.sql, {
           secretKey: loadCollectorSecretKey(env.COLLECTOR_SECRET_KEY),
         });
+      const autoMeta = options.autoMetadata;
       return await runBilibiliJob({
         job,
         provider: options.provider,
@@ -135,6 +153,15 @@ export async function runCollectorOnce(options: {
         env,
         log,
         ...(jobLog ? { logger: jobLog } : {}),
+        ...(autoMeta
+          ? {
+              autoVideoMetadata: {
+                afterFirstVideoCollectSuccess: async (bvid: string) => {
+                  await enqueueAutoVideoMetadataRefresh(autoMeta, bvid);
+                },
+              },
+            }
+          : {}),
       });
     }
     const sampledAt = truncateToUtcMinute(startedAt);
@@ -314,6 +341,7 @@ export async function runCollectorLoop(options: {
   signal: AbortSignal;
   log?: (line: string) => void;
   logger?: CollectorLogger;
+  autoMetadata?: AutoMetadataRefreshDeps;
 }): Promise<void> {
   const log = options.log ?? (() => undefined);
   const provider = options.provider ?? createOfflineProvider();
@@ -362,6 +390,7 @@ export async function runCollectorLoop(options: {
         ...(options.logger ? { logger: options.logger } : {}),
         instanceId: options.config.instanceId,
         env: process.env,
+        ...(options.autoMetadata ? { autoMetadata: options.autoMetadata } : {}),
       });
       if (outcome !== 'idle') lastFinished = Date.now();
       if (options.signal.aborted) break;
