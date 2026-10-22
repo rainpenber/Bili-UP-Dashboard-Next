@@ -49,6 +49,7 @@ import { Hono } from 'hono';
 import { readAssetsRoot } from './assets-config';
 import { registerMonitorCardRoutes } from './monitor-card-routes';
 import { registerMonitorTargetRoutes } from './monitor-target-routes';
+import { registerStudioOwnerRoutes } from './studio-owner-routes';
 
 type MonitorStatusFilter = 'all' | 'active' | 'archived' | 'deleted';
 
@@ -131,6 +132,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
   const app = new Hono();
   registerMonitorTargetRoutes(app, db);
   registerMonitorCardRoutes(app, db);
+  registerStudioOwnerRoutes(app, db);
   const deps = (c?: { get: (key: string) => unknown }) => {
     const base = buildRefreshDeps(db, refreshDeps);
     return c ? refreshDepsFor(c, base) : base;

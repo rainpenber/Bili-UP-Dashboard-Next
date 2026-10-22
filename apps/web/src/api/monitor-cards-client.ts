@@ -31,6 +31,7 @@ export function fetchMonitorCards(params: {
   q?: string;
   category?: string;
   sort?: MonitorCardSort;
+  onlyMine?: boolean;
 }): Promise<Paginated<MonitorCard>> {
   const qs = new URLSearchParams({
     type: params.type,
@@ -41,6 +42,7 @@ export function fetchMonitorCards(params: {
   if (params.q) qs.set('q', params.q);
   if (params.category) qs.set('category', params.category);
   if (params.type === 'video' && params.sort) qs.set('sort', params.sort);
+  if (params.type === 'video' && params.onlyMine) qs.set('onlyMine', '1');
   return requestJson(`/cards?${qs.toString()}`).then(parseMonitorCardList);
 }
 

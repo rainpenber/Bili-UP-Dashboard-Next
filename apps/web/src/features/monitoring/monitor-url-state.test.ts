@@ -13,7 +13,28 @@ describe('monitor URL state', () => {
       monitor: 'all',
       view: 'split',
       sort: 'published_desc',
+      onlyMine: false,
     });
+  });
+
+  test('onlyMine is written only when on and keeps other filters', () => {
+    expect(parseMonitorSearchParams(new URLSearchParams('onlyMine=1')).onlyMine).toBe(true);
+    expect(parseMonitorSearchParams(new URLSearchParams('mine=1')).onlyMine).toBe(true);
+    expect(parseMonitorSearchParams(new URLSearchParams('onlyMine=0')).onlyMine).toBe(false);
+    const on = writeMonitorSearchParams(
+      new URLSearchParams('tab=videos&page=3&q=test&monitor=active&sort=published_asc&view=grid'),
+      { onlyMine: true, page: 1, selected: null },
+    );
+    expect(on.get('onlyMine')).toBe('1');
+    expect(on.get('page')).toBe('1');
+    expect(on.has('selected')).toBe(false);
+    expect(on.get('q')).toBe('test');
+    expect(on.get('monitor')).toBe('active');
+    expect(on.get('sort')).toBe('published_asc');
+    expect(on.get('view')).toBe('grid');
+    const off = writeMonitorSearchParams(on, { onlyMine: false });
+    expect(off.has('onlyMine')).toBe(false);
+    expect(off.get('q')).toBe('test');
   });
 
   test('video sort is written only when not the default', () => {

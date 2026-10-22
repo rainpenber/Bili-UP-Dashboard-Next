@@ -41,6 +41,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Toggle } from '@/components/ui/toggle';
+import { useStudioOwnerAccountQuery } from '@/api/hooks/use-studio-owner-queries';
 
 const TAB_LABEL: Record<MonitorTab, string> = {
   videos: '视频',
@@ -115,13 +117,14 @@ export function MonitoringPage() {
   const cardType = state.tab === 'creators' ? 'creator' : 'video';
   const addType =
     state.tab === 'creators' ? 'creator' : state.tab === 'dynamics' ? 'dynamic' : 'video';
+  const ownerQuery = useStudioOwnerAccountQuery(state.tab === 'videos');
   const cardsQuery = useMonitorCardsQuery({
     type: cardType,
     page: state.page,
     monitor: state.monitor,
     q: state.q,
     category: state.category,
-    ...(state.tab === 'videos' ? { sort: state.sort } : {}),
+    ...(state.tab === 'videos' ? { sort: state.sort, onlyMine: state.onlyMine } : {}),
     enabled: state.tab === 'videos' || state.tab === 'creators',
   });
   const dynamicsQuery = useDynamicsQuery(state.page, state.tab === 'dynamics');
@@ -248,6 +251,30 @@ export function MonitoringPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            ) : null}
+            {state.tab === 'videos' ? (
+              <div className="grid w-full min-w-0 max-w-xs gap-1.5">
+                <Label id="monitor-only-mine-label">本人视频</Label>
+                <Toggle
+                  id="monitor-only-mine"
+                  variant="outline"
+                  pressed={state.onlyMine}
+                  aria-labelledby="monitor-only-mine-label"
+                  aria-label="只看我的"
+                  data-testid="monitor-only-mine"
+                  className="w-full justify-center"
+                  onPressedChange={(pressed) =>
+                    patchUrl({ onlyMine: pressed, page: 1, selected: null })
+                  }
+                >
+                  只看我的
+                </Toggle>
+                {ownerQuery.isSuccess ? (
+                  <p className="truncate text-xs text-muted-foreground" title={ownerQuery.data.mid}>
+                    {ownerQuery.data.displayName} · {ownerQuery.data.mid}
+                  </p>
+                ) : null}
               </div>
             ) : null}
             <MonitorLayoutToggle value={state.view} onValueChange={(view) => patchUrl({ view })} />

@@ -8,7 +8,13 @@ import {
   parseMonitorCardListQuery,
   type MonitorCard,
 } from '@studio/contracts';
-import { getMonitorCard, listMonitorCards, type MonitorCardRow, type Sql } from '@studio/db';
+import {
+  getMonitorCard,
+  getStudioOwnerAccount,
+  listMonitorCards,
+  type MonitorCardRow,
+  type Sql,
+} from '@studio/db';
 import type { Hono } from 'hono';
 
 function iso(value: Date | null): string | null {
@@ -86,10 +92,26 @@ export function registerMonitorCardRoutes(app: Hono, db: Sql): void {
         q: c.req.query('q'),
         category: c.req.query('category'),
         sort: c.req.query('sort'),
+        onlyMine: c.req.query('onlyMine'),
       });
+      let ownerMid: string | null = null;
+      if (query.onlyMine && query.type === 'video') {
+        const owner = await getStudioOwnerAccount(db);
+        if (!owner?.mid) {
+          return c.json(
+            {
+              error: '尚未配置本人 B 站账号，请到集成与设置中填写 UID 后再开启「只看我的」',
+              code: 'owner_account_not_configured',
+            },
+            400,
+          );
+        }
+        ownerMid = owner.mid;
+      }
       const listed = await listMonitorCards(db, {
         ...query,
         sort: query.type === 'video' ? query.sort : null,
+        ownerMid,
       });
       const totalPages = Math.max(1, Math.ceil(listed.totalItems / query.pageSize));
       return c.json(

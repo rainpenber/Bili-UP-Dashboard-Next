@@ -12,6 +12,7 @@ export function useMonitorCardsQuery(input: {
   q: string;
   category: string;
   sort?: MonitorVideoSort;
+  onlyMine?: boolean;
   enabled: boolean;
 }) {
   return useQuery({
@@ -24,6 +25,7 @@ export function useMonitorCardsQuery(input: {
       input.q,
       input.category,
       input.type === 'video' ? (input.sort ?? 'published_desc') : null,
+      input.type === 'video' ? Boolean(input.onlyMine) : false,
     ] as const,
     queryFn: () =>
       fetchMonitorCards({
@@ -33,6 +35,7 @@ export function useMonitorCardsQuery(input: {
         ...(input.q ? { q: input.q } : {}),
         ...(input.type === 'video' && input.category ? { category: input.category } : {}),
         ...(input.type === 'video' && input.sort ? { sort: input.sort } : {}),
+        ...(input.type === 'video' && input.onlyMine ? { onlyMine: true } : {}),
       }),
     enabled: input.enabled,
   });
