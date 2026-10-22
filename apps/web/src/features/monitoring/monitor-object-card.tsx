@@ -13,6 +13,7 @@ import { formatVideoCardMetricsSummary } from '@/features/monitoring/video-card-
 import { MonitorSettingsDialog } from '@/features/monitoring/monitor-settings-dialog';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
 import { VideoGridCard } from '@/features/monitoring/video-grid-card';
+import { VideoPinButton } from '@/features/monitoring/video-pin-button';
 import { formatStartAtDisplay } from '@/lib/datetime-local';
 import { formatFullLocalTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
@@ -97,20 +98,27 @@ export function MonitorCardControls({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pinError, setPinError] = useState<string | null>(null);
   const pending =
     mutations.create.isPending ||
     mutations.patch.isPending ||
     mutations.remove.isPending ||
     mutations.run.isPending;
   const error =
+    pinError ||
     (mutations.create.error instanceof Error && mutations.create.error.message) ||
     (mutations.patch.error instanceof Error && mutations.patch.error.message) ||
     (mutations.remove.error instanceof Error && mutations.remove.error.message) ||
     (mutations.run.error instanceof Error && mutations.run.error.message) ||
     null;
+  const onPinError = (message: string) => {
+    setNotice(null);
+    setPinError(message);
+  };
 
   const start = () => {
     setNotice(null);
+    setPinError(null);
     const label =
       card.displayName !== card.externalId && card.displayName.length <= 80
         ? card.displayName
@@ -183,6 +191,7 @@ export function MonitorCardControls({
         notice={notice}
         error={error}
         primary={primaryAction ? { ...primaryAction, disabled: pending } : null}
+        onPinError={onPinError}
         {...(onSelect ? { onSelect } : {})}
       />
     );
@@ -223,27 +232,46 @@ export function MonitorCardControls({
         data-execution={card.execution}
         data-external-id={card.externalId}
         data-target-id={card.target?.id ?? ''}
+        data-pinned={card.type === 'video' && card.pinned ? 'true' : 'false'}
         data-pending={pending ? 'true' : 'false'}
         aria-busy={pending}
       >
-        <button
-          type="button"
-          onClick={onSelect}
-          className="flex min-w-0 gap-3 rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-pressed={selected}
-          aria-label={`选择${card.type === 'video' ? '视频' : ' UP 主'} ${card.displayName}`}
-        >
-          <img
-            src={coverAssetUrl(card.imageAssetId)}
-            alt=""
-            width={96}
-            height={54}
-            className={cn(
-              'shrink-0 object-cover',
-              card.type === 'creator' ? 'size-14 rounded-full' : 'size-16 rounded',
-            )}
-          />
-          <span className="min-w-0 flex-1 space-y-1">
+        <div className="flex min-w-0 gap-3">
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={onSelect}
+              className="block rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-pressed={selected}
+              aria-label={`选择${card.type === 'video' ? '视频' : ' UP 主'}封面 ${card.displayName}`}
+            >
+              <img
+                src={coverAssetUrl(card.imageAssetId)}
+                alt=""
+                width={96}
+                height={54}
+                className={cn(
+                  'object-cover',
+                  card.type === 'creator' ? 'size-14 rounded-full' : 'size-16 rounded',
+                )}
+              />
+            </button>
+            {card.type === 'video' ? (
+              <VideoPinButton
+                bvid={card.externalId}
+                pinned={card.pinned}
+                onError={onPinError}
+                className="absolute -right-1 -top-1 z-10 size-6"
+              />
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={onSelect}
+            className="min-w-0 flex-1 space-y-1 rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-pressed={selected}
+            aria-label={`选择${card.type === 'video' ? '视频' : ' UP 主'} ${card.displayName}`}
+          >
             <span className="flex min-w-0 items-center gap-1.5">
               <MonitorStateBadge
                 state={card.monitorState}
@@ -264,8 +292,8 @@ export function MonitorCardControls({
             >
               {metricsLine}
             </span>
-          </span>
-        </button>
+          </button>
+        </div>
         <div
           data-testid="monitor-card-actions"
           className="flex flex-wrap items-center justify-end gap-2"

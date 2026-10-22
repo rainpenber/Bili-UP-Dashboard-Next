@@ -6,6 +6,10 @@ export type MonitorPresenceFilter = (typeof MONITOR_PRESENCE_FILTERS)[number];
 export const MONITOR_VIEWS = ['split', 'grid'] as const;
 export type MonitorView = (typeof MONITOR_VIEWS)[number];
 
+export const MONITOR_VIDEO_SORTS = ['published_desc', 'published_asc'] as const;
+export type MonitorVideoSort = (typeof MONITOR_VIDEO_SORTS)[number];
+export const DEFAULT_MONITOR_VIDEO_SORT: MonitorVideoSort = 'published_desc';
+
 export type MonitorUrlState = {
   tab: MonitorTab;
   page: number;
@@ -14,6 +18,8 @@ export type MonitorUrlState = {
   selected: string | null;
   monitor: MonitorPresenceFilter;
   view: MonitorView;
+  /** Video tab only; ignored on creators/dynamics. */
+  sort: MonitorVideoSort;
 };
 
 const TAB_VALUES: MonitorTab[] = ['videos', 'creators', 'dynamics'];
@@ -34,6 +40,10 @@ export function parseMonitorSearchParams(params: URLSearchParams): MonitorUrlSta
     : 'all';
   const rawView = params.get('view');
   const view: MonitorView = rawView === 'grid' ? 'grid' : 'split';
+  const rawSort = params.get('sort');
+  const sort: MonitorVideoSort = MONITOR_VIDEO_SORTS.includes(rawSort as MonitorVideoSort)
+    ? (rawSort as MonitorVideoSort)
+    : DEFAULT_MONITOR_VIDEO_SORT;
   return {
     tab,
     page,
@@ -42,6 +52,7 @@ export function parseMonitorSearchParams(params: URLSearchParams): MonitorUrlSta
     selected: params.get('selected'),
     monitor,
     view,
+    sort,
   };
 }
 
@@ -63,6 +74,11 @@ export function writeMonitorSearchParams(
   else next.delete('monitor');
   if (merged.view === 'grid') next.set('view', 'grid');
   else next.delete('view');
+  if (merged.tab === 'videos' && merged.sort !== DEFAULT_MONITOR_VIDEO_SORT) {
+    next.set('sort', merged.sort);
+  } else {
+    next.delete('sort');
+  }
   next.delete('targets');
   return next;
 }

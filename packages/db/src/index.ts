@@ -70,11 +70,13 @@ export {
 export {
   getMonitorCard,
   listMonitorCards,
+  setVideoPinned,
   type MonitorCardFilter,
   type MonitorCardKind,
   type MonitorCardProjectRow,
   type MonitorCardQuery,
   type MonitorCardRow,
+  type MonitorCardSort,
 } from './monitor-cards';
 export {
   applyLegacyFollowerImport,

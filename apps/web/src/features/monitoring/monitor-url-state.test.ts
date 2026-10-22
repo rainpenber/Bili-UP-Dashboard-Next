@@ -12,7 +12,28 @@ describe('monitor URL state', () => {
       selected: null,
       monitor: 'all',
       view: 'split',
+      sort: 'published_desc',
     });
+  });
+
+  test('video sort is written only when not the default', () => {
+    expect(parseMonitorSearchParams(new URLSearchParams('sort=published_asc')).sort).toBe(
+      'published_asc',
+    );
+    expect(parseMonitorSearchParams(new URLSearchParams('sort=bogus')).sort).toBe(
+      'published_desc',
+    );
+    const asc = writeMonitorSearchParams(new URLSearchParams('tab=videos'), {
+      sort: 'published_asc',
+    });
+    expect(asc.get('sort')).toBe('published_asc');
+    const desc = writeMonitorSearchParams(asc, { sort: 'published_desc' });
+    expect(desc.has('sort')).toBe(false);
+    const creators = writeMonitorSearchParams(
+      new URLSearchParams('tab=videos&sort=published_asc'),
+      { tab: 'creators' },
+    );
+    expect(creators.has('sort')).toBe(false);
   });
 
   test('view falls back to split unless the query is grid', () => {

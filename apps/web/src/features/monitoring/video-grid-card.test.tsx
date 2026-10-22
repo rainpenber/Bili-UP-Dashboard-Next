@@ -22,6 +22,7 @@ function videoCard(patch: Partial<MonitorCard> = {}): MonitorCard {
     displayName: '很长很长的视频标题用来验证单行截断',
     hasEntity: true,
     hasSamples: true,
+    pinned: false,
     monitorState: 'active',
     execution: 'none',
     target: {

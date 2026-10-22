@@ -39,6 +39,7 @@ function card(externalId: string, patch: Record<string, unknown> = {}) {
     displayName: externalId === OTHER ? '另一条视频' : '离线视频',
     hasEntity: true,
     hasSamples: true,
+    pinned: false,
     monitorState: 'active',
     execution: 'waiting',
     target: {

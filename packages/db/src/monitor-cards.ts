@@ -2,6 +2,7 @@ import type { Sql } from './client';
 
 export type MonitorCardKind = 'video' | 'creator';
 export type MonitorCardFilter = 'all' | 'active' | 'paused' | 'unmonitored';
+export type MonitorCardSort = 'published_desc' | 'published_asc';
 
 export type MonitorCardQuery = {
   type: MonitorCardKind;
@@ -10,6 +11,8 @@ export type MonitorCardQuery = {
   pageSize: number;
   q: string | null;
   category: string | null;
+  /** Video-only. Ignored for creators (sampled_at DESC). Default published_desc. */
+  sort?: MonitorCardSort | null;
   /** Exact identity read. Ignores list filters so detail matches the stored target. */
   externalId?: string | null;
 };
@@ -28,6 +31,9 @@ export type MonitorCardRow = {
   mid: string | null;
   hasEntity: boolean;
   hasSamples: boolean;
+  pinned: boolean;
+  pinnedAt: Date | null;
+  pubdate: Date | null;
   targetId: string | null;
   targetLabel: string | null;
   tags: string[];
@@ -59,6 +65,8 @@ type SqlCardRow = {
   mid: string | null;
   has_entity: boolean | null;
   has_samples: boolean | null;
+  pinned_at: Date | null;
+  pubdate: Date | null;
   target_id: string | null;
   target_label: string | null;
   tags: string[] | null;
@@ -95,6 +103,8 @@ SELECT
   e.cover_asset_id AS image_asset_id,
   (e.external_id IS NOT NULL) AS has_entity,
   (e.sampled_at IS NOT NULL) AS has_samples,
+  e.pinned_at,
+  e.pubdate,
   e.sampled_at,
   e.view_count,
   e.online_viewers,
@@ -119,6 +129,8 @@ FROM (
     v.category,
     v.mid,
     v.cover_asset_id,
+    v.pinned_at,
+    v.pubdate,
     m.sampled_at,
     m.view_count,
     m.online_viewers,
@@ -151,6 +163,8 @@ SELECT
   e.face_asset_id AS image_asset_id,
   (e.external_id IS NOT NULL) AS has_entity,
   (e.sampled_at IS NOT NULL) AS has_samples,
+  NULL::timestamptz AS pinned_at,
+  NULL::timestamptz AS pubdate,
   e.sampled_at,
   NULL::bigint AS view_count,
   NULL::bigint AS online_viewers,
@@ -229,6 +243,9 @@ function mapRow(type: MonitorCardKind, row: SqlCardRow): MonitorCardRow | null {
     mid: row.mid,
     hasEntity: row.has_entity === true,
     hasSamples: row.has_samples === true,
+    pinned: type === 'video' && row.pinned_at != null,
+    pinnedAt: type === 'video' ? row.pinned_at : null,
+    pubdate: type === 'video' ? row.pubdate : null,
     targetId: row.target_id,
     targetLabel: row.target_label,
     tags: row.tags ?? [],
@@ -265,6 +282,13 @@ export async function listMonitorCards(
   const monitor = query.monitor;
   const pattern = q ? likePattern(q) : null;
   const unified = query.type === 'video' ? VIDEO_UNIFIED : CREATOR_UNIFIED;
+  const videoSort = query.sort === 'published_asc' ? 'published_asc' : 'published_desc';
+  const orderBy =
+    query.type === 'video'
+      ? videoSort === 'published_asc'
+        ? sql`ORDER BY (pinned_at IS NOT NULL) DESC, pubdate ASC NULLS LAST, external_id ASC`
+        : sql`ORDER BY (pinned_at IS NOT NULL) DESC, pubdate DESC NULLS LAST, external_id ASC`
+      : sql`ORDER BY sampled_at DESC NULLS LAST, external_id ASC`;
   const rows = await sql<SqlCardRow[]>`
     WITH unified AS (
       ${sql.unsafe(unified)}
@@ -297,7 +321,7 @@ export async function listMonitorCards(
     ),
     card_page AS (
       SELECT * FROM filtered
-      ORDER BY sampled_at DESC NULLS LAST, external_id ASC
+      ${orderBy}
       LIMIT ${pageSize} OFFSET ${offset}
     )
     SELECT
@@ -309,6 +333,8 @@ export async function listMonitorCards(
       card_page.mid,
       card_page.has_entity,
       card_page.has_samples,
+      card_page.pinned_at,
+      card_page.pubdate,
       card_page.target_id,
       card_page.target_label,
       card_page.tags,
@@ -365,6 +391,25 @@ export async function listMonitorCards(
     return mapped ? [mapped] : [];
   });
   return { items, totalItems };
+}
+
+/** Pin or unpin a video row. Returns null when the bvid does not exist. Idempotent. */
+export async function setVideoPinned(
+  sql: Sql,
+  bvid: string,
+  pinned: boolean,
+): Promise<{ bvid: string; pinnedAt: Date | null } | null> {
+  const rows = await sql<{ bvid: string; pinned_at: Date | null }[]>`
+    UPDATE videos
+    SET
+      pinned_at = CASE WHEN ${pinned}::boolean THEN now() ELSE NULL END,
+      updated_at = now()
+    WHERE bvid = ${bvid}
+    RETURNING bvid, pinned_at
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return { bvid: row.bvid, pinnedAt: row.pinned_at };
 }
 
 export async function getMonitorCard(

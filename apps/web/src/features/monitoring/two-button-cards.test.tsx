@@ -23,6 +23,7 @@ function creatorCard(patch: Partial<MonitorCard> = {}): MonitorCard {
     displayName: '很长的UP主名称用于截断验证',
     hasEntity: true,
     hasSamples: true,
+    pinned: false,
     monitorState: 'active',
     execution: 'none',
     target: {
