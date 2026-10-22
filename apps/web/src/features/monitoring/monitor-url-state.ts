@@ -20,6 +20,11 @@ export type MonitorUrlState = {
   view: MonitorView;
   /** Video tab only; ignored on creators/dynamics. */
   sort: MonitorVideoSort;
+  /**
+   * Video list「只看我的」. Default off (omitted from URL).
+   * Kept across tabs so back/forward and detail return preserve it.
+   */
+  onlyMine: boolean;
 };
 
 const TAB_VALUES: MonitorTab[] = ['videos', 'creators', 'dynamics'];
@@ -44,6 +49,8 @@ export function parseMonitorSearchParams(params: URLSearchParams): MonitorUrlSta
   const sort: MonitorVideoSort = MONITOR_VIDEO_SORTS.includes(rawSort as MonitorVideoSort)
     ? (rawSort as MonitorVideoSort)
     : DEFAULT_MONITOR_VIDEO_SORT;
+  const rawMine = params.get('onlyMine') ?? params.get('mine');
+  const onlyMine = rawMine === '1' || rawMine === 'true';
   return {
     tab,
     page,
@@ -53,6 +60,7 @@ export function parseMonitorSearchParams(params: URLSearchParams): MonitorUrlSta
     monitor,
     view,
     sort,
+    onlyMine,
   };
 }
 
@@ -79,6 +87,9 @@ export function writeMonitorSearchParams(
   } else {
     next.delete('sort');
   }
+  if (merged.onlyMine) next.set('onlyMine', '1');
+  else next.delete('onlyMine');
+  next.delete('mine');
   next.delete('targets');
   return next;
 }

@@ -13,6 +13,11 @@ export type MonitorCardQuery = {
   category: string | null;
   /** Video-only. Ignored for creators (sampled_at DESC). Default published_desc. */
   sort?: MonitorCardSort | null;
+  /**
+   * Video-only exact mid filter (decimal string). Applied before count/sort/page.
+   * Null/undefined = no mid filter. Creators ignore this.
+   */
+  ownerMid?: string | null;
   /** Exact identity read. Ignores list filters so detail matches the stored target. */
   externalId?: string | null;
 };
@@ -280,6 +285,8 @@ export async function listMonitorCards(
   const q = externalId ? null : query.q;
   const category = externalId ? null : query.category;
   const monitor = query.monitor;
+  /** Exact mid filter for「只看我的」; never applied to creator lists or identity reads. */
+  const ownerMid = externalId || query.type !== 'video' || !query.ownerMid ? null : query.ownerMid;
   const pattern = q ? likePattern(q) : null;
   const unified = query.type === 'video' ? VIDEO_UNIFIED : CREATOR_UNIFIED;
   const videoSort = query.sort === 'published_asc' ? 'published_asc' : 'published_desc';
@@ -314,6 +321,10 @@ export async function listMonitorCards(
           OR (${monitor}::text = 'active' AND u.target_id IS NOT NULL AND u.enabled IS TRUE)
           OR (${monitor}::text = 'paused' AND u.target_id IS NOT NULL AND u.enabled IS FALSE)
           OR (${monitor}::text = 'unmonitored' AND u.target_id IS NULL)
+        )
+        AND (
+          ${ownerMid}::text IS NULL
+          OR u.mid = ${ownerMid}
         )
     ),
     counted AS (

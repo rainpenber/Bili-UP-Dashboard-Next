@@ -2,8 +2,8 @@
   "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
   "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 59,
-  "wiredRouteCount": 40,
+  "apiRouteCount": 61,
+  "wiredRouteCount": 42,
   "unwiredImplementedRouteCount": 19,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes adds a fixed POST list.",
@@ -398,9 +398,53 @@
         }
       ],
       "wired": true,
-      "notes": "Video and creator cards. Active monitor_targets are joined to entities; targets may exist first. Status is not taken from monitoring_enabled.",
-      "query": "type, monitor, page, pageSize, q, category",
+      "notes": "Video and creator cards. Active monitor_targets are joined to entities; targets may exist first. Status is not taken from monitoring_enabled. onlyMine=1 filters video cards by studio_owner_account.mid before count/sort/page; missing owner config returns 400.",
+      "query": "type, monitor, page, pageSize, q, category, sort, onlyMine",
       "storedEntity": "monitor_targets"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/settings/owner-account",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/studio-owner-routes.ts",
+      "sourceLine": 21,
+      "registration": "registerStudioOwnerRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/studio-owner-account.ts#parseStudioOwnerAccount",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/studio-owner-client.ts",
+          "symbol": "fetchStudioOwnerAccount",
+          "evidence": "/settings/owner-account"
+        }
+      ],
+      "wired": true,
+      "notes": "Singleton studio owner Bilibili UID + display name for「只看我的」. Not auth. 404 when row missing.",
+      "storedEntity": "studio_owner_account"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/monitor/settings/owner-account",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/studio-owner-routes.ts",
+      "sourceLine": 46,
+      "registration": "registerStudioOwnerRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/studio-owner-account.ts#parseUpdateStudioOwnerAccountRequest",
+      "responseContract": "packages/contracts/src/studio-owner-account.ts#parseStudioOwnerAccount",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/studio-owner-client.ts",
+          "symbol": "updateStudioOwnerAccount",
+          "evidence": "/settings/owner-account"
+        }
+      ],
+      "wired": true,
+      "notes": "Persists mid as decimal string (bigint). Invalid UID/empty display name 400. Does not create creators or call Bilibili.",
+      "storedEntity": "studio_owner_account"
     },
     {
       "method": "GET",

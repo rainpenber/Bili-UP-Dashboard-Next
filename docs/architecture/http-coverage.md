@@ -1,8 +1,8 @@
 # HTTP API 覆盖
 
-验收库 `wp_r2_11_08ea25c9e1ad` 保留，本文件不执行 DROP DATABASE。
+验收库 `wp_r2_11_d3c00fff7da9` 保留，本文件不执行 DROP DATABASE。
 
-注册 59，清单 59，已执行 59，HTTP 成功 59，断言验收 59。
+注册 61，清单 61，已执行 61，HTTP 成功 61，断言验收 61。
 
 验收结论：通过。每一条注册路由都有一次 HTTP 成功响应，且发出该响应的测试断言已通过。
 
@@ -116,6 +116,8 @@
 - 断言验收：是
 - monitor-targets：HTTP 200（成功响应，断言通过）
 - monitor-targets：HTTP 400（拒绝响应，断言通过）
+- monitor-targets：HTTP 200（成功响应，断言通过）
+- monitor-targets：HTTP 400（拒绝响应，断言通过）
 
 ## GET `/api/v1/monitor/cards/:type/:externalId`
 
@@ -213,6 +215,14 @@
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 - metadata-refresh：HTTP 200（成功响应，断言通过）
+
+## GET `/api/v1/monitor/settings/owner-account`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- monitor-targets：HTTP 200（成功响应，断言通过）
 
 ## GET `/api/v1/monitor/targets`
 
@@ -609,3 +619,12 @@
 - 断言验收：是
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 - metadata-refresh：HTTP 404（拒绝响应，断言通过）
+
+## PUT `/api/v1/monitor/settings/owner-account`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- monitor-targets：HTTP 200（成功响应，断言通过）
+- monitor-targets：HTTP 400（拒绝响应，断言通过）

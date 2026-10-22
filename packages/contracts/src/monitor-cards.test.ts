@@ -151,6 +151,9 @@ describe('monitor card contracts', () => {
     expect(parseMonitorCardListQuery({ type: 'video', page: '1', pageSize: '8' }).sort).toBe(
       'published_desc',
     );
+    expect(parseMonitorCardListQuery({ type: 'video', page: '1', pageSize: '8' }).onlyMine).toBe(
+      false,
+    );
     expect(
       parseMonitorCardListQuery({
         type: 'video',
@@ -159,9 +162,20 @@ describe('monitor card contracts', () => {
         sort: 'published_asc',
       }).sort,
     ).toBe('published_asc');
+    expect(
+      parseMonitorCardListQuery({
+        type: 'video',
+        page: '1',
+        pageSize: '8',
+        onlyMine: '1',
+      }).onlyMine,
+    ).toBe(true);
     expect(() =>
       parseMonitorCardListQuery({ type: 'video', page: '1', pageSize: '8', sort: 'views' }),
     ).toThrow(/排序/);
+    expect(() =>
+      parseMonitorCardListQuery({ type: 'video', page: '1', pageSize: '8', onlyMine: 'yes' }),
+    ).toThrow(/只看我的/);
   });
 
   test('pin body and bvid reuse existing validation', () => {

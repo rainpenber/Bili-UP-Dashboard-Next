@@ -147,6 +147,16 @@ function renderAt(path: string) {
 function install(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    // Monitoring page always loads studio owner for「只看我的」; keep mocks valid.
+    if (url.includes('/settings/owner-account')) {
+      return Promise.resolve(
+        jsonResponse({
+          mid: '3493141386627335',
+          displayName: '狐正正',
+          updatedAt: '2026-10-22T00:00:00.000Z',
+        }),
+      );
+    }
     return Promise.resolve(handler(url, init));
   }) as typeof fetch;
 }
@@ -467,6 +477,13 @@ describe('monitoring cards', () => {
     const listUrls: string[] = [];
     const pausedId = 'BV1kept11111';
     const pausedTarget = '44444444-4444-4444-8444-444444444444';
+    const ownerMid = '3493141386627335';
+    const otherMid = '1000000000000001';
+    /** Videos added in this test belong to another UP — onlyMine must exclude them. */
+    const videoMidById: Record<string, string> = {
+      BV1probe1111: otherMid,
+      [pausedId]: otherMid,
+    };
 
     function storedTarget(
       externalId: string,
@@ -506,6 +523,7 @@ describe('monitoring cards', () => {
         externalId,
         title: null,
         category: null,
+        mid: type === 'video' ? (videoMidById[externalId] ?? null) : externalId,
         displayName: label,
         hasEntity: false,
         hasSamples: false,
@@ -581,21 +599,23 @@ describe('monitoring cards', () => {
         const q = params.get('q') ?? '';
         const category = params.get('category') ?? '';
         const type = params.get('type') === 'creator' ? 'creator' : 'video';
+        const onlyMine = params.get('onlyMine') === '1';
         const posted = posts.find((item) => item.externalId === q && item.type === type);
         if (!posted || category) return jsonResponse(list([]));
         const enabled = posted.externalId !== pausedId;
         const state = enabled ? 'active' : 'paused';
         if (monitor !== 'all' && monitor !== state) return jsonResponse(list([]));
-        return jsonResponse(
-          list([
-            visibleCard(
-              posted.externalId,
-              enabled,
-              type,
-              posted.externalId === pausedId ? '已暂停原目标' : (posted.label ?? posted.externalId),
-            ),
-          ]),
+        const item = visibleCard(
+          posted.externalId,
+          enabled,
+          type,
+          posted.externalId === pausedId ? '已暂停原目标' : (posted.label ?? posted.externalId),
         );
+        // Server-side onlyMine: exact mid match — non-owner videos must not appear.
+        if (type === 'video' && onlyMine && item.mid !== ownerMid) {
+          return jsonResponse(list([]));
+        }
+        return jsonResponse(list([item]));
       }
       if (url.includes('/videos/') || url.includes('/creators/')) {
         return jsonResponse({ error: 'not found' }, 404);
@@ -621,7 +641,7 @@ describe('monitoring cards', () => {
     }
 
     const videoRouter = await addFrom(
-      '/monitoring?tab=videos&monitor=paused&category=游戏',
+      '/monitoring?tab=videos&monitor=paused&category=游戏&onlyMine=1',
       'BV 号或视频长链接',
       'BV1probe1111',
       'Hermes隔离新增验收',
@@ -635,6 +655,7 @@ describe('monitoring cards', () => {
     expect(videoRouter.state.location.search).toContain('monitor=active');
     expect(videoRouter.state.location.search).not.toContain('monitor=paused');
     expect(videoRouter.state.location.search).not.toContain('category=');
+    expect(videoRouter.state.location.search).not.toContain('onlyMine=');
     expect(posts[0]).toMatchObject({
       type: 'video',
       externalId: 'BV1probe1111',
@@ -645,6 +666,7 @@ describe('monitoring cards', () => {
     expect(listUrls.at(-1)).toContain('monitor=active');
     expect(listUrls.at(-1)).toContain('q=BV1probe1111');
     expect(listUrls.at(-1)).not.toContain('category=');
+    expect(listUrls.at(-1)).not.toContain('onlyMine=');
     const videoSearch = videoRouter.state.location.search;
     cleanup();
     renderAt(`/monitoring${videoSearch}`);
@@ -682,7 +704,7 @@ describe('monitoring cards', () => {
     expect(posts.at(-1)).not.toHaveProperty('intervalMinutes');
 
     const duplicateRouter = await addFrom(
-      '/monitoring?tab=videos&monitor=unmonitored&category=知识',
+      '/monitoring?tab=videos&monitor=unmonitored&category=知识&onlyMine=1',
       'BV 号或视频长链接',
       pausedId,
       '不会覆盖暂停',
@@ -696,6 +718,7 @@ describe('monitoring cards', () => {
     expect(duplicateRouter.state.location.search).toContain('monitor=paused');
     expect(duplicateRouter.state.location.search).not.toContain('unmonitored');
     expect(duplicateRouter.state.location.search).not.toContain('category=');
+    expect(duplicateRouter.state.location.search).not.toContain('onlyMine=');
     expect(patches).toHaveLength(0);
     expect(posts.filter((item) => item.externalId === pausedId)).toHaveLength(1);
     const pausedSearch = duplicateRouter.state.location.search;

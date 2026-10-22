@@ -79,6 +79,13 @@ export {
   type MonitorCardSort,
 } from './monitor-cards';
 export {
+  DEFAULT_STUDIO_OWNER_DISPLAY_NAME,
+  DEFAULT_STUDIO_OWNER_MID,
+  getStudioOwnerAccount,
+  updateStudioOwnerAccount,
+  type StudioOwnerAccountRow,
+} from './studio-owner-account';
+export {
   applyLegacyFollowerImport,
   applyLegacyVideoImport,
   insertLegacyImportBatch,

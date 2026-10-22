@@ -9,6 +9,7 @@ export {
 export * from './monitor';
 export * from './monitor-targets';
 export * from './monitor-cards';
+export * from './studio-owner-account';
 export * from './imports';
 export * from './commercial';
 export * from './commercial-write';

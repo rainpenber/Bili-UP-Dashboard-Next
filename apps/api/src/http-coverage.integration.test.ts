@@ -560,6 +560,32 @@ describe('HTTP API coverage against isolated Postgres', () => {
       expect(card.externalId).toBe('240240');
       expect(card.hasEntity).toBe(false);
       await expectStatus(await api('/api/v1/monitor/cards?type=dynamic'), 400);
+      const owner = (await expectStatus(
+        await api('/api/v1/monitor/settings/owner-account'),
+        200,
+      )) as { mid: string; displayName: string };
+      expect(owner.mid).toBe('3493141386627335');
+      expect(owner.displayName).toBe('狐正正');
+      const ownerSaved = (await expectStatus(
+        await api(
+          '/api/v1/monitor/settings/owner-account',
+          json('PUT', { mid: '3493141386627335', displayName: '狐正正' }),
+        ),
+        200,
+      )) as { mid: string };
+      expect(ownerSaved.mid).toBe('3493141386627335');
+      await expectStatus(
+        await api(
+          '/api/v1/monitor/settings/owner-account',
+          json('PUT', { mid: '01', displayName: '坏' }),
+        ),
+        400,
+      );
+      await expectStatus(
+        await api('/api/v1/monitor/cards?type=video&onlyMine=1&page=1&pageSize=8'),
+        200,
+      );
+      await expectStatus(await api('/api/v1/monitor/cards?type=video&onlyMine=yes'), 400);
       const byIdentity = (await expectStatus(
         await api('/api/v1/monitor/targets/of/creator/240240'),
         200,

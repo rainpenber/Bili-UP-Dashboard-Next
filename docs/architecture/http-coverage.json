@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_08ea25c9e1ad",
+  "databaseName": "wp_r2_11_d3c00fff7da9",
   "retainedDatabase": true,
-  "registeredCount": 59,
-  "inventoryCount": 59,
-  "executedCount": 59,
-  "httpSuccessCount": 59,
-  "acceptedCount": 59,
+  "registeredCount": 61,
+  "inventoryCount": 61,
+  "executedCount": 61,
+  "httpSuccessCount": 61,
+  "acceptedCount": 61,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 8,
@@ -382,6 +382,18 @@
           "status": 400,
           "http": "reject",
           "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -620,6 +632,23 @@
         },
         {
           "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/settings/owner-account",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
           "status": 200,
           "http": "success",
           "assertions": "passed"
@@ -1788,6 +1817,29 @@
         {
           "test": "metadata-refresh",
           "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/monitor/settings/owner-account",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
           "http": "reject",
           "assertions": "passed"
         }

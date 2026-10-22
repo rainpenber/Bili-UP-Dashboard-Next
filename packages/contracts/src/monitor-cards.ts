@@ -11,6 +11,7 @@ import {
   type BigIntString,
   type Paginated,
 } from './monitor';
+import { parseOnlyMineFlag } from './studio-owner-account';
 
 export const MONITOR_CARD_FILTERS = ['all', 'active', 'paused', 'unmonitored'] as const;
 export type MonitorCardFilter = (typeof MONITOR_CARD_FILTERS)[number];
@@ -88,6 +89,11 @@ export type MonitorCardListQuery = {
   category: string | null;
   /** Only applied for type=video. Creators keep sampled_at order. */
   sort: MonitorCardSort;
+  /**
+   * Video-only. When true the server filters by the configured studio owner mid
+   * (本人账号), not the login user. Creators ignore this flag.
+   */
+  onlyMine: boolean;
 };
 
 export type PinVideoRequest = {
@@ -278,6 +284,7 @@ export function parseMonitorCardListQuery(input: {
   q?: string | undefined;
   category?: string | undefined;
   sort?: string | undefined;
+  onlyMine?: string | undefined;
 }): MonitorCardListQuery {
   if (input.type !== 'video' && input.type !== 'creator') {
     throw new MonitorContractError('invalid_target_type', '卡片类型只能是视频或 UP 主');
@@ -310,6 +317,7 @@ export function parseMonitorCardListQuery(input: {
     q: boundedText(input.q, MAX_QUERY_LENGTH, 'invalid_query', '搜索词过长'),
     category: boundedText(input.category, MAX_CATEGORY_LENGTH, 'invalid_category', '分类筛选过长'),
     sort: sortRaw as MonitorCardSort,
+    onlyMine: parseOnlyMineFlag(input.onlyMine),
   };
 }
 
