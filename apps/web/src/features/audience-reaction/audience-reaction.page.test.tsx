@@ -2,7 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { AudienceReactionPage } from '@/pages/audience-reaction-page';
 import { STORAGE_KEY } from './storage';
-import { restoreLocalStorageMethods } from './storage-test-utils';
+import {
+  installGetItemThrowForKey,
+  installSetItemCaptureForKey,
+  readViaStoragePrototype,
+  restoreLocalStorageMethods,
+} from './storage-test-utils';
 
 beforeEach(() => {
   restoreLocalStorageMethods();
@@ -73,24 +78,8 @@ describe('AudienceReactionPage', () => {
     });
     localStorage.setItem(STORAGE_KEY, legacy);
 
-    const writes: string[] = [];
-    const proto = Object.getPrototypeOf(localStorage) as Storage;
-    Object.defineProperty(localStorage, 'getItem', {
-      configurable: true,
-      writable: true,
-      value(key: string) {
-        if (key === STORAGE_KEY) throw new Error('blocked read');
-        return proto.getItem.call(localStorage, key);
-      },
-    });
-    Object.defineProperty(localStorage, 'setItem', {
-      configurable: true,
-      writable: true,
-      value(key: string, value: string) {
-        if (key === STORAGE_KEY) writes.push(value);
-        return proto.setItem.call(localStorage, key, value);
-      },
-    });
+    const uninstallGet = installGetItemThrowForKey(STORAGE_KEY);
+    const { writes, uninstall: uninstallSet } = installSetItemCaptureForKey(STORAGE_KEY);
 
     try {
       expect(() => localStorage.getItem(STORAGE_KEY)).toThrow(/blocked read/);
@@ -99,18 +88,11 @@ describe('AudienceReactionPage', () => {
       await new Promise((r) => setTimeout(r, 80));
       expect(writes.length).toBe(0);
       expect((screen.getByLabelText('商品') as HTMLInputElement).value).toBe('');
-      expect(proto.getItem.call(localStorage, STORAGE_KEY)).toBe(legacy);
+      expect(readViaStoragePrototype(STORAGE_KEY)).toBe(legacy);
     } finally {
-      Object.defineProperty(localStorage, 'getItem', {
-        configurable: true,
-        writable: true,
-        value: proto.getItem.bind(localStorage),
-      });
-      Object.defineProperty(localStorage, 'setItem', {
-        configurable: true,
-        writable: true,
-        value: proto.setItem.bind(localStorage),
-      });
+      uninstallGet();
+      uninstallSet();
+      restoreLocalStorageMethods();
     }
 
     expect(localStorage.getItem(STORAGE_KEY)).toBe(legacy);

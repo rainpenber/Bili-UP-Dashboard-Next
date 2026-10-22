@@ -9,7 +9,11 @@ import {
   parseStoredForm,
   saveForm,
 } from './storage';
-import { restoreLocalStorageMethods } from './storage-test-utils';
+import {
+  installGetItemThrowForKey,
+  readViaStoragePrototype,
+  restoreLocalStorageMethods,
+} from './storage-test-utils';
 
 beforeEach(() => {
   restoreLocalStorageMethods();
@@ -119,15 +123,7 @@ describe('localStorage load/save', () => {
       templateId: 'danmaku',
     });
     localStorage.setItem(STORAGE_KEY, legacy);
-    const proto = Object.getPrototypeOf(localStorage) as Storage;
-    Object.defineProperty(localStorage, 'getItem', {
-      configurable: true,
-      writable: true,
-      value(key: string) {
-        if (key === STORAGE_KEY) throw new Error('blocked read');
-        return proto.getItem.call(localStorage, key);
-      },
-    });
+    const uninstall = installGetItemThrowForKey(STORAGE_KEY);
     try {
       expect(() => localStorage.getItem(STORAGE_KEY)).toThrow(/blocked read/);
       const loaded = loadForm();
@@ -136,14 +132,9 @@ describe('localStorage load/save', () => {
         expect(loaded.preservedRaw).toBe(true);
         expect(loaded.error).toMatch(/不会覆盖已有草稿/);
       }
-      // 在 mock 仍生效时用原型读，确认原草稿未被清除
-      expect(proto.getItem.call(localStorage, STORAGE_KEY)).toBe(legacy);
+      expect(readViaStoragePrototype(STORAGE_KEY)).toBe(legacy);
     } finally {
-      Object.defineProperty(localStorage, 'getItem', {
-        configurable: true,
-        writable: true,
-        value: proto.getItem.bind(localStorage),
-      });
+      uninstall();
     }
     expect(localStorage.getItem(STORAGE_KEY)).toBe(legacy);
   });
