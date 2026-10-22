@@ -84,7 +84,8 @@ function statusForCode(code: string): 400 | 404 | 409 {
     code === 'target_deleted' ||
     code === 'target_already_started' ||
     code === 'target_running' ||
-    code === 'run_before_start'
+    code === 'run_before_start' ||
+    code === 'awaiting_manual_retry'
   ) {
     return 409;
   }
@@ -412,6 +413,12 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
       }
       if (result.status === 'invalid_start_type') {
         throw new MonitorContractError('invalid_start_at', '只有视频监控支持计划开始时间');
+      }
+      if (result.status === 'awaiting_manual_retry') {
+        throw new MonitorContractError(
+          'awaiting_manual_retry',
+          '首次采集已达上限待人工介入，请使用手动采集重试，不能仅启用',
+        );
       }
       if (before && !before.deletedAt) {
         await recordOperations(

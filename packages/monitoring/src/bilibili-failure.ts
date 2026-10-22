@@ -67,12 +67,14 @@ export function classifyBilibiliResponse(input: {
 }): FailureKind | null {
   if (input.timedOut || input.statusCode === null) return 'retryable';
   if (input.statusCode >= 500) return 'retryable';
+  // Auth / risk / rate-limit before inaccessible: HTTP 404 + biz -101 is login expiry,
+  // not first-access "稿件不可访问".
   if (input.statusCode === 412 || input.bizCode === -412 || input.bizCode === -352) {
     return 'risk_control';
   }
   if (input.bizCode === -509) return 'rate_limited';
-  if (input.bizCode === -404 || input.statusCode === 404) return 'not_found';
   if (input.bizCode === -101) return 'unauthorized';
+  if (input.bizCode === -404 || input.statusCode === 404) return 'not_found';
   if (input.bizCode !== null && input.bizCode !== 0) return 'retryable';
   if (input.statusCode >= 400) return 'retryable';
   return null;

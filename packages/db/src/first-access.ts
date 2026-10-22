@@ -37,7 +37,8 @@ export function parseFirstAccessFailureCount(error: string | null | undefined): 
 
 /**
  * Durable first-access wait / manual-intervention facts derived from target+job state.
- * Pure read: repeating the query does not invent new rows.
+ * Current round: the newest matching job by time (pending waiting beats an older
+ * awaiting_manual failed job after manual-run). Pure read — no writes.
  */
 export async function listFirstAccessInterventions(
   sql: Sql,
@@ -84,8 +85,9 @@ export async function listFirstAccessInterventions(
           OR (j2.status = 'failed' AND j2.error LIKE ${manualLike})
         )
       ORDER BY
-        CASE WHEN j2.status = 'failed' THEN 0 ELSE 1 END,
-        COALESCE(j2.finished_at, j2.updated_at) DESC
+        COALESCE(j2.updated_at, j2.finished_at, j2.created_at) DESC,
+        j2.created_at DESC,
+        j2.id DESC
       LIMIT 1
     ) j ON TRUE
     WHERE t.deleted_at IS NULL
@@ -97,7 +99,7 @@ export async function listFirstAccessInterventions(
         OR j.error LIKE ${waitingLike}
         OR j.error LIKE ${manualLike}
       )
-    ORDER BY COALESCE(j.finished_at, j.updated_at) DESC, t.id ASC
+    ORDER BY COALESCE(j.updated_at, j.finished_at, j.created_at) DESC, t.id ASC
   `;
   return rows.map((row) => ({
     id: row.id,

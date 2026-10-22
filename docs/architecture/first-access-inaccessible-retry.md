@@ -19,10 +19,14 @@ WP-R2-17A2。建立在 [真实数据采集](./real-collector.md) 与 [视频监�
 ## 人工介入
 
 - 读：`GET /api/v1/monitor/first-access-interventions`
-  - `waiting_confirmation`：等待下次确认（仍 pending）
-  - `awaiting_manual`：达到上限
-  - `id`＝当轮 job id（幂等识别同一轮）
+  - **当前轮**：按 job 时间取最新匹配行。若存在比终态更新的 pending（含 `[first_access_waiting]`），返回 `waiting_confirmation`；否则才返回 `awaiting_manual`。
+  - `id`＝当轮 job id（幂等识别同一轮）；重复 GET 不造新事实。
 - 写：既有 `POST /api/v1/monitor/targets/:id/run` 开启新一轮（保留前序 failed run）；可用 PATCH `startAt` 改期。
+- **禁止**仅 `PATCH enabled=true`：返回 409 `awaiting_manual_retry`（「已达上限，请手动采集重试」），避免 enabled 却无 pending 的假活跃。
+
+## 停用与并发
+
+第三次失败时，在同一把目标锁事务内：标记 job `failed`、写 failed run、清 `next_run_at`、`enabled=false`。若锁下已存在更新的 pending/running（人工刚开的新轮），则**不停用**、不清游标，只落本 job 的失败证据。
 
 ### Hermes 示例
 

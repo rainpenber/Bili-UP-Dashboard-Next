@@ -4,10 +4,13 @@ import {
   createRetainedTestDatabase,
   enqueueDueCollectorJobs,
   insertMonitorTarget,
+  recordCollectorFailure,
   requestCollectorRun,
+  updateMonitorTarget,
   type Sql,
 } from '@studio/db';
 import {
+  classifyBilibiliResponse,
   createBilibiliProvider,
   installOfflineFetchGuard,
   readBilibiliRuntimeConfig,
@@ -246,26 +249,75 @@ describe('WP-R2-17A2 first-access inaccessible retry', () => {
     );
     expect(listed2.items.find((row) => row.targetId === created.target.id)?.id).toBe(stableId);
 
+    // Bare enable while halted must refuse (no enabled=true without a pending round).
+    const enableOnly = await app.request(`/api/v1/monitor/targets/${created.target.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(enableOnly.status).toBe(409);
+    const enableBody = (await enableOnly.json()) as { code: string; error: string };
+    expect(enableBody.code).toBe('awaiting_manual_retry');
+    expect(enableBody.error).toContain('手动采集');
+    const [stillHalted] = await db<{ enabled: boolean }[]>`
+      SELECT enabled FROM monitor_targets WHERE id = ${created.target.id}::uuid
+    `;
+    expect(stillHalted?.enabled).toBe(false);
+
     // Manual run starts a new bounded round; prior three failed runs remain.
     const manual = await requestCollectorRun(db, created.target.id, new Date());
     expect(manual.status).toBe('queued');
     if (manual.status !== 'queued') throw new Error('expected queued manual run');
     expect(manual.created).toBe(true);
+    const newJobId = manual.job.id;
+    expect(newJobId).not.toBe(stableId);
     const [enabled] = await db<{ enabled: boolean }[]>`
       SELECT enabled FROM monitor_targets WHERE id = ${created.target.id}::uuid
     `;
     expect(enabled?.enabled).toBe(true);
+
     await parkOtherPending(db, created.target.id);
     expect(await runCollectorOnce({ sql: db, provider, config })).toBe('failed');
+
+    // Read API must surface the new waiting round, not the old awaiting_manual job.
+    const afterManualList = parseFirstAccessInterventionList(
+      await (await app.request('/api/v1/monitor/first-access-interventions')).json(),
+    );
+    const current = afterManualList.items.find((row) => row.targetId === created.target.id);
+    expect(current?.id).toBe(newJobId);
+    expect(current?.status).toBe('waiting_confirmation');
+    expect(current?.failureCount).toBe(1);
+    expect(current?.reason).toContain('[first_access_waiting]');
+
     const [runCount] = await db<{ count: string }[]>`
       SELECT count(*)::text AS count FROM collector_runs WHERE target_id = ${created.target.id}::uuid
     `;
-    expect(Number(runCount?.count)).toBeGreaterThanOrEqual(4);
+    expect(Number(runCount?.count)).toBe(4);
     const [oldJob] = await db<{ status: string; attempts: number }[]>`
       SELECT status, attempts FROM collector_jobs WHERE id = ${stableId}::uuid
     `;
     expect(oldJob?.status).toBe('failed');
     expect(oldJob?.attempts).toBe(3);
+
+    // Exhaust the new round → new job's awaiting_manual; history preserved; no 4th auto.
+    await advancePendingToNow(db, created.target.id);
+    expect(await runCollectorOnce({ sql: db, provider, config })).toBe('failed');
+    await advancePendingToNow(db, created.target.id);
+    expect(await runCollectorOnce({ sql: db, provider, config })).toBe('failed');
+    const exhausted = parseFirstAccessInterventionList(
+      await (await app.request('/api/v1/monitor/first-access-interventions')).json(),
+    );
+    const finalItem = exhausted.items.find((row) => row.targetId === created.target.id);
+    expect(finalItem?.id).toBe(newJobId);
+    expect(finalItem?.status).toBe('awaiting_manual');
+    expect(finalItem?.failureCount).toBe(3);
+    const [allRuns] = await db<{ count: string }[]>`
+      SELECT count(*)::text AS count FROM collector_runs WHERE target_id = ${created.target.id}::uuid
+    `;
+    expect(Number(allRuns?.count)).toBe(6);
+    expect(await enqueueDueCollectorJobs(db)).toBe(0);
+    expect(await runCollectorOnce({ sql: db, provider, config })).toBe('idle');
+    expect(viewHits.get(bvid)).toBe(6);
   });
 
   test('success on second first-access attempt enters the 15-minute tier', async () => {
@@ -371,7 +423,10 @@ describe('WP-R2-17A2 first-access inaccessible retry', () => {
   test('risk / auth / network errors do not enter first-access wait', async () => {
     if (!sql) return;
     const db = sql;
-    const cases: Array<{ bvid: string; code: number; expectCircuit?: boolean }> = [
+    expect(classifyBilibiliResponse({ statusCode: 404, bizCode: -101, timedOut: false })).toBe(
+      'unauthorized',
+    );
+    const cases: Array<{ bvid: string; code: number }> = [
       { bvid: 'BV1xx411c7mD', code: -352 },
       { bvid: 'BV1xx411c7mE', code: -509 },
       { bvid: 'BV1xx411c7mF', code: -101 },
@@ -404,10 +459,59 @@ describe('WP-R2-17A2 first-access inaccessible retry', () => {
       const outcome = await runCollectorOnce({ sql: db, provider, config });
       expect(['failed', 'deferred']).toContain(outcome);
       const [target] = await db<{ last_error: string | null; enabled: boolean }[]>`
-        SELECT last_error, enabled FROM monitor_targets WHERE id = ${created.target.id}::uuid
+        SELECT last_error, enabled from monitor_targets WHERE id = ${created.target.id}::uuid
       `;
       expect(target?.last_error ?? '').not.toContain('first_access');
     }
+
+    // HTTP 404 + biz -101 must expire/defer, not first-access wait.
+    const authCombo = await insertMonitorTarget(db, {
+      id: crypto.randomUUID(),
+      type: 'video',
+      externalId: 'BV1xx411c7mG',
+      label: '404-plus-101',
+      tags: [],
+      intervalMinutes: 15,
+      now: new Date(),
+    });
+    await parkOtherPending(db, authCombo.target.id);
+    const authTransport: HttpTransport = async (request) => {
+      const url = new URL(request.url);
+      if (url.pathname.endsWith('/online/total')) {
+        return {
+          status: 200,
+          body: JSON.stringify({ code: 0, data: { total: '1' } }),
+          headers: {},
+          durationMs: 1,
+        };
+      }
+      return {
+        status: 404,
+        body: JSON.stringify({ code: -101, message: '账号未登录' }),
+        headers: {},
+        durationMs: 1,
+      };
+    };
+    const authProvider = createBilibiliProvider(
+      {
+        ...readBilibiliRuntimeConfig({}),
+        minIntervalMs: 0,
+        maxJitterMs: 0,
+        anonymousMinIntervalMs: 0,
+      },
+      { transport: authTransport, random: () => 0 },
+    );
+    const authOutcome = await runCollectorOnce({
+      sql: db,
+      provider: authProvider,
+      config: { ...readCollectorConfig({ COLLECTOR_INSTANCE_ID: 'fa-404-101' }), maxAttempts: 3 },
+    });
+    expect(['failed', 'deferred']).toContain(authOutcome);
+    const [authTarget] = await db<{ last_error: string | null; enabled: boolean }[]>`
+      SELECT last_error, enabled FROM monitor_targets WHERE id = ${authCombo.target.id}::uuid
+    `;
+    expect(authTarget?.last_error ?? '').not.toContain('first_access');
+    expect(authTarget?.enabled).toBe(true);
 
     const creator = await insertMonitorTarget(db, {
       id: crypto.randomUUID(),
@@ -419,13 +523,123 @@ describe('WP-R2-17A2 first-access inaccessible retry', () => {
       now: new Date(),
     });
     await parkOtherPending(db, creator.target.id);
-    // Creator path with view-like -404 is not used; force provider failure via offline is out of scope.
-    // Ensure first-access list ignores creators.
     const app = createApp({ skipDb: true });
     app.route('/api/v1/monitor', createMonitorRoutes(db));
     const listed = parseFirstAccessInterventionList(
       await (await app.request('/api/v1/monitor/first-access-interventions')).json(),
     );
     expect(listed.items.every((item) => item.targetId !== creator.target.id)).toBe(true);
+  });
+
+  test('halt skips disable when a newer manual pending already exists', async () => {
+    if (!sql) return;
+    const db = sql;
+    const created = await insertMonitorTarget(db, {
+      id: crypto.randomUUID(),
+      type: 'video',
+      externalId: 'BV1xx411c7mH',
+      label: 'race-halt',
+      tags: [],
+      intervalMinutes: 15,
+      now: new Date(),
+    });
+    const [seedJob] = await db<{ id: string }[]>`
+      SELECT id::text AS id FROM collector_jobs WHERE target_id = ${created.target.id}::uuid LIMIT 1
+    `;
+    expect(seedJob?.id).toBeTruthy();
+    const oldJobId = seedJob!.id;
+    const now = new Date();
+    await db`
+      UPDATE collector_jobs
+      SET status = 'running', attempts = 3, started_at = ${now}, error = NULL, updated_at = ${now}
+      WHERE id = ${oldJobId}::uuid
+    `;
+    const newerPendingId = crypto.randomUUID();
+    const newerAt = new Date(now.getTime() + 1000);
+    await db`
+      INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
+      VALUES (
+        ${newerPendingId}::uuid,
+        ${created.target.id}::uuid,
+        'pending',
+        0,
+        ${newerAt}
+      )
+    `;
+    await db`
+      UPDATE monitor_targets
+      SET enabled = true, next_run_at = ${newerAt}, updated_at = ${now}
+      WHERE id = ${created.target.id}::uuid
+    `;
+
+    const result = await recordCollectorFailure(db, {
+      jobId: oldJobId,
+      targetId: created.target.id,
+      attempts: 3,
+      maxAttempts: 3,
+      error:
+        'view 业务码 -404；首次采集上游确认暂不可访问，失败 3/3 次，达到上限待人工介入 [first_access_awaiting_manual]',
+      durationMs: 1,
+      startedAt: now,
+      retryAt: null,
+      haltAutoSchedule: true,
+    });
+    expect(result.applied).toBe(true);
+    expect(result.halted).toBe(false);
+
+    const [target] = await db<{ enabled: boolean; next_run_at: Date | null }[]>`
+      SELECT enabled, next_run_at FROM monitor_targets WHERE id = ${created.target.id}::uuid
+    `;
+    expect(target?.enabled).toBe(true);
+    expect(target?.next_run_at).not.toBeNull();
+    const [newer] = await db<{ status: string }[]>`
+      SELECT status FROM collector_jobs WHERE id = ${newerPendingId}::uuid
+    `;
+    expect(newer?.status).toBe('pending');
+    const [old] = await db<{ status: string }[]>`
+      SELECT status FROM collector_jobs WHERE id = ${oldJobId}::uuid
+    `;
+    expect(old?.status).toBe('failed');
+
+    // Contrast: without a newer pending, halt disables.
+    const alone = await insertMonitorTarget(db, {
+      id: crypto.randomUUID(),
+      type: 'video',
+      externalId: 'BV1xx411c7mK',
+      label: 'halt-alone',
+      tags: [],
+      intervalMinutes: 15,
+      now: new Date(),
+    });
+    const [aloneJob] = await db<{ id: string }[]>`
+      SELECT id::text AS id FROM collector_jobs WHERE target_id = ${alone.target.id}::uuid LIMIT 1
+    `;
+    await db`
+      UPDATE collector_jobs
+      SET status = 'running', attempts = 3, started_at = ${now}, updated_at = ${now}
+      WHERE id = ${aloneJob!.id}::uuid
+    `;
+    const halted = await recordCollectorFailure(db, {
+      jobId: aloneJob!.id,
+      targetId: alone.target.id,
+      attempts: 3,
+      maxAttempts: 3,
+      error:
+        'view 业务码 -404；首次采集上游确认暂不可访问，失败 3/3 次，达到上限待人工介入 [first_access_awaiting_manual]',
+      durationMs: 1,
+      startedAt: now,
+      retryAt: null,
+      haltAutoSchedule: true,
+    });
+    expect(halted.halted).toBe(true);
+    const [aloneTarget] = await db<{ enabled: boolean; next_run_at: Date | null }[]>`
+      SELECT enabled, next_run_at FROM monitor_targets WHERE id = ${alone.target.id}::uuid
+    `;
+    expect(aloneTarget?.enabled).toBe(false);
+    expect(aloneTarget?.next_run_at).toBeNull();
+
+    const refused = await updateMonitorTarget(db, alone.target.id, { enabled: true }, new Date());
+    expect(refused.status).toBe('awaiting_manual_retry');
+    expect(refused.target?.enabled).toBe(false);
   });
 });

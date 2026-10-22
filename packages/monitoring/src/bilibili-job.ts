@@ -70,9 +70,9 @@ export type BilibiliEffects = {
     durationMs: number;
     startedAt: Date;
     retryAt: Date | null;
-    /** Terminal first-access: clear next_run_at so enqueue cannot auto-reopen. */
+    /** Terminal first-access: clear next_run_at + disable in the fail transaction. */
     haltAutoSchedule?: boolean;
-  }): Promise<{ runId: string | null; applied: boolean }>;
+  }): Promise<{ runId: string | null; applied: boolean; halted?: boolean }>;
   audit(input: {
     accountId: string | null;
     runId: string | null;
@@ -476,9 +476,8 @@ async function handleFailure(
     log(`[collector] 任务已终态，忽略迟到失败处理 ${options.job.id}`);
     return 'succeeded';
   }
-  // Terminal first-access: disable target (blocks enqueue/claim) without touching the account.
-  if (haltAutoSchedule) {
-    await options.effects.disableTarget(options.job.targetId, message);
+  // Halt (disable + clear cursor) is applied inside failJob's locked transaction.
+  if (haltAutoSchedule && failed.halted !== false) {
     options.logger?.warn('首次采集达到上限，待人工介入', {
       event: 'monitor.target.first_access_exhausted',
       context: {
@@ -487,6 +486,7 @@ async function handleFailure(
         externalId: options.job.externalId,
         attempts: options.job.attempts,
         maxAttempts: FIRST_ACCESS_MAX_ATTEMPTS,
+        halted: failed.halted === true,
       },
     });
   }

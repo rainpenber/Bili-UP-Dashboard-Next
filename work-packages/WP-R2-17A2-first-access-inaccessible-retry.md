@@ -6,10 +6,14 @@
 
 ## 实现要点
 
-- `planBilibiliFailure` + `first_access_retry`：仅 never-succeeded video + `not_found`
-- 复用 job `attempts`／`recordCollectorFailure`／唯一 bucket；第三次 `haltAutoSchedule` + disable 目标
-- 读合同：`GET /api/v1/monitor/first-access-interventions`
-- manual-run 对 awaiting_manual 目标重新 `enabled=true` 后开新一轮
+- `planBilibiliFailure` + `first_access_retry`：仅 never-succeeded video + `not_found`；鉴权／风控／限频先于 not_found
+- 复用 job `attempts`／`recordCollectorFailure`／唯一 bucket；第三次同事务 halt（清游标+disable）；有更新人工 pending 则跳过停用
+- 读合同：`GET /api/v1/monitor/first-access-interventions`（当前轮：新 waiting pending 优先）
+- manual-run 开新一轮；halt 后拒绝裸 `enabled=true`（409 `awaiting_manual_retry`）
+
+## FIX1（集中纠正）
+
+读接口当前轮、halt 后启停拒绝、分类顺序、fail+disable 同事务与并发跳过停用。
 
 ## 文档
 

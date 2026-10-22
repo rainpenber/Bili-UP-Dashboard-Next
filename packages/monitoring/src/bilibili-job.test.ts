@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { ClaimedCollectorJob, VideoSampleWrite } from '@studio/db';
 import {
   BilibiliFailure,
+  classifyBilibiliResponse,
   FIRST_ACCESS_RETRY_MINUTES,
   planBilibiliFailure,
   retryDelayMinutes,
@@ -238,6 +239,18 @@ describe('bilibili failure plans', () => {
       terminal: true,
     });
   });
+
+  test('HTTP 404 with biz -101 is unauthorized, not not_found', () => {
+    expect(classifyBilibiliResponse({ statusCode: 404, bizCode: -101, timedOut: false })).toBe(
+      'unauthorized',
+    );
+    expect(classifyBilibiliResponse({ statusCode: 200, bizCode: -404, timedOut: false })).toBe(
+      'not_found',
+    );
+    expect(classifyBilibiliResponse({ statusCode: 404, bizCode: 0, timedOut: false })).toBe(
+      'not_found',
+    );
+  });
 });
 
 describe('bilibili job orchestration', () => {
@@ -390,7 +403,7 @@ describe('bilibili job orchestration', () => {
     expect(calls).toBe(1);
   });
 
-  test('never-succeeded video -404 third failure disables for manual intervention', async () => {
+  test('never-succeeded video -404 third failure halts via failJob (no separate disable)', async () => {
     const failCalls: Array<{ retryAt: Date | null; error: string; haltAutoSchedule?: boolean }> =
       [];
     const store = effects({
@@ -400,7 +413,8 @@ describe('bilibili job orchestration', () => {
           error: input.error,
           ...(input.haltAutoSchedule ? { haltAutoSchedule: true } : {}),
         });
-        return { runId: 'run-fail', applied: true };
+        // Halt is applied inside the fail transaction; surface halted=true.
+        return { runId: 'run-fail', applied: true, halted: true };
       },
     });
     const current = provider(async () => {
@@ -422,7 +436,8 @@ describe('bilibili job orchestration', () => {
       now: new Date('2026-10-19T00:00:00.000Z'),
     });
     expect(outcome).toBe('failed');
-    expect(store.disabled).toEqual(['target-1']);
+    // Disable is folded into failJob; effects.disableTarget must not race separately.
+    expect(store.disabled).toEqual([]);
     expect(failCalls[0]?.retryAt).toBeNull();
     expect(failCalls[0]?.haltAutoSchedule).toBe(true);
     expect(failCalls[0]?.error).toContain('[first_access_awaiting_manual]');

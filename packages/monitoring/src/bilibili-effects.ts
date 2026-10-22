@@ -64,7 +64,11 @@ export function createSqlBilibiliEffects(
         ...(input.schedule ? { schedule: input.schedule } : {}),
         ...(input.haltAutoSchedule ? { haltAutoSchedule: true } : {}),
       });
-      return { runId: result.runId, applied: result.applied };
+      return {
+        runId: result.runId,
+        applied: result.applied,
+        ...(result.halted !== undefined ? { halted: result.halted } : {}),
+      };
     },
     async audit(input) {
       if (input.calls.length === 0) return;
