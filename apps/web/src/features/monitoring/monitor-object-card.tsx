@@ -236,7 +236,8 @@ export function MonitorCardControls({
         data-pending={pending ? 'true' : 'false'}
         aria-busy={pending}
       >
-        <div className="flex min-w-0 gap-3">
+        {/* 封面/头像 · 信息 · 两键同一横行；极窄时允许 wrap 回退 */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <div className="relative shrink-0">
             <button
               type="button"
@@ -248,11 +249,12 @@ export function MonitorCardControls({
               <img
                 src={coverAssetUrl(card.imageAssetId)}
                 alt=""
-                width={96}
-                height={54}
+                width={card.type === 'creator' ? 56 : 96}
+                height={card.type === 'creator' ? 56 : 54}
+                data-testid={card.type === 'creator' ? 'monitor-list-avatar' : 'monitor-list-cover'}
                 className={cn(
                   'object-cover',
-                  card.type === 'creator' ? 'size-14 rounded-full' : 'size-16 rounded',
+                  card.type === 'creator' ? 'size-14 rounded-full' : 'aspect-video w-24 rounded-md',
                 )}
               />
             </button>
@@ -268,7 +270,7 @@ export function MonitorCardControls({
           <button
             type="button"
             onClick={onSelect}
-            className="min-w-0 flex-1 space-y-1 rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-w-0 flex-1 basis-[10rem] space-y-1 rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-pressed={selected}
             aria-label={`选择${card.type === 'video' ? '视频' : ' UP 主'} ${card.displayName}`}
           >
@@ -293,23 +295,23 @@ export function MonitorCardControls({
               {metricsLine}
             </span>
           </button>
-        </div>
-        <div
-          data-testid="monitor-card-actions"
-          className="flex flex-wrap items-center justify-end gap-2"
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            aria-label={`查看 ${card.displayName} 详情`}
-            onClick={() => onSelect?.()}
+          <div
+            data-testid="monitor-card-actions"
+            className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
           >
-            详情
-          </Button>
-          {primary}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              aria-label={`查看 ${card.displayName} 详情`}
+              onClick={() => onSelect?.()}
+            >
+              详情
+            </Button>
+            {primary}
+          </div>
         </div>
         {notice ? (
           <p role="status" className="break-words text-xs text-muted-foreground">

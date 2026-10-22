@@ -181,7 +181,7 @@ export function DynamicMonitorControls({
   if (layout === 'card') {
     return (
       <div
-        className="mt-auto flex flex-wrap items-center justify-end gap-2"
+        className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2"
         data-testid="dynamic-monitor-controls"
         data-monitor-state={monitorState}
         data-external-id={dynamicId}

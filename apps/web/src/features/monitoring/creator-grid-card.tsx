@@ -13,8 +13,8 @@ type PrimaryAction = {
 };
 
 /**
- * UP 主网格卡片：大圆形头像 + 名称/粉丝 + 详情/主操作两键。
- * 与视频网格同一 flex 骨架与高度节奏，不伪造封面。
+ * UP 主网格卡片：大圆形头像 + 名称/粉丝与两键同一横行（垂直居中）。
+ * 与视频网格同一 flex 骨架；不伪造封面。
  */
 export function CreatorGridCard({
   card,
@@ -59,7 +59,7 @@ export function CreatorGridCard({
       <button
         type="button"
         onClick={onSelect}
-        className="flex min-w-0 flex-1 flex-col items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-w-0 flex-col items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-pressed={selected}
         aria-label={`选择 UP 主 ${card.displayName}`}
       >
@@ -74,49 +74,60 @@ export function CreatorGridCard({
             data-testid="creator-grid-avatar"
           />
         </span>
-        <span className="flex w-full min-w-0 items-center gap-1.5">
-          <MonitorStateBadge
-            state={card.monitorState}
-            failed={failed}
-            badgeClassName="px-1.5 py-0 text-[10px] leading-4"
-            testId="creator-grid-state-badge"
-            failureTestId="creator-grid-failure-dot"
-          />
-          <span className="min-w-0 flex-1 truncate text-sm font-medium" title={card.displayName}>
-            {card.displayName}
-          </span>
-        </span>
-        <span
-          className="block w-full truncate text-xs tabular-nums text-muted-foreground"
-          data-testid="creator-grid-metrics"
-        >
-          {metricsLine}
-        </span>
       </button>
 
-      <div
-        data-testid="monitor-card-actions"
-        className="mt-auto flex flex-wrap items-center justify-end gap-2"
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => event.stopPropagation()}
-      >
-        <Button type="button" size="sm" variant="outline" asChild>
-          <Link to={detailHref} aria-label={`查看 ${card.displayName} 详情`}>
-            详情
-          </Link>
-        </Button>
-        {primary ? (
-          <Button
-            type="button"
-            size="sm"
-            variant={primary.variant ?? 'default'}
-            disabled={primary.disabled ?? pending}
-            aria-label={primary.label}
-            onClick={primary.onClick}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-2">
+        <button
+          type="button"
+          onClick={onSelect}
+          className="flex min-w-0 flex-1 basis-[10rem] flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-pressed={selected}
+          aria-label={`选择 UP 主 ${card.displayName} 详情区`}
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            <MonitorStateBadge
+              state={card.monitorState}
+              failed={failed}
+              badgeClassName="px-1.5 py-0 text-[10px] leading-4"
+              testId="creator-grid-state-badge"
+              failureTestId="creator-grid-failure-dot"
+            />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium" title={card.displayName}>
+              {card.displayName}
+            </span>
+          </span>
+          <span
+            className="block truncate text-xs tabular-nums text-muted-foreground"
+            data-testid="creator-grid-metrics"
           >
-            {primary.label}
+            {metricsLine}
+          </span>
+        </button>
+
+        <div
+          data-testid="monitor-card-actions"
+          className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <Button type="button" size="sm" variant="outline" asChild>
+            <Link to={detailHref} aria-label={`查看 ${card.displayName} 详情`}>
+              详情
+            </Link>
           </Button>
-        ) : null}
+          {primary ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={primary.variant ?? 'default'}
+              disabled={primary.disabled ?? pending}
+              aria-label={primary.label}
+              onClick={primary.onClick}
+            >
+              {primary.label}
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {notice ? (

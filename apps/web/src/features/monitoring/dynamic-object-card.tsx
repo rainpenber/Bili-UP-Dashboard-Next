@@ -25,7 +25,7 @@ function dynamicSummary(item: DynamicListItem): string {
 }
 
 /**
- * 动态列表/网格卡片：无封面；id + 互动摘要 + 状态徽标；仅详情与主操作两键。
+ * 动态列表/网格卡片：无封面；信息与两键同一横行；不伪造图片。
  * 详情始终跳转 `/monitoring/dynamics/:id`。
  */
 export function DynamicObjectCard({
@@ -59,42 +59,41 @@ export function DynamicObjectCard({
           selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
         )}
       >
-        <button
-          type="button"
-          onClick={onSelect}
-          className={cn(
-            'flex min-w-0 flex-1 flex-col gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            presentation === 'grid' && 'justify-center',
-          )}
-          aria-pressed={selected}
-          aria-label={`选择动态 ${item.dynamicId}`}
-        >
-          <span className="flex min-w-0 items-center gap-1.5">
-            <MonitorStateBadge
-              state={monitorState}
-              failed={failed}
-              badgeClassName="px-1.5 py-0 text-[10px] leading-4"
-              testId="dynamic-card-state-badge"
-              failureTestId="dynamic-card-failure-dot"
-            />
-            <span className="min-w-0 flex-1 truncate text-sm font-medium" title={item.dynamicId}>
-              {item.dynamicId}
-            </span>
-          </span>
-          <span
-            className="block truncate text-xs tabular-nums text-muted-foreground"
-            data-testid="dynamic-card-metrics"
-            title={summary}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-2">
+          <button
+            type="button"
+            onClick={onSelect}
+            className="flex min-w-0 flex-1 basis-[10rem] flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-pressed={selected}
+            aria-label={`选择动态 ${item.dynamicId}`}
           >
-            {summary}
-          </span>
-        </button>
-        <DynamicMonitorControls
-          dynamicId={item.dynamicId}
-          target={item.target}
-          listQuery={listQuery}
-          layout="card"
-        />
+            <span className="flex min-w-0 items-center gap-1.5">
+              <MonitorStateBadge
+                state={monitorState}
+                failed={failed}
+                badgeClassName="px-1.5 py-0 text-[10px] leading-4"
+                testId="dynamic-card-state-badge"
+                failureTestId="dynamic-card-failure-dot"
+              />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium" title={item.dynamicId}>
+                {item.dynamicId}
+              </span>
+            </span>
+            <span
+              className="block truncate text-xs tabular-nums text-muted-foreground"
+              data-testid="dynamic-card-metrics"
+              title={summary}
+            >
+              {summary}
+            </span>
+          </button>
+          <DynamicMonitorControls
+            dynamicId={item.dynamicId}
+            target={item.target}
+            listQuery={listQuery}
+            layout="card"
+          />
+        </div>
       </div>
     </li>
   );
