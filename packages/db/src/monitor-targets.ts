@@ -418,9 +418,7 @@ export async function updateMonitorTarget(
       existing.lastSuccessAt === null &&
       isFirstAccessAwaitingManualError(existing.lastError);
     const enabled =
-      reschedule && firstAccessHalted && patch.enabled !== false
-        ? true
-        : (patch.enabled ?? null);
+      reschedule && firstAccessHalted && patch.enabled !== false ? true : (patch.enabled ?? null);
     let nextRunAt: Date | null = existing.nextRunAt;
     let touchSchedule = false;
     if (reschedule) {

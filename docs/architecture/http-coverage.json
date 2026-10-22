@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_05fb0a5ffedb",
+  "databaseName": "wp_r2_11_b143bec9f4c5",
   "retainedDatabase": true,
-  "registeredCount": 56,
-  "inventoryCount": 56,
-  "executedCount": 56,
-  "httpSuccessCount": 56,
-  "acceptedCount": 56,
+  "registeredCount": 57,
+  "inventoryCount": 57,
+  "executedCount": 57,
+  "httpSuccessCount": 57,
+  "acceptedCount": 57,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 8,
@@ -545,6 +545,23 @@
         },
         {
           "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/first-access-interventions",
+      "readWrite": "read",
+      "frontendCaller": false,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
           "status": 200,
           "http": "success",
           "assertions": "passed"

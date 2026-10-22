@@ -454,9 +454,7 @@ async function handleFailure(
     });
   }
   const retryAt =
-    plan.action === 'retry' ||
-    plan.action === 'circuit' ||
-    plan.action === 'first_access_retry'
+    plan.action === 'retry' || plan.action === 'circuit' || plan.action === 'first_access_retry'
       ? plan.retryAt
       : null;
   const haltAutoSchedule = plan.action === 'first_access_retry' && plan.terminal;

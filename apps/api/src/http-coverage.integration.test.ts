@@ -763,6 +763,12 @@ describe('HTTP API coverage against isolated Postgres', () => {
       expect(outcomes).toContain('succeeded');
       expect(outcomes.at(-1)).toBe('idle');
 
+      const firstAccess = (await expectStatus(
+        await api('/api/v1/monitor/first-access-interventions'),
+        200,
+      )) as { items: unknown[] };
+      expect(Array.isArray(firstAccess.items)).toBe(true);
+
       const listed = parseMonitorTargetList(
         await expectStatus(await api('/api/v1/monitor/targets?page=1&pageSize=50'), 200),
       );

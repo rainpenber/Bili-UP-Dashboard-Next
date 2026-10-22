@@ -723,10 +723,7 @@ export function parseFirstAccessIntervention(value: unknown): FirstAccessInterve
   ) {
     throw new MonitorContractError('invalid_body', '首次采集介入事项不完整');
   }
-  if (
-    value.status !== 'waiting_confirmation' &&
-    value.status !== 'awaiting_manual'
-  ) {
+  if (value.status !== 'waiting_confirmation' && value.status !== 'awaiting_manual') {
     throw new MonitorContractError('invalid_body', '首次采集介入事项状态不正确');
   }
   return {

@@ -392,7 +392,8 @@ describe('WP-R2-17R0 collector target transaction foundation', () => {
         release = resolve;
       });
       let locked = false;
-      const future = new Date('2026-10-22T00:00:00.000Z');
+      // Must stay strictly after wall-clock now; a fixed 2026-10-22 instant is already past.
+      const future = new Date(Date.now() + 48 * 60 * 60_000);
       const hold = withMonitorTargetTransaction(connA, created.target.id, async (tx) => {
         locked = true;
         await barrier;

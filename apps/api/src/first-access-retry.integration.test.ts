@@ -118,9 +118,9 @@ describe('WP-R2-17A2 first-access inaccessible retry', () => {
   }, 60_000);
 
   afterAll(async () => {
-    // Retained DB: close client only; do not DROP (REQUIRE_POSTGRES keep).
-    void databaseName;
+    // Retained DB: close client only; do not DROP.
     await sql?.end({ timeout: 5 });
+    if (databaseName) console.log(`retained first-access database: ${databaseName}`);
   });
 
   test('three -404 failures at +5min then manual intervention; no fourth auto request', async () => {
@@ -153,9 +153,7 @@ describe('WP-R2-17A2 first-access inaccessible retry', () => {
     };
     const t0 = Date.now();
 
-    expect(await runCollectorOnce({ sql: db, provider, config, now: new Date(t0) })).toBe(
-      'failed',
-    );
+    expect(await runCollectorOnce({ sql: db, provider, config, now: new Date(t0) })).toBe('failed');
     const [after1] = await db<
       {
         status: string;
@@ -251,6 +249,7 @@ describe('WP-R2-17A2 first-access inaccessible retry', () => {
     // Manual run starts a new bounded round; prior three failed runs remain.
     const manual = await requestCollectorRun(db, created.target.id, new Date());
     expect(manual.status).toBe('queued');
+    if (manual.status !== 'queued') throw new Error('expected queued manual run');
     expect(manual.created).toBe(true);
     const [enabled] = await db<{ enabled: boolean }[]>`
       SELECT enabled FROM monitor_targets WHERE id = ${created.target.id}::uuid

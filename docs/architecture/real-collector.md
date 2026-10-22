@@ -72,11 +72,11 @@ Cookie 的作用是抬高配额、降低风控概率。公开数据未登录也�
 
 仅作用**从未成功采集**的 video（`last_success_at` 为空），且上游分类为确证不可访问的 `not_found`（业务码 `-404` / HTTP 404）。网络错误、登录失效、风控与限频不进入本路径；UP / dynamic 维持原语义。
 
-| 次数（保守：首次失败计第 1 次） | 行为 |
-| --- | --- |
-| 第 1、2 次失败 | 同一 job 回到 `pending`，`scheduled_for = now + 5 分钟`；错误含失败次数与 `[first_access_waiting]` |
-| 第 3 次失败 | job `failed` 终态，保留全部 failed run，无样本；`next_run_at = null`；目标 `enabled=false`（不停账号）；错误含 `[first_access_awaiting_manual]` |
-| 任一轮成功 | 进入原 15 / 120 / 360 分钟档，不再走本策略 |
+| 次数（保守：首次失败计第 1 次） | 行为                                                                                                                                            |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 第 1、2 次失败                  | 同一 job 回到 `pending`，`scheduled_for = now + 5 分钟`；错误含失败次数与 `[first_access_waiting]`                                              |
+| 第 3 次失败                     | job `failed` 终态，保留全部 failed run，无样本；`next_run_at = null`；目标 `enabled=false`（不停账号）；错误含 `[first_access_awaiting_manual]` |
+| 任一轮成功                      | 进入原 15 / 120 / 360 分钟档，不再走本策略                                                                                                      |
 
 已计划 `startAt` 的目标在到点前零请求；只给 BV 者先走一次既有首次尝试。enqueue 不能自动重开终态。`POST .../targets/:id/run` 可再开一轮有界尝试（保留历史）；也可用既有 `startAt` 改期。
 
