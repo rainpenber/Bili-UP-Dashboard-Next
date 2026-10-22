@@ -1,8 +1,8 @@
 # HTTP API 覆盖
 
-验收库 `wp_r2_11_d3c00fff7da9` 保留，本文件不执行 DROP DATABASE。
+验收库 `wp_r2_11_cefc7c2ec6e7` 保留，本文件不执行 DROP DATABASE。
 
-注册 61，清单 61，已执行 61，HTTP 成功 61，断言验收 61。
+注册 64，清单 64，已执行 64，HTTP 成功 64，断言验收 64。
 
 验收结论：通过。每一条注册路由都有一次 HTTP 成功响应，且发出该响应的测试断言已通过。
 
@@ -36,12 +36,21 @@
 - assets：HTTP 200（成功响应，断言通过）
 - assets：HTTP 200（成功响应，断言通过）
 
+## GET `/api/v1/commercial/ingress/by-source/:namespace/:sourceId`
+
+- 前端调用：无
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- commercial：HTTP 200（成功响应，断言通过）
+
 ## GET `/api/v1/commercial/projects`
 
 - 前端调用：有
 - 已执行：是
 - HTTP 成功：是
 - 断言验收：是
+- commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
 
 ## GET `/api/v1/commercial/projects/:projectId`
@@ -422,6 +431,23 @@
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 - metadata-refresh：HTTP 404（拒绝响应，断言通过）
+
+## POST `/api/v1/commercial/ingress/batch`
+
+- 前端调用：无
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- commercial：HTTP 200（成功响应，断言通过）
+
+## POST `/api/v1/commercial/ingress/upsert`
+
+- 前端调用：无
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- commercial：HTTP 200（成功响应，断言通过）
+- commercial：HTTP 200（成功响应，断言通过）
 
 ## POST `/api/v1/commercial/projects/:projectId/nodes/:nodeId/advance`
 
