@@ -1,5 +1,5 @@
 /**
- * WP-R2-MON-03: first successful video collect auto-enqueues metadata refresh.
+ * WP-R2-MON-03 (+ FIX1): successful video collect auto-enqueues metadata refresh when cover missing.
  * Fail-closed: REQUIRE_POSTGRES / createRetainedTestDatabase. Retains wp_r2_mon03_*.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -286,7 +286,7 @@ describe('WP-R2-MON-03 auto video metadata after first collect', () => {
     expect(cardBody.imageAssetId).toBeTruthy();
     expect(cardBody.imageAssetId).toBe(detailBodyJson.coverAssetId);
 
-    // Second collect (not first success) must not enqueue another refresh / download.
+    // Later collect with cover already present: 0 enqueue / 0 download.
     await db`
       UPDATE monitor_targets
       SET next_run_at = statement_timestamp(), updated_at = statement_timestamp()
@@ -314,11 +314,218 @@ describe('WP-R2-MON-03 auto video metadata after first collect', () => {
     expect(imageHits.count).toBe(1);
   });
 
+  test('FIX1: already-succeeded target without cover auto-refreshes on next collect', async () => {
+    if (!sql) return;
+    const db = sql;
+    const bvid = 'BV1xx411c7mG';
+    const imageHits = { count: 0 };
+    const { transport, download, detailHits } = combinedTransport(imageHits);
+    const pending: Promise<void>[] = [];
+    const autoMetadata = {
+      sql: db,
+      transport,
+      download,
+      assetsRoot,
+      ratePolicy: { minIntervalMs: 0, maxJitterMs: 0, maxPerMinute: 100 },
+      random: () => 0,
+      onBackfill: (task: Promise<void>) => {
+        pending.push(task);
+      },
+    };
+    const provider = createBilibiliProvider(
+      {
+        ...readBilibiliRuntimeConfig({}),
+        minIntervalMs: 0,
+        maxJitterMs: 0,
+        anonymousMinIntervalMs: 0,
+      },
+      { transport, random: () => 0 },
+    );
+    const config = {
+      ...readCollectorConfig({ COLLECTOR_INSTANCE_ID: 'mon03-fix1' }),
+      maxAttempts: 3,
+    };
+
+    const created = await insertMonitorTarget(db, {
+      id: crypto.randomUUID(),
+      type: 'video',
+      externalId: bvid,
+      label: '已采无封面',
+      tags: [],
+      intervalMinutes: 15,
+      now: new Date(),
+    });
+    await parkOtherPending(db, created.target.id);
+
+    // Round 1: metric success without auto metadata → last_success_at set, cover still null.
+    expect(await runCollectorOnce({ sql: db, provider, config })).toBe('succeeded');
+    const [afterFirst] = await db<
+      {
+        last_ok: boolean;
+        cover_asset_id: string | null;
+        cover_state: string;
+        metadata_state: string;
+      }[]
+    >`
+      SELECT (t.last_success_at IS NOT NULL) AS last_ok,
+        v.cover_asset_id, v.cover_state, v.metadata_state
+      FROM monitor_targets t
+      LEFT JOIN videos v ON v.bvid = t.external_id
+      WHERE t.id = ${created.target.id}::uuid
+    `;
+    expect(afterFirst?.last_ok).toBe(true);
+    expect(afterFirst?.cover_asset_id).toBeNull();
+    expect(afterFirst?.cover_state).toBe('pending');
+    expect(afterFirst?.metadata_state).toBe('pending');
+    expect(pending.length).toBe(0);
+    expect(imageHits.count).toBe(0);
+
+    const app = createApp({ skipDb: true });
+    mountApiRoutes(app, db, { transport, download, assetsRoot });
+    const before = await app.request(`/api/v1/monitor/videos/${bvid}?source=collector`);
+    expect(before.status).toBe(200);
+    expect(((await before.json()) as { coverAssetId: string | null }).coverAssetId).toBeNull();
+
+    // Round 2: next successful collect with autoMetadata → enqueue once and fill cover.
+    await db`
+      UPDATE monitor_targets
+      SET next_run_at = statement_timestamp(), updated_at = statement_timestamp()
+      WHERE id = ${created.target.id}::uuid
+    `;
+    await db`
+      INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
+      VALUES (
+        ${crypto.randomUUID()}::uuid,
+        ${created.target.id}::uuid,
+        'pending',
+        0,
+        statement_timestamp()
+      )
+    `;
+    expect(await runCollectorOnce({ sql: db, provider, config, autoMetadata })).toBe('succeeded');
+    expect(pending.length).toBe(1);
+    await pending[0];
+
+    const [filled] = await db<
+      {
+        cover_asset_id: string | null;
+        cover_state: string;
+        metadata_state: string;
+        enabled: boolean;
+      }[]
+    >`
+      SELECT v.cover_asset_id, v.cover_state, v.metadata_state, t.enabled
+      FROM videos v
+      JOIN monitor_targets t ON t.external_id = v.bvid AND t.type = 'video'
+      WHERE v.bvid = ${bvid}
+    `;
+    expect(filled?.cover_asset_id).toBeTruthy();
+    expect(filled?.cover_state).toBe('ok');
+    expect(filled?.metadata_state).toBe('ok');
+    expect(filled?.enabled).toBe(true);
+    expect(detailHits.count).toBe(1);
+    expect(imageHits.count).toBe(1);
+
+    const detail = await app.request(`/api/v1/monitor/videos/${bvid}?source=collector`);
+    expect(detail.status).toBe(200);
+    expect(((await detail.json()) as { coverAssetId: string | null }).coverAssetId).toBeTruthy();
+    const card = await app.request(`/api/v1/monitor/cards/video/${bvid}`);
+    expect(card.status).toBe(200);
+    expect(((await card.json()) as { imageAssetId: string | null }).imageAssetId).toBeTruthy();
+  });
+
+  test('FIX1: second collect while refresh running keeps one active item', async () => {
+    if (!sql) return;
+    const db = sql;
+    const bvid = 'BV1xx411c7mH';
+    const imageHits = { count: 0 };
+    let releaseGate: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const { transport, download } = combinedTransport(imageHits);
+    const pending: Promise<void>[] = [];
+    const autoMetadata = {
+      sql: db,
+      transport,
+      download,
+      assetsRoot,
+      ratePolicy: { minIntervalMs: 0, maxJitterMs: 0, maxPerMinute: 100 },
+      random: () => 0,
+      gate: () => gate,
+      onBackfill: (task: Promise<void>) => {
+        pending.push(task);
+      },
+    };
+    const provider = createBilibiliProvider(
+      {
+        ...readBilibiliRuntimeConfig({}),
+        minIntervalMs: 0,
+        maxJitterMs: 0,
+        anonymousMinIntervalMs: 0,
+      },
+      { transport, random: () => 0 },
+    );
+    const config = {
+      ...readCollectorConfig({ COLLECTOR_INSTANCE_ID: 'mon03-fix1-run' }),
+      maxAttempts: 3,
+    };
+    const created = await insertMonitorTarget(db, {
+      id: crypto.randomUUID(),
+      type: 'video',
+      externalId: bvid,
+      label: '并发轮次',
+      tags: [],
+      intervalMinutes: 15,
+      now: new Date(),
+    });
+    await parkOtherPending(db, created.target.id);
+
+    try {
+      expect(await runCollectorOnce({ sql: db, provider, config, autoMetadata })).toBe('succeeded');
+      expect(pending.length).toBe(1);
+
+      await db`
+        UPDATE monitor_targets
+        SET next_run_at = statement_timestamp(), updated_at = statement_timestamp()
+        WHERE id = ${created.target.id}::uuid
+      `;
+      await db`
+        INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
+        VALUES (
+          ${crypto.randomUUID()}::uuid,
+          ${created.target.id}::uuid,
+          'pending',
+          0,
+          statement_timestamp()
+        )
+      `;
+      expect(await runCollectorOnce({ sql: db, provider, config, autoMetadata })).toBe('succeeded');
+      // Second success while first refresh still gated: no second started task.
+      expect(pending.length).toBe(1);
+      const running = await db<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM backfill_runs
+        WHERE status = 'running' AND report->'requestedIds' ? ${bvid}
+      `;
+      expect(running[0]?.n).toBe(1);
+    } finally {
+      releaseGate();
+      if (pending[0]) await pending[0];
+    }
+    expect(imageHits.count).toBe(1);
+  });
+
   test('same bvid concurrent enqueue yields one active refresh; image downloaded once', async () => {
     if (!sql) return;
     const db = sql;
+    // Abort any gated run left by a prior case so claimRun is free.
+    await db`
+      UPDATE backfill_runs
+      SET status = 'aborted', finished_at = now(), error = 'test isolate'
+      WHERE status = 'running'
+    `;
     const bvid = 'BV1xx411c7mB';
-    await db`INSERT INTO videos (bvid, title) VALUES (${bvid}, '并发')`;
+    await db`INSERT INTO videos (bvid, title) VALUES (${bvid}, '并发') ON CONFLICT (bvid) DO NOTHING`;
     const imageHits = { count: 0 };
     let releaseGate: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => {
@@ -358,6 +565,11 @@ describe('WP-R2-MON-03 auto video metadata after first collect', () => {
   test('refresh image failure keeps samples and enabled target; error readable; no half asset', async () => {
     if (!sql) return;
     const db = sql;
+    await db`
+      UPDATE backfill_runs
+      SET status = 'aborted', finished_at = now(), error = 'test isolate'
+      WHERE status = 'running'
+    `;
     const bvid = 'BV1xx411c7mC';
     const imageHits = { count: 0 };
     const { transport, download } = combinedTransport(imageHits, '404');
@@ -439,26 +651,55 @@ describe('WP-R2-MON-03 auto video metadata after first collect', () => {
     expect(pre.status).toBe(200);
     expect(((await pre.json()) as { coverAssetId: string | null }).coverAssetId).toBeNull();
 
-    // Cover still null → auto enqueue can be triggered again (force refresh).
-    const retry = await enqueueAutoVideoMetadataRefresh(
-      {
-        ...autoMetadata,
-        download: async (request) => ({
-          status: 200,
-          headers: { 'content-type': 'image/png' },
-          body: PNG,
-          finalUrl: request.url,
-        }),
+    // Next successful collect retries auto refresh (no busy-wait); one image asset only.
+    const okDownload: BinaryTransport = async (request) => ({
+      status: 200,
+      headers: { 'content-type': 'image/png' },
+      body: PNG,
+      finalUrl: request.url,
+    });
+    const retryPending: Promise<void>[] = [];
+    const retryMeta = {
+      ...autoMetadata,
+      download: okDownload,
+      onBackfill: (task: Promise<void>) => {
+        retryPending.push(task);
       },
-      bvid,
+    };
+    await db`
+      UPDATE monitor_targets
+      SET next_run_at = statement_timestamp(), updated_at = statement_timestamp()
+      WHERE id = ${created.target.id}::uuid
+    `;
+    await db`
+      INSERT INTO collector_jobs (id, target_id, status, attempts, scheduled_for)
+      VALUES (
+        ${crypto.randomUUID()}::uuid,
+        ${created.target.id}::uuid,
+        'pending',
+        0,
+        statement_timestamp()
+      )
+    `;
+    expect(await runCollectorOnce({ sql: db, provider, config, autoMetadata: retryMeta })).toBe(
+      'succeeded',
     );
-    expect(retry.status).toBe('started');
-    if (retry.status === 'started') await retry.done;
-    const [fixed] = await db<{ cover_asset_id: string | null; cover_state: string }[]>`
-      SELECT cover_asset_id, cover_state FROM videos WHERE bvid = ${bvid}
+    expect(retryPending.length).toBe(1);
+    await retryPending[0];
+    const [fixed] = await db<
+      { cover_asset_id: string | null; cover_state: string; samples: string }[]
+    >`
+      SELECT cover_asset_id, cover_state,
+        (SELECT count(*)::text FROM video_metric_samples s WHERE s.bvid = ${bvid}) AS samples
+      FROM videos WHERE bvid = ${bvid}
     `;
     expect(fixed?.cover_asset_id).toBeTruthy();
     expect(fixed?.cover_state).toBe('ok');
+    expect(Number(fixed?.samples ?? '0')).toBeGreaterThanOrEqual(1);
+    const assets = await db<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM static_assets WHERE asset_id = ${fixed?.cover_asset_id ?? ''}
+    `;
+    expect(assets[0]?.n).toBe(1);
   });
 
   test('creator and dynamic first collect do not enqueue video metadata refresh', async () => {
@@ -540,9 +781,14 @@ describe('WP-R2-MON-03 auto video metadata after first collect', () => {
   test('busy backfill defers then drain starts exactly one refresh', async () => {
     if (!sql) return;
     const db = sql;
+    await db`
+      UPDATE backfill_runs
+      SET status = 'aborted', finished_at = now(), error = 'test isolate'
+      WHERE status = 'running'
+    `;
     const busy = 'BV1xx411c7mE';
     const waiting = 'BV1xx411c7mF';
-    await db`INSERT INTO videos (bvid) VALUES (${busy}), (${waiting})`;
+    await db`INSERT INTO videos (bvid) VALUES (${busy}), (${waiting}) ON CONFLICT DO NOTHING`;
     const imageHits = { count: 0 };
     let releaseGate: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => {

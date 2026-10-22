@@ -100,8 +100,8 @@ export async function runCollectorOnce(options: {
   /** Test-only commit hooks (production omits). */
   commitHooks?: CollectorTargetTxHooks;
   /**
-   * When set, first successful video collect enqueues existing metadata refresh,
-   * and each poll drains at most one deferred auto refresh.
+   * When set, each successful video collect may enqueue existing metadata refresh
+   * (skipped when cover already present / active), and each poll drains at most one deferred item.
    */
   autoMetadata?: AutoMetadataRefreshDeps;
 }): Promise<CollectorRunOutcome> {
@@ -156,7 +156,7 @@ export async function runCollectorOnce(options: {
         ...(autoMeta
           ? {
               autoVideoMetadata: {
-                afterFirstVideoCollectSuccess: async (bvid: string) => {
+                afterVideoCollectSuccess: async (bvid: string) => {
                   await enqueueAutoVideoMetadataRefresh(autoMeta, bvid);
                 },
               },

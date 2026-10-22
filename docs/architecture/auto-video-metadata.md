@@ -1,10 +1,12 @@
-# 新视频首次采集后自动补全封面与元数据
+# 视频采集成功后自动补全封面与元数据
 
-WP-R2-MON-03。复用 WP-R2-08 的 `startMetadataBackfill` / `refreshVideo`、`static_assets`、全局请求节流与 `collector_requests` 审计，不新建并行管道。
+WP-R2-MON-03（含 FIX1）。复用 WP-R2-08 的 `startMetadataBackfill` / `refreshVideo`、`static_assets`、全局请求节流与 `collector_requests` 审计，不新建并行管道。
 
 ## 触发
 
-仅 **video** 目标，在 **首次指标采集成功**（提交前 `last_success_at IS NULL`）且 `videos.cover_asset_id IS NULL` 时，于提交后辅助路径入队一条既有 metadata refresh（`backfill_runs`，`report.auto=true`，`report.requestedIds` 含该 bvid）。
+仅 **video** 目标，在 **每次指标采集成功** 后，若 `videos.cover_asset_id IS NULL`（封面仍缺），于提交后辅助路径入队一条既有 metadata refresh（`backfill_runs`，`report.auto=true`，`report.requestedIds` 含该 bvid）。
+
+因此：部署前已成功采过、但封面仍 pending 的目标（如用户报告的 BV），会在**下一轮正常采集成功**时自动补全，不必人工点刷新。失败后的再试也只随下一轮采集发生，不新增定时循环、不在本轮忙等。
 
 - 不在创建监控目标的 HTTP 请求里同步打上游。
 - UP / dynamic 不入队。
@@ -26,7 +28,7 @@ WP-R2-MON-03。复用 WP-R2-08 的 `startMetadataBackfill` / `refreshVideo`、`s
 ## 接线
 
 - `packages/monitoring/src/auto-video-metadata.ts`：入队 / drain
-- `bilibili-job`：首次 video 成功后调用 hook
+- `bilibili-job`：每次 video 采集成功后调用 hook（入队侧按 cover/active 幂等跳过）
 - `collector-runner`：每次 `runCollectorOnce` 先 drain 至多 1 条推迟项
 - `apps/collector`：`COLLECTOR_PROVIDER=bilibili` 且设置了 `MONITOR_ASSETS_ROOT` 时启用
 

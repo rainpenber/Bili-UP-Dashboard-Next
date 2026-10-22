@@ -47,9 +47,10 @@ async function markAutoQueued(sql: Sql, bvid: string): Promise<void> {
 }
 
 /**
- * After a video target's first successful metric collect, enqueue the existing
- * single-id metadata refresh when cover/metadata is still incomplete.
+ * After a successful video metric collect, enqueue the existing single-id
+ * metadata refresh when cover is still missing (idempotent by bvid / cover / active run).
  * Never throws into the collector success path; failures are returned.
+ * Retries only happen on a later successful collect — no busy-wait loop here.
  */
 export async function enqueueAutoVideoMetadataRefresh(
   deps: AutoMetadataRefreshDeps,

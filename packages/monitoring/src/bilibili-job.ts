@@ -90,8 +90,11 @@ function accountKey(account: ResolvedBiliAccount | null): string {
 }
 
 export type AutoVideoMetadataHook = {
-  /** Fire-and-forget after first successful video collect; must not throw. */
-  afterFirstVideoCollectSuccess(bvid: string): Promise<void>;
+  /**
+   * After every successful video collect, attempt auto metadata enqueue.
+   * Idempotent (has cover / active run → skip). Must not throw into the job path.
+   */
+  afterVideoCollectSuccess(bvid: string): Promise<void>;
 };
 
 export async function runBilibiliJob(options: {
@@ -104,7 +107,7 @@ export async function runBilibiliJob(options: {
   env?: NodeJS.ProcessEnv;
   log?: (line: string) => void;
   logger?: CollectorLogger;
-  /** Optional first-collect auto metadata refresh (WP-R2-MON-03). */
+  /** Optional auto metadata refresh when cover/metadata still missing (WP-R2-MON-03). */
   autoVideoMetadata?: AutoVideoMetadataHook;
 }): Promise<'succeeded' | 'failed' | 'deferred'> {
   const log = options.log ?? (() => undefined);
@@ -196,7 +199,6 @@ export async function runBilibiliJob(options: {
           tnameV2: fetched.view.tnameV2,
         },
       };
-      const wasFirstSuccess = scheduleContext?.lastSuccessAt === null;
       const committed = await options.effects.commitVideo({
         jobId: options.job.id,
         targetId: options.job.targetId,
@@ -207,8 +209,9 @@ export async function runBilibiliJob(options: {
       });
       await runPostCommitHelpers(options, account, committed.runId, fetched.calls, async () => {
         await applyOnlineAccountEffect(options, account, fetched.onlineFailure);
-        if (wasFirstSuccess && options.autoVideoMetadata) {
-          await options.autoVideoMetadata.afterFirstVideoCollectSuccess(fetched.bvid);
+        // Every successful video collect may enqueue; skip is decided by cover/active/busy.
+        if (options.autoVideoMetadata) {
+          await options.autoVideoMetadata.afterVideoCollectSuccess(fetched.bvid);
         }
       });
       options.logger?.child({ runId: committed.runId })?.info('任务成功', {
