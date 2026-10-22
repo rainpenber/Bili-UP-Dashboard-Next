@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import { applyTemplate, buildSubtitleCsv } from './template';
+import {
+  INTERNAL_SIMULATION_NOTICE,
+  applyTemplate,
+  buildSubtitleCsv,
+  composePrompt,
+} from './template';
 import { COMMENT_TEMPLATE, DANMAKU_TEMPLATE, getTemplateRaw } from './templates';
 
 describe('applyTemplate', () => {
@@ -10,6 +15,30 @@ describe('applyTemplate', () => {
   it('does not interpret HTML in values', () => {
     const out = applyTemplate('x={{product}}', { product: '<b>bold</b>' });
     expect(out).toBe('x=<b>bold</b>');
+  });
+});
+
+describe('composePrompt', () => {
+  it('prefixes internal-simulation notice without rewriting template body', () => {
+    const body = applyTemplate(COMMENT_TEMPLATE, {
+      product: 'P',
+      category: 'C',
+      positioning: 'Pos',
+      reference_comments: 'r',
+      subtitle_csv: 'time_sec,text',
+    });
+    const composed = composePrompt(COMMENT_TEMPLATE, {
+      product: 'P',
+      category: 'C',
+      positioning: 'Pos',
+      reference_comments: 'r',
+      subtitle_csv: 'time_sec,text',
+    });
+    expect(composed.startsWith(INTERNAL_SIMULATION_NOTICE)).toBe(true);
+    expect(composed.endsWith(body)).toBe(true);
+    expect(/内部模拟|非真实|不是真实/.test(composed)).toBe(true);
+    expect(COMMENT_TEMPLATE).not.toContain('【内部评估说明】');
+    expect(DANMAKU_TEMPLATE).not.toContain('【内部评估说明】');
   });
 });
 

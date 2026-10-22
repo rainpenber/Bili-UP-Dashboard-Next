@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
   STORAGE_KEY,
   clearStoredForm,
@@ -9,8 +9,14 @@ import {
   parseStoredForm,
   saveForm,
 } from './storage';
+import { restoreLocalStorageMethods } from './storage-test-utils';
+
+beforeEach(() => {
+  restoreLocalStorageMethods();
+});
 
 afterEach(() => {
+  restoreLocalStorageMethods();
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch {
@@ -102,6 +108,44 @@ describe('localStorage load/save', () => {
       expect(loaded.error).toMatch(/损坏|格式/);
     }
     expect(localStorage.getItem(STORAGE_KEY)).toBe('{not-json');
+  });
+
+  it('getItem throw returns ok:false and does not clear existing draft', () => {
+    const legacy = JSON.stringify({
+      product: 'Legacy acceptance product',
+      category: '',
+      positioning: '',
+      reference_comments: '',
+      templateId: 'danmaku',
+    });
+    localStorage.setItem(STORAGE_KEY, legacy);
+    const proto = Object.getPrototypeOf(localStorage) as Storage;
+    Object.defineProperty(localStorage, 'getItem', {
+      configurable: true,
+      writable: true,
+      value(key: string) {
+        if (key === STORAGE_KEY) throw new Error('blocked read');
+        return proto.getItem.call(localStorage, key);
+      },
+    });
+    try {
+      expect(() => localStorage.getItem(STORAGE_KEY)).toThrow(/blocked read/);
+      const loaded = loadForm();
+      expect(loaded.ok).toBe(false);
+      if (loaded.ok === false) {
+        expect(loaded.preservedRaw).toBe(true);
+        expect(loaded.error).toMatch(/不会覆盖已有草稿/);
+      }
+      // 在 mock 仍生效时用原型读，确认原草稿未被清除
+      expect(proto.getItem.call(localStorage, STORAGE_KEY)).toBe(legacy);
+    } finally {
+      Object.defineProperty(localStorage, 'getItem', {
+        configurable: true,
+        writable: true,
+        value: proto.getItem.bind(localStorage),
+      });
+    }
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(legacy);
   });
 
   it('clearStoredForm removes draft', () => {

@@ -28,10 +28,18 @@ import {
   type TemplateId,
 } from './storage';
 import { isSubtitleFilename, parseSubtitleFile, type SubtitleCue } from './subtitle';
-import { applyTemplate, buildSubtitleCsv } from './template';
+import { buildSubtitleCsv, composePrompt } from './template';
 import { getTemplateRaw } from './templates';
 
 const EMPTY_SUBTITLE_PLACEHOLDER = '（尚未上传字幕或解析结果为空）';
+
+function shouldSkipAutosaveOnLoad(result: ReturnType<typeof loadForm>): boolean {
+  // 读失败 / 损坏：保留原存储，挂载时不写回空白表单
+  if (result.ok === false) return true;
+  // 无 localStorage 等警告：同样不自动持久化空白会话态
+  if (result.warning) return true;
+  return false;
+}
 
 function downloadJson(text: string, filename: string) {
   const blob = new Blob([text], { type: 'application/json' });
@@ -52,8 +60,8 @@ export function AudienceReactionScreen() {
   const [storageMessage, setStorageMessage] = useState<string | null>(
     initial.ok === false ? initial.error : (initial.warning ?? null),
   );
-  /** 损坏草稿 / 显式清除后暂不自动写回；用户编辑时再恢复 */
-  const skipAutosaveRef = useRef(initial.ok === false);
+  /** 读失败/损坏/清除后暂不自动写回；用户编辑、导入等安全动作后再恢复 */
+  const skipAutosaveRef = useRef(shouldSkipAutosaveOnLoad(initial));
   const [cues, setCues] = useState<SubtitleCue[]>([]);
   const [subtitleFileName, setSubtitleFileName] = useState('');
   const [parseError, setParseError] = useState<string | null>(null);
@@ -83,7 +91,7 @@ export function AudienceReactionScreen() {
 
   const preview = useMemo(() => {
     const subtitle_csv = cues.length ? buildSubtitleCsv(cues) : EMPTY_SUBTITLE_PLACEHOLDER;
-    return applyTemplate(templateRaw, {
+    return composePrompt(templateRaw, {
       product: form.product,
       category: form.category,
       positioning: form.positioning,

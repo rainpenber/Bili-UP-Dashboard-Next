@@ -1,10 +1,16 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { AudienceReactionPage } from '@/pages/audience-reaction-page';
 import { STORAGE_KEY } from './storage';
+import { restoreLocalStorageMethods } from './storage-test-utils';
+
+beforeEach(() => {
+  restoreLocalStorageMethods();
+});
 
 afterEach(() => {
   cleanup();
+  restoreLocalStorageMethods();
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch {
@@ -28,11 +34,89 @@ describe('AudienceReactionPage', () => {
   test('renders internal-simulation copy and dual-pane chrome', () => {
     render(<AudienceReactionPage />);
     expect(screen.getByRole('heading', { name: '观众反应模拟' })).toBeTruthy();
-    expect(screen.getByText(/不是真实观众数据/)).toBeTruthy();
+    expect(screen.getAllByText(/不是真实观众数据/).length).toBeGreaterThan(0);
     expect(screen.getByText(/不会自动生成或发布/)).toBeTruthy();
     expect(screen.getByLabelText('组合提示词预览')).toBeTruthy();
     expect(screen.getByRole('button', { name: '弹幕模拟' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '评论模拟' })).toBeTruthy();
+  });
+
+  test('composed preview and both templates include internal-simulation notice', () => {
+    render(<AudienceReactionPage />);
+    const preview = screen.getByLabelText('组合提示词预览') as HTMLTextAreaElement;
+    expect(/内部模拟|非真实|不是真实/.test(preview.value)).toBe(true);
+    expect(preview.value).toContain('【内部评估说明】');
+    expect(preview.value).toContain('秒数|内容');
+
+    fireEvent.click(screen.getByRole('button', { name: '评论模拟' }));
+    expect(/内部模拟|非真实|不是真实/.test(preview.value)).toBe(true);
+    expect(preview.value).toContain('【内部评估说明】');
+    expect(preview.value).toContain('写30条');
+  });
+
+  test('manual copy dialog content includes the same simulation notice', async () => {
+    render(<AudienceReactionPage />);
+    fireEvent.click(screen.getByRole('button', { name: '手动复制' }));
+    const dialog = await screen.findByRole('dialog');
+    const ta = within(dialog).getByRole('textbox') as HTMLTextAreaElement;
+    expect(/内部模拟|非真实|不是真实/.test(ta.value)).toBe(true);
+    expect(ta.value).toContain('【内部评估说明】');
+  });
+
+  test('getItem failure on mount does not overwrite an existing valid draft', async () => {
+    const legacy = JSON.stringify({
+      product: 'Legacy acceptance product',
+      category: 'legacy-cat',
+      positioning: '',
+      reference_comments: '',
+      templateId: 'danmaku',
+    });
+    localStorage.setItem(STORAGE_KEY, legacy);
+
+    const writes: string[] = [];
+    const proto = Object.getPrototypeOf(localStorage) as Storage;
+    Object.defineProperty(localStorage, 'getItem', {
+      configurable: true,
+      writable: true,
+      value(key: string) {
+        if (key === STORAGE_KEY) throw new Error('blocked read');
+        return proto.getItem.call(localStorage, key);
+      },
+    });
+    Object.defineProperty(localStorage, 'setItem', {
+      configurable: true,
+      writable: true,
+      value(key: string, value: string) {
+        if (key === STORAGE_KEY) writes.push(value);
+        return proto.setItem.call(localStorage, key, value);
+      },
+    });
+
+    try {
+      expect(() => localStorage.getItem(STORAGE_KEY)).toThrow(/blocked read/);
+      render(<AudienceReactionPage />);
+      expect(await screen.findByText(/不会覆盖已有草稿/)).toBeTruthy();
+      await new Promise((r) => setTimeout(r, 80));
+      expect(writes.length).toBe(0);
+      expect((screen.getByLabelText('商品') as HTMLInputElement).value).toBe('');
+      expect(proto.getItem.call(localStorage, STORAGE_KEY)).toBe(legacy);
+    } finally {
+      Object.defineProperty(localStorage, 'getItem', {
+        configurable: true,
+        writable: true,
+        value: proto.getItem.bind(localStorage),
+      });
+      Object.defineProperty(localStorage, 'setItem', {
+        configurable: true,
+        writable: true,
+        value: proto.setItem.bind(localStorage),
+      });
+    }
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(legacy);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).product).toBe(
+      'Legacy acceptance product',
+    );
   });
 
   test('imports subtitle, previews placeholders, and switches templates', async () => {

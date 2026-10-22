@@ -100,10 +100,13 @@ export function loadForm(): LoadFormResult {
   try {
     raw = localStorage.getItem(STORAGE_KEY);
   } catch {
+    // 读失败但写可能仍可用：必须 ok:false 以阻止页面挂载时用空白表单覆盖原草稿
     return {
-      ok: true,
+      ok: false,
       form: defaultForm(),
-      warning: '无法读取本地草稿（存储不可用），已使用空白表单；不会覆盖已有草稿',
+      error:
+        '无法读取本地草稿（存储不可用），已使用空白表单；不会覆盖已有草稿。可导入 JSON 或清除本地草稿后继续。',
+      preservedRaw: true,
     };
   }
   if (!raw) return { ok: true, form: defaultForm() };
