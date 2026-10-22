@@ -15,7 +15,9 @@ import { formatShanghaiDateTime, jobStatusLabel } from '@/features/ops/ops-forma
 import { formatFullLocalTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
 
-function monitorStateFromTarget(target: DynamicTargetRef | null): 'unmonitored' | 'active' | 'paused' {
+function monitorStateFromTarget(
+  target: DynamicTargetRef | null,
+): 'unmonitored' | 'active' | 'paused' {
   if (!target) return 'unmonitored';
   return target.enabled ? 'active' : 'paused';
 }

@@ -251,7 +251,10 @@ export function MonitorCardControls({
                 badgeClassName="px-1.5 py-0 text-[10px] leading-4"
                 failureTestId="monitor-list-failure-dot"
               />
-              <span className="min-w-0 flex-1 truncate text-sm font-medium" title={card.displayName}>
+              <span
+                className="min-w-0 flex-1 truncate text-sm font-medium"
+                title={card.displayName}
+              >
                 {card.displayName}
               </span>
             </span>
@@ -418,10 +421,7 @@ export function MonitorCardControls({
       data-details-open={detailsOpen ? 'true' : 'false'}
       aria-busy={pending}
     >
-      <div
-        data-testid="monitor-detail-bar"
-        className="flex min-w-0 flex-wrap items-center gap-2"
-      >
+      <div data-testid="monitor-detail-bar" className="flex min-w-0 flex-wrap items-center gap-2">
         <button
           type="button"
           className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

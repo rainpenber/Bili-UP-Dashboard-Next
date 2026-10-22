@@ -746,15 +746,15 @@ describe('monitoring cards', () => {
     expect(details.textContent).toContain('上一次成功采集');
     expect(details.textContent).not.toContain('下次计划');
     expect(details.textContent).not.toContain('按发布年龄');
-    expect(within(panel).getByTestId('monitor-card-controls').getAttribute('data-details-open')).toBe(
-      'true',
-    );
+    expect(
+      within(panel).getByTestId('monitor-card-controls').getAttribute('data-details-open'),
+    ).toBe('true');
 
     fireEvent.click(within(panel).getByRole('button', { name: '监控状态：监控中' }));
     expect(within(panel).queryByTestId('monitor-frequency-details')).toBeNull();
-    expect(within(panel).getByTestId('monitor-card-controls').getAttribute('data-details-open')).toBe(
-      'false',
-    );
+    expect(
+      within(panel).getByTestId('monitor-card-controls').getAttribute('data-details-open'),
+    ).toBe('false');
     expect(within(panel).getByTestId('monitor-last-failure').textContent).toContain('上游超时');
   });
 });

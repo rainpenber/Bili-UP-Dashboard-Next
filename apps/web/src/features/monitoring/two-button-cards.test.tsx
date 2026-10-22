@@ -81,10 +81,9 @@ function wrap(ui: ReactNode, routes: { path: string; element: ReactNode }[] = []
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  const router = createMemoryRouter(
-    [{ path: '/', element: ui }, ...routes],
-    { initialEntries: ['/'] },
-  );
+  const router = createMemoryRouter([{ path: '/', element: ui }, ...routes], {
+    initialEntries: ['/'],
+  });
   render(
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />
