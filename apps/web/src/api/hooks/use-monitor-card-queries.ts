@@ -1,9 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  fetchMonitorCard,
-  fetchMonitorCards,
-  pinMonitorVideo,
-} from '@/api/monitor-cards-client';
+import { fetchMonitorCard, fetchMonitorCards, pinMonitorVideo } from '@/api/monitor-cards-client';
 import type {
   MonitorPresenceFilter,
   MonitorVideoSort,

@@ -1,10 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { parseMonitorCardList, parsePinVideoResponse } from '@studio/contracts';
-import {
-  createIsolatedTestDatabase,
-  dropIsolatedTestDatabase,
-  type Sql,
-} from '@studio/db';
+import { createIsolatedTestDatabase, dropIsolatedTestDatabase, type Sql } from '@studio/db';
 import { installOfflineFetchGuard } from '@studio/monitoring';
 import { Hono } from 'hono';
 import { createMonitorRoutes } from './monitor-routes';
@@ -100,10 +96,7 @@ describe('PATCH /videos/:bvid/pin', () => {
         )
       ).json(),
     );
-    expect(desc.items.map((item) => item.externalId)).toEqual([
-      'BV1pinok1111',
-      'BV1pinnoA111',
-    ]);
+    expect(desc.items.map((item) => item.externalId)).toEqual(['BV1pinok1111', 'BV1pinnoA111']);
     const asc = parseMonitorCardList(
       await (
         await http().request(
@@ -111,9 +104,6 @@ describe('PATCH /videos/:bvid/pin', () => {
         )
       ).json(),
     );
-    expect(asc.items.map((item) => item.externalId)).toEqual([
-      'BV1pinok1111',
-      'BV1pinnoA111',
-    ]);
+    expect(asc.items.map((item) => item.externalId)).toEqual(['BV1pinok1111', 'BV1pinnoA111']);
   });
 });

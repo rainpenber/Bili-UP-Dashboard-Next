@@ -141,9 +141,7 @@ describe('monitor card pin + published sort', () => {
       sort: 'published_desc',
     });
     const paged = [...page1.items, ...page2.items, ...page3.items];
-    expect(paged.map((item) => item.externalId)).toEqual(
-      full.items.map((item) => item.externalId),
-    );
+    expect(paged.map((item) => item.externalId)).toEqual(full.items.map((item) => item.externalId));
     expect(new Set(paged.map((item) => item.externalId)).size).toBe(paged.length);
   });
 

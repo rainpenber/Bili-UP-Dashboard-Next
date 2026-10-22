@@ -20,9 +20,7 @@ describe('monitor URL state', () => {
     expect(parseMonitorSearchParams(new URLSearchParams('sort=published_asc')).sort).toBe(
       'published_asc',
     );
-    expect(parseMonitorSearchParams(new URLSearchParams('sort=bogus')).sort).toBe(
-      'published_desc',
-    );
+    expect(parseMonitorSearchParams(new URLSearchParams('sort=bogus')).sort).toBe('published_desc');
     const asc = writeMonitorSearchParams(new URLSearchParams('tab=videos'), {
       sort: 'published_asc',
     });

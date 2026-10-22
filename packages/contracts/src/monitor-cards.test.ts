@@ -148,9 +148,9 @@ describe('monitor card contracts', () => {
   });
 
   test('defaults video sort to published_desc and rejects invalid sort', () => {
-    expect(
-      parseMonitorCardListQuery({ type: 'video', page: '1', pageSize: '8' }).sort,
-    ).toBe('published_desc');
+    expect(parseMonitorCardListQuery({ type: 'video', page: '1', pageSize: '8' }).sort).toBe(
+      'published_desc',
+    );
     expect(
       parseMonitorCardListQuery({
         type: 'video',

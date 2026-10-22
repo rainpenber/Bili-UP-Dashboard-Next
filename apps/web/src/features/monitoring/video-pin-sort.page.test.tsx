@@ -90,9 +90,7 @@ describe('WP-R2-MON-01 video pin + sort UI', () => {
         const params = new URL(url, 'http://localhost').searchParams;
         const sort = params.get('sort') ?? 'published_desc';
         const items =
-          sort === 'published_asc'
-            ? [card(OTHER), card(BVID)]
-            : [card(BVID), card(OTHER)];
+          sort === 'published_asc' ? [card(OTHER), card(BVID)] : [card(BVID), card(OTHER)];
         return Promise.resolve(jsonResponse(list(items)));
       }
       if (url.includes('/api/v1/monitor/dynamics')) return Promise.resolve(jsonResponse(list([])));

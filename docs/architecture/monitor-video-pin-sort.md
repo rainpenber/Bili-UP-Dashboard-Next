@@ -6,10 +6,10 @@
 
 ## 接口
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `PATCH` | `/api/v1/monitor/videos/:bvid/pin` | body `{ pinned: boolean }`；成功返回 `{ bvid, pinned, pinnedAt }` |
-| `GET` | `/api/v1/monitor/cards?type=video&sort=…` | `sort=published_desc\|published_asc`（默认 desc）；卡片含 `pinned` |
+| 方法    | 路径                                      | 说明                                                               |
+| ------- | ----------------------------------------- | ------------------------------------------------------------------ |
+| `PATCH` | `/api/v1/monitor/videos/:bvid/pin`        | body `{ pinned: boolean }`；成功返回 `{ bvid, pinned, pinnedAt }`  |
+| `GET`   | `/api/v1/monitor/cards?type=video&sort=…` | `sort=published_desc\|published_asc`（默认 desc）；卡片含 `pinned` |
 
 排序键（仅 video）：`(pinned_at IS NOT NULL) DESC, pubdate ASC|DESC NULLS LAST, external_id ASC`。creator 仍按 `sampled_at DESC NULLS LAST, external_id ASC`。
 
