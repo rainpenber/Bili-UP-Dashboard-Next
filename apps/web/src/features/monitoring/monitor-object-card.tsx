@@ -188,7 +188,7 @@ export function MonitorCardControls({
         notice={notice}
         error={error}
         primary={primaryAction ? { ...primaryAction, disabled: pending } : null}
-        onSelect={onSelect}
+        {...(onSelect ? { onSelect } : {})}
       />
     );
   }

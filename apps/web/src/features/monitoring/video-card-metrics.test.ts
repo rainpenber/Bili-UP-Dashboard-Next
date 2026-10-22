@@ -54,9 +54,18 @@ describe('video grid metrics line', () => {
       formatVideoGridMetricsLine({
         viewCount: '13631',
         onlineViewers: '12',
-        onlineViewersRaw: '12',
+        onlineViewersRaw: null,
       }),
     ).toBe('1.4万 (13,631) 播放 · 在线 12');
+    expect(
+      formatVideoGridMetricsLine({
+        viewCount: '13631',
+        onlineViewers: null,
+        onlineViewersRaw: '1000+',
+      }),
+    ).toBe(
+      `1.4万 (13,631) 播放 · 在线 ${videoCardOnlineText({ viewCount: null, onlineViewers: null, onlineViewersRaw: '1000+' })}`,
+    );
     expect(
       formatVideoGridMetricsLine({
         viewCount: '13631',

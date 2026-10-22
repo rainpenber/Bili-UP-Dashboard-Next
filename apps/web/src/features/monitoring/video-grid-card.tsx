@@ -43,15 +43,13 @@ export function VideoGridCard({
   notice: string | null;
   error: string | null;
   primary: PrimaryAction | null;
-  onSelect?: () => void;
+  onSelect?: (() => void) | undefined;
 }) {
   const failed = card.execution === 'failed';
   const detailHref = `/monitoring/videos/${encodeURIComponent(card.externalId)}?from=${encodeURIComponent(listQuery)}`;
   const category = card.category?.trim() || '未分类';
   const updateText = formatVideoGridUpdateText(card.latest.sampledAt);
-  const metricsLine = card.hasSamples
-    ? formatVideoGridMetricsLine(card.latest)
-    : '尚无采集数据';
+  const metricsLine = card.hasSamples ? formatVideoGridMetricsLine(card.latest) : '尚无采集数据';
 
   return (
     <div

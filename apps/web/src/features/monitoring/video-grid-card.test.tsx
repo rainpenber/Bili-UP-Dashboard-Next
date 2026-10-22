@@ -196,7 +196,12 @@ describe('video grid card', () => {
         {
           path: '/',
           element: (
-            <MonitorCardControls card={videoCard()} listQuery="" layout="detail" includeDetailLink={false} />
+            <MonitorCardControls
+              card={videoCard()}
+              listQuery=""
+              layout="detail"
+              includeDetailLink={false}
+            />
           ),
         },
         { path: '/ops', element: <div /> },
