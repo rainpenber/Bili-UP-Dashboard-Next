@@ -70,8 +70,10 @@ function MonitorLayoutToggle({
   onValueChange: (value: MonitorView) => void;
 }) {
   return (
-    <div className="ml-auto grid shrink-0 gap-1.5">
-      <Label id="monitor-view-label">布局</Label>
+    <div className="ml-auto grid min-w-0 gap-1.5 justify-self-start sm:justify-self-end">
+      <Label id="monitor-view-label" className="whitespace-nowrap">
+        布局
+      </Label>
       <ToggleGroup
         type="single"
         size="sm"
@@ -186,31 +188,45 @@ export function MonitoringPage() {
             <MonitorLayoutToggle value={state.view} onValueChange={(view) => patchUrl({ view })} />
           </div>
         ) : (
-          <div className="flex min-w-0 flex-wrap gap-4 rounded-lg border bg-muted/20 p-4">
+          <div
+            data-testid="monitor-filter-bar"
+            className="grid min-w-0 grid-cols-1 gap-4 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2 xl:grid-cols-4"
+          >
             {state.tab === 'videos' ? (
-              <div className="grid w-full min-w-0 max-w-xs gap-1.5">
-                <Label htmlFor="monitor-category">分类</Label>
+              <div className="grid min-w-0 gap-1.5">
+                <Label htmlFor="monitor-category" className="whitespace-nowrap">
+                  分类（视频标签）
+                </Label>
                 <Input
                   id="monitor-category"
                   value={state.category}
-                  placeholder="可选"
+                  placeholder="如：游戏、数码"
+                  title="按视频分类过滤，留空表示全部"
+                  className="min-w-0"
                   onChange={(event) =>
                     patchUrl({ category: event.target.value, page: 1, selected: null })
                   }
                 />
               </div>
             ) : null}
-            <div className="grid w-full min-w-0 max-w-sm flex-1 gap-1.5">
-              <Label htmlFor="monitor-q">关键词</Label>
-              <Input
-                id="monitor-q"
-                value={state.q}
-                placeholder="标题 / ID"
-                onChange={(event) => patchUrl({ q: event.target.value, page: 1, selected: null })}
-              />
+            <div className="grid min-w-0 gap-1.5">
+              <Label htmlFor="monitor-q" className="whitespace-nowrap">
+                关键词
+              </Label>
+              <div className="flex min-w-0">
+                <Input
+                  id="monitor-q"
+                  value={state.q}
+                  placeholder="标题 / ID"
+                  className="min-w-[12rem] flex-1"
+                  onChange={(event) => patchUrl({ q: event.target.value, page: 1, selected: null })}
+                />
+              </div>
             </div>
-            <div className="grid w-full min-w-0 max-w-xs gap-1.5">
-              <Label htmlFor="monitor-presence">监控状态</Label>
+            <div className="grid min-w-0 gap-1.5">
+              <Label htmlFor="monitor-presence" className="whitespace-nowrap">
+                监控状态
+              </Label>
               <select
                 id="monitor-presence"
                 className="flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
@@ -231,8 +247,10 @@ export function MonitoringPage() {
               </select>
             </div>
             {state.tab === 'videos' ? (
-              <div className="grid w-full min-w-0 max-w-xs gap-1.5">
-                <Label htmlFor="monitor-video-sort">排序</Label>
+              <div className="grid min-w-0 gap-1.5">
+                <Label htmlFor="monitor-video-sort" className="whitespace-nowrap">
+                  排序
+                </Label>
                 <Select
                   value={state.sort}
                   onValueChange={(value) => {
@@ -240,7 +258,11 @@ export function MonitoringPage() {
                     patchUrl({ sort: value, page: 1, selected: null });
                   }}
                 >
-                  <SelectTrigger id="monitor-video-sort" aria-label="排序" className="w-full">
+                  <SelectTrigger
+                    id="monitor-video-sort"
+                    aria-label="排序"
+                    className="w-full min-w-0"
+                  >
                     <SelectValue placeholder="排序" />
                   </SelectTrigger>
                   <SelectContent>
@@ -254,8 +276,11 @@ export function MonitoringPage() {
               </div>
             ) : null}
             {state.tab === 'videos' ? (
-              <div className="grid w-full min-w-0 max-w-xs gap-1.5">
-                <p id="monitor-only-mine-group" className="text-sm font-medium leading-none">
+              <div className="grid min-w-0 gap-1.5">
+                <p
+                  id="monitor-only-mine-group"
+                  className="whitespace-nowrap text-sm font-medium leading-none"
+                >
                   本人视频
                 </p>
                 <Toggle
@@ -264,6 +289,16 @@ export function MonitoringPage() {
                   pressed={state.onlyMine}
                   aria-label="只看我的"
                   aria-describedby="monitor-only-mine-group"
+                  title={
+                    ownerQuery.isSuccess
+                      ? `只显示 ${ownerQuery.data.displayName} 的视频`
+                      : '只显示本人配置账号的视频'
+                  }
+                  aria-description={
+                    ownerQuery.isSuccess
+                      ? `只显示 ${ownerQuery.data.displayName} 的视频`
+                      : '只显示本人配置账号的视频'
+                  }
                   data-testid="monitor-only-mine"
                   className="w-full justify-center"
                   onPressedChange={(pressed) =>
@@ -272,11 +307,6 @@ export function MonitoringPage() {
                 >
                   只看我的
                 </Toggle>
-                {ownerQuery.isSuccess ? (
-                  <p className="truncate text-xs text-muted-foreground" title={ownerQuery.data.mid}>
-                    {ownerQuery.data.displayName} · {ownerQuery.data.mid}
-                  </p>
-                ) : null}
               </div>
             ) : null}
             <MonitorLayoutToggle value={state.view} onValueChange={(view) => patchUrl({ view })} />
