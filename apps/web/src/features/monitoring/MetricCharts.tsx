@@ -15,6 +15,7 @@ import {
   buildFollowerOption,
   buildVideoEngagementOption,
   buildVideoViewsOption,
+  FOLLOWER_PUBLISH_SERIES_NAME,
   visibleIndexRange,
 } from '@/lib/chart-config';
 import { defaultDataZoomRange } from '@/lib/chart-window';
@@ -113,8 +114,14 @@ function CreatorFollowerCharts({
   );
 
   const onPublishMarkClick = useCallback(
-    (params: { componentType?: string; data?: { navigableExternalId?: string | null } }) => {
-      if (params.componentType !== 'markPoint') return;
+    (params: {
+      componentType?: string;
+      seriesType?: string;
+      seriesName?: string;
+      data?: { navigableExternalId?: string | null };
+    }) => {
+      if (params.componentType !== 'series' || params.seriesType !== 'scatter') return;
+      if (params.seriesName !== FOLLOWER_PUBLISH_SERIES_NAME) return;
       const bvid = params.data?.navigableExternalId;
       if (!bvid) return;
       navigate(`/monitoring/videos/${encodeURIComponent(bvid)}`);

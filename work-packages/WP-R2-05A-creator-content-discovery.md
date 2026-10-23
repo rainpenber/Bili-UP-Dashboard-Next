@@ -7,7 +7,7 @@
 - 新视频自动建监控：仅当勾选「同时监控他的新视频数据」；单轮最多 2 条，超出记 `suppressed_auto_create_total`；动态只登记事件，不自动建动态目标。
 - 密集采集：创建时写入 `dense15_until` / `dense30_until`（5 天 / 10 天），调度 15→30→常规，不靠每轮重算日期。
 - 读接口：`GET/PUT .../creators/:mid/discovery`、`GET .../creators/:mid/publish-events`；登记 `api-inventory.json`。
-- 前端：粉丝折线图 markPoint（可聚合、可点击已监控视频）；设置对话框发现开关。
+- 前端：粉丝折线图发布标记（独立 scatter，可聚合、可点击已监控视频）；设置对话框发现开关。
 
 ## 不做
 
