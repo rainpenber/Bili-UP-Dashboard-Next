@@ -43,20 +43,28 @@ import {
 import {
   BackfillConflict,
   MetadataRequestError,
+  createBilibiliProvider,
   createLiveBilibiliTransport,
   createLiveImageTransport,
+  createSqlBilibiliEffects,
+  loadCollectorSecretKey,
   readBilibiliRuntimeConfig,
   readMetadataRun,
   refreshCreator,
   refreshVideo,
   startMetadataBackfill,
+  type CreatorArchivesPageProvider,
+  type CreatorUploadsSyncEffects,
   type MetadataKind,
   type MetadataRefreshDeps,
 } from '@studio/monitoring';
 import type { StudioLogger } from '@studio/observability';
 import { Hono } from 'hono';
 import { readAssetsRoot } from './assets-config';
-import { registerCreatorDiscoveryRoutes } from './creator-discovery-routes';
+import {
+  registerCreatorDiscoveryRoutes,
+  type CreatorUploadsSyncRouteDeps,
+} from './creator-discovery-routes';
 import { registerMonitorCardRoutes } from './monitor-card-routes';
 import { registerMonitorTargetRoutes } from './monitor-target-routes';
 import { registerStudioOwnerRoutes } from './studio-owner-routes';
@@ -83,7 +91,33 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
 
 export type MonitorRefreshOptions = Partial<MetadataRefreshDeps> & {
   onBackfill?: (task: Promise<void>) => void;
+  /** Test / offline override for creator uploads sync (space arc/search). */
+  uploadsSyncProvider?: CreatorArchivesPageProvider;
+  uploadsSyncEffects?: CreatorUploadsSyncEffects;
 };
+
+function buildUploadsSyncDeps(db: Sql, refreshDeps: MonitorRefreshOptions): CreatorUploadsSyncRouteDeps {
+  const env = refreshDeps.env ?? process.env;
+  const config = readBilibiliRuntimeConfig(env);
+  const provider =
+    refreshDeps.uploadsSyncProvider ??
+    createBilibiliProvider(config, {
+      ...(refreshDeps.transport ? { transport: refreshDeps.transport } : {}),
+      sql: db,
+      ...(refreshDeps.clock ? { clock: refreshDeps.clock } : {}),
+      ...(refreshDeps.random ? { random: refreshDeps.random } : {}),
+    });
+  const effects =
+    refreshDeps.uploadsSyncEffects ??
+    createSqlBilibiliEffects(db, {
+      secretKey: loadCollectorSecretKey(env.COLLECTOR_SECRET_KEY),
+    });
+  return {
+    provider,
+    effects,
+    forcedAccountId: config.forcedAccountId,
+  };
+}
 
 function buildRefreshDeps(db: Sql, refreshDeps: MonitorRefreshOptions): MetadataRefreshDeps {
   const config = readBilibiliRuntimeConfig(refreshDeps.env);
@@ -142,7 +176,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
   const app = new Hono();
   registerMonitorTargetRoutes(app, db);
   registerMonitorCardRoutes(app, db);
-  registerCreatorDiscoveryRoutes(app, db);
+  registerCreatorDiscoveryRoutes(app, db, buildUploadsSyncDeps(db, refreshDeps));
   registerStudioOwnerRoutes(app, db);
   const deps = (c?: { get: (key: string) => unknown }) => {
     const base = buildRefreshDeps(db, refreshDeps);

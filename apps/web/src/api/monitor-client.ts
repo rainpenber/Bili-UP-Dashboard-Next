@@ -3,6 +3,8 @@ import type {
   CreatorDiscoveryConfigPutRequest,
   CreatorListItem,
   CreatorPublishEvent,
+  CreatorUploadsSyncResponse,
+  CreatorUploadsSyncStatus,
   CreatorVideoList,
   DynamicListItem,
   DynamicTargetRef,
@@ -123,6 +125,19 @@ export function deleteManualPublishEvent(mid: string, eventId: string): Promise<
   return deleteOk(
     `/creators/${encodeURIComponent(mid)}/publish-events/${encodeURIComponent(eventId)}`,
   );
+}
+
+export function fetchCreatorUploadsSyncStatus(mid: string): Promise<CreatorUploadsSyncStatus> {
+  return getJson(`/creators/${encodeURIComponent(mid)}/uploads/sync`);
+}
+
+export function syncCreatorUploads(
+  mid: string,
+  options: { force?: boolean } = {},
+): Promise<CreatorUploadsSyncResponse> {
+  return postJson(`/creators/${encodeURIComponent(mid)}/uploads/sync`, {
+    force: options.force === true,
+  });
 }
 
 export function fetchCreatorVideos(

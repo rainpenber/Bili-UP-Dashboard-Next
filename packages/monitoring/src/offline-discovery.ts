@@ -30,9 +30,15 @@ export function createOfflineDiscoveryProvider(
           error: null,
         },
       ];
+      const all = fixture.videosByMid?.[input.mid] ?? [];
+      const pn = input.pn ?? 1;
+      const ps = input.ps ?? 30;
+      const start = Math.max(0, (pn - 1) * ps);
+      const videos = all.slice(start, start + ps);
       return {
-        videos: fixture.videosByMid?.[input.mid] ?? [],
+        videos,
         calls,
+        page: { pn, ps, count: all.length },
       };
     },
     async fetchCreatorDynamics(input) {

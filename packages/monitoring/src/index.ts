@@ -30,6 +30,7 @@ export * from './bilibili-job';
 export * from './bilibili-effects';
 export * from './discovery-job';
 export * from './offline-discovery';
+export * from './creator-uploads-sync';
 export * from './wbi';
 export * from './qr-login';
 export * from './legacy-import';

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { DynamicListItem } from '@studio/contracts';
 import { formatCount } from '@/api/monitor-client';
+import { BilibiliExternalLinkButton } from '@/features/monitoring/bilibili-external-link';
 import {
   handleCardActivateKey,
   stopCardActivatePropagation,
@@ -148,7 +149,12 @@ export function DynamicObjectCard({
               {summary}
             </span>
           </div>
-          <div onClick={stopCardActivatePropagation} onKeyDown={stopCardActivatePropagation}>
+          <div
+            className="flex shrink-0 flex-nowrap items-center gap-1.5"
+            onClick={stopCardActivatePropagation}
+            onKeyDown={stopCardActivatePropagation}
+          >
+            <BilibiliExternalLinkButton kind="dynamic" id={item.dynamicId} />
             <DynamicMonitorControls
               dynamicId={item.dynamicId}
               target={item.target}

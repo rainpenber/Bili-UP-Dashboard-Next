@@ -716,3 +716,118 @@ export async function findActiveVideoTargetId(
   `;
   return rows[0]?.id ?? null;
 }
+
+export type CreatorUploadsSyncStateRow = {
+  mid: string;
+  lastSyncedAt: Date | null;
+  lastError: string | null;
+  lastVideoCount: number;
+  lastEventsCreated: number;
+  updatedAt: Date;
+};
+
+type UploadsSyncSqlRow = {
+  mid: string;
+  last_synced_at: Date | null;
+  last_error: string | null;
+  last_video_count: number;
+  last_events_created: number;
+  updated_at: Date;
+};
+
+function mapUploadsSync(row: UploadsSyncSqlRow): CreatorUploadsSyncStateRow {
+  return {
+    mid: row.mid,
+    lastSyncedAt: row.last_synced_at,
+    lastError: row.last_error,
+    lastVideoCount: row.last_video_count,
+    lastEventsCreated: row.last_events_created,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getCreatorUploadsSyncState(
+  sql: Queryable,
+  mid: string,
+): Promise<CreatorUploadsSyncStateRow | null> {
+  const rows = await sql<UploadsSyncSqlRow[]>`
+    SELECT
+      mid, last_synced_at, last_error, last_video_count, last_events_created, updated_at
+    FROM creator_uploads_sync_state
+    WHERE mid = ${mid}
+    LIMIT 1
+  `;
+  const row = rows[0];
+  return row ? mapUploadsSync(row) : null;
+}
+
+export async function upsertCreatorUploadsSyncState(
+  sql: Queryable,
+  input: {
+    mid: string;
+    lastSyncedAt: Date | null;
+    lastError: string | null;
+    lastVideoCount: number;
+    lastEventsCreated: number;
+    now: Date;
+  },
+): Promise<CreatorUploadsSyncStateRow> {
+  const rows = await sql<UploadsSyncSqlRow[]>`
+    INSERT INTO creator_uploads_sync_state (
+      mid, last_synced_at, last_error, last_video_count, last_events_created, updated_at
+    ) VALUES (
+      ${input.mid},
+      ${input.lastSyncedAt},
+      ${input.lastError},
+      ${input.lastVideoCount},
+      ${input.lastEventsCreated},
+      ${input.now}
+    )
+    ON CONFLICT (mid) DO UPDATE SET
+      last_synced_at = EXCLUDED.last_synced_at,
+      last_error = EXCLUDED.last_error,
+      last_video_count = EXCLUDED.last_video_count,
+      last_events_created = EXCLUDED.last_events_created,
+      updated_at = EXCLUDED.updated_at
+    RETURNING
+      mid, last_synced_at, last_error, last_video_count, last_events_created, updated_at
+  `;
+  const row = rows[0];
+  if (!row) throw new Error('投稿同步状态写入后未能读回');
+  return mapUploadsSync(row);
+}
+
+/**
+ * Upsert archive-list metadata into videos without enabling monitoring.
+ * Does not invent cid (space arc search has no cid).
+ */
+export async function upsertVideoArchiveMetadata(
+  sql: Queryable,
+  input: {
+    bvid: string;
+    title: string;
+    mid: string;
+    pubdate: Date;
+  },
+): Promise<void> {
+  await sql`
+    INSERT INTO creators (mid)
+    VALUES (${input.mid}::bigint)
+    ON CONFLICT (mid) DO NOTHING
+  `;
+  await sql`
+    INSERT INTO videos (bvid, title, mid, pubdate, monitoring_enabled)
+    VALUES (
+      ${input.bvid},
+      ${input.title},
+      ${input.mid}::bigint,
+      ${input.pubdate},
+      false
+    )
+    ON CONFLICT (bvid) DO UPDATE SET
+      title = COALESCE(NULLIF(EXCLUDED.title, ''), videos.title),
+      mid = COALESCE(EXCLUDED.mid, videos.mid),
+      pubdate = COALESCE(EXCLUDED.pubdate, videos.pubdate),
+      updated_at = now()
+  `;
+}

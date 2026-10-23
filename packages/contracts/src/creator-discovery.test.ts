@@ -3,6 +3,10 @@ import {
   parseManualPublishEventCreateRequest,
   parseManualPublishedAt,
   parseCreatorPublishEvent,
+  parseCreatorUploadsSyncResponse,
+  parseCreatorUploadsSyncStatus,
+  parseUploadsSyncForce,
+  CREATOR_UPLOADS_SYNC_TTL_MS,
 } from './creator-discovery';
 import { formatDynamicDisplayTitle, dynamicTextSummaryFromMetadata } from './monitor';
 import { MonitorContractError } from './monitor-targets';
@@ -64,6 +68,30 @@ describe('manual publish event contracts', () => {
       navigable: false,
     });
     expect(event.source).toBe('manual');
+  });
+});
+
+describe('creator uploads sync contracts', () => {
+  test('parses status / response and force flag', () => {
+    const status = parseCreatorUploadsSyncStatus({
+      mid: '496445222',
+      lastSyncedAt: '2026-10-23T12:00:00.000Z',
+      lastError: null,
+      videoCount: 12,
+      eventsCreated: 3,
+      stale: false,
+      ttlMs: CREATOR_UPLOADS_SYNC_TTL_MS,
+    });
+    expect(status.videoCount).toBe(12);
+    const response = parseCreatorUploadsSyncResponse({
+      ...status,
+      cached: true,
+      pagesFetched: 0,
+    });
+    expect(response.cached).toBe(true);
+    expect(parseUploadsSyncForce({ force: true }, undefined)).toBe(true);
+    expect(parseUploadsSyncForce({}, 'true')).toBe(true);
+    expect(parseUploadsSyncForce({}, undefined)).toBe(false);
   });
 });
 

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ManualPublishEventCreateRequest } from '@studio/contracts';
 import {
@@ -6,6 +7,7 @@ import {
   fetchCreator,
   fetchCreatorMetrics,
   fetchCreatorPublishEvents,
+  fetchCreatorUploadsSyncStatus,
   fetchCreators,
   fetchDynamic,
   fetchDynamicMetrics,
@@ -13,6 +15,7 @@ import {
   fetchVideo,
   fetchVideoMetrics,
   fetchVideos,
+  syncCreatorUploads,
 } from '@/api/monitor-client';
 import type { MonitorTab } from '@/features/monitoring/monitor-url-state';
 
@@ -123,6 +126,45 @@ export function useManualPublishEventMutations(mid: string) {
       onSuccess: invalidate,
     }),
   };
+}
+
+export function useCreatorUploadsSyncStatusQuery(mid: string) {
+  return useQuery({
+    queryKey: ['monitor', 'creator-uploads-sync', mid] as const,
+    queryFn: () => fetchCreatorUploadsSyncStatus(mid),
+    enabled: Boolean(mid),
+  });
+}
+
+/**
+ * Background upload-list sync when opening the follower chart: POST without force.
+ * Backend returns cached:true within TTL and skips upstream.
+ */
+export function useCreatorUploadsAutoSync(mid: string) {
+  const client = useQueryClient();
+  const started = useRef<string | null>(null);
+  const mutation = useMutation({
+    mutationFn: (force: boolean) => syncCreatorUploads(mid, { force }),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['monitor', 'creator-uploads-sync', mid] }),
+        client.invalidateQueries({ queryKey: ['monitor', 'creator-publish-events', mid] }),
+        client.invalidateQueries({ queryKey: ['monitor', 'creator', mid] }),
+        client.invalidateQueries({ queryKey: ['monitor', 'creator-videos', mid] }),
+      ]);
+    },
+  });
+
+  useEffect(() => {
+    if (!mid) return;
+    if (started.current === mid) return;
+    started.current = mid;
+    mutation.mutate(false);
+    // Intentionally once per mid mount; manual retry uses mutation.mutate(true).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once auto sync
+  }, [mid]);
+
+  return mutation;
 }
 
 export function useDynamicMetricsDetailQuery(dynamicId: string) {

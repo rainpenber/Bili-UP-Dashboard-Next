@@ -4,9 +4,12 @@ import {
   parseCreatorDiscoveryConfigPutRequest,
   parseCreatorMid,
   parseCreatorPublishEventList,
+  parseCreatorUploadsSyncResponse,
+  parseCreatorUploadsSyncStatus,
   parseManualPublishEventCreateRequest,
   parsePublishEventId,
   parsePublishEventsQuery,
+  parseUploadsSyncForce,
   type CreatorDiscoveryConfig,
   type CreatorPublishEvent,
   type ManualPublishEventCreateResponse,
@@ -23,8 +26,21 @@ import {
   type CreatorPublishEventRow,
   type Sql,
 } from '@studio/db';
+import {
+  BilibiliFailure,
+  readCreatorUploadsSyncStatus,
+  syncCreatorUploads,
+  type CreatorArchivesPageProvider,
+  type CreatorUploadsSyncEffects,
+} from '@studio/monitoring';
 import { Hono } from 'hono';
 import type postgres from 'postgres';
+
+export type CreatorUploadsSyncRouteDeps = {
+  provider: CreatorArchivesPageProvider;
+  effects: CreatorUploadsSyncEffects;
+  forcedAccountId: string | null;
+};
 
 function toConfigDto(
   row: ReturnType<typeof defaultCreatorDiscoveryConfig>,
@@ -93,7 +109,68 @@ async function writePublishEventAudit(
   `;
 }
 
-export function registerCreatorDiscoveryRoutes(app: Hono, sql: Sql): void {
+export function registerCreatorDiscoveryRoutes(
+  app: Hono,
+  sql: Sql,
+  uploadsSync: CreatorUploadsSyncRouteDeps | null = null,
+): void {
+  app.get('/creators/:mid/uploads/sync', async (c) => {
+    try {
+      const mid = parseCreatorMid(c.req.param('mid'));
+      await assertCreatorTargetOwned(sql, mid);
+      const status = parseCreatorUploadsSyncStatus(await readCreatorUploadsSyncStatus(sql, mid));
+      return c.json(status);
+    } catch (err) {
+      if (err instanceof MonitorContractError) {
+        const status = err.code === 'forbidden' ? 403 : 400;
+        return c.json({ error: err.message, code: err.code }, status);
+      }
+      return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
+    }
+  });
+
+  app.post('/creators/:mid/uploads/sync', async (c) => {
+    try {
+      const mid = parseCreatorMid(c.req.param('mid'));
+      await assertCreatorTargetOwned(sql, mid);
+      if (!uploadsSync) {
+        return c.json({ error: '投稿同步未配置上游', code: 'unavailable' }, 503);
+      }
+      let body: unknown = {};
+      try {
+        const text = await c.req.text();
+        body = text.trim() ? JSON.parse(text) : {};
+      } catch {
+        return c.json({ error: '请求体不是合法 JSON', code: 'invalid_body' }, 400);
+      }
+      const force = parseUploadsSyncForce(body, c.req.query('force'));
+      const result = await syncCreatorUploads({
+        sql,
+        mid,
+        force,
+        provider: uploadsSync.provider,
+        effects: uploadsSync.effects,
+        forcedAccountId: uploadsSync.forcedAccountId,
+      });
+      return c.json(parseCreatorUploadsSyncResponse(result));
+    } catch (err) {
+      if (err instanceof MonitorContractError) {
+        const status = err.code === 'forbidden' ? 403 : 400;
+        return c.json({ error: err.message, code: err.code }, status);
+      }
+      if (err instanceof BilibiliFailure) {
+        const status =
+          err.kind === 'risk_control' || err.kind === 'rate_limited'
+            ? 503
+            : err.kind === 'dry_run'
+              ? 503
+              : 502;
+        return c.json({ error: err.message, code: err.kind }, status);
+      }
+      return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
+    }
+  });
+
   app.get('/creators/:mid/discovery', async (c) => {
     try {
       const mid = parseCreatorMid(c.req.param('mid'));

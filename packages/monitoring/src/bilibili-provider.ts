@@ -78,6 +78,7 @@ export type CreatorArchivesFetchResult = {
   mid: string;
   videos: ParsedArchiveVideo[];
   calls: UpstreamCall[];
+  page: { pn: number; ps: number; count: number | null };
 };
 
 export type CreatorDynamicsFetchResult = {
@@ -113,6 +114,8 @@ export type BilibiliProvider = MonitorProvider & {
     mid: string;
     cookieHeader: string | null;
     accountKey: string;
+    pn?: number;
+    ps?: number;
   }): Promise<CreatorArchivesFetchResult>;
   fetchCreatorDynamics(input: {
     mid: string;
@@ -125,6 +128,18 @@ function endpointUrl(base: string, params: Record<string, string>): string {
   const url = new URL(base);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   return url.toString();
+}
+
+function readSpaceArcPageCount(payload: unknown): number | null {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null;
+  const data = (payload as { data?: unknown }).data;
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return null;
+  const page = (data as { page?: unknown }).page;
+  if (typeof page !== 'object' || page === null || Array.isArray(page)) return null;
+  const count = (page as { count?: unknown }).count;
+  if (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0) return count;
+  if (typeof count === 'string' && /^(0|[1-9]\d*)$/.test(count)) return Number(count);
+  return null;
 }
 
 export function isBilibiliProvider(provider: MonitorProvider): provider is BilibiliProvider {
@@ -452,8 +467,10 @@ export function createBilibiliProvider(
       };
     },
     async fetchCreatorArchives(input) {
+      const pn = input.pn ?? 1;
+      const ps = input.ps ?? 30;
       if (config.dryRun) {
-        const message = `dry-run GET ${SPACE_ARC_SEARCH_URL}?mid=${input.mid}`;
+        const message = `dry-run GET ${SPACE_ARC_SEARCH_URL}?mid=${input.mid}&pn=${pn}&ps=${ps}`;
         log(`[collector] ${message}`);
         throw new BilibiliFailure({
           message,
@@ -468,7 +485,7 @@ export function createBilibiliProvider(
       const mixinKey = await ensureMixinKey(input.cookieHeader, input.accountKey, calls);
       const url = signedUrl(
         SPACE_ARC_SEARCH_URL,
-        { mid: input.mid, order: 'pubdate', ps: 30, pn: 1 },
+        { mid: input.mid, order: 'pubdate', ps: String(ps), pn: String(pn) },
         mixinKey,
       );
       const payload = await request(
@@ -479,8 +496,10 @@ export function createBilibiliProvider(
         calls,
       );
       let videos: ParsedArchiveVideo[];
+      let count: number | null = null;
       try {
         videos = parseSpaceArcSearch(payload);
+        count = readSpaceArcPageCount(payload);
       } catch (error) {
         throw new BilibiliFailure({
           message: scrubSensitive(error instanceof Error ? error.message : '投稿列表解析失败'),
@@ -491,7 +510,7 @@ export function createBilibiliProvider(
           calls: [...calls],
         });
       }
-      return { mid: input.mid, videos, calls };
+      return { mid: input.mid, videos, calls, page: { pn, ps, count } };
     },
     async fetchCreatorDynamics(input) {
       if (config.dryRun) {

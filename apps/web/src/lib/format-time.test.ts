@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { defaultDataZoomRange } from '@/lib/chart-window';
+import { defaultDataZoomRange, defaultFollowerZoomRange } from '@/lib/chart-window';
 import { formatShortTime, formatFullLocalTime } from '@/lib/format-time';
 
 describe('formatShortTime', () => {
@@ -32,5 +32,20 @@ describe('defaultDataZoomRange', () => {
   test('empty and single point', () => {
     expect(defaultDataZoomRange([])).toEqual({ start: 0, end: 100 });
     expect(defaultDataZoomRange(['2025-01-01T00:00:00.000Z'])).toEqual({ start: 0, end: 100 });
+  });
+});
+
+describe('defaultFollowerZoomRange', () => {
+  test('expands start to cover historical publish events', () => {
+    const times: string[] = [];
+    const start = Date.parse('2024-01-01T00:00:00.000Z');
+    for (let i = 0; i <= 45; i++) {
+      times.push(new Date(start + i * 86_400_000).toISOString());
+    }
+    const base = defaultDataZoomRange(times);
+    const zoom = defaultFollowerZoomRange(times, [times[0]!]);
+    expect(zoom.end).toBe(100);
+    expect(zoom.start).toBeLessThanOrEqual(base.start);
+    expect(zoom.start).toBe(0);
   });
 });

@@ -748,4 +748,3 @@
 - 断言验收：是
 - monitor-targets：HTTP 200（成功响应，断言通过）
 - monitor-targets：HTTP 400（拒绝响应，断言通过）
-

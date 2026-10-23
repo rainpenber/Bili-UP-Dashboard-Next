@@ -25,6 +25,7 @@ import {
 import { createRetainedTestDatabase, writeVideoSample, type Sql } from '@studio/db';
 import {
   createMonitorProvider,
+  createOfflineDiscoveryProvider,
   runCollectorOnce,
   type CollectorConfig,
   type HttpTransport,
@@ -226,6 +227,18 @@ describe('HTTP API coverage against isolated Postgres', () => {
       onBackfill: (task) => {
         backfills.push(task);
       },
+      uploadsSyncProvider: createOfflineDiscoveryProvider({
+        videosByMid: {
+          '240240': [
+            {
+              bvid: 'BV1xx411c7mD',
+              title: '覆盖投稿',
+              created: 1_720_000_000n,
+              mid: '240240',
+            },
+          ],
+        },
+      }),
     });
   }, 60_000);
 
@@ -621,11 +634,30 @@ describe('HTTP API coverage against isolated Postgres', () => {
         discoverVideos: true,
         monitorNewVideos: true,
       });
+      const uploadsStatus = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/uploads/sync'),
+        200,
+      )) as { mid: string; stale: boolean; videoCount: number };
+      expect(uploadsStatus.mid).toBe('240240');
+      expect(uploadsStatus.stale).toBe(true);
+      const uploadsSynced = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/uploads/sync', json('POST', {})),
+        200,
+      )) as { cached: boolean; videoCount: number; eventsCreated: number };
+      expect(uploadsSynced.cached).toBe(false);
+      expect(uploadsSynced.videoCount).toBe(1);
+      expect(uploadsSynced.eventsCreated).toBe(1);
+      const uploadsCached = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/uploads/sync', json('POST', {})),
+        200,
+      )) as { cached: boolean; pagesFetched: number };
+      expect(uploadsCached.cached).toBe(true);
+      expect(uploadsCached.pagesFetched).toBe(0);
       const publishEvents = (await expectStatus(
         await api('/api/v1/monitor/creators/240240/publish-events?page=1&pageSize=20'),
         200,
       )) as { items: unknown[]; totalItems: number };
-      expect(publishEvents.totalItems).toBe(0);
+      expect(publishEvents.totalItems).toBeGreaterThanOrEqual(1);
       expect(Array.isArray(publishEvents.items)).toBe(true);
       const manualCreated = (await expectStatus(
         await api(

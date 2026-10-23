@@ -27,6 +27,37 @@ export function defaultDataZoomRange(sampledAtList: string[]): DataZoomRange {
   return { start, end: 100 };
 }
 
+/**
+ * Expand the default follower zoom so publish-event markers stay inside the visible window.
+ * Events snap to nearest samples; zoom must include those sample indices.
+ */
+export function defaultFollowerZoomRange(
+  sampledAtList: string[],
+  eventPublishedAtList: string[],
+): DataZoomRange {
+  const base = defaultDataZoomRange(sampledAtList);
+  if (sampledAtList.length <= 1 || eventPublishedAtList.length === 0) return base;
+  let earliestIdx = sampledAtList.length - 1;
+  for (const publishedAt of eventPublishedAtList) {
+    const target = Date.parse(publishedAt);
+    if (!Number.isFinite(target)) continue;
+    let best = 0;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < sampledAtList.length; i += 1) {
+      const t = Date.parse(sampledAtList[i]!);
+      if (!Number.isFinite(t)) continue;
+      const dist = Math.abs(t - target);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    }
+    earliestIdx = Math.min(earliestIdx, best);
+  }
+  const eventStart = (earliestIdx / sampledAtList.length) * 100;
+  return { start: Math.min(base.start, eventStart), end: 100 };
+}
+
 export function dataZoomRangeForIndices(length: number, startIndex: number): DataZoomRange {
   if (length <= 0) return { start: 0, end: 100 };
   const start = Math.max(0, Math.min(100, (startIndex / length) * 100));

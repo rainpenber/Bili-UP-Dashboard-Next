@@ -64,6 +64,34 @@ export type ManualPublishEventCreateResponse = {
   monitoredTargetId: string | null;
 };
 
+/** TTL for creator upload-list sync (space arc/search). */
+export const CREATOR_UPLOADS_SYNC_TTL_MS = 6 * 60 * 60 * 1000;
+export const CREATOR_UPLOADS_SYNC_MAX_VIDEOS = 100;
+export const CREATOR_UPLOADS_SYNC_MAX_PAGES = 3;
+
+export type CreatorUploadsSyncStatus = {
+  mid: string;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  videoCount: number;
+  eventsCreated: number;
+  /** True when never synced or last success is older than TTL. */
+  stale: boolean;
+  ttlMs: number;
+};
+
+export type CreatorUploadsSyncResponse = {
+  mid: string;
+  cached: boolean;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  videoCount: number;
+  eventsCreated: number;
+  pagesFetched: number;
+  stale: boolean;
+  ttlMs: number;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -349,6 +377,71 @@ export function parseManualPublishEventCreateResponse(
     throw new MonitorContractError('invalid_body', 'monitored 与 event 不一致');
   }
   return { created, event, monitored, monitoredTargetId };
+}
+
+export function parseCreatorUploadsSyncStatus(value: unknown): CreatorUploadsSyncStatus {
+  if (!isRecord(value)) {
+    throw new MonitorContractError('invalid_body', '投稿同步状态必须是对象');
+  }
+  const ttlMs = (() => {
+    if (typeof value.ttlMs !== 'number' || !Number.isInteger(value.ttlMs) || value.ttlMs <= 0) {
+      throw new MonitorContractError('invalid_body', 'ttlMs 非法');
+    }
+    return value.ttlMs;
+  })();
+  const videoCount = (() => {
+    if (typeof value.videoCount !== 'number' || !Number.isInteger(value.videoCount) || value.videoCount < 0) {
+      throw new MonitorContractError('invalid_body', 'videoCount 非法');
+    }
+    return value.videoCount;
+  })();
+  const eventsCreated = (() => {
+    if (
+      typeof value.eventsCreated !== 'number' ||
+      !Number.isInteger(value.eventsCreated) ||
+      value.eventsCreated < 0
+    ) {
+      throw new MonitorContractError('invalid_body', 'eventsCreated 非法');
+    }
+    return value.eventsCreated;
+  })();
+  return {
+    mid: parseCreatorMid(asString(value.mid, 'mid')),
+    lastSyncedAt: asNullableIso(value.lastSyncedAt, 'lastSyncedAt'),
+    lastError: asNullableString(value.lastError, 'lastError'),
+    videoCount,
+    eventsCreated,
+    stale: asBoolean(value.stale, 'stale'),
+    ttlMs,
+  };
+}
+
+export function parseCreatorUploadsSyncResponse(value: unknown): CreatorUploadsSyncResponse {
+  if (!isRecord(value)) {
+    throw new MonitorContractError('invalid_body', '投稿同步响应必须是对象');
+  }
+  const base = parseCreatorUploadsSyncStatus(value);
+  const pagesFetched = (() => {
+    if (
+      typeof value.pagesFetched !== 'number' ||
+      !Number.isInteger(value.pagesFetched) ||
+      value.pagesFetched < 0
+    ) {
+      throw new MonitorContractError('invalid_body', 'pagesFetched 非法');
+    }
+    return value.pagesFetched;
+  })();
+  return {
+    ...base,
+    cached: asBoolean(value.cached, 'cached'),
+    pagesFetched,
+  };
+}
+
+export function parseUploadsSyncForce(body: unknown, queryForce: string | undefined): boolean {
+  if (queryForce === 'true') return true;
+  if (!isRecord(body)) return false;
+  return body.force === true;
 }
 
 export function parsePublishEventsQuery(search: URLSearchParams): {

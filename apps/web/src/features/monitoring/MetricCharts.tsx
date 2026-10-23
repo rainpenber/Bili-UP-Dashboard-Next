@@ -20,7 +20,7 @@ import {
   visibleIndexRange,
   type FollowerChartPublishEvent,
 } from '@/lib/chart-config';
-import { defaultDataZoomRange } from '@/lib/chart-window';
+import { defaultFollowerZoomRange } from '@/lib/chart-window';
 import { chartSemanticFromResolved } from '@/lib/chart-colors';
 import { useResolvedChartColors } from '@/features/monitoring/use-resolved-chart-colors';
 
@@ -122,7 +122,14 @@ function CreatorFollowerCharts({
     }
     return map;
   }, [sampledAtList, mappedPublishEvents]);
-  const initialZoom = useMemo(() => defaultDataZoomRange(sampledAtList), [sampledAtList]);
+  const initialZoom = useMemo(
+    () =>
+      defaultFollowerZoomRange(
+        sampledAtList,
+        mappedPublishEvents.map((event) => event.publishedAt),
+      ),
+    [sampledAtList, mappedPublishEvents],
+  );
   const [followerZoom, setFollowerZoom] = useState<{ start: number; end: number } | null>(null);
 
   const onFollowerZoom = useCallback(

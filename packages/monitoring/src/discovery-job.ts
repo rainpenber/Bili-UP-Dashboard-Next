@@ -22,7 +22,13 @@ export type DiscoveryListProvider = {
     mid: string;
     cookieHeader: string | null;
     accountKey: string;
-  }): Promise<{ videos: ParsedArchiveVideo[]; calls: UpstreamCall[] }>;
+    pn?: number;
+    ps?: number;
+  }): Promise<{
+    videos: ParsedArchiveVideo[];
+    calls: UpstreamCall[];
+    page?: { pn: number; ps: number; count: number | null };
+  }>;
   fetchCreatorDynamics(input: {
     mid: string;
     cookieHeader: string | null;

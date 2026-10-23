@@ -315,6 +315,22 @@ describe('creator detail video list', () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
       urls.push(url);
+      if (url.includes('/uploads/sync')) {
+        return jsonResponse({
+          mid: MID,
+          cached: true,
+          lastSyncedAt: SAMPLED_AT,
+          lastError: null,
+          videoCount: 0,
+          eventsCreated: 0,
+          pagesFetched: 0,
+          stale: false,
+          ttlMs: 21_600_000,
+        });
+      }
+      if (url.includes('/publish-events')) {
+        return jsonResponse({ page: 1, pageSize: 200, totalItems: 0, totalPages: 0, items: [] });
+      }
       if (url.includes('/videos')) {
         const parsed = new URL(url, 'http://localhost');
         const offset = Number(parsed.searchParams.get('offset') ?? '0');
@@ -326,6 +342,9 @@ describe('creator detail video list', () => {
         return jsonResponse({ mid: MID, total: 25, items });
       }
       if (url.includes('/metrics')) return jsonResponse({ mid: MID, limit: 500, items: [] });
+      if (url.includes('/cards/')) {
+        return jsonResponse({ error: 'not found' }, 404);
+      }
       return jsonResponse(creatorDetail());
     }) as typeof fetch;
 
@@ -366,8 +385,25 @@ describe('creator detail video list', () => {
   test('shows an empty state without a zero-count header', async () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.includes('/uploads/sync')) {
+        return jsonResponse({
+          mid: MID,
+          cached: true,
+          lastSyncedAt: null,
+          lastError: null,
+          videoCount: 0,
+          eventsCreated: 0,
+          pagesFetched: 0,
+          stale: true,
+          ttlMs: 21_600_000,
+        });
+      }
+      if (url.includes('/publish-events')) {
+        return jsonResponse({ page: 1, pageSize: 200, totalItems: 0, totalPages: 0, items: [] });
+      }
       if (url.includes('/videos')) return jsonResponse({ mid: MID, total: 0, items: [] });
       if (url.includes('/metrics')) return jsonResponse({ mid: MID, limit: 500, items: [] });
+      if (url.includes('/cards/')) return jsonResponse({ error: 'not found' }, 404);
       return jsonResponse(creatorDetail());
     }) as typeof fetch;
 
@@ -396,6 +432,22 @@ describe('creator detail video list', () => {
     let videosCalls = 0;
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.includes('/uploads/sync')) {
+        return jsonResponse({
+          mid: MID,
+          cached: true,
+          lastSyncedAt: null,
+          lastError: null,
+          videoCount: 0,
+          eventsCreated: 0,
+          pagesFetched: 0,
+          stale: true,
+          ttlMs: 21_600_000,
+        });
+      }
+      if (url.includes('/publish-events')) {
+        return jsonResponse({ page: 1, pageSize: 200, totalItems: 0, totalPages: 0, items: [] });
+      }
       if (url.includes('/videos')) {
         videosCalls += 1;
         if (videosCalls === 1) {
@@ -405,6 +457,7 @@ describe('creator detail video list', () => {
         return jsonResponse({ mid: MID, total: 0, items: [] });
       }
       if (url.includes('/metrics')) return jsonResponse({ mid: MID, limit: 500, items: [] });
+      if (url.includes('/cards/')) return jsonResponse({ error: 'not found' }, 404);
       return jsonResponse(creatorDetail());
     }) as typeof fetch;
 

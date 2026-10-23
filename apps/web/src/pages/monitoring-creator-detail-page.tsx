@@ -9,6 +9,7 @@ import {
 import { coverAssetUrl } from '@/api/monitor-client';
 import { ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
 import { Badge } from '@/components/ui/badge';
+import { CreatorUploadsSyncBar } from '@/features/monitoring/creator-uploads-sync-bar';
 import { CreatorVideosSection } from '@/features/monitoring/creator-videos-section';
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
 import { MonitorCardControls } from '@/features/monitoring/monitor-object-card';
@@ -134,22 +135,25 @@ export function MonitoringCreatorDetailPage() {
         },
       ]}
       charts={
-        metricsQuery.isLoading ? (
-          <LoadingListSkeleton rows={2} />
-        ) : metricsQuery.isError ? (
-          <ErrorState
-            message={
-              metricsQuery.error instanceof Error ? metricsQuery.error.message : '指标加载失败'
-            }
-            onRetry={() => void metricsQuery.refetch()}
-          />
-        ) : (
-          <MetricCharts
-            kind="creator"
-            points={metricsQuery.data?.items ?? []}
-            publishEvents={publishEventsQuery.data?.items ?? []}
-          />
-        )
+        <div className="min-w-0 space-y-2">
+          <CreatorUploadsSyncBar mid={c.mid} />
+          {metricsQuery.isLoading ? (
+            <LoadingListSkeleton rows={2} />
+          ) : metricsQuery.isError ? (
+            <ErrorState
+              message={
+                metricsQuery.error instanceof Error ? metricsQuery.error.message : '指标加载失败'
+              }
+              onRetry={() => void metricsQuery.refetch()}
+            />
+          ) : (
+            <MetricCharts
+              kind="creator"
+              points={metricsQuery.data?.items ?? []}
+              publishEvents={publishEventsQuery.data?.items ?? []}
+            />
+          )}
+        </div>
       }
     />
   );
