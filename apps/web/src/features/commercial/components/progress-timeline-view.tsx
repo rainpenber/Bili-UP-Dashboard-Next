@@ -1,3 +1,4 @@
+import type { CommercialBusinessState } from '@studio/contracts';
 import { useEffect, useRef, useState } from 'react';
 import {
   NodeStepActions,
@@ -13,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { applyBusinessStateToDerivedTimeline } from '../business-display-state';
 import { formatYuan } from '../commercial-selectors';
 import {
   calendarDayKey,
@@ -495,6 +497,7 @@ export function ProgressTimeline({
   stepEditor,
   stepController,
   bindLocate,
+  displayBusinessState = null,
 }: {
   nodes: TimelineSourceNode[];
   planEditor?: PlanEditor;
@@ -503,8 +506,13 @@ export function ProgressTimeline({
   stepController?: StepController;
   /** Registers the timeline's stage selection so a shared controller can locate a blocker. */
   bindLocate?: (locate: ((stageId: string) => void) | null) => void;
+  /** Display-only overlay from source business state (WP-R2-19C). */
+  displayBusinessState?: CommercialBusinessState | null;
 }) {
-  const timeline = deriveProgressTimeline(nodes);
+  const timeline = applyBusinessStateToDerivedTimeline(
+    deriveProgressTimeline(nodes),
+    displayBusinessState,
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);

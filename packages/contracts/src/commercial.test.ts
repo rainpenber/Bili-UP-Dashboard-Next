@@ -23,6 +23,8 @@ const READ_FIELDS = {
   businessClosedAt: null,
   originKind: 'fixture' as const,
   source: null as null,
+  businessState: null as null,
+  originStatusLabel: null as null,
   blockedNodeNames: [] as string[],
   openItems: [] as unknown[],
   blockingReason: null as string | null,
@@ -83,9 +85,41 @@ describe('commercial read contracts', () => {
     expect(parsed.items[0]?.openItems[0]?.nextActor).toBe('client');
     expect(parsed.items[0]?.userDeadlineAt).toBe('2026-08-01T00:00:00.000000Z');
     expect(parsed.items[0]?.originKind).toBe('fixture');
+    expect(parsed.items[0]?.businessState).toBeNull();
+    expect(parsed.items[0]?.originStatusLabel).toBeNull();
     expect(parsed.total).toBe(1);
     expect(parsed.limit).toBeNull();
     expect(parsed.offset).toBe(0);
+  });
+
+  test('parses source-bound display state fields without inventing labels', () => {
+    const parsed = parseCommercialProjectList(
+      listResponse([
+        listItem({
+          id: PROJECT_ID,
+          name: '树新风',
+          netAmount: null,
+          rebateAmount: null,
+          overallStage: 'pre_publish',
+          currentStageNames: [],
+          anyNodeBlocked: false,
+          originKind: 'real',
+          source: {
+            namespace: 'hermes.real',
+            sourceId: 'sx-1',
+            sourceUpdatedAt: '2026-10-01T00:00:00.000Z',
+            importedAt: '2026-10-01T00:00:00.000Z',
+            contentHash: 'abc',
+            sourceStatus: '2.进行中',
+            sourceNotes: null,
+          },
+          businessState: 'active',
+          originStatusLabel: '2.进行中',
+        }),
+      ]),
+    );
+    expect(parsed.items[0]?.businessState).toBe('active');
+    expect(parsed.items[0]?.originStatusLabel).toBe('2.进行中');
   });
 
   test('rejects a list item that omits open items or a stored timestamp', () => {

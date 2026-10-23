@@ -53,6 +53,8 @@ function project(
     businessClosedAt: null,
     originKind: 'fixture',
     source: null,
+    businessState: null,
+    originStatusLabel: null,
     blockedNodeNames: [],
     openItems: [],
     ...overrides,
