@@ -1,4 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
+import { readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import {
   parseOpsDebugBundle,
@@ -18,6 +21,23 @@ import {
 import { createOpsRoutes } from './ops-routes';
 
 const SECRET = /SESSDATA|bili_jct|password|ciphertext/i;
+
+/** Same ordering as packages/db/src/migrate.ts (filename .sort()). */
+function latestMigrationVersion(): string {
+  const migrationsDir = join(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../../packages/db/migrations',
+  );
+  const versions = readdirSync(migrationsDir)
+    .filter((name) => name.endsWith('.sql'))
+    .map((name) => name.replace(/\.sql$/, ''))
+    .sort();
+  const tip = versions.at(-1);
+  if (!tip || !/^\d{3}_/.test(tip)) {
+    throw new Error(`expected a NNN_* migration tip under ${migrationsDir}`);
+  }
+  return tip;
+}
 
 describe('ops API', () => {
   const created: string[] = [];
@@ -181,7 +201,9 @@ describe('ops API', () => {
       const bundle = parseOpsDebugBundle(JSON.parse(bundleText) as unknown);
       expect(bundle.run?.id).toBe(runId);
       expect(bundle.video?.bvid).toBe('BV1xx411c7mD');
-      expect(bundle.schemaVersion.startsWith('018_')).toBe(true);
+      const tip = latestMigrationVersion();
+      expect(bundle.schemaVersion).toMatch(/^\d{3}_/);
+      expect(bundle.schemaVersion).toBe(tip);
 
       const live = parseOpsHealth(await (await app.request('/api/v1/ops/health')).json());
       expect(live.stale).toBe(false);
