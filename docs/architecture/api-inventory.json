@@ -2,8 +2,8 @@
   "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
   "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 76,
-  "wiredRouteCount": 54,
+  "apiRouteCount": 81,
+  "wiredRouteCount": 59,
   "unwiredImplementedRouteCount": 22,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes and registerCommercialIngressRoutes add fixed POST/GET lists.",
@@ -17,34 +17,62 @@
       "prefix": "/api/v1/monitor",
       "factory": "createMonitorRoutes",
       "mountFile": "apps/api/src/mount-api.ts",
-      "mountLine": 16
+      "mountLine": 17
     },
     {
       "prefix": "/api/v1/assets",
       "factory": "createAssetsRoutes",
       "mountFile": "apps/api/src/mount-api.ts",
-      "mountLine": 17
+      "mountLine": 18
     },
     {
       "prefix": "/api/v1/imports",
       "factory": "createImportRoutes",
       "mountFile": "apps/api/src/mount-api.ts",
-      "mountLine": 18
+      "mountLine": 19
     },
     {
       "prefix": "/api/v1/commercial",
       "factory": "createCommercialRoutes",
       "mountFile": "apps/api/src/mount-api.ts",
-      "mountLine": 19
+      "mountLine": 20
     },
     {
       "prefix": "/api/v1/ops",
       "factory": "createOpsRoutes",
       "mountFile": "apps/api/src/mount-api.ts",
-      "mountLine": 20
+      "mountLine": 21
+    },
+    {
+      "prefix": "/api/v1/accounts",
+      "factory": "createAccountsRoutes",
+      "mountFile": "apps/api/src/mount-api.ts",
+      "mountLine": 22
     }
   ],
   "routes": [
+    {
+      "method": "DELETE",
+      "path": "/api/v1/accounts/:id",
+      "mountPrefix": "/api/v1/accounts",
+      "sourceFile": "apps/api/src/accounts-routes.ts",
+      "sourceLine": 1,
+      "registration": "createAccountsRoutes",
+      "readWrite": "write",
+      "area": "accounts",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/bili-accounts.ts#parseRevokeBiliAccountResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/accounts-client.ts",
+          "symbol": "revokeBiliAccount",
+          "evidence": "DELETE"
+        }
+      ],
+      "wired": true,
+      "notes": "Soft revoke: delete secret row, status=revoked, revoked_at=now. Keeps account row. Allows no default.",
+      "storedEntity": "bili_accounts"
+    },
     {
       "method": "DELETE",
       "path": "/api/v1/monitor/creators/:mid/publish-events/:eventId",
@@ -109,6 +137,28 @@
       ],
       "wired": true,
       "notes": "Default health URL. VITE_API_HEALTH_URL can replace it."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/accounts",
+      "mountPrefix": "/api/v1/accounts",
+      "sourceFile": "apps/api/src/accounts-routes.ts",
+      "sourceLine": 1,
+      "registration": "createAccountsRoutes",
+      "readWrite": "read",
+      "area": "accounts",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/bili-accounts.ts#parseBiliAccountListResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/accounts-client.ts",
+          "symbol": "fetchBiliAccounts",
+          "evidence": "/api/v1/accounts"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-R2-25A list bili_accounts with derivedExpiryState and secretPresent. Never returns cookie plaintext or ciphertext. realAccessEnabled reflects mock/provider gates.",
+      "storedEntity": "bili_accounts"
     },
     {
       "method": "GET",
@@ -990,6 +1040,28 @@
     },
     {
       "method": "PATCH",
+      "path": "/api/v1/accounts/:id",
+      "mountPrefix": "/api/v1/accounts",
+      "sourceFile": "apps/api/src/accounts-routes.ts",
+      "sourceLine": 1,
+      "registration": "createAccountsRoutes",
+      "readWrite": "write",
+      "area": "accounts",
+      "requestContract": "packages/contracts/src/bili-accounts.ts#parsePatchBiliAccountRequest",
+      "responseContract": "packages/contracts/src/bili-accounts.ts#parseBiliAccountListItem",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/accounts-client.ts",
+          "symbol": "patchBiliAccount",
+          "evidence": "/api/v1/accounts"
+        }
+      ],
+      "wired": true,
+      "notes": "Update note and/or isDefault. Setting default clears other defaults in one transaction.",
+      "storedEntity": "bili_accounts"
+    },
+    {
+      "method": "PATCH",
       "path": "/api/v1/commercial/projects/:projectId/workflow/layout",
       "mountPrefix": "/api/v1/commercial",
       "sourceFile": "apps/api/src/commercial-write.ts",
@@ -1094,6 +1166,50 @@
       ],
       "wired": true,
       "notes": "Sets videos.pinned_at to now() or NULL. Idempotent. Invalid bvid 400; missing video 404."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/accounts",
+      "mountPrefix": "/api/v1/accounts",
+      "sourceFile": "apps/api/src/accounts-routes.ts",
+      "sourceLine": 1,
+      "registration": "createAccountsRoutes",
+      "readWrite": "write",
+      "area": "accounts",
+      "requestContract": "packages/contracts/src/bili-accounts.ts#parseCreateBiliAccountRequest",
+      "responseContract": "packages/contracts/src/bili-accounts.ts#parseBiliAccountListItem",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/accounts-client.ts",
+          "symbol": "createBiliAccount",
+          "evidence": "/api/v1/accounts"
+        }
+      ],
+      "wired": true,
+      "notes": "Parse Cookie string offline; encrypt SESSDATA jar with COLLECTOR_SECRET_KEY. Duplicate mid → 409 unless replace:true. No Bilibili network.",
+      "storedEntity": "bili_accounts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/accounts/:id/verify",
+      "mountPrefix": "/api/v1/accounts",
+      "sourceFile": "apps/api/src/accounts-routes.ts",
+      "sourceLine": 1,
+      "registration": "createAccountsRoutes",
+      "readWrite": "write",
+      "area": "accounts",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/bili-accounts.ts#parseVerifyBiliAccountResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/accounts-client.ts",
+          "symbol": "verifyBiliAccount",
+          "evidence": "/verify"
+        }
+      ],
+      "wired": true,
+      "notes": "Explicit nav verify only. MONITOR_DATA_SOURCE=mock or non-bilibili provider → 409 real_access_disabled. Classifies -101/-352/network.",
+      "storedEntity": "bili_accounts"
     },
     {
       "method": "POST",

@@ -683,18 +683,19 @@ describe('dynamic target execution', () => {
       WHERE s.dynamic_id IN (${older}, ${newer}) AND s.source = 'bilibili'
     `;
     const byId = new Map(rows.map((row) => [row.dynamic_id, row]));
+    // WP-R2-25A: forced account without secret is skipped (not attributed).
     expect(byId.get(older)).toMatchObject({
       like_count: '0',
       comment_count: null,
       repost_count: '7',
       source: 'bilibili',
-      account_id: ACTIVE_ACCOUNT,
+      account_id: null,
     });
     expect(byId.get(newer)).toMatchObject({
       like_count: '42',
       comment_count: '0',
       repost_count: null,
-      account_id: ACTIVE_ACCOUNT,
+      account_id: null,
     });
     expect(byId.get(older)?.sampled_at.toISOString()).toBe(
       byId.get(older)?.scheduled_for.toISOString(),
@@ -723,7 +724,6 @@ describe('dynamic target execution', () => {
     `;
     expect(creators[0]?.n).toBe(0);
 
-    const before = urls.length;
     await provider.fetchVideo({
       bvid: 'BV1xx411c7mD',
       sampledAt: new Date(),
@@ -735,8 +735,9 @@ describe('dynamic target execution', () => {
       SELECT count::int AS count, (SELECT count(*) FROM collector_rate_state WHERE account_id = ${ACTIVE_ACCOUNT}::uuid)::int AS n
       FROM collector_rate_state WHERE account_id = ${ACTIVE_ACCOUNT}::uuid
     `;
+    // Dynamics skipped the secret-less forced account; only this fetchVideo attributed to it.
     expect(rate[0]?.n).toBe(1);
-    expect(rate[0]?.count).toBe(before + 2);
+    expect(rate[0]?.count).toBe(2);
   });
 
   test('a repeated bucket keeps the old sample and a failed commit leaves nothing', async () => {
@@ -949,37 +950,31 @@ describe('dynamic target execution', () => {
       const row = state[0];
       if (!row) throw new Error('state missing');
       expect(row.samples).toBe(0);
-      if (item.kind === 'expired') {
-        expect(outcome).toBe('deferred');
-        expect(urls).toEqual([]);
-        expect(row.runs).toBe(0);
-        expect(row.requests).toBe(0);
-      } else {
-        expect(outcome).toBe('failed');
-        expect(urls).toHaveLength(1);
-        expect(urls[0]).toContain(`/x/polymer/web-dynamic/v1/detail?id=${item.id}`);
-        expect(urls[0]).not.toMatch(/nav|qrcode|feed/i);
-        expect(row.runs).toBe(1);
-        expect(row.requests).toBe(1);
-        expect(row.endpoint).toBe('dynamic_detail');
-        expect(row.run_id).toBeTruthy();
-        const logs = await db()<{ n: number; foreign: number }[]>`
+      // WP-R2-25A: expired / unusable forced account is skipped (anonymous collect), not deferred.
+      expect(outcome).toBe('failed');
+      expect(urls).toHaveLength(1);
+      expect(urls[0]).toContain(`/x/polymer/web-dynamic/v1/detail?id=${item.id}`);
+      expect(urls[0]).not.toMatch(/nav|qrcode|feed/i);
+      expect(row.runs).toBe(1);
+      expect(row.requests).toBe(1);
+      expect(row.endpoint).toBe('dynamic_detail');
+      expect(row.run_id).toBeTruthy();
+      const logs = await db()<{ n: number; foreign: number }[]>`
           SELECT
             count(*)::int AS n,
             count(*) FILTER (WHERE job_id IS DISTINCT FROM ${row.job_id}::uuid AND run_id IS DISTINCT FROM ${row.run_id}::uuid)::int AS foreign
           FROM app_logs
           WHERE job_id = ${row.job_id}::uuid OR run_id = ${row.run_id}::uuid
         `;
-        expect(logs[0]?.n ?? 0).toBeGreaterThan(0);
-        expect(logs[0]?.foreign).toBe(0);
-        const http = parseOpsRunDetail(
-          await (await app!.request(`/api/v1/ops/runs/${row.run_id}`)).json(),
-        );
-        expect(http.requests).toHaveLength(1);
-        expect(http.requests[0]?.runId).toBe(row.run_id);
-        expect(http.requests[0]?.endpoint).toBe('dynamic_detail');
-        expect(JSON.stringify(http)).not.toContain('super-secret');
-      }
+      expect(logs[0]?.n ?? 0).toBeGreaterThan(0);
+      expect(logs[0]?.foreign).toBe(0);
+      const http = parseOpsRunDetail(
+        await (await app!.request(`/api/v1/ops/runs/${row.run_id}`)).json(),
+      );
+      expect(http.requests).toHaveLength(1);
+      expect(http.requests[0]?.runId).toBe(row.run_id);
+      expect(http.requests[0]?.endpoint).toBe('dynamic_detail');
+      expect(JSON.stringify(http)).not.toContain('super-secret');
     }
   });
 

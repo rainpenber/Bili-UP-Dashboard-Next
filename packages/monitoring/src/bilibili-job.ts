@@ -115,10 +115,16 @@ export async function runBilibiliJob(options: {
   const startedMs = Date.now();
   const env = options.env ?? process.env;
   const scheduleContext = await options.effects.readSchedule(options.job.targetId);
+  const preferredAccountId = options.forcedAccountId ?? options.job.accountId;
   const account = await options.effects.resolveAccount({
     targetAccountId: options.job.accountId,
     forcedAccountId: options.forcedAccountId,
   });
+  if (!account && preferredAccountId) {
+    log(
+      `[collector] 跳过不可用账号 ${preferredAccountId}（需 active、有凭据且 Cookie 未过期；已撤销或过期账号不会被选中）`,
+    );
+  }
   if (account && account.status === 'expired') {
     await options.effects.deferJob(
       options.job.id,
