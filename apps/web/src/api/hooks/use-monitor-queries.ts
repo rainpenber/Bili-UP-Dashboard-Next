@@ -159,9 +159,8 @@ export function useCreatorUploadsAutoSync(mid: string) {
     if (!mid) return;
     if (started.current === mid) return;
     started.current = mid;
-    mutation.mutate(false);
     // Intentionally once per mid mount; manual retry uses mutation.mutate(true).
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once auto sync
+    mutation.mutate(false);
   }, [mid]);
 
   return mutation;
