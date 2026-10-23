@@ -160,15 +160,9 @@ export function useCreatorUploadsAutoSync(mid: string) {
     if (!mid) return;
     if (started.current === mid) return;
     started.current = mid;
-<<<<<<< HEAD
-    // Intentionally once per mid mount; manual retry uses mutation.mutate(true).
-    mutation.mutate(false);
-  }, [mid]);
-=======
     // Once per mid mount; manual retry uses mutation.mutate(true).
     trigger(false);
   }, [mid, trigger]);
->>>>>>> 6f5300e (test(monitor): align card assertions and migration list for 26B)
 
   return mutation;
 }
