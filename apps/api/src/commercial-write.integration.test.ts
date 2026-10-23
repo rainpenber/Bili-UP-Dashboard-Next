@@ -436,9 +436,7 @@ describe('commercial workflow write API', () => {
       'AI 后期',
       '审核',
     ]);
-    const publishNode = await mustNode(
-      await postNode(app, projectId, tokens, '发布', 'advance'),
-    );
+    const publishNode = await mustNode(await postNode(app, projectId, tokens, '发布', 'advance'));
     remember(tokens, publishNode);
 
     const [before] = await sql<{ overall_stage: string }[]>`
