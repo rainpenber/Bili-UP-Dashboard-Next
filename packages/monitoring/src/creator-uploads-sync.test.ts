@@ -93,10 +93,7 @@ describe('creator uploads sync', () => {
     if (!sql) return;
     const now = new Date('2026-10-23T12:00:00.000Z');
     const provider = mockProvider([
-      [
-        video('BV1aa411c7mA', 1_700_000_000, '片A'),
-        video('BV1bb411c7mB', 1_700_000_100, '片B'),
-      ],
+      [video('BV1aa411c7mA', 1_700_000_000, '片A'), video('BV1bb411c7mB', 1_700_000_100, '片B')],
     ]);
 
     const first = await syncCreatorUploads({

@@ -390,7 +390,11 @@ export function parseCreatorUploadsSyncStatus(value: unknown): CreatorUploadsSyn
     return value.ttlMs;
   })();
   const videoCount = (() => {
-    if (typeof value.videoCount !== 'number' || !Number.isInteger(value.videoCount) || value.videoCount < 0) {
+    if (
+      typeof value.videoCount !== 'number' ||
+      !Number.isInteger(value.videoCount) ||
+      value.videoCount < 0
+    ) {
       throw new MonitorContractError('invalid_body', 'videoCount 非法');
     }
     return value.videoCount;

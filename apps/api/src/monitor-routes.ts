@@ -96,7 +96,10 @@ export type MonitorRefreshOptions = Partial<MetadataRefreshDeps> & {
   uploadsSyncEffects?: CreatorUploadsSyncEffects;
 };
 
-function buildUploadsSyncDeps(db: Sql, refreshDeps: MonitorRefreshOptions): CreatorUploadsSyncRouteDeps {
+function buildUploadsSyncDeps(
+  db: Sql,
+  refreshDeps: MonitorRefreshOptions,
+): CreatorUploadsSyncRouteDeps {
   const env = refreshDeps.env ?? process.env;
   const config = readBilibiliRuntimeConfig(env);
   const provider =
