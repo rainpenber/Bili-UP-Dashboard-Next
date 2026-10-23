@@ -11,6 +11,8 @@ const LIVE_READ_DEFAULTS = {
   businessClosedAt: null,
   originKind: 'fixture' as const,
   source: null,
+  businessState: null,
+  originStatusLabel: null,
   blockedNodeNames: [] as string[],
   openItems: [] as CommercialOpenItemRead[],
 };

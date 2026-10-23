@@ -1,24 +1,46 @@
 import type { CommercialProjectListItem } from '@studio/contracts';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { businessStateListBadge } from '../business-display-state';
+import { unarchiveLiveProject } from '../commercial-live-api';
 import {
   isArchivedLiveProject,
   liveInstantLabel,
   liveStageLabel,
 } from '../commercial-live-selectors';
+import { liveCommercialProjectsKey } from '../use-live-workflow';
 
 const LIFECYCLE_LABEL = { open: '开放', closed: '已关闭', cancelled: '已取消' } as const;
 const ACTOR_LABEL = { us: '我方', client: '甲方' } as const;
 
 export function ProjectListCard({ project }: { project: CommercialProjectListItem }) {
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const archived = isArchivedLiveProject(project);
+  const softArchived = project.archivedAt !== null;
   const hasBlock = project.anyNodeBlocked || project.blockedNodeNames.length > 0;
   const hasExpandable = hasBlock || project.openItems.length > 0;
+  const displayBadge = businessStateListBadge(project.businessState, project.originStatusLabel);
+  const weakenStage =
+    project.businessState === 'not_started' || project.businessState === 'finished';
+
+  const onRestore = () => {
+    setRestoring(true);
+    setRestoreError(null);
+    void unarchiveLiveProject(project.id)
+      .then(() => queryClient.invalidateQueries({ queryKey: liveCommercialProjectsKey }))
+      .catch((err: unknown) => {
+        setRestoreError(err instanceof Error ? err.message : '恢复失败');
+      })
+      .finally(() => setRestoring(false));
+  };
 
   return (
     <article
@@ -26,6 +48,7 @@ export function ProjectListCard({ project }: { project: CommercialProjectListIte
       data-testid="project-list-card"
       data-project-id={project.id}
       data-archived={archived ? 'true' : 'false'}
+      data-business-state={project.businessState ?? ''}
     >
       <div className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1">
@@ -38,22 +61,63 @@ export function ProjectListCard({ project }: { project: CommercialProjectListIte
             </Link>
             {archived ? <Badge variant="secondary">已归档</Badge> : null}
             {project.overallStage === 'closed' ? <Badge variant="outline">已结案</Badge> : null}
+            {displayBadge ? (
+              <Badge
+                variant={displayBadge.tone === 'finished' ? 'secondary' : 'outline'}
+                className={cn(
+                  'text-[11px]',
+                  displayBadge.tone === 'finished' && 'border-emerald-600/30 text-emerald-800',
+                  displayBadge.tone === 'not_started' && 'text-muted-foreground',
+                )}
+                data-testid="project-business-state-badge"
+                data-tone={displayBadge.tone}
+              >
+                {displayBadge.text}
+              </Badge>
+            ) : null}
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">当前阶段：{liveStageLabel(project)}</p>
-        </div>
-        {hasExpandable ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="shrink-0 self-start sm:self-center"
-            aria-expanded={open}
-            onClick={() => setOpen((v) => !v)}
+          <p
+            className={cn(
+              'mt-1 text-sm',
+              weakenStage ? 'text-muted-foreground/70' : 'text-muted-foreground',
+            )}
+            data-testid="project-list-stage-line"
+            data-weakened={weakenStage ? 'true' : 'false'}
           >
-            {open ? '收起' : '展开阻塞与待办'}
-            <ChevronDown className={cn('size-4 transition', open && 'rotate-180')} aria-hidden />
-          </Button>
-        ) : null}
+            当前阶段：{liveStageLabel(project)}
+          </p>
+          {restoreError ? (
+            <p className="mt-1 text-sm text-destructive" role="alert">
+              {restoreError}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 self-start sm:self-center">
+          {softArchived ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={restoring}
+              onClick={onRestore}
+              data-testid="project-list-unarchive"
+            >
+              {restoring ? '恢复中…' : '恢复'}
+            </Button>
+          ) : null}
+          {hasExpandable ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-expanded={open}
+              onClick={() => setOpen((v) => !v)}
+            >
+              {open ? '收起' : '展开阻塞与待办'}
+              <ChevronDown className={cn('size-4 transition', open && 'rotate-180')} aria-hidden />
+            </Button>
+          ) : null}
+        </div>
       </div>
       {open && hasExpandable ? (
         <div className="space-y-3 border-t px-4 py-3 text-sm" data-testid="project-list-detail">

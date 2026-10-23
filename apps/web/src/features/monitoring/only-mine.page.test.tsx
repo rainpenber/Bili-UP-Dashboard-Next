@@ -121,7 +121,12 @@ describe('WP-R2-MON-04 onlyMine UI', () => {
     expect(screen.getByText('本人视频')).toBeTruthy();
     const toggle = await screen.findByRole('button', { name: '只看我的' });
     expect(toggle.getAttribute('data-state')).toBe('off');
-    expect(await screen.findByText(/狐正正/)).toBeTruthy();
+    await waitFor(() => {
+      expect(toggle.getAttribute('title')).toBe('只显示 狐正正 的视频');
+    });
+    expect(toggle.getAttribute('aria-description')).toBe('只显示 狐正正 的视频');
+    expect(screen.queryByText(/3493141386627335/)).toBeNull();
+    expect(screen.queryByText(/狐正正 ·/)).toBeNull();
 
     fireEvent.click(toggle);
 

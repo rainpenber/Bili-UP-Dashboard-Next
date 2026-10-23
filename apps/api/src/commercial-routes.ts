@@ -1,4 +1,5 @@
 import {
+  commercialDisplayStateFromSource,
   isCommercialOriginKind,
   isOpenItemActor,
   isOpenItemImpact,
@@ -9,6 +10,7 @@ import {
   isWfNodeKind,
   isWfNodeStatus,
   parseCommercialDefaultTemplate,
+  parseCommercialProjectArchiveResponse,
   parseCommercialProjectDetail,
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
@@ -180,6 +182,8 @@ function toListItem(
   row: ProjectCoreRow,
   openItems: CommercialOpenItemRead[],
 ): CommercialProjectListItem {
+  const source = toSourceSummary(row);
+  const display = commercialDisplayStateFromSource(source);
   return {
     id: row.id,
     name: row.name,
@@ -197,7 +201,9 @@ function toListItem(
     stageEnteredAt: row.stage_entered_at,
     businessClosedAt: row.business_closed_at,
     originKind: originKind(row.origin_kind),
-    source: toSourceSummary(row),
+    source,
+    businessState: display.businessState,
+    originStatusLabel: display.originStatusLabel,
     blockedNodeNames: stageNames(row.blocked_node_names),
     openItems,
   };
@@ -206,6 +212,8 @@ function toListItem(
 type ProjectListQuery = {
   originKind: CommercialOriginKind | null;
   unclassifiedOnly: boolean;
+  /** When false (default), rows with archived_at set are excluded. */
+  includeArchived: boolean;
   limit: number | null;
   offset: number;
 };
@@ -223,6 +231,17 @@ function parseProjectListQuery(
       return { error: 'originKind must be real, fixture, manual, or unclassified' };
     }
     origin = originRaw;
+  }
+  const includeRaw = search.includeArchived;
+  let includeArchived = false;
+  if (includeRaw !== undefined) {
+    if (includeRaw === '1') {
+      includeArchived = true;
+    } else if (includeRaw === '0') {
+      includeArchived = false;
+    } else {
+      return { error: 'includeArchived must be 1 or 0' };
+    }
   }
   const limitRaw = search.limit;
   const offsetRaw = search.offset;
@@ -242,7 +261,7 @@ function parseProjectListQuery(
     }
     offset = parsed;
   }
-  return { originKind: origin, unclassifiedOnly, limit, offset };
+  return { originKind: origin, unclassifiedOnly, includeArchived, limit, offset };
 }
 
 const BLOCKING_REASON_SQL = `
@@ -395,6 +414,7 @@ async function readProjectCores(
 
   const originKindFilter = query?.originKind ?? null;
   const unclassifiedOnly = query?.unclassifiedOnly ?? false;
+  const includeArchived = query?.includeArchived ?? false;
   const limit = query?.limit ?? null;
   const offset = query?.offset ?? 0;
 
@@ -408,6 +428,10 @@ async function readProjectCores(
     AND (
       ${unclassifiedOnly}::boolean = FALSE
       OR p.origin_kind IS NULL
+    )
+    AND (
+      ${includeArchived}::boolean = TRUE
+      OR p.archived_at IS NULL
     )
   `;
   const total = Number(countRow?.c ?? 0);
@@ -465,6 +489,10 @@ async function readProjectCores(
             ${unclassifiedOnly}::boolean = FALSE
             OR p.origin_kind IS NULL
           )
+          AND (
+            ${includeArchived}::boolean = TRUE
+            OR p.archived_at IS NULL
+          )
           ORDER BY p.created_at ASC, p.id ASC
           OFFSET ${offset}
         `
@@ -518,6 +546,10 @@ async function readProjectCores(
           AND (
             ${unclassifiedOnly}::boolean = FALSE
             OR p.origin_kind IS NULL
+          )
+          AND (
+            ${includeArchived}::boolean = TRUE
+            OR p.archived_at IS NULL
           )
           ORDER BY p.created_at ASC, p.id ASC
           LIMIT ${limit}
@@ -686,6 +718,56 @@ export function createCommercialRoutes(db: Sql) {
               },
       };
       return c.json(parseCommercialProjectDetail(detail));
+    } catch (err) {
+      console.error(err);
+      return c.json({ error: 'internal error' }, 500);
+    }
+  });
+
+  /** Soft-delete: set archived_at (idempotent). Does not touch workflow / nodes / source. */
+  app.post('/projects/:projectId/archive', async (c) => {
+    const projectId = c.req.param('projectId');
+    if (!isUuidString(projectId)) return c.json({ error: 'invalid project id' }, 400);
+    try {
+      const rows = await db<{ archived_at: string | null }[]>`
+        UPDATE commercial_projects
+        SET archived_at = COALESCE(archived_at, now())
+        WHERE id = ${projectId}
+        RETURNING to_char(archived_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS archived_at
+      `;
+      const row = rows[0];
+      if (!row) return c.json({ error: 'project not found' }, 404);
+      return c.json(
+        parseCommercialProjectArchiveResponse({
+          id: projectId,
+          archivedAt: row.archived_at,
+        }),
+      );
+    } catch (err) {
+      console.error(err);
+      return c.json({ error: 'internal error' }, 500);
+    }
+  });
+
+  /** Restore soft-delete: clear archived_at (idempotent). */
+  app.post('/projects/:projectId/unarchive', async (c) => {
+    const projectId = c.req.param('projectId');
+    if (!isUuidString(projectId)) return c.json({ error: 'invalid project id' }, 400);
+    try {
+      const rows = await db<{ archived_at: string | null }[]>`
+        UPDATE commercial_projects
+        SET archived_at = NULL
+        WHERE id = ${projectId}
+        RETURNING to_char(archived_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS archived_at
+      `;
+      const row = rows[0];
+      if (!row) return c.json({ error: 'project not found' }, 404);
+      return c.json(
+        parseCommercialProjectArchiveResponse({
+          id: projectId,
+          archivedAt: row.archived_at,
+        }),
+      );
     } catch (err) {
       console.error(err);
       return c.json({ error: 'internal error' }, 500);

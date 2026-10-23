@@ -8,6 +8,7 @@ import {
   parseCommercialDefaultTemplate,
   parseCommercialNodeWriteResponse,
   parseCommercialOpenItemWriteResponse,
+  parseCommercialProjectArchiveResponse,
   parseCommercialProjectDetail,
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
@@ -1524,6 +1525,20 @@ describe('HTTP API coverage against isolated Postgres', () => {
         await expectStatus(await api(`/api/v1/commercial/projects/${projectId}`), 200),
       );
       expect(detail.publish.published).toBe(false);
+      const archived = parseCommercialProjectArchiveResponse(
+        await expectStatus(
+          await api(`/api/v1/commercial/projects/${projectId}/archive`, { method: 'POST' }),
+          200,
+        ),
+      );
+      expect(archived.archivedAt).not.toBeNull();
+      const restored = parseCommercialProjectArchiveResponse(
+        await expectStatus(
+          await api(`/api/v1/commercial/projects/${projectId}/unarchive`, { method: 'POST' }),
+          200,
+        ),
+      );
+      expect(restored.archivedAt).toBeNull();
       let tokens = await loadTokens(projectId);
       expect(tokens.size).toBe(14);
 

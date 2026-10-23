@@ -12,7 +12,11 @@ export const liveCommercialProjectsKey = ['commercial', 'projects'] as const;
 
 export function useLiveCommercialProjectsQuery(params: LiveProjectListParams = {}) {
   return useQuery({
-    queryKey: [...liveCommercialProjectsKey, params.originKind ?? ''] as const,
+    queryKey: [
+      ...liveCommercialProjectsKey,
+      params.originKind ?? '',
+      params.includeArchived ? '1' : '0',
+    ] as const,
     queryFn: () => fetchLiveProjectList(params),
     retry: retryCommercialRead,
     retryDelay: 0,

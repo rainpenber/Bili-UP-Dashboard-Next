@@ -31,6 +31,8 @@ const READ = {
   businessClosedAt: null,
   originKind: 'fixture',
   source: null,
+  businessState: null,
+  originStatusLabel: null,
 };
 
 function openItem(id: string, title: string, extra: Record<string, unknown> = {}) {
@@ -310,7 +312,8 @@ describe('project entry routes', () => {
     const failed = installApi('http500');
     renderAt('/projects');
     expect(await screen.findByText('internal error')).toBeTruthy();
-    await waitFor(() => expect(failed.list).toBe(2));
+    // Active list + includeArchived list each retry once on 500.
+    await waitFor(() => expect(failed.list).toBe(4));
     expect(screen.queryByText('某新能源 SUV 春季种草')).toBeNull();
     expect(screen.queryByText('桌游《夜航船》众筹开箱')).toBeNull();
     cleanup();

@@ -370,11 +370,24 @@ describe('commercial ingress foundation (WP-R2-19A)', () => {
         await app.request('/api/v1/commercial/projects?originKind=fixture&limit=5&offset=0')
       ).json(),
     );
-    expect(fixtures.total).toBeGreaterThanOrEqual(Object.values(FIXTURE_PROJECT_IDS).length);
+    const activeFixtureCount = Object.values(FIXTURE_PROJECT_IDS).length - 1; // archived excluded by default
+    expect(fixtures.total).toBeGreaterThanOrEqual(activeFixtureCount);
     expect(fixtures.limit).toBe(5);
     expect(fixtures.offset).toBe(0);
     expect(fixtures.items.length).toBeLessThanOrEqual(5);
     expect(fixtures.items.every((p) => p.originKind === 'fixture')).toBe(true);
+    expect(fixtures.items.every((p) => p.archivedAt === null)).toBe(true);
+
+    const fixturesWithArchived = parseCommercialProjectList(
+      await (
+        await app.request(
+          '/api/v1/commercial/projects?originKind=fixture&includeArchived=1&limit=5&offset=0',
+        )
+      ).json(),
+    );
+    expect(fixturesWithArchived.total).toBeGreaterThanOrEqual(
+      Object.values(FIXTURE_PROJECT_IDS).length,
+    );
 
     const real = parseCommercialProjectList(
       await (await app.request('/api/v1/commercial/projects?originKind=real')).json(),

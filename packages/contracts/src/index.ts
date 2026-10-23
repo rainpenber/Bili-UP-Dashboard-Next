@@ -15,6 +15,7 @@ export * from './imports';
 export * from './commercial';
 export * from './commercial-write';
 export * from './commercial-ingress';
+export * from './commercial-business-state';
 export * from './ops';
 export * from './ops-records';
 export * from './metadata-refresh';

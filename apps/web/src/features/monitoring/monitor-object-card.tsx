@@ -451,7 +451,12 @@ export function MonitorCardControls({
       data-details-open={detailsOpen ? 'true' : 'false'}
       aria-busy={pending}
     >
-      <div data-testid="monitor-detail-bar" className="flex min-w-0 flex-wrap items-center gap-2">
+      <div
+        role="group"
+        aria-label="详情页监控操作"
+        data-testid="monitor-detail-bar"
+        className="flex min-w-0 flex-wrap items-center gap-2"
+      >
         <button
           type="button"
           className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -466,6 +471,14 @@ export function MonitorCardControls({
         {detailsToggle}
         {showLogsOnBar ? logsLink : null}
         {detailLink}
+        {detailSecondaryOpen ? (
+          <>
+            {settingsButton}
+            {runButton}
+            <ProjectJump projects={card.projects} />
+            {removeControls}
+          </>
+        ) : null}
       </div>
       {failed ? (
         <p data-testid="monitor-last-failure" className="break-words text-xs text-destructive">
@@ -498,19 +511,6 @@ export function MonitorCardControls({
         <p role="alert" className="break-words text-xs text-destructive">
           {error}
         </p>
-      ) : null}
-      {detailSecondaryOpen ? (
-        <div
-          className="flex flex-wrap items-center gap-2"
-          role="group"
-          aria-label="详情页监控操作"
-          data-testid="monitor-detail-secondary-actions"
-        >
-          {settingsButton}
-          {runButton}
-          <ProjectJump projects={card.projects} />
-          {removeControls}
-        </div>
       ) : null}
       {settingsOpen && card.target ? (
         <MonitorSettingsDialog card={card} open={settingsOpen} onOpenChange={setSettingsOpen} />

@@ -8,6 +8,7 @@ import {
   isWfNodeKind,
   isWfNodeStatus,
   parseCommercialDefaultTemplate,
+  parseCommercialProjectArchiveResponse,
   parseCommercialProjectDetail,
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
@@ -243,11 +244,13 @@ describe('commercial read API', () => {
       itemsByProject.set(item.project_id, list);
     }
 
-    expect(body.total).toBe(projects.length);
+    const activeProjects = projects.filter((project) => project.archived_at === null);
+    expect(body.total).toBe(activeProjects.length);
     expect(body.limit).toBeNull();
     expect(body.offset).toBe(0);
-    expect(body.items.map((item) => item.id)).toEqual(projects.map((project) => project.id));
-    for (const [index, project] of projects.entries()) {
+    expect(body.items.map((item) => item.id)).toEqual(activeProjects.map((project) => project.id));
+    expect(body.items.some((item) => item.id === FIXTURE_PROJECT_IDS.archived)).toBe(false);
+    for (const [index, project] of activeProjects.entries()) {
       const item = body.items[index];
       const projectNodes = nodesByProject.get(project.id) ?? [];
       const projectItems = itemsByProject.get(project.id) ?? [];
@@ -274,6 +277,8 @@ describe('commercial read API', () => {
             ? project.origin_kind
             : null,
         source: null,
+        businessState: null,
+        originStatusLabel: null,
         blockedNodeNames: blockedNames(projectNodes),
         openItems: projectItems.map((row) => ({
           id: row.id,
@@ -755,12 +760,204 @@ describe('commercial read API', () => {
     });
     expect(other.openItems.some((item) => item.id === closedId)).toBe(false);
 
-    const list = parseCommercialProjectList(
+    const listDefault = parseCommercialProjectList(
       await (await app.request('/api/v1/commercial/projects')).json(),
     );
-    const listedArchived = list.items.find((item) => item.id === archivedId);
-    const listedOther = list.items.find((item) => item.id === otherId);
-    expect(listedArchived?.openItems.map((item) => item.id)).toEqual([closedId]);
+    expect(listDefault.items.find((item) => item.id === archivedId)).toBeUndefined();
+    const listedOther = listDefault.items.find((item) => item.id === otherId);
     expect(listedOther?.openItems.map((item) => item.id)).toEqual([openId]);
+
+    const listWithArchived = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects?includeArchived=1')).json(),
+    );
+    const listedArchived = listWithArchived.items.find((item) => item.id === archivedId);
+    expect(listedArchived?.openItems.map((item) => item.id)).toEqual([closedId]);
+  });
+
+  test('archive soft-deletes without cascade; unarchive restores; list total matches', async () => {
+    if (!sql || !app) return;
+    const projectId = FIXTURE_PROJECT_IDS.freshInquiryOnly;
+
+    const beforeDefault = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects')).json(),
+    );
+    const beforeAll = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects?includeArchived=1')).json(),
+    );
+    expect(beforeDefault.items.some((item) => item.id === projectId)).toBe(true);
+    expect(beforeAll.total).toBeGreaterThan(beforeDefault.total);
+
+    const [snapshot] = await sql<
+      {
+        name: string;
+        net_amount: string | null;
+        rebate_amount: string | null;
+        overall_stage: string;
+        origin_kind: string | null;
+        node_count: string;
+        source_count: string;
+      }[]
+    >`
+      SELECT
+        p.name,
+        p.net_amount::text AS net_amount,
+        p.rebate_amount::text AS rebate_amount,
+        p.overall_stage,
+        p.origin_kind,
+        (SELECT count(*)::text FROM wf_nodes n WHERE n.project_id = p.id) AS node_count,
+        (SELECT count(*)::text FROM commercial_project_sources s WHERE s.project_id = p.id) AS source_count
+      FROM commercial_projects p
+      WHERE p.id = ${projectId}
+    `;
+    if (!snapshot) throw new Error('fixture project missing');
+
+    const archiveRes = await app.request(`/api/v1/commercial/projects/${projectId}/archive`, {
+      method: 'POST',
+    });
+    expect(archiveRes.status).toBe(200);
+    const archived = parseCommercialProjectArchiveResponse(await archiveRes.json());
+    expect(archived.id).toBe(projectId);
+    expect(archived.archivedAt).not.toBeNull();
+
+    const archiveAgain = parseCommercialProjectArchiveResponse(
+      await (
+        await app.request(`/api/v1/commercial/projects/${projectId}/archive`, { method: 'POST' })
+      ).json(),
+    );
+    expect(archiveAgain.archivedAt).toBe(archived.archivedAt);
+
+    const missing = await app.request(
+      '/api/v1/commercial/projects/00000000-0000-4000-8000-000000000099/archive',
+      { method: 'POST' },
+    );
+    expect(missing.status).toBe(404);
+
+    const afterDefault = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects')).json(),
+    );
+    expect(afterDefault.items.some((item) => item.id === projectId)).toBe(false);
+    expect(afterDefault.total).toBe(beforeDefault.total - 1);
+
+    const afterAll = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects?includeArchived=1')).json(),
+    );
+    expect(afterAll.total).toBe(beforeAll.total);
+    expect(afterAll.items.find((item) => item.id === projectId)?.archivedAt).toBe(
+      archived.archivedAt,
+    );
+
+    const detail = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${projectId}`)).json(),
+    );
+    expect(detail.archivedAt).toBe(archived.archivedAt);
+    expect(detail.name).toBe(snapshot.name);
+    expect(detail.netAmount).toBe(snapshot.net_amount);
+    expect(detail.rebateAmount).toBe(snapshot.rebate_amount);
+    expect(detail.overallStage).toBe(asOverallStage(snapshot.overall_stage));
+
+    const workflow = parseCommercialProjectWorkflow(
+      await (await app.request(`/api/v1/commercial/projects/${projectId}/workflow`)).json(),
+    );
+    expect(String(workflow.nodes.length)).toBe(snapshot.node_count);
+
+    const [afterArchiveRow] = await sql<
+      {
+        overall_stage: string;
+        net_amount: string | null;
+        rebate_amount: string | null;
+        origin_kind: string | null;
+        node_count: string;
+        source_count: string;
+      }[]
+    >`
+      SELECT
+        p.overall_stage,
+        p.net_amount::text AS net_amount,
+        p.rebate_amount::text AS rebate_amount,
+        p.origin_kind,
+        (SELECT count(*)::text FROM wf_nodes n WHERE n.project_id = p.id) AS node_count,
+        (SELECT count(*)::text FROM commercial_project_sources s WHERE s.project_id = p.id) AS source_count
+      FROM commercial_projects p
+      WHERE p.id = ${projectId}
+    `;
+    expect(afterArchiveRow).toMatchObject({
+      overall_stage: snapshot.overall_stage,
+      net_amount: snapshot.net_amount,
+      rebate_amount: snapshot.rebate_amount,
+      origin_kind: snapshot.origin_kind,
+      node_count: snapshot.node_count,
+      source_count: snapshot.source_count,
+    });
+
+    const unarchiveRes = await app.request(`/api/v1/commercial/projects/${projectId}/unarchive`, {
+      method: 'POST',
+    });
+    expect(unarchiveRes.status).toBe(200);
+    const restored = parseCommercialProjectArchiveResponse(await unarchiveRes.json());
+    expect(restored.archivedAt).toBeNull();
+
+    const unarchiveAgain = parseCommercialProjectArchiveResponse(
+      await (
+        await app.request(`/api/v1/commercial/projects/${projectId}/unarchive`, { method: 'POST' })
+      ).json(),
+    );
+    expect(unarchiveAgain.archivedAt).toBeNull();
+
+    const restoredDefault = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects')).json(),
+    );
+    expect(restoredDefault.total).toBe(beforeDefault.total);
+    expect(restoredDefault.items.some((item) => item.id === projectId)).toBe(true);
+
+    const missingUnarchive = await app.request(
+      '/api/v1/commercial/projects/00000000-0000-4000-8000-000000000099/unarchive',
+      { method: 'POST' },
+    );
+    expect(missingUnarchive.status).toBe(404);
+
+    const badQuery = await app.request('/api/v1/commercial/projects?includeArchived=yes');
+    expect(badQuery.status).toBe(400);
+
+    // Real-origin row: same soft-archive path, no cascade.
+    const realId = 'bb100019-0001-4001-8001-000000000019';
+    await sql`
+      INSERT INTO commercial_projects (id, name, net_amount, rebate_amount, overall_stage, origin_kind)
+      VALUES (${realId}, '真实接入软删样例', 9900, 100, 'pre_publish', 'real')
+    `;
+    await sql`
+      INSERT INTO commercial_project_sources (
+        id, project_id, namespace, source_id, origin_kind,
+        source_updated_at, imported_at, payload, content_hash, source_status
+      )
+      VALUES (
+        ${'bb10001a-0001-4001-8001-00000000001a'}, ${realId}, 'hermes.test', 'real-soft-archive-1', 'real',
+        ${'2026-10-01T00:00:00.000Z'}, ${'2026-10-01T00:00:00.000Z'}, '{}'::jsonb, 'hash-real-soft', '2.进行中'
+      )
+    `;
+    const realArchive = parseCommercialProjectArchiveResponse(
+      await (
+        await app.request(`/api/v1/commercial/projects/${realId}/archive`, { method: 'POST' })
+      ).json(),
+    );
+    expect(realArchive.archivedAt).not.toBeNull();
+    const [realRow] = await sql<
+      { origin_kind: string; source_id: string | null; net_amount: string | null }[]
+    >`
+      SELECT p.origin_kind, s.source_id, p.net_amount::text AS net_amount
+      FROM commercial_projects p
+      LEFT JOIN commercial_project_sources s ON s.project_id = p.id
+      WHERE p.id = ${realId}
+    `;
+    expect(realRow).toEqual({
+      origin_kind: 'real',
+      source_id: 'real-soft-archive-1',
+      net_amount: '9900.00',
+    });
+    const realDetail = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${realId}`)).json(),
+    );
+    expect(realDetail.originKind).toBe('real');
+    expect(realDetail.source?.sourceId).toBe('real-soft-archive-1');
+    expect(realDetail.businessState).toBe('active');
   });
 });

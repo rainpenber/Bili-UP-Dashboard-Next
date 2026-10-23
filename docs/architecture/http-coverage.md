@@ -1,8 +1,8 @@
 # HTTP API 覆盖
 
-验收库 `wp_r2_11_cefc7c2ec6e7` 保留，本文件不执行 DROP DATABASE。
+验收库 `wp_r2_11_2d7c41aaf859` 保留，本文件不执行 DROP DATABASE。
 
-注册 64，清单 64，已执行 64，HTTP 成功 64，断言验收 64。
+注册 69，清单 69，已执行 69，HTTP 成功 69，断言验收 69。
 
 验收结论：通过。每一条注册路由都有一次 HTTP 成功响应，且发出该响应的测试断言已通过。
 
@@ -153,6 +153,14 @@
 - monitor-read：HTTP 200（成功响应，断言通过）
 - monitor-read：HTTP 404（拒绝响应，断言通过）
 
+## GET `/api/v1/monitor/creators/:mid/discovery`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- monitor-targets：HTTP 200（成功响应，断言通过）
+
 ## GET `/api/v1/monitor/creators/:mid/metrics`
 
 - 前端调用：有
@@ -161,6 +169,14 @@
 - 断言验收：是
 - monitor-read：HTTP 200（成功响应，断言通过）
 - imports：HTTP 200（成功响应，断言通过）
+
+## GET `/api/v1/monitor/creators/:mid/publish-events`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- monitor-targets：HTTP 200（成功响应，断言通过）
 
 ## GET `/api/v1/monitor/creators/:mid/videos`
 
@@ -449,6 +465,14 @@
 - commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
 
+## POST `/api/v1/commercial/projects/:projectId/archive`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- commercial：HTTP 200（成功响应，断言通过）
+
 ## POST `/api/v1/commercial/projects/:projectId/nodes/:nodeId/advance`
 
 - 前端调用：无
@@ -570,6 +594,14 @@
 - 断言验收：是
 - commercial：HTTP 200（成功响应，断言通过）
 
+## POST `/api/v1/commercial/projects/:projectId/unarchive`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- commercial：HTTP 200（成功响应，断言通过）
+
 ## POST `/api/v1/imports/csv`
 
 - 前端调用：无
@@ -645,6 +677,15 @@
 - 断言验收：是
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 - metadata-refresh：HTTP 404（拒绝响应，断言通过）
+
+## PUT `/api/v1/monitor/creators/:mid/discovery`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- monitor-targets：HTTP 200（成功响应，断言通过）
+- monitor-targets：HTTP 200（成功响应，断言通过）
 
 ## PUT `/api/v1/monitor/settings/owner-account`
 

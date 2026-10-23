@@ -226,12 +226,16 @@ describe('video grid card', () => {
         <RouterProvider router={router} />
       </QueryClientProvider>,
     );
-    const secondary = screen.getByTestId('monitor-detail-secondary-actions');
-    expect(within(secondary).getByRole('button', { name: '监控设置' })).toBeTruthy();
-    expect(within(secondary).getByRole('button', { name: '立即采集' })).toBeTruthy();
-    expect(within(secondary).getByRole('button', { name: '移除' })).toBeTruthy();
-    expect(within(secondary).getByRole('link', { name: '进入商单' })).toBeTruthy();
-    expect(screen.getByRole('link', { name: '查看日志' })).toBeTruthy();
+    const actions = screen.getByTestId('monitor-detail-bar');
+    expect(actions.getAttribute('role')).toBe('group');
+    expect(within(actions).getByRole('button', { name: '监控设置' })).toBeTruthy();
+    expect(within(actions).getByRole('button', { name: '立即采集' })).toBeTruthy();
+    expect(within(actions).getByRole('button', { name: '移除' })).toBeTruthy();
+    expect(within(actions).getByRole('link', { name: '进入商单' })).toBeTruthy();
+    expect(within(actions).getByRole('link', { name: '查看日志' })).toBeTruthy();
+    expect(within(actions).getByRole('button', { name: /监控状态/ })).toBeTruthy();
+    expect(screen.queryByTestId('monitor-detail-secondary-actions')).toBeNull();
     expect(screen.queryByRole('button', { name: '更多' })).toBeNull();
+    expect(screen.getAllByRole('group', { name: '详情页监控操作' })).toHaveLength(1);
   });
 });
