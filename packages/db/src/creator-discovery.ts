@@ -29,6 +29,7 @@ export type CreatorDiscoveryConfigRow = {
 };
 
 export type CreatorPublishEventKind = 'video' | 'dynamic';
+export type CreatorPublishEventSource = 'bilibili' | 'manual';
 
 export type CreatorPublishEventRow = {
   id: string;
@@ -38,7 +39,7 @@ export type CreatorPublishEventRow = {
   publishedAt: Date;
   titleSnapshot: string;
   firstDiscoveredAt: Date;
-  source: 'bilibili';
+  source: CreatorPublishEventSource;
   monitoredTargetId: string | null;
   createdAt: Date;
 };
@@ -85,7 +86,7 @@ type EventSqlRow = {
   published_at: Date;
   title_snapshot: string;
   first_discovered_at: Date;
-  source: 'bilibili';
+  source: CreatorPublishEventSource;
   monitored_target_id: string | null;
   created_at: Date;
 };
@@ -448,8 +449,10 @@ export async function insertCreatorPublishEvent(
     titleSnapshot: string;
     firstDiscoveredAt: Date;
     monitoredTargetId?: string | null;
+    source?: CreatorPublishEventSource;
   },
 ): Promise<{ event: CreatorPublishEventRow; created: boolean }> {
+  const source = input.source ?? 'bilibili';
   const inserted = await sql<EventSqlRow[]>`
     INSERT INTO creator_publish_events (
       id, mid, event_kind, external_id, published_at, title_snapshot,
@@ -462,10 +465,10 @@ export async function insertCreatorPublishEvent(
       ${input.publishedAt},
       ${input.titleSnapshot},
       ${input.firstDiscoveredAt},
-      'bilibili',
+      ${source},
       ${input.monitoredTargetId ?? null}
     )
-    ON CONFLICT (event_kind, external_id) DO NOTHING
+    ON CONFLICT (mid, event_kind, external_id) DO NOTHING
     RETURNING
       id, mid, event_kind, external_id, published_at, title_snapshot,
       first_discovered_at, source, monitored_target_id, created_at
@@ -476,7 +479,8 @@ export async function insertCreatorPublishEvent(
       id, mid, event_kind, external_id, published_at, title_snapshot,
       first_discovered_at, source, monitored_target_id, created_at
     FROM creator_publish_events
-    WHERE event_kind = ${input.eventKind}
+    WHERE mid = ${input.mid}
+      AND event_kind = ${input.eventKind}
       AND external_id = ${input.externalId}
   `;
   const row = existing[0];
@@ -486,15 +490,70 @@ export async function insertCreatorPublishEvent(
 
 export async function linkPublishEventTarget(
   sql: Queryable,
-  input: { eventKind: CreatorPublishEventKind; externalId: string; targetId: string },
+  input: {
+    mid: string;
+    eventKind: CreatorPublishEventKind;
+    externalId: string;
+    targetId: string;
+  },
 ): Promise<void> {
   await sql`
     UPDATE creator_publish_events
     SET monitored_target_id = ${input.targetId}::uuid
-    WHERE event_kind = ${input.eventKind}
+    WHERE mid = ${input.mid}
+      AND event_kind = ${input.eventKind}
       AND external_id = ${input.externalId}
       AND monitored_target_id IS NULL
   `;
+}
+
+export async function getCreatorPublishEventById(
+  sql: Queryable,
+  input: { mid: string; eventId: string },
+): Promise<CreatorPublishEventRow | null> {
+  const rows = await sql<EventSqlRow[]>`
+    SELECT
+      id, mid, event_kind, external_id, published_at, title_snapshot,
+      first_discovered_at, source, monitored_target_id, created_at
+    FROM creator_publish_events
+    WHERE mid = ${input.mid}
+      AND id = ${input.eventId}::uuid
+    LIMIT 1
+  `;
+  const row = rows[0];
+  return row ? mapEvent(row) : null;
+}
+
+export async function deleteManualCreatorPublishEvent(
+  sql: Queryable,
+  input: { mid: string; eventId: string },
+): Promise<'deleted' | 'not_found' | 'manual_only'> {
+  const existing = await getCreatorPublishEventById(sql, input);
+  if (!existing) return 'not_found';
+  if (existing.source !== 'manual') return 'manual_only';
+  await sql`
+    DELETE FROM creator_publish_events
+    WHERE mid = ${input.mid}
+      AND id = ${input.eventId}::uuid
+      AND source = 'manual'
+  `;
+  return 'deleted';
+}
+
+export async function findActivePublishMonitorTargetId(
+  sql: Queryable,
+  input: { eventKind: CreatorPublishEventKind; externalId: string },
+): Promise<string | null> {
+  const type = input.eventKind;
+  const rows = await sql<{ id: string }[]>`
+    SELECT id::text AS id
+    FROM monitor_targets
+    WHERE "type" = ${type}
+      AND external_id = ${input.externalId}
+      AND deleted_at IS NULL
+    LIMIT 1
+  `;
+  return rows[0]?.id ?? null;
 }
 
 export async function listCreatorPublishEvents(

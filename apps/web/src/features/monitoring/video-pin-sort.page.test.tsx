@@ -159,6 +159,11 @@ describe('WP-R2-MON-01 video pin + sort UI', () => {
                 deletedAt: null,
                 pinned: false,
                 target: null,
+                authorName: null,
+                publishedAt: null,
+                textSummary: null,
+                targetLabel: null,
+                displayTitle: '966692349750018048',
                 latestMetrics: {
                   sampledAt: null,
                   likeCount: null,

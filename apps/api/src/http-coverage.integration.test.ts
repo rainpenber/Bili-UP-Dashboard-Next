@@ -627,6 +627,51 @@ describe('HTTP API coverage against isolated Postgres', () => {
       )) as { items: unknown[]; totalItems: number };
       expect(publishEvents.totalItems).toBe(0);
       expect(Array.isArray(publishEvents.items)).toBe(true);
+      const manualCreated = (await expectStatus(
+        await api(
+          '/api/v1/monitor/creators/240240/publish-events',
+          json('POST', {
+            eventKind: 'dynamic',
+            externalId: '1241488471951933462',
+            publishedAt: '2026-08-28T13:29:00+08:00',
+            title: '抽PS5和GTA6啦!',
+          }),
+        ),
+        200,
+      )) as {
+        created: boolean;
+        event: { id: string; source: string };
+        monitored: boolean;
+      };
+      expect(manualCreated.created).toBe(true);
+      expect(manualCreated.event.source).toBe('manual');
+      const manualAgain = (await expectStatus(
+        await api(
+          '/api/v1/monitor/creators/240240/publish-events',
+          json('POST', {
+            eventKind: 'dynamic',
+            externalId: '1241488471951933462',
+            publishedAt: '2026-08-28T13:29:00+08:00',
+            title: '应忽略',
+          }),
+        ),
+        200,
+      )) as { created: boolean; event: { id: string; titleSnapshot: string } };
+      expect(manualAgain.created).toBe(false);
+      expect(manualAgain.event.id).toBe(manualCreated.event.id);
+      expect(manualAgain.event.titleSnapshot).toBe('抽PS5和GTA6啦!');
+      await expectStatus(
+        await api(`/api/v1/monitor/creators/240240/publish-events/${manualCreated.event.id}`, {
+          method: 'DELETE',
+        }),
+        204,
+      );
+      await expectStatus(
+        await api(`/api/v1/monitor/creators/240240/publish-events/${manualCreated.event.id}`, {
+          method: 'DELETE',
+        }),
+        404,
+      );
       await expectStatus(
         await api(
           '/api/v1/monitor/creators/240240/discovery',

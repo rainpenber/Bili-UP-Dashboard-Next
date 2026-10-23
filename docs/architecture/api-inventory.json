@@ -2,8 +2,8 @@
   "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
   "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 72,
-  "wiredRouteCount": 50,
+  "apiRouteCount": 74,
+  "wiredRouteCount": 52,
   "unwiredImplementedRouteCount": 22,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes and registerCommercialIngressRoutes add fixed POST/GET lists.",
@@ -1085,7 +1085,7 @@
       "path": "/api/v1/monitor/creators/:mid/publish-events",
       "mountPrefix": "/api/v1/monitor",
       "sourceFile": "apps/api/src/creator-discovery-routes.ts",
-      "sourceLine": 90,
+      "sourceLine": 134,
       "registration": "registerCreatorDiscoveryRoutes",
       "readWrite": "read",
       "area": "monitor",
@@ -1099,8 +1099,52 @@
         }
       ],
       "wired": true,
-      "notes": "Fan-chart event markers. Ascending published_at. UTC storage, Beijing display on client.",
+      "notes": "Fan-chart event markers. Ascending published_at. UTC storage, Beijing display on client. source is bilibili|manual.",
       "query": "from, to, page, pageSize",
+      "storedEntity": "creator_publish_events"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/creators/:mid/publish-events",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/creator-discovery-routes.ts",
+      "sourceLine": 178,
+      "registration": "registerCreatorDiscoveryRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/creator-discovery.ts#parseManualPublishEventCreateRequest",
+      "responseContract": "packages/contracts/src/creator-discovery.ts#parseManualPublishEventCreateResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "createManualPublishEvent",
+          "evidence": "/creators/${encodeURIComponent(mid)}/publish-events"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-R2-26A manual fan-chart marker. Dedup (mid, event_kind, external_id). source=manual. Requires owned creator target. Audit publish_event.manual.create.",
+      "storedEntity": "creator_publish_events"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/monitor/creators/:mid/publish-events/:eventId",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/creator-discovery-routes.ts",
+      "sourceLine": 236,
+      "registration": "registerCreatorDiscoveryRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": null,
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "deleteManualPublishEvent",
+          "evidence": "/creators/${encodeURIComponent(mid)}/publish-events/${encodeURIComponent(eventId)}"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-R2-26A. Only source=manual (409 manual_only otherwise). 404 when missing. Audit publish_event.manual.delete. 204 on success.",
       "storedEntity": "creator_publish_events"
     },
     {

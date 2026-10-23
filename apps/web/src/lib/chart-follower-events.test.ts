@@ -62,7 +62,11 @@ describe('aggregateFollowerEvents', () => {
     ]);
     expect(buckets.size).toBe(1);
     const bucket = buckets.get(1);
-    expect(bucket?.labels).toEqual(['发布了视频《新片》', '发了动态', '发布了视频《另一片》']);
+    expect(bucket?.labels).toEqual([
+      '发布了视频《新片》',
+      '发了动态《动态正文》',
+      '发布了视频《另一片》',
+    ]);
     // First navigable video wins; unmonitored dynamic must not overwrite.
     expect(bucket?.navigableExternalId).toBe('BV1aa411c7mA');
   });
@@ -84,7 +88,7 @@ describe('aggregateFollowerEvents', () => {
       }),
     ]);
     expect(buckets.get(1)?.navigableExternalId).toBeNull();
-    expect(buckets.get(1)?.labels).toEqual(['发布了视频《未监控》', '发了动态']);
+    expect(buckets.get(1)?.labels).toEqual(['发布了视频《未监控》', '发了动态《标题》']);
   });
 });
 
@@ -131,7 +135,10 @@ describe('buildFollowerOption publish scatter', () => {
     expect(publish?.animation).toBe(false);
     expect(publish?.data).toHaveLength(1);
     expect(publish?.data?.[0]?.value).toEqual([1, 110]);
-    expect(publish?.data?.[0]?.eventLabels).toEqual(['发布了视频《聚合视频》', '发了动态']);
+    expect(publish?.data?.[0]?.eventLabels).toEqual([
+      '发布了视频《聚合视频》',
+      '发了动态《标题》',
+    ]);
     expect(publish?.data?.[0]?.navigableExternalId).toBe('BV1dd411c7mD');
   });
 });

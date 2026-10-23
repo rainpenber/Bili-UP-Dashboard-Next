@@ -121,6 +121,7 @@ export async function applyDiscoveryRound(
         if (config.monitorNewVideos) {
           if (existingTargetId) {
             await linkPublishEventTarget(sql, {
+              mid: config.mid,
               eventKind: 'video',
               externalId: video.bvid,
               targetId: existingTargetId,
@@ -145,6 +146,7 @@ export async function applyDiscoveryRound(
               });
             }
             await linkPublishEventTarget(sql, {
+              mid: config.mid,
               eventKind: 'video',
               externalId: video.bvid,
               targetId: created.target.id,

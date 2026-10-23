@@ -1,5 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ManualPublishEventCreateRequest } from '@studio/contracts';
 import {
+  createManualPublishEvent,
+  deleteManualPublishEvent,
   fetchCreator,
   fetchCreatorMetrics,
   fetchCreatorPublishEvents,
@@ -103,6 +106,23 @@ export function useCreatorPublishEventsQuery(mid: string) {
     queryFn: () => fetchCreatorPublishEvents(mid),
     enabled: Boolean(mid),
   });
+}
+
+export function useManualPublishEventMutations(mid: string) {
+  const client = useQueryClient();
+  const invalidate = async () => {
+    await client.invalidateQueries({ queryKey: ['monitor', 'creator-publish-events', mid] });
+  };
+  return {
+    create: useMutation({
+      mutationFn: (body: ManualPublishEventCreateRequest) => createManualPublishEvent(mid, body),
+      onSuccess: invalidate,
+    }),
+    remove: useMutation({
+      mutationFn: (eventId: string) => deleteManualPublishEvent(mid, eventId),
+      onSuccess: invalidate,
+    }),
+  };
 }
 
 export function useDynamicMetricsDetailQuery(dynamicId: string) {

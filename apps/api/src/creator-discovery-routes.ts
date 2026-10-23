@@ -4,16 +4,23 @@ import {
   parseCreatorDiscoveryConfigPutRequest,
   parseCreatorMid,
   parseCreatorPublishEventList,
+  parseManualPublishEventCreateRequest,
+  parsePublishEventId,
   parsePublishEventsQuery,
   type CreatorDiscoveryConfig,
   type CreatorPublishEvent,
+  type ManualPublishEventCreateResponse,
 } from '@studio/contracts';
 import {
   defaultCreatorDiscoveryConfig,
+  deleteManualCreatorPublishEvent,
+  findActivePublishMonitorTargetId,
   findMonitorTargetByIdentity,
   getCreatorDiscoveryConfig,
+  insertCreatorPublishEvent,
   listCreatorPublishEvents,
   upsertCreatorDiscoveryConfig,
+  type CreatorPublishEventRow,
   type Sql,
 } from '@studio/db';
 import { Hono } from 'hono';
@@ -36,11 +43,53 @@ function toConfigDto(
   });
 }
 
+function toEventDto(
+  event: CreatorPublishEventRow,
+  monitoredTargetId: string | null,
+): CreatorPublishEvent {
+  const monitored = monitoredTargetId !== null;
+  const navigable = event.eventKind === 'video' && monitored;
+  return {
+    id: event.id,
+    mid: event.mid,
+    eventKind: event.eventKind,
+    externalId: event.externalId,
+    publishedAt: event.publishedAt.toISOString(),
+    titleSnapshot: event.titleSnapshot,
+    firstDiscoveredAt: event.firstDiscoveredAt.toISOString(),
+    source: event.source,
+    monitored,
+    monitoredTargetId,
+    navigable,
+  };
+}
+
 async function assertCreatorTargetOwned(sql: Sql, mid: string): Promise<void> {
   const target = await findMonitorTargetByIdentity(sql, 'creator', mid);
   if (!target || target.deletedAt) {
     throw new MonitorContractError('forbidden', '只能配置已监控的 UP 主发现选项');
   }
+}
+
+async function writePublishEventAudit(
+  sql: Sql,
+  input: {
+    entityId: string | null;
+    action: 'publish_event.manual.create' | 'publish_event.manual.delete';
+    detail: Record<string, unknown>;
+  },
+): Promise<void> {
+  await sql`
+    INSERT INTO domain_audit_events (project_id, entity_type, entity_id, action, detail, source)
+    VALUES (
+      NULL,
+      'creator_publish_event',
+      ${input.entityId}::uuid,
+      ${input.action},
+      ${sql.json(input.detail)},
+      'web'
+    )
+  `;
 }
 
 export function registerCreatorDiscoveryRoutes(app: Hono, sql: Sql): void {
@@ -105,28 +154,108 @@ export function registerCreatorDiscoveryRoutes(app: Hono, sql: Sql): void {
         pageSize: query.pageSize,
         totalItems,
         totalPages,
-        items: items.map((event): CreatorPublishEvent => {
-          const monitored = event.monitoredTargetId !== null;
-          const navigable = event.eventKind === 'video' && monitored;
-          return {
-            id: event.id,
-            mid: event.mid,
-            eventKind: event.eventKind,
-            externalId: event.externalId,
-            publishedAt: event.publishedAt.toISOString(),
-            titleSnapshot: event.titleSnapshot,
-            firstDiscoveredAt: event.firstDiscoveredAt.toISOString(),
-            source: 'bilibili',
-            monitored,
-            monitoredTargetId: event.monitoredTargetId,
-            navigable,
-          };
-        }),
+        items: await Promise.all(
+          items.map(async (event): Promise<CreatorPublishEvent> => {
+            const liveTargetId =
+              event.monitoredTargetId ??
+              (await findActivePublishMonitorTargetId(sql, {
+                eventKind: event.eventKind,
+                externalId: event.externalId,
+              }));
+            return toEventDto(event, liveTargetId);
+          }),
+        ),
       });
       return c.json(payload);
     } catch (err) {
       if (err instanceof MonitorContractError) {
         return c.json({ error: err.message, code: err.code }, 400);
+      }
+      return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
+    }
+  });
+
+  app.post('/creators/:mid/publish-events', async (c) => {
+    try {
+      const mid = parseCreatorMid(c.req.param('mid'));
+      await assertCreatorTargetOwned(sql, mid);
+      const now = new Date();
+      const body = parseManualPublishEventCreateRequest(await c.req.json(), now);
+      const monitoredTargetId = await findActivePublishMonitorTargetId(sql, {
+        eventKind: body.eventKind,
+        externalId: body.externalId,
+      });
+      const { event, created } = await insertCreatorPublishEvent(sql, {
+        id: crypto.randomUUID(),
+        mid,
+        eventKind: body.eventKind,
+        externalId: body.externalId,
+        publishedAt: new Date(body.publishedAt),
+        titleSnapshot: body.title?.trim() || (body.eventKind === 'dynamic' ? '动态' : body.externalId),
+        firstDiscoveredAt: now,
+        monitoredTargetId,
+        source: 'manual',
+      });
+      if (created) {
+        await writePublishEventAudit(sql, {
+          entityId: event.id,
+          action: 'publish_event.manual.create',
+          detail: {
+            mid,
+            eventKind: event.eventKind,
+            externalId: event.externalId,
+            publishedAt: event.publishedAt.toISOString(),
+            titleSnapshot: event.titleSnapshot,
+            monitoredTargetId: event.monitoredTargetId,
+          },
+        });
+      }
+      const resolvedTargetId =
+        event.monitoredTargetId ??
+        monitoredTargetId ??
+        (await findActivePublishMonitorTargetId(sql, {
+          eventKind: event.eventKind,
+          externalId: event.externalId,
+        }));
+      const dto = toEventDto(event, resolvedTargetId);
+      const response: ManualPublishEventCreateResponse = {
+        created,
+        event: dto,
+        monitored: dto.monitored,
+        monitoredTargetId: dto.monitoredTargetId,
+      };
+      return c.json(response, 200);
+    } catch (err) {
+      if (err instanceof MonitorContractError) {
+        const status = err.code === 'forbidden' ? 403 : 400;
+        return c.json({ error: err.message, code: err.code }, status);
+      }
+      return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
+    }
+  });
+
+  app.delete('/creators/:mid/publish-events/:eventId', async (c) => {
+    try {
+      const mid = parseCreatorMid(c.req.param('mid'));
+      await assertCreatorTargetOwned(sql, mid);
+      const eventId = parsePublishEventId(c.req.param('eventId'));
+      const result = await deleteManualCreatorPublishEvent(sql, { mid, eventId });
+      if (result === 'not_found') {
+        return c.json({ error: '发布事件不存在', code: 'not_found' }, 404);
+      }
+      if (result === 'manual_only') {
+        return c.json({ error: '只能删除手动标记的发布事件', code: 'manual_only' }, 409);
+      }
+      await writePublishEventAudit(sql, {
+        entityId: eventId,
+        action: 'publish_event.manual.delete',
+        detail: { mid, eventId },
+      });
+      return c.body(null, 204);
+    } catch (err) {
+      if (err instanceof MonitorContractError) {
+        const status = err.code === 'forbidden' ? 403 : 400;
+        return c.json({ error: err.message, code: err.code }, status);
       }
       return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
     }

@@ -2,8 +2,18 @@ import { parseCreatorMid, parseMonitorPage, parseMonitorPageSize, type Paginated
 import { MonitorContractError } from './monitor-targets';
 
 export type CreatorPublishEventKind = 'video' | 'dynamic';
+export type CreatorPublishEventSource = 'bilibili' | 'manual';
 
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const PUBLISHED_AT_WITH_ZONE =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+const VIDEO_EXTERNAL_ID = /^BV[1-9A-HJ-NP-Za-km-z]{10}$/;
+const DYNAMIC_EXTERNAL_ID = /^[1-9]\d*$/;
+const EVENT_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_TITLE = 200;
+/** Allow a small clock skew when clients stamp "now". */
+export const MANUAL_PUBLISH_EVENT_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 export type CreatorDiscoveryConfig = {
   mid: string;
@@ -34,11 +44,25 @@ export type CreatorPublishEvent = {
   publishedAt: string;
   titleSnapshot: string;
   firstDiscoveredAt: string;
-  source: 'bilibili';
+  source: CreatorPublishEventSource;
   monitored: boolean;
   monitoredTargetId: string | null;
   /** True when the event is a monitored video and the UI may navigate to its detail. */
   navigable: boolean;
+};
+
+export type ManualPublishEventCreateRequest = {
+  eventKind: CreatorPublishEventKind;
+  externalId: string;
+  publishedAt: string;
+  title?: string;
+};
+
+export type ManualPublishEventCreateResponse = {
+  created: boolean;
+  event: CreatorPublishEvent;
+  monitored: boolean;
+  monitoredTargetId: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -75,6 +99,105 @@ function asIso(value: unknown, field: string): string {
 function asNullableIso(value: unknown, field: string): string | null {
   if (value === null) return null;
   return asIso(value, field);
+}
+
+function assertCivilDate(year: number, month: number, day: number): void {
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    throw new MonitorContractError('invalid_body', 'publishedAt 不是合法日历日期');
+  }
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (
+    probe.getUTCFullYear() !== year ||
+    probe.getUTCMonth() !== month - 1 ||
+    probe.getUTCDate() !== day
+  ) {
+    throw new MonitorContractError('invalid_body', 'publishedAt 不是合法日历日期');
+  }
+}
+
+function assertCivilTime(hour: number, minute: number, second: number): void {
+  if (hour > 23 || minute > 59 || second > 59) {
+    throw new MonitorContractError('invalid_body', 'publishedAt 不是合法时间');
+  }
+}
+
+export function parsePublishEventExternalId(
+  eventKind: CreatorPublishEventKind,
+  raw: string,
+): string {
+  const externalId = raw.trim();
+  if (eventKind === 'video') {
+    if (!VIDEO_EXTERNAL_ID.test(externalId)) {
+      throw new MonitorContractError('invalid_body', '视频 externalId 必须是合法 BV 号');
+    }
+    return externalId;
+  }
+  if (!DYNAMIC_EXTERNAL_ID.test(externalId)) {
+    throw new MonitorContractError('invalid_body', '动态 externalId 必须是十进制整数字符串');
+  }
+  return externalId;
+}
+
+export function parsePublishEventId(raw: string): string {
+  const id = raw.trim();
+  if (!EVENT_ID.test(id)) {
+    throw new MonitorContractError('invalid_body', 'eventId 非法');
+  }
+  return id;
+}
+
+/** publishedAt must carry an explicit timezone and must not be > now + 5 minutes. */
+export function parseManualPublishedAt(value: unknown, now = new Date()): string {
+  if (typeof value !== 'string') {
+    throw new MonitorContractError('invalid_body', 'publishedAt 必须是带时区的完整时间');
+  }
+  const raw = value.trim();
+  const matched = PUBLISHED_AT_WITH_ZONE.exec(raw);
+  if (!matched) {
+    throw new MonitorContractError(
+      'invalid_body',
+      'publishedAt 必须是带明确时区的完整时间（例如 2026-08-28T13:29:00+08:00）',
+    );
+  }
+  assertCivilDate(Number(matched[1]), Number(matched[2]), Number(matched[3]));
+  assertCivilTime(Number(matched[4]), Number(matched[5]), Number(matched[6]));
+  const ms = Date.parse(raw);
+  if (Number.isNaN(ms)) {
+    throw new MonitorContractError('invalid_body', 'publishedAt 必须是合法时间');
+  }
+  if (ms > now.getTime() + MANUAL_PUBLISH_EVENT_FUTURE_SKEW_MS) {
+    throw new MonitorContractError('invalid_body', 'publishedAt 不能晚于当前时间 5 分钟以上');
+  }
+  return new Date(ms).toISOString();
+}
+
+export function parseManualPublishEventCreateRequest(
+  value: unknown,
+  now = new Date(),
+): ManualPublishEventCreateRequest {
+  if (!isRecord(value)) {
+    throw new MonitorContractError('invalid_body', '请求体必须是对象');
+  }
+  for (const key of Object.keys(value)) {
+    if (key !== 'eventKind' && key !== 'externalId' && key !== 'publishedAt' && key !== 'title') {
+      throw new MonitorContractError('invalid_body', `不能识别的字段 ${key}`);
+    }
+  }
+  const eventKindRaw = asString(value.eventKind, 'eventKind');
+  if (eventKindRaw !== 'video' && eventKindRaw !== 'dynamic') {
+    throw new MonitorContractError('invalid_body', 'eventKind 非法');
+  }
+  const externalId = parsePublishEventExternalId(eventKindRaw, asString(value.externalId, 'externalId'));
+  const publishedAt = parseManualPublishedAt(value.publishedAt, now);
+  let title: string | undefined;
+  if (value.title !== undefined) {
+    const rawTitle = asString(value.title, 'title').trim();
+    if (rawTitle.length > MAX_TITLE) {
+      throw new MonitorContractError('invalid_body', `title 最长 ${MAX_TITLE} 字`);
+    }
+    title = rawTitle;
+  }
+  return { eventKind: eventKindRaw, externalId, publishedAt, title };
 }
 
 export function parseCreatorDiscoveryConfigPutRequest(
@@ -139,6 +262,11 @@ export function parseCreatorDiscoveryConfig(value: unknown): CreatorDiscoveryCon
   };
 }
 
+function parsePublishEventSource(value: unknown): CreatorPublishEventSource {
+  if (value === 'bilibili' || value === 'manual') return value;
+  throw new MonitorContractError('invalid_body', 'source 非法');
+}
+
 export function parseCreatorPublishEvent(value: unknown): CreatorPublishEvent {
   if (!isRecord(value)) {
     throw new MonitorContractError('invalid_body', '发布事件必须是对象');
@@ -161,7 +289,7 @@ export function parseCreatorPublishEvent(value: unknown): CreatorPublishEvent {
     publishedAt: asIso(value.publishedAt, 'publishedAt'),
     titleSnapshot: asString(value.titleSnapshot, 'titleSnapshot'),
     firstDiscoveredAt: asIso(value.firstDiscoveredAt, 'firstDiscoveredAt'),
-    source: 'bilibili',
+    source: parsePublishEventSource(value.source),
     monitored,
     monitoredTargetId,
     navigable,
@@ -204,6 +332,22 @@ export function parseCreatorPublishEventList(value: unknown): Paginated<CreatorP
     })(),
     items: value.items.map(parseCreatorPublishEvent),
   };
+}
+
+export function parseManualPublishEventCreateResponse(
+  value: unknown,
+): ManualPublishEventCreateResponse {
+  if (!isRecord(value)) {
+    throw new MonitorContractError('invalid_body', '手动发布事件响应必须是对象');
+  }
+  const event = parseCreatorPublishEvent(value.event);
+  const created = asBoolean(value.created, 'created');
+  const monitored = asBoolean(value.monitored, 'monitored');
+  const monitoredTargetId = asNullableString(value.monitoredTargetId, 'monitoredTargetId');
+  if (monitored !== event.monitored || monitoredTargetId !== event.monitoredTargetId) {
+    throw new MonitorContractError('invalid_body', 'monitored 与 event 不一致');
+  }
+  return { created, event, monitored, monitoredTargetId };
 }
 
 export function parsePublishEventsQuery(search: URLSearchParams): {

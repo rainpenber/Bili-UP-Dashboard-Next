@@ -219,10 +219,9 @@ export function aggregateFollowerEvents(
   const buckets = new Map<number, { labels: string[]; navigableExternalId: string | null }>();
   for (const event of events) {
     const idx = nearestSampleIndex(sampledAtList, event.publishedAt);
+    const title = event.titleSnapshot?.trim() || event.externalId;
     const label =
-      event.eventKind === 'video'
-        ? `发布了视频《${event.titleSnapshot || event.externalId}》`
-        : '发了动态';
+      event.eventKind === 'video' ? `发布了视频《${title}》` : `发了动态《${title}》`;
     const existing = buckets.get(idx) ?? { labels: [], navigableExternalId: null };
     existing.labels.push(label);
     if (event.navigable && event.externalId && !existing.navigableExternalId) {

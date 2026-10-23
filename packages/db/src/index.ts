@@ -51,9 +51,12 @@ export {
 export {
   DISCOVERY_AUTO_CREATE_LIMIT,
   defaultCreatorDiscoveryConfig,
+  deleteManualCreatorPublishEvent,
   ensureVideoDenseCollectPlan,
+  findActivePublishMonitorTargetId,
   findActiveVideoTargetId,
   getCreatorDiscoveryConfig,
+  getCreatorPublishEventById,
   getVideoDenseCollectPlan,
   insertCreatorPublishEvent,
   linkPublishEventTarget,
@@ -65,6 +68,7 @@ export {
   type CreatorDiscoveryConfigRow,
   type CreatorPublishEventKind,
   type CreatorPublishEventRow,
+  type CreatorPublishEventSource,
   type DenseCollectPhase,
   type VideoDenseCollectPlanRow,
 } from './creator-discovery';

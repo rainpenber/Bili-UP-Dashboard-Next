@@ -1,5 +1,7 @@
 import {
   bigintToJson,
+  dynamicTextSummaryFromMetadata,
+  formatDynamicDisplayTitle,
   MonitorContractError,
   parseCreatorMid,
   parseCreatorMidParam,
@@ -247,6 +249,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
         title: string | null;
         category: string | null;
         mid: bigint | null;
+        pubdate: Date | null;
         monitoring_enabled: boolean;
         archived_at: Date | null;
         deleted_at: Date | null;
@@ -263,7 +266,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
         follower_sampled_at: Date | null;
       }[]
     >`
-      SELECT v.bvid, v.title, v.category, v.mid, v.monitoring_enabled, v.archived_at, v.deleted_at,
+      SELECT v.bvid, v.title, v.category, v.mid, v.pubdate, v.monitoring_enabled, v.archived_at, v.deleted_at,
         v.cover_asset_id, v.tid, v.tid_v2,
         ${db.unsafe(VIDEO_PARTITION_NAME_SQL)} AS partition_name,
         v.metadata,
@@ -303,6 +306,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
       title: row.title,
       category: row.category,
       mid: row.mid != null ? bigintToJson(row.mid) : null,
+      pubdate: row.pubdate?.toISOString() ?? null,
       monitoringEnabled: row.monitoring_enabled,
       archivedAt: row.archived_at?.toISOString() ?? null,
       deletedAt: row.deleted_at?.toISOString() ?? null,
@@ -655,6 +659,10 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
           archived_at: Date | null;
           deleted_at: Date | null;
           pinned_at: Date | null;
+          author_name: string | null;
+          published_at: string | null;
+          text_raw: string | null;
+          target_label: string | null;
           sampled_at: Date | null;
           like_count: bigint | null;
           repost_count: bigint | null;
@@ -669,6 +677,10 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
       >`
         SELECT d.dynamic_id, d.mid, d.category, d.monitoring_enabled, d.archived_at, d.deleted_at,
           d.pinned_at,
+          NULLIF(BTRIM(d.metadata->>'author_name'), '') AS author_name,
+          NULLIF(BTRIM(d.metadata->>'published_at'), '') AS published_at,
+          NULLIF(BTRIM(d.metadata->>'text'), '') AS text_raw,
+          NULLIF(BTRIM(t.label), '') AS target_label,
           m.sampled_at, m.like_count, m.repost_count, m.comment_count,
           t.id::text AS target_id, t.enabled AS target_enabled,
           t.interval_minutes AS target_interval_minutes, t.interval_mode AS target_interval_mode,
@@ -687,22 +699,39 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
         ${orderBy}
         LIMIT ${pageSize} OFFSET ${offset}
       `;
-      const items: DynamicListItem[] = rows.map((r) => ({
-        dynamicId: r.dynamic_id,
-        mid: r.mid != null ? bigintToJson(r.mid) : null,
-        category: r.category,
-        monitoringEnabled: r.monitoring_enabled,
-        archivedAt: r.archived_at?.toISOString() ?? null,
-        deletedAt: r.deleted_at?.toISOString() ?? null,
-        pinned: r.pinned_at != null,
-        target: toDynamicTargetRef(r),
-        latestMetrics: {
-          sampledAt: r.sampled_at?.toISOString() ?? null,
-          likeCount: bigintToJson(r.like_count),
-          repostCount: bigintToJson(r.repost_count),
-          commentCount: bigintToJson(r.comment_count),
-        },
-      }));
+      const items: DynamicListItem[] = rows.map((r) => {
+        const textSummary = dynamicTextSummaryFromMetadata(
+          r.text_raw ? { text: r.text_raw } : null,
+        );
+        const authorName = r.author_name;
+        const targetLabel = r.target_label;
+        return {
+          dynamicId: r.dynamic_id,
+          mid: r.mid != null ? bigintToJson(r.mid) : null,
+          category: r.category,
+          monitoringEnabled: r.monitoring_enabled,
+          archivedAt: r.archived_at?.toISOString() ?? null,
+          deletedAt: r.deleted_at?.toISOString() ?? null,
+          pinned: r.pinned_at != null,
+          target: toDynamicTargetRef(r),
+          authorName,
+          publishedAt: r.published_at,
+          textSummary,
+          targetLabel,
+          displayTitle: formatDynamicDisplayTitle({
+            authorName,
+            textSummary,
+            targetLabel,
+            dynamicId: r.dynamic_id,
+          }),
+          latestMetrics: {
+            sampledAt: r.sampled_at?.toISOString() ?? null,
+            likeCount: bigintToJson(r.like_count),
+            repostCount: bigintToJson(r.repost_count),
+            commentCount: bigintToJson(r.comment_count),
+          },
+        };
+      });
       return c.json({
         page,
         pageSize,

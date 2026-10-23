@@ -96,6 +96,11 @@ function dynamicItem(patch: Partial<DynamicListItem> = {}): DynamicListItem {
       lastSuccessAt: '2026-10-21T08:00:00.000Z',
       lastError: null,
     },
+    authorName: '测试作者',
+    publishedAt: '2026-08-28T05:29:00.000Z',
+    textSummary: '抽PS5和GTA6啦!',
+    targetLabel: null,
+    displayTitle: '测试作者 · 抽PS5和GTA6啦!',
     latestMetrics: {
       sampledAt: '2026-10-21T08:00:00.000Z',
       likeCount: '12',
@@ -309,7 +314,7 @@ describe('WP-R2-16G compact card layout', () => {
     expect(dyn.getAttribute('data-presentation')).toBe('grid');
     const dynTitle = within(dyn).getByTestId('dynamic-card-title');
     const dynMetrics = within(dyn).getByTestId('dynamic-card-metrics');
-    expect(dynTitle.getAttribute('title')).toBe('966692349750018048');
+    expect(dynTitle.getAttribute('title')).toBe('测试作者 · 抽PS5和GTA6啦!');
     expect(dynMetrics.textContent).toMatch(/赞/);
     expect(dynMetrics.textContent).not.toMatch(/\d{2}:\d{2}/);
     expect(dynMetrics.getAttribute('title') ?? '').toMatch(/赞/);
@@ -331,7 +336,9 @@ describe('WP-R2-16G compact card layout', () => {
     );
     const listCard = screen.getByTestId('dynamic-list-item');
     expect(within(listCard).queryByRole('img')).toBeNull();
-    expect(within(listCard).getByTitle('966692349750018048').className).toContain('truncate');
+    expect(within(listCard).getByTitle('测试作者 · 抽PS5和GTA6啦!').className).toContain(
+      'truncate',
+    );
     const controls = within(listCard).getByTestId('dynamic-monitor-controls');
     expect(controls.className).not.toContain('mt-auto');
     expect(controls.className).toContain('items-center');

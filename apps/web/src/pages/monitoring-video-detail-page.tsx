@@ -9,6 +9,7 @@ import { MetricCharts } from '@/features/monitoring/MetricCharts';
 import { MonitorCardControls } from '@/features/monitoring/monitor-object-card';
 import { detailReturnHref } from '@/features/monitoring/monitor-url-state';
 import { MonitoringDetailLayout } from '@/features/monitoring/monitoring-detail-layout';
+import { PublishEventMarkButton } from '@/features/monitoring/publish-event-mark-button';
 import { VideoAuthorPanel } from '@/features/monitoring/video-author-panel';
 import {
   formatOnlineViewersDisplay,
@@ -93,7 +94,18 @@ export function MonitoringVideoDetailPage() {
       entityLabel={v.bvid}
       aside={<VideoAuthorPanel creator={v.creator ?? null} />}
       backTo={backTo}
-      toolbar={monitorToolbar}
+      toolbar={
+        <div className="flex min-w-0 max-w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
+          {monitorToolbar}
+          <PublishEventMarkButton
+            mid={v.mid}
+            eventKind="video"
+            externalId={v.bvid}
+            publishedAt={v.pubdate}
+            title={v.title}
+          />
+        </div>
+      }
       status={
         v.deletedAt ? (
           <Badge variant="destructive">已删除</Badge>
