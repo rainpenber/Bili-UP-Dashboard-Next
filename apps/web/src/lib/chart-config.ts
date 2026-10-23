@@ -1,5 +1,5 @@
 import type { EChartsOption, LineSeriesOption, ScatterSeriesOption } from 'echarts';
-import { formatAxisLabels } from '@/lib/format-time';
+import { formatAxisLabels, formatFullLocalTime } from '@/lib/format-time';
 import { formatCompactNumber, formatExactNumber } from '@/lib/format-compact-number';
 import {
   formatViewCountThousandsFromRaw,
@@ -9,11 +9,31 @@ import { defaultDataZoomRange } from '@/lib/chart-window';
 import { followerYAxisBounds } from '@/lib/chart-follower-axis';
 import type { ResolvedChartColors } from '@/lib/chart-colors';
 import { chartSemanticFromResolved } from '@/lib/chart-colors';
+import {
+  aggregateFollowerEventsByDay,
+  buildFollowerTimeDomain,
+  followerSampleOnDay,
+  partitionEventsByWindow,
+  shanghaiCalendarDayKey,
+  type FollowerChartPublishEvent,
+  type FollowerEventDayBucket,
+} from '@/lib/chart-follower-events';
+
+export type { FollowerChartPublishEvent } from '@/lib/chart-follower-events';
+export {
+  aggregateFollowerEventsByDay,
+  FOLLOWER_EVENT_WINDOW_DAYS,
+  partitionEventsByWindow,
+  shanghaiCalendarDayKey,
+} from '@/lib/chart-follower-events';
 
 const EMPHASIS = { focus: 'series' as const, blurScope: 'coordinateSystem' as const };
 
+/** Follower line — samples only; gaps are not fabricated zeros. */
+export const FOLLOWER_SAMPLE_SERIES_NAME = '粉丝数（样本）';
+
 /** Independent scatter series for publish markers (not markPoint — avoids stuck scale/opacity=0). */
-export const FOLLOWER_PUBLISH_SERIES_NAME = '发布';
+export const FOLLOWER_PUBLISH_SERIES_NAME = '发布（事件日期）';
 
 function lineSeries(
   name: string,
@@ -179,88 +199,162 @@ export function buildVideoEngagementOption(
   };
 }
 
-export type FollowerChartPublishEvent = {
-  publishedAt: string;
-  eventKind: 'video' | 'dynamic';
-  titleSnapshot: string;
-  externalId: string;
-  navigable: boolean;
-  monitoredTargetId: string | null;
+/** @deprecated Prefer aggregateFollowerEventsByDay — kept name for call-site migration. */
+export function aggregateFollowerEvents(
+  _sampledAtList: string[],
+  events: FollowerChartPublishEvent[],
+): Map<string, FollowerEventDayBucket> {
+  return aggregateFollowerEventsByDay(events);
+}
+
+export type BuildFollowerOptionResult = {
+  option: EChartsOption;
+  olderEventCount: number;
+  dayBuckets: Map<string, FollowerEventDayBucket>;
 };
 
-function nearestSampleIndex(sampledAtList: string[], publishedAt: string): number {
-  const target = Date.parse(publishedAt);
-  if (!Number.isFinite(target) || sampledAtList.length === 0) return 0;
-  let best = 0;
-  let bestDist = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < sampledAtList.length; i += 1) {
-    const t = Date.parse(sampledAtList[i]!);
-    if (!Number.isFinite(t)) continue;
-    const dist = Math.abs(t - target);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = i;
-    }
-  }
-  return best;
+function formatFollowerAtEvent(fans: number | null): string {
+  if (fans == null) return '无样本';
+  return formatExactNumber(fans);
 }
 
-/** Aggregate overlapping publish markers onto sample buckets so dense points stay readable. */
-export function aggregateFollowerEvents(
-  sampledAtList: string[],
-  events: FollowerChartPublishEvent[],
-): Map<
-  number,
-  {
-    labels: string[];
-    navigableExternalId: string | null;
-  }
-> {
-  const buckets = new Map<number, { labels: string[]; navigableExternalId: string | null }>();
-  for (const event of events) {
-    const idx = nearestSampleIndex(sampledAtList, event.publishedAt);
-    const title = event.titleSnapshot?.trim() || event.externalId;
-    const label = event.eventKind === 'video' ? `发布了视频《${title}》` : `发了动态《${title}》`;
-    const existing = buckets.get(idx) ?? { labels: [], navigableExternalId: null };
-    existing.labels.push(label);
-    if (event.navigable && event.externalId && !existing.navigableExternalId) {
-      existing.navigableExternalId = event.externalId;
-    }
-    buckets.set(idx, existing);
-  }
-  return buckets;
+function markerYForEvent(fans: number | null, fallbackY: number): number {
+  return fans ?? fallbackY;
 }
 
+/**
+ * Follower chart on a time axis: samples only where collected; publish markers at real
+ * publishedAt (Asia/Shanghai same-day aggregation). Default event window = 90 days.
+ */
 export function buildFollowerOption(
   sampledAtList: string[],
   followers: (number | null)[],
   colors: ResolvedChartColors,
-  tooltipTimes: string[],
-  visibleStartIndex = 0,
-  visibleEndIndex = sampledAtList.length - 1,
+  _tooltipTimes: string[],
+  visibleStartPercent = 0,
+  visibleEndPercent = 100,
   events: FollowerChartPublishEvent[] = [],
+  nowMs: number = Date.now(),
 ): EChartsOption {
-  const base = buildTimeSeriesBase(sampledAtList, colors);
+  return buildFollowerOptionDetailed(
+    sampledAtList,
+    followers,
+    colors,
+    visibleStartPercent,
+    visibleEndPercent,
+    events,
+    nowMs,
+  ).option;
+}
+
+export function buildFollowerOptionDetailed(
+  sampledAtList: string[],
+  followers: (number | null)[],
+  colors: ResolvedChartColors,
+  visibleStartPercent = 0,
+  visibleEndPercent = 100,
+  events: FollowerChartPublishEvent[] = [],
+  nowMs: number = Date.now(),
+): BuildFollowerOptionResult {
   const semantic = chartSemanticFromResolved(colors);
-  const slice = followers.slice(
-    Math.max(0, visibleStartIndex),
-    Math.min(followers.length, visibleEndIndex + 1),
+  const { inWindow, olderCount, windowStartMs } = partitionEventsByWindow(events, nowMs);
+  const dayBuckets = aggregateFollowerEventsByDay(inWindow);
+
+  const samplePairs: [number, number][] = [];
+  for (let i = 0; i < sampledAtList.length; i += 1) {
+    const t = Date.parse(sampledAtList[i]!);
+    const v = followers[i];
+    if (!Number.isFinite(t) || v == null) continue;
+    samplePairs.push([t, v]);
+  }
+  const sampleTimesMs = samplePairs.map(([t]) => t);
+  const eventTimesMs = [...dayBuckets.values()].map((b) => b.xMs);
+  const domain = buildFollowerTimeDomain({
+    sampleTimesMs,
+    eventTimesMs,
+    nowMs,
+    windowStartMs,
+  });
+
+  const span = Math.max(1, domain.maxMs - domain.minMs);
+  const viewStartMs = domain.minMs + (span * Math.min(100, Math.max(0, visibleStartPercent))) / 100;
+  const viewEndMs = domain.minMs + (span * Math.min(100, Math.max(0, visibleEndPercent))) / 100;
+  const visibleFollowers = samplePairs
+    .filter(([t]) => t >= viewStartMs && t <= viewEndMs)
+    .map(([, v]) => v);
+  const bounds = followerYAxisBounds(
+    visibleFollowers.length > 0 ? visibleFollowers : samplePairs.map(([, v]) => v),
+    { nonNegative: true },
   );
-  const bounds = followerYAxisBounds(slice, { nonNegative: true });
-  const buckets = aggregateFollowerEvents(sampledAtList, events);
-  const publishPoints = [...buckets.entries()].map(([idx, bucket]) => {
-    const fans = followers[idx] ?? 0;
+  const fallbackMarkerY = bounds
+    ? (bounds.min + bounds.max) / 2
+    : (samplePairs[samplePairs.length - 1]?.[1] ?? 0);
+
+  const publishPoints = [...dayBuckets.values()].map((bucket) => {
+    const fans = followerSampleOnDay(bucket.dayKey, sampledAtList, followers, bucket.xMs);
     return {
       name:
         bucket.labels.length > 1 ? `${bucket.labels.length} 条发布` : (bucket.labels[0] ?? '发布'),
-      value: [idx, fans] as [number, number],
+      value: [bucket.xMs, markerYForEvent(fans, fallbackMarkerY)] as [number, number],
       eventLabels: bucket.labels,
+      followerAtEvent: fans,
       navigableExternalId: bucket.navigableExternalId,
+      dayKey: bucket.dayKey,
     };
   });
 
-  const followerSeries = lineSeries('粉丝数', followers, semantic.series1);
-  // Scatter (not markPoint): markPoint init animation was stuck at opacity=0 / scaleX=0 in zrender.
+  const noSampleMarkAreas: [{ xAxis: number }, { xAxis: number }][] = [];
+  if (sampleTimesMs.length === 0) {
+    noSampleMarkAreas.push([{ xAxis: domain.minMs }, { xAxis: domain.maxMs }]);
+  } else {
+    const firstSample = Math.min(...sampleTimesMs);
+    const lastSample = Math.max(...sampleTimesMs);
+    if (firstSample > domain.minMs) {
+      noSampleMarkAreas.push([{ xAxis: domain.minMs }, { xAxis: firstSample }]);
+    }
+    if (lastSample < domain.maxMs) {
+      noSampleMarkAreas.push([{ xAxis: lastSample }, { xAxis: domain.maxMs }]);
+    }
+  }
+
+  const followerSeries: LineSeriesOption = {
+    name: FOLLOWER_SAMPLE_SERIES_NAME,
+    type: 'line',
+    data: samplePairs,
+    connectNulls: true,
+    showSymbol: false,
+    lineStyle: { width: 2, color: semantic.series1 },
+    itemStyle: { color: semantic.series1 },
+    emphasis: {
+      ...EMPHASIS,
+      lineStyle: { width: 3, color: semantic.series1 },
+      itemStyle: { color: semantic.series1, borderColor: semantic.series1 },
+    },
+    blur: {
+      lineStyle: { opacity: 0.15 },
+      itemStyle: { opacity: 0.15 },
+    },
+    ...(noSampleMarkAreas.length > 0
+      ? {
+          markArea: {
+            silent: true,
+            itemStyle: {
+              color: colors.mutedForeground,
+              opacity: 0.08,
+            },
+            data: noSampleMarkAreas,
+            label: {
+              show: noSampleMarkAreas.length > 0,
+              position: 'insideTop',
+              formatter: '该时段无采集样本',
+              color: colors.mutedForeground,
+              fontSize: 11,
+            },
+          },
+        }
+      : {}),
+  };
+
   const publishSeries: ScatterSeriesOption | null =
     publishPoints.length === 0
       ? null
@@ -281,42 +375,98 @@ export function buildFollowerOption(
             scale: false,
             itemStyle: { color: semantic.series2, opacity: 1, borderWidth: 1 },
           },
-          // Survive line-series blurScope so markers stay opaque while axis-hovering.
           blur: { itemStyle: { opacity: 1 } },
           tooltip: {
             formatter: (params: unknown) => {
               const row = params as {
-                data?: { eventLabels?: string[]; value?: [number, number] | number };
+                data?: {
+                  eventLabels?: string[];
+                  followerAtEvent?: number | null;
+                  name?: string;
+                };
                 name?: string;
               };
-              const labels = row.data?.eventLabels ?? [row.name ?? '发布'];
-              const raw = row.data?.value;
-              const fans = Array.isArray(raw) ? raw[1] : raw;
-              return [...labels, `当时粉丝量：${formatExactNumber(fans ?? null)}`].join('<br/>');
+              const labels = row.data?.eventLabels ?? [row.name ?? row.data?.name ?? '发布'];
+              const fans = row.data?.followerAtEvent ?? null;
+              return [...labels, `当时粉丝量：${formatFollowerAtEvent(fans)}`].join('<br/>');
             },
           },
         };
 
-  return {
-    ...base,
-    legend: {
-      ...base.legend,
-      // Keep the follower legend primary; publish markers are decorative overlays.
-      data: publishSeries ? ['粉丝数', FOLLOWER_PUBLISH_SERIES_NAME] : ['粉丝数'],
-    },
+  const bucketsByDay = dayBuckets;
+  const option: EChartsOption = {
+    backgroundColor: 'transparent',
     tooltip: {
-      ...base.tooltip,
+      trigger: 'axis',
+      axisPointer: { type: 'line', lineStyle: { color: semantic.series1, opacity: 0.35 } },
+      backgroundColor: colors.background,
+      borderColor: colors.border,
+      textStyle: { color: colors.foreground, fontSize: 12 },
       formatter: (params) => {
         const items = Array.isArray(params) ? params : [params];
-        const primary = items.find((item) => item.seriesName === '粉丝数') ?? items[0];
-        const idx = primary?.dataIndex ?? 0;
-        const time = tooltipTimes[idx] ?? '';
-        const val = followers[idx];
-        const bucket = buckets.get(idx);
-        const eventLines = bucket?.labels ?? [];
+        const primary =
+          items.find((item) => item.seriesName === FOLLOWER_SAMPLE_SERIES_NAME) ?? items[0];
+        const raw = primary?.value;
+        let timeMs: number | null = null;
+        let fans: number | null = null;
+        if (Array.isArray(raw)) {
+          timeMs = typeof raw[0] === 'number' ? raw[0] : Date.parse(String(raw[0]));
+          fans = typeof raw[1] === 'number' ? raw[1] : null;
+        }
+        const time =
+          timeMs != null && Number.isFinite(timeMs)
+            ? formatFullLocalTime(new Date(timeMs).toISOString())
+            : '';
+        const dayKey =
+          timeMs != null && Number.isFinite(timeMs)
+            ? shanghaiCalendarDayKey(new Date(timeMs).toISOString())
+            : null;
+        const eventLines = dayKey ? (bucketsByDay.get(dayKey)?.labels ?? []) : [];
         const marker = primary?.marker ?? '';
-        return [time, `${marker}粉丝数：${formatExactNumber(val)}`, ...eventLines].join('<br/>');
+        return [
+          time,
+          `${marker}${FOLLOWER_SAMPLE_SERIES_NAME}：${formatExactNumber(fans)}`,
+          ...eventLines,
+        ].join('<br/>');
       },
+    },
+    legend: {
+      top: 0,
+      type: 'scroll',
+      textStyle: { color: colors.foreground },
+      inactiveColor: colors.mutedForeground,
+      data: publishSeries
+        ? [FOLLOWER_SAMPLE_SERIES_NAME, FOLLOWER_PUBLISH_SERIES_NAME]
+        : [FOLLOWER_SAMPLE_SERIES_NAME],
+    },
+    grid: { left: 52, right: 52, top: 44, bottom: 52 },
+    dataZoom: [
+      { type: 'inside', start: visibleStartPercent, end: visibleEndPercent },
+      { type: 'slider', height: 20, start: visibleStartPercent, end: visibleEndPercent },
+    ],
+    toolbox: {
+      feature: { restore: {} },
+      iconStyle: { borderColor: colors.mutedForeground },
+    },
+    xAxis: {
+      type: 'time',
+      min: domain.minMs,
+      max: domain.maxMs,
+      axisLabel: {
+        color: colors.mutedForeground,
+        hideOverlap: true,
+        formatter: (value: number) => {
+          const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Shanghai',
+            month: 'numeric',
+            day: 'numeric',
+          }).formatToParts(new Date(value));
+          const month = parts.find((p) => p.type === 'month')?.value ?? '';
+          const day = parts.find((p) => p.type === 'day')?.value ?? '';
+          return `${month}/${day}`;
+        },
+      },
+      axisLine: { lineStyle: { color: colors.border } },
     },
     yAxis: {
       type: 'value',
@@ -329,6 +479,8 @@ export function buildFollowerOption(
     },
     series: publishSeries ? [followerSeries, publishSeries] : [followerSeries],
   };
+
+  return { option, olderEventCount: olderCount, dayBuckets };
 }
 
 export function buildDynamicOption(

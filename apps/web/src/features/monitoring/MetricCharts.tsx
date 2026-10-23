@@ -11,15 +11,14 @@ import type {
 import { formatFullLocalTime } from '@/lib/format-time';
 import { parseSeriesNumber } from '@/lib/chart-follower-axis';
 import {
-  aggregateFollowerEvents,
   buildDynamicOption,
-  buildFollowerOption,
+  buildFollowerOptionDetailed,
   buildVideoEngagementOption,
   buildVideoViewsOption,
   FOLLOWER_PUBLISH_SERIES_NAME,
-  visibleIndexRange,
   type FollowerChartPublishEvent,
 } from '@/lib/chart-config';
+import { shanghaiCalendarDayKey } from '@/lib/chart-follower-events';
 import { defaultFollowerZoomRange } from '@/lib/chart-window';
 import { chartSemanticFromResolved } from '@/lib/chart-colors';
 import { useResolvedChartColors } from '@/features/monitoring/use-resolved-chart-colors';
@@ -97,10 +96,6 @@ function CreatorFollowerCharts({
   const colors = useResolvedChartColors();
   const navigate = useNavigate();
   const sampledAtList = useMemo(() => points.map((p) => p.sampledAt), [points]);
-  const tooltipTimes = useMemo(
-    () => sampledAtList.map((t) => formatFullLocalTime(t)),
-    [sampledAtList],
-  );
   const mappedPublishEvents = useMemo<FollowerChartPublishEvent[]>(
     () =>
       publishEvents.map((event) => ({
@@ -113,15 +108,6 @@ function CreatorFollowerCharts({
       })),
     [publishEvents],
   );
-  /** Sample-index → monitored bvid; used when the line series steals the marker click. */
-  const navigableBySampleIndex = useMemo(() => {
-    const buckets = aggregateFollowerEvents(sampledAtList, mappedPublishEvents);
-    const map = new Map<number, string>();
-    for (const [idx, bucket] of buckets) {
-      if (bucket.navigableExternalId) map.set(idx, bucket.navigableExternalId);
-    }
-    return map;
-  }, [sampledAtList, mappedPublishEvents]);
   const initialZoom = useMemo(
     () =>
       defaultFollowerZoomRange(
@@ -143,6 +129,30 @@ function CreatorFollowerCharts({
     [],
   );
 
+  const followers = useMemo(() => points.map((p) => parseSeriesNumber(p.followerCount)), [points]);
+  const zoom = followerZoom ?? initialZoom;
+  const { option, olderEventCount, dayBuckets } = useMemo(
+    () =>
+      buildFollowerOptionDetailed(
+        sampledAtList,
+        followers,
+        colors,
+        zoom.start,
+        zoom.end,
+        mappedPublishEvents,
+      ),
+    [sampledAtList, followers, colors, zoom.start, zoom.end, mappedPublishEvents],
+  );
+
+  /** Shanghai day → monitored bvid; line hit on a sample day with a publish marker. */
+  const navigableByDay = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [dayKey, bucket] of dayBuckets) {
+      if (bucket.navigableExternalId) map.set(dayKey, bucket.navigableExternalId);
+    }
+    return map;
+  }, [dayBuckets]);
+
   const onPublishMarkClick = useCallback(
     (params: {
       componentType?: string;
@@ -150,6 +160,7 @@ function CreatorFollowerCharts({
       seriesName?: string;
       dataIndex?: number;
       data?: unknown;
+      value?: unknown;
     }) => {
       if (params.componentType !== 'series') return;
       let bvid: string | null = null;
@@ -159,14 +170,22 @@ function CreatorFollowerCharts({
           const id = (row as { navigableExternalId?: string | null }).navigableExternalId;
           bvid = id ?? null;
         }
-      } else if (typeof params.dataIndex === 'number') {
-        // Category/line hit at a publish bucket (scatter is easy to miss at 16px).
-        bvid = navigableBySampleIndex.get(params.dataIndex) ?? null;
+      } else if (params.seriesType === 'line') {
+        const raw = params.value;
+        const timeMs = Array.isArray(raw)
+          ? typeof raw[0] === 'number'
+            ? raw[0]
+            : Date.parse(String(raw[0]))
+          : NaN;
+        if (Number.isFinite(timeMs)) {
+          const dayKey = shanghaiCalendarDayKey(new Date(timeMs).toISOString());
+          if (dayKey) bvid = navigableByDay.get(dayKey) ?? null;
+        }
       }
       if (!bvid) return;
       navigate(`/monitoring/videos/${encodeURIComponent(bvid)}`);
     },
-    [navigate, navigableBySampleIndex],
+    [navigate, navigableByDay],
   );
 
   if (points.length === 0) {
@@ -180,18 +199,6 @@ function CreatorFollowerCharts({
     return <p className="text-sm text-muted-foreground">暂无播放与互动数据</p>;
   }
 
-  const followers = points.map((p) => parseSeriesNumber(p.followerCount));
-  const zoom = followerZoom ?? initialZoom;
-  const { start, end } = visibleIndexRange(followers.length, zoom.start, zoom.end);
-  const option = buildFollowerOption(
-    sampledAtList,
-    followers,
-    colors,
-    tooltipTimes,
-    start,
-    end,
-    mappedPublishEvents,
-  );
   if (variant === 'sparkline') {
     return (
       <div className="min-w-0 overflow-hidden" data-testid="follower-sparkline">
@@ -212,17 +219,27 @@ function CreatorFollowerCharts({
   }
 
   return (
-    <ReactECharts
-      option={option}
-      style={{ height: 320, width: '100%' }}
-      opts={{ renderer: 'canvas' }}
-      notMerge
-      onEvents={{
-        datazoom: onFollowerZoom,
-        restore: () => setFollowerZoom(null),
-        click: onPublishMarkClick,
-      }}
-    />
+    <div className="min-w-0 space-y-1" data-testid="follower-chart">
+      <p className="text-xs text-muted-foreground" data-testid="follower-chart-legend-hint">
+        折线为粉丝数（样本）；菱形为发布（事件日期）。浅色底表示该时段无采集样本。
+      </p>
+      {olderEventCount > 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid="follower-chart-older-events">
+          另有 {olderEventCount} 条更早的发布未显示（默认仅展示近 90 天）
+        </p>
+      ) : null}
+      <ReactECharts
+        option={option}
+        style={{ height: 320, width: '100%' }}
+        opts={{ renderer: 'canvas' }}
+        notMerge
+        onEvents={{
+          datazoom: onFollowerZoom,
+          restore: () => setFollowerZoom(null),
+          click: onPublishMarkClick,
+        }}
+      />
+    </div>
   );
 }
 
