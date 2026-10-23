@@ -1,12 +1,40 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  formatSourceWindowDate,
   formatSourceWindowRange,
   sourceWindowCardCopy,
   sourceWindowOriginLabel,
 } from './source-window-display';
 
 describe('source window display (WP-R2-22A)', () => {
-  test('formats Hisense / DJI-style ranges without implying confirmation', () => {
+  test('UTC date-zero stays the calendar day without time or previous-day shift', () => {
+    // Naive UTC midnight for 9/18 → Shanghai 08:00 same day; must not show 08:00 or 9/17.
+    expect(formatSourceWindowDate('2025-09-18T00:00:00.000Z')).toBe('9月18日');
+    expect(formatSourceWindowDate('2025-10-22T00:00:00.000Z')).toBe('10月22日');
+    expect(
+      formatSourceWindowRange({
+        startAt: '2025-09-18T00:00:00.000Z',
+        endAt: '2025-10-22T00:00:00.000Z',
+        reminderAt: null,
+      }),
+    ).toBe('9月18日–10月22日');
+    expect(
+      formatSourceWindowRange({
+        startAt: '2025-09-18T00:00:00.000Z',
+        endAt: '2025-10-22T00:00:00.000Z',
+        reminderAt: null,
+      }),
+    ).not.toContain(':');
+    expect(
+      formatSourceWindowRange({
+        startAt: '2025-09-18T00:00:00.000Z',
+        endAt: '2025-10-22T00:00:00.000Z',
+        reminderAt: null,
+      }),
+    ).not.toContain('9月17日');
+  });
+
+  test('cross-day and same-day ranges are date-only', () => {
     expect(
       formatSourceWindowRange({
         startAt: '2025-09-17T16:00:00.000Z',
@@ -14,6 +42,13 @@ describe('source window display (WP-R2-22A)', () => {
         reminderAt: null,
       }),
     ).toBe('9月18日–10月21日');
+    expect(
+      formatSourceWindowRange({
+        startAt: '2025-09-18T00:00:00.000Z',
+        endAt: '2025-09-18T00:00:00.000Z',
+        reminderAt: null,
+      }),
+    ).toBe('9月18日');
     expect(
       formatSourceWindowRange({
         startAt: '2025-08-31T16:00:00.000Z',
@@ -34,15 +69,15 @@ describe('source window display (WP-R2-22A)', () => {
     expect(
       sourceWindowCardCopy(
         {
-          startAt: '2025-09-17T16:00:00.000Z',
-          endAt: '2025-10-20T16:00:00.000Z',
+          startAt: '2025-09-18T00:00:00.000Z',
+          endAt: '2025-10-22T00:00:00.000Z',
           reminderAt: null,
         },
         'hermes.wechat',
       ),
     ).toEqual({
       kind: 'range',
-      rangeLabel: '9月18日–10月21日',
+      rangeLabel: '9月18日–10月22日',
       originLabel: '微信商单源',
     });
   });
