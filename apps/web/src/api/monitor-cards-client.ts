@@ -24,15 +24,18 @@ async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
   return body;
 }
 
-export function fetchMonitorCards(params: {
-  type: 'video' | 'creator';
-  page: number;
-  monitor: 'all' | 'active' | 'paused' | 'unmonitored';
-  q?: string;
-  category?: string;
-  sort?: MonitorCardSort;
-  onlyMine?: boolean;
-}): Promise<Paginated<MonitorCard>> {
+export function fetchMonitorCards(
+  params: {
+    type: 'video' | 'creator';
+    page: number;
+    monitor: 'all' | 'active' | 'paused' | 'unmonitored';
+    q?: string;
+    category?: string;
+    sort?: MonitorCardSort;
+    onlyMine?: boolean;
+  },
+  init?: { signal?: AbortSignal },
+): Promise<Paginated<MonitorCard>> {
   const qs = new URLSearchParams({
     type: params.type,
     page: String(params.page),
@@ -43,7 +46,10 @@ export function fetchMonitorCards(params: {
   if (params.category) qs.set('category', params.category);
   if (params.type === 'video' && params.sort) qs.set('sort', params.sort);
   if (params.type === 'video' && params.onlyMine) qs.set('onlyMine', '1');
-  return requestJson(`/cards?${qs.toString()}`).then(parseMonitorCardList);
+  return requestJson(
+    `/cards?${qs.toString()}`,
+    init?.signal ? { signal: init.signal } : undefined,
+  ).then(parseMonitorCardList);
 }
 
 export function fetchMonitorCard(

@@ -85,8 +85,8 @@ function wrap(ui: ReactNode, entry: string) {
   return router;
 }
 
-describe('WP-R2-MON-04 onlyMine UI', () => {
-  test('toggle writes URL, resets page/selection, and refetches with onlyMine', async () => {
+describe('WP-R2-MON-04 / WP-R2-23A onlyMine Switch', () => {
+  test('switch on then off updates URL and list requests both ways', async () => {
     const cardUrls: string[] = [];
     const catalog = [card(BVID, MINE), card(OTHER, '1000000000000001')];
     globalThis.fetch = ((input: RequestInfo | URL) => {
@@ -97,6 +97,18 @@ describe('WP-R2-MON-04 onlyMine UI', () => {
             mid: MINE,
             displayName: '狐正正',
             updatedAt: '2026-10-22T00:00:00.000Z',
+          }),
+        );
+      }
+      if (url.includes('/search-suggestions')) {
+        return Promise.resolve(
+          jsonResponse({
+            q: '',
+            type: 'video',
+            limit: 5,
+            videos: [],
+            creators: [],
+            categories: [],
           }),
         );
       }
@@ -118,21 +130,22 @@ describe('WP-R2-MON-04 onlyMine UI', () => {
       <MonitoringPage />,
       '/monitoring?tab=videos&page=2&selected=BV1yy411c7mD&q=test&monitor=active&view=grid&sort=published_asc',
     );
-    expect(screen.getByText('本人视频')).toBeTruthy();
-    const toggle = await screen.findByRole('button', { name: '只看我的' });
-    expect(toggle.getAttribute('data-state')).toBe('off');
+    const switchControl = await screen.findByRole('switch', { name: '只看我的' });
+    expect(switchControl.getAttribute('data-state')).toBe('unchecked');
+    expect(screen.getByLabelText('只看我的')).toBeTruthy();
     await waitFor(() => {
-      expect(toggle.getAttribute('title')).toBe('只显示 狐正正 的视频');
+      expect(switchControl.getAttribute('title')).toBe('只显示 狐正正 的视频');
     });
-    expect(toggle.getAttribute('aria-description')).toBe('只显示 狐正正 的视频');
+    expect(switchControl.getAttribute('aria-description')).toBe('只显示 狐正正 的视频');
     expect(screen.queryByText(/3493141386627335/)).toBeNull();
     expect(screen.queryByText(/狐正正 ·/)).toBeNull();
 
-    fireEvent.click(toggle);
+    fireEvent.click(switchControl);
 
     await waitFor(() => {
       expect(router.state.location.search).toContain('onlyMine=1');
     });
+    expect(switchControl.getAttribute('data-state')).toBe('checked');
     expect(router.state.location.search).toContain('q=test');
     expect(router.state.location.search).toContain('monitor=active');
     expect(router.state.location.search).toContain('view=grid');
@@ -142,6 +155,18 @@ describe('WP-R2-MON-04 onlyMine UI', () => {
 
     await waitFor(() => {
       expect(cardUrls.some((url) => url.includes('onlyMine=1'))).toBe(true);
+    });
+    const afterOn = cardUrls.length;
+
+    fireEvent.click(switchControl);
+
+    await waitFor(() => {
+      expect(router.state.location.search).not.toContain('onlyMine=');
+    });
+    expect(switchControl.getAttribute('data-state')).toBe('unchecked');
+    await waitFor(() => {
+      expect(cardUrls.length).toBeGreaterThan(afterOn);
+      expect(cardUrls.at(-1)).not.toContain('onlyMine=');
     });
   });
 
@@ -154,6 +179,18 @@ describe('WP-R2-MON-04 onlyMine UI', () => {
             mid: MINE,
             displayName: '狐正正',
             updatedAt: '2026-10-22T00:00:00.000Z',
+          }),
+        );
+      }
+      if (url.includes('/search-suggestions')) {
+        return Promise.resolve(
+          jsonResponse({
+            q: '',
+            type: 'creator',
+            limit: 5,
+            videos: [],
+            creators: [],
+            categories: [],
           }),
         );
       }
@@ -177,6 +214,18 @@ describe('WP-R2-MON-04 onlyMine UI', () => {
             { error: '尚未配置本人 B 站账号', code: 'owner_account_not_configured' },
             404,
           ),
+        );
+      }
+      if (url.includes('/search-suggestions')) {
+        return Promise.resolve(
+          jsonResponse({
+            q: '',
+            type: 'video',
+            limit: 5,
+            videos: [],
+            creators: [],
+            categories: [],
+          }),
         );
       }
       if (url.includes('/api/v1/monitor/cards?') && url.includes('onlyMine=1')) {

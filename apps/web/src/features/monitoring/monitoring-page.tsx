@@ -13,7 +13,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -41,8 +40,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Toggle } from '@/components/ui/toggle';
+import { Switch } from '@/components/ui/switch';
 import { useStudioOwnerAccountQuery } from '@/api/hooks/use-studio-owner-queries';
+import { MonitorSearchField } from '@/features/monitoring/monitor-search-field';
 
 const TAB_LABEL: Record<MonitorTab, string> = {
   videos: '视频',
@@ -192,37 +192,12 @@ export function MonitoringPage() {
             data-testid="monitor-filter-bar"
             className="grid min-w-0 grid-cols-1 gap-4 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2 xl:grid-cols-4"
           >
-            {state.tab === 'videos' ? (
-              <div className="grid min-w-0 gap-1.5">
-                <Label htmlFor="monitor-category" className="whitespace-nowrap">
-                  分类（视频标签）
-                </Label>
-                <Input
-                  id="monitor-category"
-                  value={state.category}
-                  placeholder="如：游戏、数码"
-                  title="按视频分类过滤，留空表示全部"
-                  className="min-w-0"
-                  onChange={(event) =>
-                    patchUrl({ category: event.target.value, page: 1, selected: null })
-                  }
-                />
-              </div>
-            ) : null}
-            <div className="grid min-w-0 gap-1.5">
-              <Label htmlFor="monitor-q" className="whitespace-nowrap">
-                关键词
-              </Label>
-              <div className="flex min-w-0">
-                <Input
-                  id="monitor-q"
-                  value={state.q}
-                  placeholder="标题 / ID"
-                  className="min-w-[12rem] flex-1"
-                  onChange={(event) => patchUrl({ q: event.target.value, page: 1, selected: null })}
-                />
-              </div>
-            </div>
+            <MonitorSearchField
+              type={cardType}
+              q={state.q}
+              category={state.tab === 'videos' ? state.category : ''}
+              onApply={(next) => patchUrl(next)}
+            />
             <div className="grid min-w-0 gap-1.5">
               <Label htmlFor="monitor-presence" className="whitespace-nowrap">
                 监控状态
@@ -277,36 +252,33 @@ export function MonitoringPage() {
             ) : null}
             {state.tab === 'videos' ? (
               <div className="grid min-w-0 gap-1.5">
-                <p
-                  id="monitor-only-mine-group"
-                  className="whitespace-nowrap text-sm font-medium leading-none"
-                >
-                  本人视频
-                </p>
-                <Toggle
-                  id="monitor-only-mine"
-                  variant="outline"
-                  pressed={state.onlyMine}
-                  aria-label="只看我的"
-                  aria-describedby="monitor-only-mine-group"
-                  title={
-                    ownerQuery.isSuccess
-                      ? `只显示 ${ownerQuery.data.displayName} 的视频`
-                      : '只显示本人配置账号的视频'
-                  }
-                  aria-description={
-                    ownerQuery.isSuccess
-                      ? `只显示 ${ownerQuery.data.displayName} 的视频`
-                      : '只显示本人配置账号的视频'
-                  }
-                  data-testid="monitor-only-mine"
-                  className="w-full justify-center"
-                  onPressedChange={(pressed) =>
-                    patchUrl({ onlyMine: pressed, page: 1, selected: null })
-                  }
-                >
+                <Label htmlFor="monitor-only-mine" className="whitespace-nowrap">
                   只看我的
-                </Toggle>
+                </Label>
+                <div className="flex h-9 min-w-0 items-center gap-2">
+                  <Switch
+                    id="monitor-only-mine"
+                    checked={state.onlyMine}
+                    aria-label="只看我的"
+                    title={
+                      ownerQuery.isSuccess
+                        ? `只显示 ${ownerQuery.data.displayName} 的视频`
+                        : '只显示本人配置账号的视频'
+                    }
+                    aria-description={
+                      ownerQuery.isSuccess
+                        ? `只显示 ${ownerQuery.data.displayName} 的视频`
+                        : '只显示本人配置账号的视频'
+                    }
+                    data-testid="monitor-only-mine"
+                    onCheckedChange={(checked) =>
+                      patchUrl({ onlyMine: checked, page: 1, selected: null })
+                    }
+                  />
+                  <span className="text-sm text-muted-foreground" aria-hidden>
+                    {state.onlyMine ? '开' : '关'}
+                  </span>
+                </div>
               </div>
             ) : null}
             <MonitorLayoutToggle value={state.view} onValueChange={(view) => patchUrl({ view })} />

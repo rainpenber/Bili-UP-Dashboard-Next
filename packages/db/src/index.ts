@@ -100,6 +100,12 @@ export {
   type MonitorCardSort,
 } from './monitor-cards';
 export {
+  listMonitorSearchSuggestions,
+  type MonitorSearchSuggestionKind,
+  type MonitorSearchSuggestionRow,
+  type MonitorSearchSuggestionsResult,
+} from './monitor-search-suggestions';
+export {
   DEFAULT_STUDIO_OWNER_DISPLAY_NAME,
   DEFAULT_STUDIO_OWNER_MID,
   getStudioOwnerAccount,
