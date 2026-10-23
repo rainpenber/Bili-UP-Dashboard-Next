@@ -4,6 +4,7 @@ import {
   isCommercialBusinessState,
   type CommercialBusinessState,
 } from './commercial-business-state';
+import type { CommercialSourceWindow } from './commercial-source-window';
 
 export const OVERALL_STAGES = [
   'pre_publish',
@@ -161,6 +162,11 @@ export type CommercialProjectListItem = {
    * Raw source status label for display. Null when unbound or the snapshot has no status text.
    */
   originStatusLabel: string | null;
+  /**
+   * Source schedule window from payload.startAt / endAt / reminderAt (WP-R2-22A).
+   * Null when unbound. Bound-but-empty means「来源未给档期」— not a confirmed plan.
+   */
+  sourceWindow: CommercialSourceWindow | null;
   /** Names of blocked nodes only, same layout order as currentStageNames. */
   blockedNodeNames: string[];
   /** Every open_items row for this project, including closed and cancelled. */
@@ -428,6 +434,16 @@ function parseOriginStatusLabel(value: unknown): string | null {
   return value;
 }
 
+function parseSourceWindow(value: unknown): CommercialSourceWindow | null {
+  if (value === null) return null;
+  const record = asRecord(value, 'sourceWindow');
+  return {
+    startAt: parseNullableIso(record.startAt, 'sourceWindow.startAt'),
+    endAt: parseNullableIso(record.endAt, 'sourceWindow.endAt'),
+    reminderAt: parseNullableIso(record.reminderAt, 'sourceWindow.reminderAt'),
+  };
+}
+
 function parseListItem(value: unknown): CommercialProjectListItem {
   const record = asRecord(value, 'project list item');
   if (!isOverallStage(record.overallStage)) throw new Error('overallStage is invalid');
@@ -454,6 +470,7 @@ function parseListItem(value: unknown): CommercialProjectListItem {
     source: parseSourceSummary(record.source),
     businessState: parseBusinessState(record.businessState),
     originStatusLabel: parseOriginStatusLabel(record.originStatusLabel),
+    sourceWindow: parseSourceWindow(record.sourceWindow),
     blockedNodeNames: parseStageNames(record.blockedNodeNames, 'blockedNodeNames'),
     openItems: parseOpenItems(record.openItems),
   };

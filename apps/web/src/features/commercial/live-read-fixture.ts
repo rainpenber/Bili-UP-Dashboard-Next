@@ -13,6 +13,7 @@ const LIVE_READ_DEFAULTS = {
   source: null,
   businessState: null,
   originStatusLabel: null,
+  sourceWindow: null,
   blockedNodeNames: [] as string[],
   openItems: [] as CommercialOpenItemRead[],
 };

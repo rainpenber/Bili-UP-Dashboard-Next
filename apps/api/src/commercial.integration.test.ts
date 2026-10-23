@@ -279,6 +279,7 @@ describe('commercial read API', () => {
         source: null,
         businessState: null,
         originStatusLabel: null,
+        sourceWindow: null,
         blockedNodeNames: blockedNames(projectNodes),
         openItems: projectItems.map((row) => ({
           id: row.id,
@@ -970,5 +971,93 @@ describe('commercial read API', () => {
     expect(realDetail.originKind).toBe('real');
     expect(realDetail.source?.sourceId).toBe('real-soft-archive-1');
     expect(realDetail.businessState).toBe('active');
+    expect(realDetail.sourceWindow).toEqual({
+      startAt: null,
+      endAt: null,
+      reminderAt: null,
+    });
+  });
+
+  test('list and detail expose sourceWindow dates without payload chat text (WP-R2-22A)', async () => {
+    const hisenseId = 'bb100022-0001-4001-8001-000000000022';
+    const djiId = 'bb100023-0001-4001-8001-000000000023';
+    const emptyId = 'bb100024-0001-4001-8001-000000000024';
+    await sql`
+      INSERT INTO commercial_projects (id, name, net_amount, rebate_amount, overall_stage, origin_kind)
+      VALUES
+        (${hisenseId}, '海信E8S', NULL, NULL, 'pre_publish', 'real'),
+        (${djiId}, '大疆 Pocket4', NULL, NULL, 'pre_publish', 'real'),
+        (${emptyId}, '无档期真实单', NULL, NULL, 'pre_publish', 'real')
+    `;
+    await sql`
+      INSERT INTO commercial_project_sources (
+        id, project_id, namespace, source_id, origin_kind,
+        source_updated_at, imported_at, payload, content_hash, source_status
+      )
+      VALUES
+        (
+          ${'bb100022-a001-4001-8001-000000000022'}, ${hisenseId}, 'hermes.wechat', 'hisense-e8s', 'real',
+          ${'2026-10-01T00:00:00.000Z'}, ${'2026-10-01T00:00:00.000Z'},
+          ${sql.json({
+            startAt: '2025-09-18',
+            endAt: '2025-10-21',
+            title: '海信E8S',
+            chatSnippet: '客户聊天原文不得出现在详情响应',
+          })},
+          'hash-hisense', '2.进行中'
+        ),
+        (
+          ${'bb100023-a001-4001-8001-000000000023'}, ${djiId}, 'hermes.wechat', 'dji-pocket4', 'real',
+          ${'2026-10-01T00:00:00.000Z'}, ${'2026-10-01T00:00:00.000Z'},
+          ${sql.json({
+            startAt: '2025-09-01',
+            endAt: '2025-10-19',
+            reminderAt: '2025-08-28T09:00:00+08:00',
+          })},
+          'hash-dji', '2.进行中'
+        ),
+        (
+          ${'bb100024-a001-4001-8001-000000000024'}, ${emptyId}, 'hermes.wechat', 'no-window', 'real',
+          ${'2026-10-01T00:00:00.000Z'}, ${'2026-10-01T00:00:00.000Z'},
+          ${sql.json({ title: '无档期' })},
+          'hash-empty-window', '2.进行中'
+        )
+    `;
+
+    const hisense = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${hisenseId}`)).json(),
+    );
+    expect(hisense.sourceWindow).toEqual({
+      startAt: '2025-09-17T16:00:00.000Z',
+      endAt: '2025-10-20T16:00:00.000Z',
+      reminderAt: null,
+    });
+    expect(JSON.stringify(hisense)).not.toContain('客户聊天');
+    expect(JSON.stringify(hisense)).not.toContain('chatSnippet');
+
+    const dji = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${djiId}`)).json(),
+    );
+    expect(dji.sourceWindow).toEqual({
+      startAt: '2025-08-31T16:00:00.000Z',
+      endAt: '2025-10-18T16:00:00.000Z',
+      reminderAt: '2025-08-28T01:00:00.000Z',
+    });
+
+    const empty = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${emptyId}`)).json(),
+    );
+    expect(empty.sourceWindow).toEqual({
+      startAt: null,
+      endAt: null,
+      reminderAt: null,
+    });
+
+    const list = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects?originKind=real')).json(),
+    );
+    const listed = list.items.find((item) => item.id === hisenseId);
+    expect(listed?.sourceWindow?.startAt).toBe('2025-09-17T16:00:00.000Z');
+    expect(JSON.stringify(list)).not.toContain('客户聊天');
   });
 });

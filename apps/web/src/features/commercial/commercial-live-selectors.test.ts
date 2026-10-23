@@ -59,6 +59,7 @@ function project(
     source: null,
     businessState: null,
     originStatusLabel: null,
+    sourceWindow: null,
     blockedNodeNames: [],
     openItems: [],
     ...overrides,

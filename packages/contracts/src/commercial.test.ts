@@ -26,6 +26,7 @@ const READ_FIELDS = {
   source: null as null,
   businessState: null as null,
   originStatusLabel: null as null,
+  sourceWindow: null as null,
   blockedNodeNames: [] as string[],
   openItems: [] as unknown[],
   blockingReason: null as string | null,
@@ -88,6 +89,7 @@ describe('commercial read contracts', () => {
     expect(parsed.items[0]?.originKind).toBe('fixture');
     expect(parsed.items[0]?.businessState).toBeNull();
     expect(parsed.items[0]?.originStatusLabel).toBeNull();
+    expect(parsed.items[0]?.sourceWindow).toBeNull();
     expect(parsed.total).toBe(1);
     expect(parsed.limit).toBeNull();
     expect(parsed.offset).toBe(0);
@@ -116,11 +118,74 @@ describe('commercial read contracts', () => {
           },
           businessState: 'active',
           originStatusLabel: '2.进行中',
+          sourceWindow: {
+            startAt: '2025-09-17T16:00:00.000Z',
+            endAt: '2025-10-20T16:00:00.000Z',
+            reminderAt: null,
+          },
         }),
       ]),
     );
     expect(parsed.items[0]?.businessState).toBe('active');
     expect(parsed.items[0]?.originStatusLabel).toBe('2.进行中');
+    expect(parsed.items[0]?.sourceWindow).toEqual({
+      startAt: '2025-09-17T16:00:00.000Z',
+      endAt: '2025-10-20T16:00:00.000Z',
+      reminderAt: null,
+    });
+  });
+
+  test('parses a bound-but-empty sourceWindow without inventing dates', () => {
+    const parsed = parseCommercialProjectList(
+      listResponse([
+        listItem({
+          id: PROJECT_ID,
+          name: '无档期真实单',
+          netAmount: null,
+          rebateAmount: null,
+          overallStage: 'pre_publish',
+          currentStageNames: [],
+          anyNodeBlocked: false,
+          originKind: 'real',
+          source: {
+            namespace: 'hermes.real',
+            sourceId: 'no-window-1',
+            sourceUpdatedAt: '2026-10-01T00:00:00.000Z',
+            importedAt: '2026-10-01T00:00:00.000Z',
+            contentHash: 'def',
+            sourceStatus: '2.进行中',
+            sourceNotes: null,
+          },
+          businessState: 'active',
+          originStatusLabel: '2.进行中',
+          sourceWindow: { startAt: null, endAt: null, reminderAt: null },
+        }),
+      ]),
+    );
+    expect(parsed.items[0]?.sourceWindow).toEqual({
+      startAt: null,
+      endAt: null,
+      reminderAt: null,
+    });
+  });
+
+  test('rejects a malformed sourceWindow', () => {
+    expect(() =>
+      parseCommercialProjectList(
+        listResponse([
+          listItem({
+            id: PROJECT_ID,
+            name: '坏档期',
+            netAmount: null,
+            rebateAmount: null,
+            overallStage: 'pre_publish',
+            currentStageNames: [],
+            anyNodeBlocked: false,
+            sourceWindow: { startAt: 'not-iso', endAt: null, reminderAt: null },
+          }),
+        ]),
+      ),
+    ).toThrow(/sourceWindow\.startAt/);
   });
 
   test('parses archive and unarchive responses', () => {

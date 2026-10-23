@@ -427,7 +427,12 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
         data-business-state={businessState ?? ''}
         data-display-readonly={displayReadOnly ? 'true' : 'false'}
       >
-        <ProgressSummary facts={facts} nodes={timelineNodes} />
+        <ProgressSummary
+          facts={facts}
+          nodes={timelineNodes}
+          sourceWindow={detailQuery.data?.sourceWindow ?? null}
+          sourceNamespace={detailQuery.data?.source?.namespace ?? null}
+        />
         {detailQuery.data?.source || detailQuery.data?.originKind ? (
           <p className="text-sm text-muted-foreground" data-testid="project-source-meta">
             来源{' '}

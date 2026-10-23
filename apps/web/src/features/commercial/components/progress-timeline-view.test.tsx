@@ -969,6 +969,70 @@ function summaryFacts(overrides: Partial<TimelineProjectFacts> = {}): TimelinePr
   };
 }
 
+describe('source window schedule card (WP-R2-22A)', () => {
+  test('shows source range instead of 排期待确认 for bound real projects', () => {
+    render(
+      <ProgressSummary
+        now={NOW}
+        facts={summaryFacts()}
+        sourceWindow={{
+          startAt: '2025-09-17T16:00:00.000Z',
+          endAt: '2025-10-20T16:00:00.000Z',
+          reminderAt: null,
+        }}
+        sourceNamespace="hermes.wechat"
+        nodes={[node('copy', '文案', 'in_progress'), node('pre_shoot', '预拍摄', 'not_reached')]}
+      />,
+    );
+    const card = screen.getByTestId('progress-summary-schedule');
+    expect(card.textContent).toContain('来源档期（未确认）');
+    expect(card.textContent).toContain('来源档期：9月18日–10月21日（来自微信商单源）');
+    expect(card.textContent).toContain('非已确认排期');
+    expect(card.textContent).not.toContain('排期待确认');
+  });
+
+  test('shows 来源未给档期 when the bound source has no dates', () => {
+    render(
+      <ProgressSummary
+        now={NOW}
+        facts={summaryFacts()}
+        sourceWindow={{ startAt: null, endAt: null, reminderAt: null }}
+        sourceNamespace="hermes.wechat"
+        nodes={[node('copy', '文案', 'in_progress')]}
+      />,
+    );
+    expect(screen.getByTestId('progress-source-window-empty').textContent).toBe('来源未给档期');
+    expect(screen.getByTestId('progress-summary-schedule').textContent).not.toContain('排期待确认');
+  });
+
+  test('keeps confirmed plan primary and lists source window as secondary', () => {
+    render(
+      <ProgressSummary
+        now={NOW}
+        facts={summaryFacts()}
+        sourceWindow={{
+          startAt: '2025-08-31T16:00:00.000Z',
+          endAt: '2025-10-18T16:00:00.000Z',
+          reminderAt: null,
+        }}
+        sourceNamespace="hermes.wechat"
+        nodes={[
+          {
+            ...node('copy', '文案', 'in_progress'),
+            plannedAt: new Date('2026-04-18T00:00:00+08:00').toISOString(),
+          },
+        ]}
+      />,
+    );
+    const card = screen.getByTestId('progress-summary-schedule');
+    expect(card.textContent).toContain('已确认排期');
+    expect(card.textContent).toContain('下一次交付');
+    expect(screen.getByTestId('progress-source-window-secondary').textContent).toContain(
+      '来源档期（未确认）：9月1日–10月19日',
+    );
+  });
+});
+
 describe('schedule summary overlay', () => {
   test('shows the next delivery, an overdue mark, and separates plan from actual', async () => {
     render(
