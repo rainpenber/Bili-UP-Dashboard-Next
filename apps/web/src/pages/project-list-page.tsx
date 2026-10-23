@@ -1,5 +1,6 @@
 import { ChevronDown } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/page-header';
 import { EmptyState, ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
 import { Button } from '@/components/ui/button';
@@ -15,12 +16,25 @@ import { cn } from '@/lib/utils';
 
 type OriginFilter = '' | 'real' | 'fixture' | 'manual' | 'unclassified';
 
+function readIncludeArchived(searchParams: URLSearchParams): boolean {
+  return searchParams.get('includeArchived') === '1';
+}
+
 export function ProjectListPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [originKind, setOriginKind] = useState<OriginFilter>('');
-  const query = useLiveCommercialProjectsQuery({ originKind });
+  const includeArchived = readIncludeArchived(searchParams);
+  const query = useLiveCommercialProjectsQuery({ originKind, includeArchived });
+
+  const setIncludeArchived = (next: boolean) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (next) nextParams.set('includeArchived', '1');
+    else nextParams.delete('includeArchived');
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const list = useMemo(() => {
     if (!query.data) return [];
@@ -85,6 +99,19 @@ export function ProjectListPage() {
                 <option value="unclassified">未分类</option>
               </select>
             </div>
+            <div className="flex items-center gap-2 sm:col-span-2 lg:col-span-3">
+              <input
+                id="project-include-archived"
+                type="checkbox"
+                className="size-4 rounded border border-input"
+                checked={includeArchived}
+                onChange={(e) => setIncludeArchived(e.target.checked)}
+                data-testid="project-include-archived"
+              />
+              <Label htmlFor="project-include-archived" className="font-normal">
+                显示已归档
+              </Label>
+            </div>
           </div>
         ) : null}
       </div>
@@ -112,11 +139,13 @@ export function ProjectListPage() {
               unfilteredCount === 0
                 ? originKind === 'real'
                   ? '真实来源尚未写入。本包不假装已迁移历史商单；样例请切到来源「样例」或「全部」。'
-                  : '列表来自已保存的商单。读取失败时不会改显示演示项目。'
+                  : includeArchived
+                    ? '列表来自已保存的商单。读取失败时不会改显示演示项目。'
+                    : '列表默认隐藏已归档项目。可在筛选中打开「显示已归档」查看或恢复。'
                 : '试试放宽关键词，或去掉创建日 / 来源筛选。'
             }
             action={
-              unfilteredCount === 0 && !originKind ? null : (
+              unfilteredCount === 0 && !originKind && !includeArchived ? null : (
                 <Button
                   type="button"
                   variant="outline"
@@ -124,6 +153,7 @@ export function ProjectListPage() {
                     setKeyword('');
                     setFromDate('');
                     setOriginKind('');
+                    setIncludeArchived(false);
                   }}
                 >
                   清空筛选

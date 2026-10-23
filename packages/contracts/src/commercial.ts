@@ -188,6 +188,13 @@ export type CommercialProjectDetail = CommercialProjectListItem & {
   publish: CommercialPublishStatus;
 };
 
+/** Soft-archive / restore response (WP-R2-19E). Only touches archived_at. */
+export type CommercialProjectArchiveResponse = {
+  id: string;
+  /** Null after unarchive; ISO timestamp after archive. */
+  archivedAt: string | null;
+};
+
 export type CommercialWorkflowNode = {
   id: string;
   name: string;
@@ -479,6 +486,16 @@ export function parseCommercialProjectDetail(value: unknown): CommercialProjectD
   return {
     ...parseListItem(record),
     publish: parsePublish(record.publish),
+  };
+}
+
+export function parseCommercialProjectArchiveResponse(
+  value: unknown,
+): CommercialProjectArchiveResponse {
+  const record = asRecord(value, 'project archive response');
+  return {
+    id: parseUuid(record.id, 'id'),
+    archivedAt: parseNullableIso(record.archivedAt, 'archivedAt'),
   };
 }
 

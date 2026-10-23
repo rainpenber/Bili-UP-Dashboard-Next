@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   WF_NODE_KINDS,
   parseCommercialDefaultTemplate,
+  parseCommercialProjectArchiveResponse,
   parseCommercialProjectDetail,
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
@@ -120,6 +121,25 @@ describe('commercial read contracts', () => {
     );
     expect(parsed.items[0]?.businessState).toBe('active');
     expect(parsed.items[0]?.originStatusLabel).toBe('2.进行中');
+  });
+
+  test('parses archive and unarchive responses', () => {
+    expect(
+      parseCommercialProjectArchiveResponse({
+        id: PROJECT_ID,
+        archivedAt: '2026-10-23T00:00:00.000Z',
+      }),
+    ).toEqual({
+      id: PROJECT_ID,
+      archivedAt: '2026-10-23T00:00:00.000Z',
+    });
+    expect(parseCommercialProjectArchiveResponse({ id: PROJECT_ID, archivedAt: null })).toEqual({
+      id: PROJECT_ID,
+      archivedAt: null,
+    });
+    expect(() =>
+      parseCommercialProjectArchiveResponse({ id: PROJECT_ID, archivedAt: 'not-a-date' }),
+    ).toThrow(/archivedAt/);
   });
 
   test('rejects a list item that omits open items or a stored timestamp', () => {
