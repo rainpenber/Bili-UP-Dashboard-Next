@@ -98,15 +98,11 @@ describe('commercial business state (WP-R2-19C)', () => {
   });
 
   test('source-bound projects derive display state only from sourceStatus', () => {
-    expect(
-      commercialDisplayStateFromSource({ sourceStatus: '3.收尾-已提现' }),
-    ).toEqual({
+    expect(commercialDisplayStateFromSource({ sourceStatus: '3.收尾-已提现' })).toEqual({
       businessState: 'finished',
       originStatusLabel: '3.收尾-已提现',
     });
-    expect(
-      commercialDisplayStateFromSource({ sourceStatus: '1.放弃-主动拒绝' }),
-    ).toEqual({
+    expect(commercialDisplayStateFromSource({ sourceStatus: '1.放弃-主动拒绝' })).toEqual({
       businessState: 'not_started',
       originStatusLabel: '1.放弃-主动拒绝',
     });

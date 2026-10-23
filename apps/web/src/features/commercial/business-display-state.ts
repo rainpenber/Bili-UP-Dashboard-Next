@@ -31,14 +31,14 @@ export function applyBusinessStateToLiveNodes(
   businessState: CommercialBusinessState | null | undefined,
 ): LiveGraphNode[] {
   if (businessState !== 'finished' && businessState !== 'not_started') return nodes;
-  return nodes.map((node) => ({
-    ...node,
-    status: displayNodeStatusForBusinessState(
-      node.status ?? 'not_reached',
-      businessState,
-    ) as LiveGraphNode['status'],
-    blockingReason: null,
-  }));
+  return nodes.map((node) => {
+    const status = displayNodeStatusForBusinessState(node.status ?? 'not_reached', businessState);
+    return {
+      ...node,
+      status,
+      blockingReason: null,
+    };
+  });
 }
 
 export function businessStateOverallStageLabel(

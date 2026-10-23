@@ -8,8 +8,7 @@ export type CommercialBusinessState = (typeof COMMERCIAL_BUSINESS_STATES)[number
 
 export function isCommercialBusinessState(value: unknown): value is CommercialBusinessState {
   return (
-    typeof value === 'string' &&
-    (COMMERCIAL_BUSINESS_STATES as readonly string[]).includes(value)
+    typeof value === 'string' && (COMMERCIAL_BUSINESS_STATES as readonly string[]).includes(value)
   );
 }
 
@@ -107,9 +106,11 @@ export function deriveCommercialBusinessState(
 }
 
 /** Projects without a source binding must not show a display-state badge. */
-export function commercialDisplayStateFromSource(source: {
-  sourceStatus: string | null;
-} | null): {
+export function commercialDisplayStateFromSource(
+  source: {
+    sourceStatus: string | null;
+  } | null,
+): {
   businessState: CommercialBusinessState | null;
   originStatusLabel: string | null;
 } {
