@@ -131,14 +131,27 @@ export {
   openCollectorCircuit,
   readBiliAccountSecret,
   readCollectorCircuit,
+  readUsableCollectorAccount,
   resolveCollectorAccount,
   saveActiveBiliAccount,
+  type BiliAccountStatus,
   type CircuitRow,
   type EncryptedSecretRow,
   type LegacyFollowerRow,
   type LegacyVideoRow,
   type ResolvedBiliAccount,
 } from './real-collector';
+export {
+  BiliAccountStoreError,
+  createBiliAccount,
+  getBiliAccount,
+  listBiliAccounts,
+  markBiliAccountVerified,
+  markBiliAccountVerifyFailed,
+  patchBiliAccount,
+  revokeBiliAccount,
+  type BiliAccountRecord,
+} from './bili-accounts';
 export {
   FIXTURE_PROJECT_IDS,
   countCommercialFixtureRows,

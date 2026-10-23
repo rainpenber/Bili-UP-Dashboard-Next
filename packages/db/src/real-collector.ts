@@ -147,37 +147,76 @@ export async function disableMonitorTarget(
   );
 }
 
-async function readAccount(sql: Queryable, id: string): Promise<ResolvedBiliAccount | null> {
-  const rows = await sql<{ id: string; status: BiliAccountStatus; mid: string | null }[]>`
-    SELECT id::text AS id, status, mid::text AS mid
-    FROM bili_accounts
-    WHERE id = ${id}::uuid
+/**
+ * Usable for collection: active, secret present, cookie not past expiry.
+ * Returns null (skip) when the account fails any check; callers may log the reason.
+ */
+export async function readUsableCollectorAccount(
+  sql: Queryable,
+  id: string,
+): Promise<{ account: ResolvedBiliAccount | null; skipReason: string | null }> {
+  const rows = await sql<
+    {
+      id: string;
+      status: BiliAccountStatus;
+      mid: string | null;
+      cookie_expires_at: Date | null;
+      secret_present: boolean;
+    }[]
+  >`
+    SELECT
+      a.id::text AS id,
+      a.status,
+      a.mid::text AS mid,
+      a.cookie_expires_at,
+      (s.account_id IS NOT NULL) AS secret_present
+    FROM bili_accounts a
+    LEFT JOIN bili_account_secrets s ON s.account_id = a.id
+    WHERE a.id = ${id}::uuid
   `;
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return { account: null, skipReason: '账号不存在' };
+  if (row.status === 'revoked') {
+    return { account: null, skipReason: `账号已撤销 (${row.id})` };
+  }
+  if (row.status !== 'active') {
+    return { account: null, skipReason: `账号状态不可用: ${row.status}` };
+  }
+  if (!row.secret_present) {
+    return { account: null, skipReason: `账号缺少凭据 (${row.id})` };
+  }
+  if (row.cookie_expires_at && row.cookie_expires_at.getTime() <= Date.now()) {
+    return { account: null, skipReason: `账号 Cookie 已过期 (${row.id})` };
+  }
+  return {
+    account: { id: row.id, status: row.status, mid: row.mid },
+    skipReason: null,
+  };
 }
 
 export async function resolveCollectorAccount(
   sql: Queryable,
   input: { targetAccountId: string | null; forcedAccountId: string | null },
 ): Promise<ResolvedBiliAccount | null> {
-  if (input.forcedAccountId) return readAccount(sql, input.forcedAccountId);
-  if (input.targetAccountId) return readAccount(sql, input.targetAccountId);
+  if (input.forcedAccountId) {
+    const forced = await readUsableCollectorAccount(sql, input.forcedAccountId);
+    return forced.account;
+  }
+  if (input.targetAccountId) {
+    const targeted = await readUsableCollectorAccount(sql, input.targetAccountId);
+    if (targeted.account) return targeted.account;
+  }
   const active = await sql<{ id: string; status: BiliAccountStatus; mid: string | null }[]>`
-    SELECT id::text AS id, status, mid::text AS mid
-    FROM bili_accounts
-    WHERE is_default = true AND status = 'active'
-    ORDER BY created_at
+    SELECT a.id::text AS id, a.status, a.mid::text AS mid
+    FROM bili_accounts a
+    INNER JOIN bili_account_secrets s ON s.account_id = a.id
+    WHERE a.is_default = true
+      AND a.status = 'active'
+      AND (a.cookie_expires_at IS NULL OR a.cookie_expires_at > statement_timestamp())
+    ORDER BY a.created_at
     LIMIT 1
   `;
-  if (active[0]) return active[0];
-  const expired = await sql<{ id: string; status: BiliAccountStatus; mid: string | null }[]>`
-    SELECT id::text AS id, status, mid::text AS mid
-    FROM bili_accounts
-    WHERE is_default = true AND status = 'expired'
-    ORDER BY updated_at DESC
-    LIMIT 1
-  `;
-  return expired[0] ?? null;
+  return active[0] ?? null;
 }
 
 export async function readCollectorCircuit(

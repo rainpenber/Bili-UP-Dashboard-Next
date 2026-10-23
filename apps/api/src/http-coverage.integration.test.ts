@@ -226,6 +226,23 @@ describe('HTTP API coverage against isolated Postgres', () => {
       onBackfill: (task) => {
         backfills.push(task);
       },
+      accounts: {
+        transport: async (request) => {
+          injectedUrls.push(request.url);
+          if (request.url.includes('/x/web-interface/nav')) {
+            return {
+              status: 200,
+              headers: {},
+              durationMs: 1,
+              body: JSON.stringify({
+                code: 0,
+                data: { isLogin: true, mid: 880001, uname: '覆盖号', face: '' },
+              }),
+            };
+          }
+          return { status: 200, headers: {}, durationMs: 1, body: '{}' };
+        },
+      },
     });
   }, 60_000);
 
@@ -1925,6 +1942,84 @@ describe('HTTP API coverage against isolated Postgres', () => {
         await expectStatus(await api(`/api/v1/commercial/projects/${projectId}/workflow`), 200),
       );
       expect(graph.nodes.find((node) => node.name === '发布')?.status).toBe('completed');
+    },
+    60_000,
+  );
+
+  testChecked(
+    'bili accounts list/create/patch/verify-disabled/revoke without cookie leaks',
+    'accounts',
+    async () => {
+      const previousKey = process.env.COLLECTOR_SECRET_KEY;
+      process.env.COLLECTOR_SECRET_KEY = Buffer.from('0'.repeat(32)).toString('base64');
+      try {
+        const list = (await expectStatus(await api('/api/v1/accounts'), 200)) as {
+          items: unknown[];
+          realAccessEnabled: boolean;
+        };
+        expect(Array.isArray(list.items)).toBe(true);
+        expect(list.realAccessEnabled).toBe(false);
+        expect(JSON.stringify(list)).not.toMatch(/SESSDATA|ciphertext|auth_tag|authTag/);
+
+        const cookie =
+          'SESSDATA=http-cover-sess-9f3a; DedeUserID=880001; bili_jct=http-cover-jct-9f3a';
+        const created = (await expectStatus(
+          await api('/api/v1/accounts', json('POST', { cookie, note: 'http-cover' })),
+          201,
+        )) as { id: string; mid: string | null; secretPresent: boolean };
+        expect(created.mid).toBe('880001');
+        expect(created.secretPresent).toBe(true);
+        expect(JSON.stringify(created)).not.toContain('http-cover-sess-9f3a');
+
+        await expectStatus(
+          await api('/api/v1/accounts', json('POST', { cookie, note: 'dup' })),
+          409,
+        );
+        const patched = (await expectStatus(
+          await api(`/api/v1/accounts/${created.id}`, json('PATCH', { note: 'http-cover-2' })),
+          200,
+        )) as { note: string };
+        expect(patched.note).toBe('http-cover-2');
+        await expectStatus(
+          await api(`/api/v1/accounts/${created.id}/verify`, { method: 'POST' }),
+          409,
+        );
+        const previousSource = process.env.MONITOR_DATA_SOURCE;
+        const previousProvider = process.env.COLLECTOR_PROVIDER;
+        process.env.MONITOR_DATA_SOURCE = 'collector';
+        process.env.COLLECTOR_PROVIDER = 'bilibili';
+        try {
+          const verified = (await expectStatus(
+            await api(`/api/v1/accounts/${created.id}/verify`, { method: 'POST' }),
+            200,
+          )) as { verified: boolean; account: { uname: string | null } };
+          expect(verified.verified).toBe(true);
+          expect(verified.account.uname).toBe('覆盖号');
+          expect(JSON.stringify(verified)).not.toContain('http-cover-sess-9f3a');
+        } finally {
+          if (previousSource === undefined) delete process.env.MONITOR_DATA_SOURCE;
+          else process.env.MONITOR_DATA_SOURCE = previousSource;
+          if (previousProvider === undefined) delete process.env.COLLECTOR_PROVIDER;
+          else process.env.COLLECTOR_PROVIDER = previousProvider;
+        }
+        const revoked = (await expectStatus(
+          await api(`/api/v1/accounts/${created.id}`, { method: 'DELETE' }),
+          200,
+        )) as { account: { status: string; secretPresent: boolean }; message: string };
+        expect(revoked.account.status).toBe('revoked');
+        expect(revoked.account.secretPresent).toBe(false);
+        expect(JSON.stringify(revoked)).not.toContain('http-cover-sess-9f3a');
+        await expectStatus(
+          await api(
+            `/api/v1/accounts/${'00000000-0000-4000-8000-000000000088'}`,
+            json('PATCH', { note: 'missing' }),
+          ),
+          404,
+        );
+      } finally {
+        if (previousKey === undefined) delete process.env.COLLECTOR_SECRET_KEY;
+        else process.env.COLLECTOR_SECRET_KEY = previousKey;
+      }
     },
     60_000,
   );
