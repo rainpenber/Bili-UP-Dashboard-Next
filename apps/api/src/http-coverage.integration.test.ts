@@ -893,22 +893,33 @@ describe('HTTP API coverage against isolated Postgres', () => {
       const listed = parseMonitorTargetList(
         await expectStatus(await api('/api/v1/monitor/targets?page=1&pageSize=50'), 200),
       );
-      const minutesOf = (externalId: string) =>
-        listed.items.find((item) => item.externalId === externalId);
-      expect(minutesOf('240240')).toMatchObject({ intervalMinutes: 240, intervalMode: 'auto' });
-      expect(minutesOf('BV1autonearA')).toMatchObject({
+      const minutesOf = (externalId: string, type?: string) =>
+        listed.items.find(
+          (item) => item.externalId === externalId && (type === undefined || item.type === type),
+        );
+      // mid 240240 also has an internal discovery target (fixed 5m); assert the creator row.
+      expect(minutesOf('240240', 'creator')).toMatchObject({
+        intervalMinutes: 240,
+        intervalMode: 'auto',
+      });
+      expect(minutesOf('240240', 'discovery')).toMatchObject({
+        intervalMinutes: 5,
+        intervalMode: 'fixed',
+        enabled: false,
+      });
+      expect(minutesOf('BV1autonearA', 'video')).toMatchObject({
         intervalMinutes: 15,
         intervalMode: 'auto',
       });
-      expect(minutesOf('BV1autotweve')).toMatchObject({
+      expect(minutesOf('BV1autotweve', 'video')).toMatchObject({
         intervalMinutes: 120,
         intervalMode: 'auto',
       });
-      expect(minutesOf('BV1autofarAA')).toMatchObject({
+      expect(minutesOf('BV1autofarAA', 'video')).toMatchObject({
         intervalMinutes: 360,
         intervalMode: 'auto',
       });
-      expect(minutesOf('BV1fixedhnda')).toMatchObject({
+      expect(minutesOf('BV1fixedhnda', 'video')).toMatchObject({
         intervalMinutes: 120,
         intervalMode: 'fixed',
       });

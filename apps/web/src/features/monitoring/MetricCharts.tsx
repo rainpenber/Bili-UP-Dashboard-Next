@@ -82,16 +82,22 @@ function hasAnyNumeric(values: (number | null)[]): boolean {
   return values.some((v) => v !== null);
 }
 
-export function MetricCharts(props: Props) {
+function CreatorFollowerCharts({
+  points,
+  variant,
+  publishEvents = [],
+}: {
+  points: CreatorMetricPoint[];
+  variant?: 'full' | 'sparkline';
+  publishEvents?: CreatorPublishEvent[];
+}) {
   const colors = useResolvedChartColors();
   const navigate = useNavigate();
-  const points = props.points;
   const sampledAtList = useMemo(() => points.map((p) => p.sampledAt), [points]);
   const tooltipTimes = useMemo(
     () => sampledAtList.map((t) => formatFullLocalTime(t)),
     [sampledAtList],
   );
-
   const initialZoom = useMemo(() => defaultDataZoomRange(sampledAtList), [sampledAtList]);
   const [followerZoom, setFollowerZoom] = useState<{ start: number; end: number } | null>(null);
 
@@ -117,13 +123,89 @@ export function MetricCharts(props: Props) {
   );
 
   if (points.length === 0) {
-    if (props.kind === 'creator' && props.variant === 'sparkline') {
+    if (variant === 'sparkline') {
       return (
         <p className="text-sm text-muted-foreground" data-testid="follower-sparkline-empty">
           暂无样本
         </p>
       );
     }
+    return <p className="text-sm text-muted-foreground">暂无播放与互动数据</p>;
+  }
+
+  const followers = points.map((p) => parseSeriesNumber(p.followerCount));
+  const zoom = followerZoom ?? initialZoom;
+  const { start, end } = visibleIndexRange(followers.length, zoom.start, zoom.end);
+  const option = buildFollowerOption(
+    sampledAtList,
+    followers,
+    colors,
+    tooltipTimes,
+    start,
+    end,
+    publishEvents.map((event) => ({
+      publishedAt: event.publishedAt,
+      eventKind: event.eventKind,
+      titleSnapshot: event.titleSnapshot,
+      externalId: event.externalId,
+      navigable: event.navigable,
+      monitoredTargetId: event.monitoredTargetId,
+    })),
+  );
+  if (variant === 'sparkline') {
+    return (
+      <div className="min-w-0 overflow-hidden" data-testid="follower-sparkline">
+        <ReactECharts
+          option={{
+            ...option,
+            legend: { show: false },
+            toolbox: { show: false },
+            dataZoom: [{ type: 'inside', start: zoom.start, end: zoom.end }],
+            grid: { left: 8, right: 8, top: 16, bottom: 24, containLabel: true },
+          }}
+          style={{ height: 140, width: '100%' }}
+          opts={{ renderer: 'canvas' }}
+          notMerge
+        />
+      </div>
+    );
+  }
+
+  return (
+    <ReactECharts
+      option={option}
+      style={{ height: 320, width: '100%' }}
+      opts={{ renderer: 'canvas' }}
+      notMerge
+      onEvents={{
+        datazoom: onFollowerZoom,
+        restore: () => setFollowerZoom(null),
+        click: onPublishMarkClick,
+      }}
+    />
+  );
+}
+
+export function MetricCharts(props: Props) {
+  const colors = useResolvedChartColors();
+  const points = props.points;
+  const sampledAtList = useMemo(() => points.map((p) => p.sampledAt), [points]);
+  const tooltipTimes = useMemo(
+    () => sampledAtList.map((t) => formatFullLocalTime(t)),
+    [sampledAtList],
+  );
+
+  if (props.kind === 'creator') {
+    return (
+      <CreatorFollowerCharts
+        points={props.points}
+        variant={props.variant}
+        publishEvents={props.publishEvents}
+      />
+    );
+  }
+
+  if (points.length === 0) {
     return <p className="text-sm text-muted-foreground">暂无播放与互动数据</p>;
   }
 
@@ -215,62 +297,6 @@ export function MetricCharts(props: Props) {
         />
         {commentNote}
       </div>
-    );
-  }
-
-  if (props.kind === 'creator') {
-    const followers = props.points.map((p) => parseSeriesNumber(p.followerCount));
-    const zoom = followerZoom ?? initialZoom;
-    const { start, end } = visibleIndexRange(followers.length, zoom.start, zoom.end);
-    const publishEvents = props.publishEvents ?? [];
-
-    const option = buildFollowerOption(
-      sampledAtList,
-      followers,
-      colors,
-      tooltipTimes,
-      start,
-      end,
-      publishEvents.map((event) => ({
-        publishedAt: event.publishedAt,
-        eventKind: event.eventKind,
-        titleSnapshot: event.titleSnapshot,
-        externalId: event.externalId,
-        navigable: event.navigable,
-        monitoredTargetId: event.monitoredTargetId,
-      })),
-    );
-    if (props.variant === 'sparkline') {
-      return (
-        <div className="min-w-0 overflow-hidden" data-testid="follower-sparkline">
-          <ReactECharts
-            option={{
-              ...option,
-              legend: { show: false },
-              toolbox: { show: false },
-              dataZoom: [{ type: 'inside', start: zoom.start, end: zoom.end }],
-              grid: { left: 8, right: 8, top: 16, bottom: 24, containLabel: true },
-            }}
-            style={{ height: 140, width: '100%' }}
-            opts={{ renderer: 'canvas' }}
-            notMerge
-          />
-        </div>
-      );
-    }
-
-    return (
-      <ReactECharts
-        option={option}
-        style={{ height: 320, width: '100%' }}
-        opts={{ renderer: 'canvas' }}
-        notMerge
-        onEvents={{
-          datazoom: onFollowerZoom,
-          restore: () => setFollowerZoom(null),
-          click: onPublishMarkClick,
-        }}
-      />
     );
   }
 
