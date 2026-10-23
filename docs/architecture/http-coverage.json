@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_9a37f00da4ae",
+  "databaseName": "wp_r2_11_6829cc2572c8",
   "retainedDatabase": true,
-  "registeredCount": 69,
-  "inventoryCount": 69,
-  "executedCount": 69,
-  "httpSuccessCount": 69,
-  "acceptedCount": 69,
+  "registeredCount": 70,
+  "inventoryCount": 70,
+  "executedCount": 70,
+  "httpSuccessCount": 70,
+  "acceptedCount": 70,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 8,
@@ -169,6 +169,30 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "commercial",
           "status": 200,
@@ -1167,6 +1191,35 @@
       "cases": [
         {
           "test": "health",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/commercial/projects/:projectId/workflow/layout",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 409,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
           "status": 200,
           "http": "success",
           "assertions": "passed"

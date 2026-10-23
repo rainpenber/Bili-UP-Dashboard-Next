@@ -1096,9 +1096,7 @@ describe('live graph step controls', () => {
 
     fireEvent.click(screen.getByTestId('workflow-layout-save'));
     await waitFor(() =>
-      expect(screen.getByTestId('workflow-layout-status').getAttribute('data-dirty')).toBe(
-        'false',
-      ),
+      expect(screen.getByTestId('workflow-layout-status').getAttribute('data-dirty')).toBe('false'),
     );
     expect(api.layoutPatches.length).toBeGreaterThanOrEqual(2);
     const saved = api.layoutPatches.at(-1)?.body.nodes.find((node) => node.nodeId === ID.outline);

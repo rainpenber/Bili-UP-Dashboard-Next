@@ -693,10 +693,7 @@ function parseLayoutNodeName(value: unknown, label: string): string {
   return trimmed;
 }
 
-function parseLayoutNodePatch(
-  value: unknown,
-  index: number,
-): CommercialWorkflowLayoutNodePatch {
+function parseLayoutNodePatch(value: unknown, index: number): CommercialWorkflowLayoutNodePatch {
   const record = asRecord(value, `nodes[${index}]`);
   const patch: CommercialWorkflowLayoutNodePatch = {
     nodeId: parseUuid(record.nodeId, `nodes[${index}].nodeId`),

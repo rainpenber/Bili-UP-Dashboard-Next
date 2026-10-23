@@ -154,9 +154,7 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
   const workflowQuery = useLiveProjectWorkflowQuery(projectId);
   const queryClient = useQueryClient();
   const [names, setNames] = useState<Record<string, string>>({});
-  const [positions, setPositions] = useState<Record<string, { x: number; y: number }> | null>(
-    null,
-  );
+  const [positions, setPositions] = useState<Record<string, { x: number; y: number }> | null>(null);
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [layoutSaving, setLayoutSaving] = useState(false);
   const [layoutNotice, setLayoutNotice] = useState<string | null>(null);
@@ -190,8 +188,7 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
   const businessState = detailQuery.data?.businessState ?? null;
   const displayReadOnly = archived || isBusinessStateReadOnly(businessState);
   const layoutDirty =
-    Object.keys(names).length > 0 ||
-    (positions != null && Object.keys(positions).length > 0);
+    Object.keys(names).length > 0 || (positions != null && Object.keys(positions).length > 0);
 
   const onToggleArchive = () => {
     if (!detailQuery.data) return;
@@ -490,11 +487,7 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
                   data-testid="workflow-layout-status"
                   data-dirty={layoutDirty ? 'true' : 'false'}
                 >
-                  {layoutSaving
-                    ? '保存中…'
-                    : layoutDirty
-                      ? '未保存'
-                      : (layoutNotice ?? '已保存')}
+                  {layoutSaving ? '保存中…' : layoutDirty ? '未保存' : (layoutNotice ?? '已保存')}
                 </span>
                 <Button
                   type="button"

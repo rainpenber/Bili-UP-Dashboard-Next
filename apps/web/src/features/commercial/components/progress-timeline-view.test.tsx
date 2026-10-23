@@ -641,6 +641,8 @@ describe('LiveProjectWorkflow timeline placement', () => {
       blockingReason: string | null;
       plannedAt: string | null;
       completedAt: string | null;
+      posX: number;
+      posY: number;
       updatedAt: string;
     };
     const seeds: Array<[keyof typeof NODE_IDS, string, string]> = [

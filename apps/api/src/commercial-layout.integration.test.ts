@@ -143,9 +143,7 @@ describe('commercial workflow layout', () => {
       ),
     );
     expect(stale.code).toBe('stale_write');
-    expect((await reload(ctx)).nodes.find((node) => node.id === outline.id)?.name).toBe(
-      '大纲定稿',
-    );
+    expect((await reload(ctx)).nodes.find((node) => node.id === outline.id)?.name).toBe('大纲定稿');
 
     const missing = parseCommercialWriteError(
       await expectJson(
@@ -257,10 +255,7 @@ function fullSet(
   });
 }
 
-async function patchLayout(
-  ctx: { app: App; projectId: string },
-  body: unknown,
-): Promise<Response> {
+async function patchLayout(ctx: { app: App; projectId: string }, body: unknown): Promise<Response> {
   return ctx.app.request(`/api/v1/commercial/projects/${ctx.projectId}/workflow/layout`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
