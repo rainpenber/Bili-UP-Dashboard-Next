@@ -18,10 +18,10 @@ describe('project list restore button', () => {
     const seen: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       seen.push(`${init?.method ?? 'GET'} ${String(input)}`);
-      return new Response(
-        JSON.stringify({ id: PROJECT_ID, archivedAt: null }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ id: PROJECT_ID, archivedAt: null }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
     }) as typeof fetch;
 
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
