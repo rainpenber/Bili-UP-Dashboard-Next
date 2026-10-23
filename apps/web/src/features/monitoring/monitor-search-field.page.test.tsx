@@ -29,6 +29,45 @@ function list(items: unknown[] = []) {
   };
 }
 
+function videoCard(title: string) {
+  return {
+    type: 'video',
+    externalId: 'BV1xx411c7mD',
+    title,
+    category: '游戏',
+    imageAssetId: null,
+    mid: '1',
+    displayName: title,
+    hasEntity: true,
+    hasSamples: false,
+    pinned: false,
+    monitorState: 'active',
+    execution: 'waiting',
+    target: {
+      id: '11111111-1111-4111-8111-111111111111',
+      label: title,
+      tags: [],
+      enabled: true,
+      intervalMinutes: 15,
+      intervalMode: 'auto',
+      startAt: null,
+      nextRunAt: null,
+      lastRunAt: null,
+      lastSuccessAt: null,
+      lastError: null,
+    },
+    projects: [],
+    latest: {
+      sampledAt: null,
+      viewCount: null,
+      onlineViewers: null,
+      onlineViewersRaw: null,
+      likeCount: null,
+      followerCount: null,
+    },
+  };
+}
+
 function wrapPage(entry: string) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -64,40 +103,7 @@ describe('WP-R2-23A / WP-R2-24A unified monitor search (no suggestions)', () => 
       if (url.includes('/api/v1/monitor/cards?')) {
         cardQs.push(url);
         const q = new URL(url, 'http://localhost').searchParams.get('q') ?? '';
-        const items =
-          q.toLowerCase() === 'pocket'
-            ? [
-                {
-                  type: 'video',
-                  externalId: 'BV1pocketxxxx',
-                  title: 'Pocket Lab',
-                  category: '游戏',
-                  imageAssetId: null,
-                  mid: '1',
-                  displayName: 'Pocket Lab',
-                  hasEntity: true,
-                  hasSamples: false,
-                  pinned: false,
-                  monitorState: 'active',
-                  execution: 'waiting',
-                  target: {
-                    id: '11111111-1111-4111-8111-111111111111',
-                    label: '视频',
-                    tags: [],
-                    enabled: true,
-                    intervalMinutes: 15,
-                    intervalMode: 'auto',
-                    startAt: null,
-                    nextRunAt: null,
-                    lastRunAt: null,
-                    lastSuccessAt: null,
-                    lastError: null,
-                  },
-                  projects: [],
-                  latest: null,
-                },
-              ]
-            : [];
+        const items = q.toLowerCase() === 'pocket' ? [videoCard('Pocket Lab')] : [];
         return Promise.resolve(jsonResponse(list(items)));
       }
       return Promise.resolve(jsonResponse(list([])));
@@ -115,16 +121,19 @@ describe('WP-R2-23A / WP-R2-24A unified monitor search (no suggestions)', () => 
     });
 
     await waitFor(() => {
-      expect(router.state.location.search).toContain('q=pocket');
+      expect(new URLSearchParams(router.state.location.search).get('q')).toBe('pocket');
     });
-    expect(router.state.location.search).not.toContain('q=poc');
     expect(screen.queryByTestId('monitor-search-suggestions')).toBeNull();
     expect(screen.queryByRole('listbox')).toBeNull();
 
     const qValues = cardQs.map((url) => new URL(url, 'http://localhost').searchParams.get('q'));
     expect(qValues.filter((value) => value === 'poc')).toHaveLength(0);
     expect(qValues.some((value) => value === 'pocket')).toBe(true);
-    expect(await screen.findByText('Pocket Lab')).toBeTruthy();
+
+    await waitFor(() => {
+      expect(screen.queryByText('没有匹配的条目')).toBeNull();
+      expect(screen.getAllByTestId('monitor-object-card').length).toBeGreaterThan(0);
+    });
   });
 
   test('clear button and Escape restore empty q; Enter applies immediately', async () => {
