@@ -25,6 +25,6 @@
 
 ## UI
 
-- 视频 tab 筛选栏 Toggle「只看我的」→ URL `onlyMine=1`；展示当前配置显示名与 UID。
+- 视频 tab 筛选栏 Toggle「只看我的」→ URL `onlyMine=1`；身份说明放在按钮 `title` / `aria-description`（如「只显示 狐正正 的视频」），不在布局中展示昵称与 mid。
 - 集成与设置页「本人 B 站账号」表单；保存后失效 `monitor/cards` 查询。
 - 与分类 / 关键词 / 监控状态 / 排序 / 布局 / 详情返回兼容。
