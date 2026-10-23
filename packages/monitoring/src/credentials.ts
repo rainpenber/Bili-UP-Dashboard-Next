@@ -84,6 +84,40 @@ export function cookieHeader(jar: CookieJar): string {
     .join('; ');
 }
 
+/**
+ * Parse a browser Cookie header string (`a=1; b=2`) into a jar.
+ * Does not call the network. Mid is taken from DedeUserID when present.
+ */
+export function parseCookieHeaderString(raw: string): {
+  jar: CookieJar;
+  mid: string | null;
+} {
+  const jar: CookieJar = {};
+  for (const part of raw.split(';')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+    const name = trimmed.slice(0, eq).trim();
+    const value = trimmed.slice(eq + 1).trim();
+    if (!name || !value) continue;
+    jar[name] = value;
+  }
+  const midRaw = jar.DedeUserID?.trim() ?? '';
+  const mid = /^\d{1,20}$/.test(midRaw) && !midRaw.startsWith('0') ? midRaw : null;
+  return { jar, mid };
+}
+
+export function isBilibiliRealAccessEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const dataSource = env.MONITOR_DATA_SOURCE?.trim() || 'mock';
+  if (dataSource === 'mock') return false;
+  try {
+    return readCollectorProviderKind(env) === 'bilibili';
+  } catch {
+    return false;
+  }
+}
+
 export function scrubCollectorError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return scrubSensitive(message).slice(0, 500);

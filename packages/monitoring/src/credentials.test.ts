@@ -5,7 +5,9 @@ import {
   cookieHeader,
   decryptCookieJar,
   encryptCookieJar,
+  isBilibiliRealAccessEnabled,
   loadCollectorSecretKey,
+  parseCookieHeaderString,
   readCollectorProviderKind,
 } from './credentials';
 import { scrubSensitive } from './sensitive';
@@ -48,5 +50,30 @@ describe('collector credentials', () => {
     expect(scrubbed).not.toContain('csrf-value');
     expect(scrubbed).not.toContain('abc');
     expect(clipCollectorError(new Error(raw))).toBe(scrubbed.slice(0, 500));
+  });
+
+  test('parses Cookie header string and mid without network', () => {
+    const { jar, mid } = parseCookieHeaderString(
+      'SESSDATA=tok; DedeUserID=12345; DedeUserID__ckMd5=abc; bili_jct=csrf',
+    );
+    expect(mid).toBe('12345');
+    expect(jar.SESSDATA).toBe('tok');
+    expect(jar.bili_jct).toBe('csrf');
+  });
+
+  test('real access requires non-mock data source and bilibili provider', () => {
+    expect(isBilibiliRealAccessEnabled({ MONITOR_DATA_SOURCE: 'mock' })).toBe(false);
+    expect(
+      isBilibiliRealAccessEnabled({
+        MONITOR_DATA_SOURCE: 'collector',
+        COLLECTOR_PROVIDER: 'offline',
+      }),
+    ).toBe(false);
+    expect(
+      isBilibiliRealAccessEnabled({
+        MONITOR_DATA_SOURCE: 'collector',
+        COLLECTOR_PROVIDER: 'bilibili',
+      }),
+    ).toBe(true);
   });
 });

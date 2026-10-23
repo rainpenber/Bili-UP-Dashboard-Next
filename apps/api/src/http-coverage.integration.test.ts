@@ -1930,6 +1930,63 @@ describe('HTTP API coverage against isolated Postgres', () => {
   );
 
   testChecked(
+    'bili accounts list/create/patch/verify-disabled/revoke without cookie leaks',
+    'accounts',
+    async () => {
+      const previousKey = process.env.COLLECTOR_SECRET_KEY;
+      process.env.COLLECTOR_SECRET_KEY = Buffer.from('0'.repeat(32)).toString('base64');
+      try {
+        const list = (await expectStatus(await api('/api/v1/accounts'), 200)) as {
+          items: unknown[];
+          realAccessEnabled: boolean;
+        };
+        expect(Array.isArray(list.items)).toBe(true);
+        expect(list.realAccessEnabled).toBe(false);
+        expect(JSON.stringify(list)).not.toMatch(/SESSDATA|ciphertext|auth_tag|authTag/);
+
+        const cookie =
+          'SESSDATA=http-cover-sess-9f3a; DedeUserID=880001; bili_jct=http-cover-jct-9f3a';
+        const created = (await expectStatus(
+          await api('/api/v1/accounts', json('POST', { cookie, note: 'http-cover' })),
+          201,
+        )) as { id: string; mid: string | null; secretPresent: boolean };
+        expect(created.mid).toBe('880001');
+        expect(created.secretPresent).toBe(true);
+        expect(JSON.stringify(created)).not.toContain('http-cover-sess-9f3a');
+
+        await expectStatus(
+          await api('/api/v1/accounts', json('POST', { cookie, note: 'dup' })),
+          409,
+        );
+        const patched = (await expectStatus(
+          await api(`/api/v1/accounts/${created.id}`, json('PATCH', { note: 'http-cover-2' })),
+          200,
+        )) as { note: string };
+        expect(patched.note).toBe('http-cover-2');
+        await expectStatus(await api(`/api/v1/accounts/${created.id}/verify`, { method: 'POST' }), 409);
+        const revoked = (await expectStatus(
+          await api(`/api/v1/accounts/${created.id}`, { method: 'DELETE' }),
+          200,
+        )) as { account: { status: string; secretPresent: boolean }; message: string };
+        expect(revoked.account.status).toBe('revoked');
+        expect(revoked.account.secretPresent).toBe(false);
+        expect(JSON.stringify(revoked)).not.toContain('http-cover-sess-9f3a');
+        await expectStatus(
+          await api(
+            `/api/v1/accounts/${'00000000-0000-4000-8000-000000000088'}`,
+            json('PATCH', { note: 'missing' }),
+          ),
+          404,
+        );
+      } finally {
+        if (previousKey === undefined) delete process.env.COLLECTOR_SECRET_KEY;
+        else process.env.COLLECTOR_SECRET_KEY = previousKey;
+      }
+    },
+    60_000,
+  );
+
+  testChecked(
     'commercial ingress upsert, batch, dry-run, and source lookup',
     'commercial',
     async () => {
