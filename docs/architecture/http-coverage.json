@@ -1,5 +1,5 @@
 {
-  "databaseName": "wp_r2_11_8e9c8c2864a8",
+  "databaseName": "wp_r2_11_c4df6eeeee5f",
   "retainedDatabase": true,
   "registeredCount": 81,
   "inventoryCount": 81,
@@ -8,7 +8,7 @@
   "acceptedCount": 81,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
-  "injectedTransportCalls": 8,
+  "injectedTransportCalls": 9,
   "routes": [
     {
       "method": "DELETE",
@@ -127,6 +127,18 @@
           "status": 304,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "assets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "assets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -161,6 +173,12 @@
           "status": 200,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -190,6 +208,12 @@
           "status": 200,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -202,6 +226,198 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "commercial",
           "status": 200,
@@ -259,6 +475,18 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
         {
           "test": "monitor-targets",
           "status": 200,
@@ -487,6 +715,12 @@
           "status": 200,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -550,6 +784,18 @@
           "status": 200,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -584,6 +830,18 @@
           "status": 200,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -607,6 +865,12 @@
           "status": 404,
           "http": "reject",
           "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -619,6 +883,18 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "monitor-read",
           "status": 200,
@@ -673,12 +949,24 @@
         },
         {
           "test": "monitor-read",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-read",
           "status": 400,
           "http": "reject",
           "assertions": "passed"
         },
         {
           "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
           "status": 200,
           "http": "success",
           "assertions": "passed"
@@ -700,6 +988,12 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "ops",
           "status": 200,
@@ -799,6 +1093,18 @@
         },
         {
           "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
           "status": 400,
           "http": "reject",
           "assertions": "passed"
@@ -888,6 +1194,18 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "ops",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "ops",
           "status": 200,
@@ -1002,6 +1320,12 @@
           "status": 409,
           "http": "reject",
           "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1014,6 +1338,12 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "metadata-refresh",
           "status": 200,
@@ -1045,6 +1375,12 @@
         },
         {
           "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
           "status": 404,
           "http": "reject",
           "assertions": "passed"
@@ -1068,6 +1404,18 @@
         },
         {
           "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
           "status": 400,
           "http": "reject",
           "assertions": "passed"
@@ -1076,6 +1424,18 @@
           "test": "monitor-targets",
           "status": 404,
           "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
           "assertions": "passed"
         }
       ]
@@ -1089,6 +1449,12 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "metadata-refresh",
           "status": 200,
@@ -1180,6 +1546,12 @@
           "status": 200,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1226,6 +1598,42 @@
           "status": 404,
           "http": "reject",
           "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1243,6 +1651,24 @@
           "status": 200,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1255,6 +1681,42 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "commercial",
           "status": 200,
@@ -1301,6 +1763,12 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "commercial",
           "status": 200,
@@ -1369,6 +1837,12 @@
           "status": 409,
           "http": "reject",
           "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1426,6 +1900,12 @@
           "status": 200,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1476,6 +1956,24 @@
           "test": "imports",
           "status": 400,
           "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "imports",
+          "status": 200,
+          "http": "success",
           "assertions": "passed"
         },
         {
@@ -1581,6 +2079,18 @@
           "status": 409,
           "http": "reject",
           "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 202,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 202,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1601,8 +2111,92 @@
         },
         {
           "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
           "status": 400,
           "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
           "assertions": "passed"
         }
       ]
@@ -1616,6 +2210,18 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "monitor-targets",
           "status": 200,
@@ -1662,6 +2268,12 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "monitor-targets",
           "status": 200,
