@@ -68,3 +68,8 @@ curl -sS "$API/api/v1/commercial/projects?originKind=real&limit=20&offset=0"
 ## 前端
 
 项目列表筛选增加「来源」；`originKind=real` 且 `total=0` 时显示诚实空态。详情只读展示来源 metadata。不重做卡片/节点图。
+
+## 展示态（WP-R2-19C）
+
+读接口在列表 / 详情上附加 `businessState` 与 `originStatusLabel`（仅来源绑定项目；无来源为 `null`）。  
+映射是纯函数，只读 `sourceStatus`，不写节点 / 金额 / 完成时间。finished / not_started 仅改变时间轴与节点图的视觉样式并隐藏写操作入口。

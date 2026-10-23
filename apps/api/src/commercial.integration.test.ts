@@ -274,6 +274,8 @@ describe('commercial read API', () => {
             ? project.origin_kind
             : null,
         source: null,
+        businessState: null,
+        originStatusLabel: null,
         blockedNodeNames: blockedNames(projectNodes),
         openItems: projectItems.map((row) => ({
           id: row.id,

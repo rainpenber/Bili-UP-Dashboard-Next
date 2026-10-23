@@ -1,5 +1,10 @@
 /** Commercial domain enums and read-only API shapes (WP-004R2-2). */
 
+import {
+  isCommercialBusinessState,
+  type CommercialBusinessState,
+} from './commercial-business-state';
+
 export const OVERALL_STAGES = [
   'pre_publish',
   'published_winding_down',
@@ -147,6 +152,15 @@ export type CommercialProjectListItem = {
   originKind: CommercialOriginKind | null;
   /** Present when a commercial_project_sources row is bound. */
   source: CommercialProjectSourceSummary | null;
+  /**
+   * Display-only business state from the source snapshot (WP-R2-19C).
+   * Null when the project has no source binding (fixture / manual / unclassified).
+   */
+  businessState: CommercialBusinessState | null;
+  /**
+   * Raw source status label for display. Null when unbound or the snapshot has no status text.
+   */
+  originStatusLabel: string | null;
   /** Names of blocked nodes only, same layout order as currentStageNames. */
   blockedNodeNames: string[];
   /** Every open_items row for this project, including closed and cancelled. */
@@ -391,6 +405,18 @@ function parseSourceSummary(value: unknown): CommercialProjectSourceSummary | nu
   };
 }
 
+function parseBusinessState(value: unknown): CommercialBusinessState | null {
+  if (value === null) return null;
+  if (!isCommercialBusinessState(value)) throw new Error('businessState is invalid');
+  return value;
+}
+
+function parseOriginStatusLabel(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') throw new Error('originStatusLabel must be a string or null');
+  return value;
+}
+
 function parseListItem(value: unknown): CommercialProjectListItem {
   const record = asRecord(value, 'project list item');
   if (!isOverallStage(record.overallStage)) throw new Error('overallStage is invalid');
@@ -415,6 +441,8 @@ function parseListItem(value: unknown): CommercialProjectListItem {
     businessClosedAt: parseNullableIso(record.businessClosedAt, 'businessClosedAt'),
     originKind: parseOriginKind(record.originKind),
     source: parseSourceSummary(record.source),
+    businessState: parseBusinessState(record.businessState),
+    originStatusLabel: parseOriginStatusLabel(record.originStatusLabel),
     blockedNodeNames: parseStageNames(record.blockedNodeNames, 'blockedNodeNames'),
     openItems: parseOpenItems(record.openItems),
   };

@@ -1,4 +1,5 @@
 import {
+  commercialDisplayStateFromSource,
   isCommercialOriginKind,
   isOpenItemActor,
   isOpenItemImpact,
@@ -180,6 +181,8 @@ function toListItem(
   row: ProjectCoreRow,
   openItems: CommercialOpenItemRead[],
 ): CommercialProjectListItem {
+  const source = toSourceSummary(row);
+  const display = commercialDisplayStateFromSource(source);
   return {
     id: row.id,
     name: row.name,
@@ -197,7 +200,9 @@ function toListItem(
     stageEnteredAt: row.stage_entered_at,
     businessClosedAt: row.business_closed_at,
     originKind: originKind(row.origin_kind),
-    source: toSourceSummary(row),
+    source,
+    businessState: display.businessState,
+    originStatusLabel: display.originStatusLabel,
     blockedNodeNames: stageNames(row.blocked_node_names),
     openItems,
   };

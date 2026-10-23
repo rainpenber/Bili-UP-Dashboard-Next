@@ -317,11 +317,18 @@ export function timelineFactsFromDetail(
   detail: CommercialProjectDetail | null | undefined,
 ): TimelineProjectFacts | null {
   if (!detail) return null;
+  const storedLabel = OVERALL_STAGE_LABEL[detail.overallStage] ?? detail.overallStage;
+  const overallStageLabel =
+    detail.businessState === 'finished'
+      ? '已结束'
+      : detail.businessState === 'not_started'
+        ? '未开始'
+        : storedLabel;
   return {
     netAmount: detail.netAmount,
     rebateAmount: detail.rebateAmount,
     overallStage: detail.overallStage,
-    overallStageLabel: OVERALL_STAGE_LABEL[detail.overallStage] ?? detail.overallStage,
+    overallStageLabel,
     currentTasks: detail.currentStageNames,
     published: detail.publish.published || detail.overallStage === 'published_winding_down',
     publishedAt: detail.publish.published ? detail.publish.publishedAt : null,

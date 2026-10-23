@@ -7,6 +7,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
+  applyBusinessStateToLiveNodes,
+  applyBusinessStateToTimelineNodes,
+  isBusinessStateReadOnly,
+} from '../business-display-state';
+import {
   applySessionRename,
   commercialWorkflowToLive,
   type LiveGraphNode,
@@ -129,26 +134,29 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
     };
   }, [detailQuery.data?.publish]);
   const archived = detailQuery.data?.overallStage === 'archived';
+  const businessState = detailQuery.data?.businessState ?? null;
+  const displayReadOnly = archived || isBusinessStateReadOnly(businessState);
   const stepEditor = useMemo<StepEditor>(
     () => ({
-      disabled: Boolean(archived),
+      disabled: Boolean(displayReadOnly),
       onRefresh,
       onStep,
       recordedPublish,
     }),
-    [archived, onRefresh, onStep, recordedPublish],
+    [displayReadOnly, onRefresh, onStep, recordedPublish],
   );
   const step = useStepController(stepEditor, (stageId) => locateRef.current(stageId));
 
   const live = useMemo(() => {
     if (!workflowQuery.data) return null;
     const base = commercialWorkflowToLive(workflowQuery.data);
-    return { nodes: withNames(base.nodes, names), edges: base.edges };
-  }, [workflowQuery.data, names]);
+    const nodes = applyBusinessStateToLiveNodes(withNames(base.nodes, names), businessState);
+    return { nodes, edges: base.edges };
+  }, [workflowQuery.data, names, businessState]);
 
   const planEditor = useMemo<PlanEditor>(
     () => ({
-      disabled: Boolean(archived),
+      disabled: Boolean(displayReadOnly),
       savingId: savingPlanId,
       error: planError,
       onSave: (nodeId, updatedAt, plannedAt) => {
@@ -176,7 +184,7 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
           .finally(() => setSavingPlanId(null));
       },
     }),
-    [archived, planError, projectId, queryClient, savingPlanId],
+    [displayReadOnly, planError, projectId, queryClient, savingPlanId],
   );
 
   if (workflowQuery.isLoading || detailQuery.isLoading) {
@@ -201,22 +209,52 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
 
   const title = detailQuery.data?.name ?? '项目流程';
   const facts = timelineFactsFromDetail(detailQuery.data);
-  const timelineNodes = timelineNodesFromWorkflow(workflow.nodes, names);
+  const timelineNodes = applyBusinessStateToTimelineNodes(
+    timelineNodesFromWorkflow(workflow.nodes, names),
+    businessState,
+  );
   const publishedBvid = detailQuery.data?.publish.published ? detailQuery.data.publish.bvid : null;
+  const originStatusLabel = detailQuery.data?.originStatusLabel ?? null;
+  const headerDescription = archived
+    ? '该项目已结案归档，流程只读。'
+    : businessState === 'finished'
+      ? '来源已结束：时间轴与节点图按全部完成展示，不改真实流程记录。'
+      : businessState === 'not_started'
+        ? '来源未开始：时间轴与节点图按全部未到展示，不改真实流程记录。'
+        : '数据库中的项目流程';
 
   return (
     <>
       <PageHeader
         title={title}
-        description={archived ? '该项目已结案归档，流程只读。' : '数据库中的项目流程'}
+        description={headerDescription}
         crumbs={[
           { label: '工作室', to: '/' },
           { label: '项目', to: '/projects' },
           { label: title },
         ]}
-        actions={archived ? <Badge variant="secondary">已归档</Badge> : null}
+        actions={
+          <>
+            {archived ? <Badge variant="secondary">已归档</Badge> : null}
+            {businessState === 'finished' ? (
+              <Badge variant="secondary" data-testid="project-business-state-chip">
+                已结束{originStatusLabel ? ` · ${originStatusLabel}` : ''}
+              </Badge>
+            ) : null}
+            {businessState === 'not_started' ? (
+              <Badge variant="outline" data-testid="project-business-state-chip">
+                未开始{originStatusLabel ? ` · ${originStatusLabel}` : ''}
+              </Badge>
+            ) : null}
+          </>
+        }
       />
-      <div className="space-y-4">
+      <div
+        className="space-y-4"
+        data-testid="project-workflow-shell"
+        data-business-state={businessState ?? ''}
+        data-display-readonly={displayReadOnly ? 'true' : 'false'}
+      >
         <ProgressSummary facts={facts} nodes={timelineNodes} />
         {detailQuery.data?.source || detailQuery.data?.originKind ? (
           <p className="text-sm text-muted-foreground" data-testid="project-source-meta">
@@ -231,9 +269,17 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
             {detailQuery.data.source
               ? ` · ${detailQuery.data.source.namespace}/${detailQuery.data.source.sourceId}`
               : null}
-            {detailQuery.data.source?.sourceStatus
-              ? ` · 源状态「${detailQuery.data.source.sourceStatus}」（仅事实，不推断流程）`
-              : null}
+            {originStatusLabel ? ` · 源状态「${originStatusLabel}」` : null}
+            {businessState === 'finished' || businessState === 'not_started'
+              ? '（展示态只读，不改节点记录）'
+              : detailQuery.data.source?.sourceStatus
+                ? '（仅事实，不推断流程）'
+                : null}
+          </p>
+        ) : null}
+        {displayReadOnly && !archived ? (
+          <p className="text-sm text-muted-foreground" data-testid="project-display-readonly-note">
+            当前为来源展示态：已隐藏推进 / 完成等写操作入口。
           </p>
         ) : null}
         <OpenItemsReadout items={detailQuery.data?.openItems ?? []} />
@@ -243,6 +289,7 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
           stepController={step}
           bindLocate={bindLocate}
           planEditor={planEditor}
+          displayBusinessState={businessState}
         />
         {publishedBvid ? <ProjectVideoMetrics bvid={publishedBvid} /> : null}
         <Card>
@@ -253,7 +300,9 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
               data-testid="workflow-live-counts"
             >
               {live.nodes.length} 个节点 · {live.edges.length} 条连线
-              {archived ? '。归档后不能改名。' : '。改名只留在本页，尚未写回数据库。'}
+              {displayReadOnly
+                ? '。当前只读，不能改名或推进。'
+                : '。改名只留在本页，尚未写回数据库。'}
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -270,11 +319,11 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
               nodes={live.nodes}
               edges={live.edges}
               label="流程"
-              readOnly={archived}
+              readOnly={displayReadOnly}
               renderDetail={(node) => (
                 <GraphNodeProgress
                   node={node}
-                  interactive={!archived}
+                  interactive={!displayReadOnly}
                   step={step}
                   planEditor={planEditor}
                 />
