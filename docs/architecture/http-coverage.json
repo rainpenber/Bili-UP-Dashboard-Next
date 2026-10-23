@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_4b416734d10d",
+  "databaseName": "wp_r2_11_2d7c41aaf859",
   "retainedDatabase": true,
-  "registeredCount": 66,
-  "inventoryCount": 66,
-  "executedCount": 66,
-  "httpSuccessCount": 66,
-  "acceptedCount": 66,
+  "registeredCount": 69,
+  "inventoryCount": 69,
+  "executedCount": 69,
+  "httpSuccessCount": 69,
+  "acceptedCount": 69,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 8,
@@ -479,6 +479,23 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/discovery",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/monitor/creators/:mid/metrics",
       "readWrite": "read",
       "frontendCaller": true,
@@ -494,6 +511,23 @@
         },
         {
           "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/publish-events",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
           "status": 200,
           "http": "success",
           "assertions": "passed"
@@ -1915,6 +1949,29 @@
           "test": "metadata-refresh",
           "status": 404,
           "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/monitor/creators/:mid/discovery",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
           "assertions": "passed"
         }
       ]
