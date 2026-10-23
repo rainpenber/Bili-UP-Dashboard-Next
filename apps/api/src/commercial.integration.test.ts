@@ -443,6 +443,8 @@ describe('commercial read API', () => {
           workflow_id: string;
           planned_at: string | null;
           completed_at: string | null;
+          pos_x: number;
+          pos_y: number;
           updated_at: string;
         }[]
       >`
@@ -473,6 +475,8 @@ describe('commercial read API', () => {
           n.workflow_id,
           to_char(n.planned_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS planned_at,
           to_char(n.completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS completed_at,
+          n.pos_x,
+          n.pos_y,
           to_char(n.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at
         FROM wf_nodes n
         LEFT JOIN wf_template_nodes t ON t.id = n.template_node_id
@@ -494,6 +498,8 @@ describe('commercial read API', () => {
           blockingReason: row.blocking_reason,
           plannedAt: row.planned_at,
           completedAt: row.completed_at,
+          posX: row.pos_x,
+          posY: row.pos_y,
           updatedAt: row.updated_at,
         })),
       );
@@ -629,8 +635,11 @@ describe('commercial read API', () => {
 
     const graphRes = await app.request(`/api/v1/commercial/projects/${projectId}/workflow`);
     const graph = parseCommercialProjectWorkflow(await graphRes.json());
-    const [stamp] = await sql<{ updated_at: string }[]>`
-      SELECT to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at
+    const [stamp] = await sql<{ updated_at: string; pos_x: number; pos_y: number }[]>`
+      SELECT
+        to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at,
+        pos_x,
+        pos_y
       FROM wf_nodes WHERE id = ${nodeId}
     `;
     if (!stamp) throw new Error('blocked node timestamp missing');
@@ -644,6 +653,8 @@ describe('commercial read API', () => {
         blockingReason: null,
         plannedAt: null,
         completedAt: null,
+        posX: stamp.pos_x,
+        posY: stamp.pos_y,
         updatedAt: stamp.updated_at,
       },
     ]);

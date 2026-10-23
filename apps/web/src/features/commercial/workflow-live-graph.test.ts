@@ -58,6 +58,8 @@ describe('commercialWorkflowToLive', () => {
           blockingReason: null,
           plannedAt: null,
           completedAt: null,
+          posX: 0,
+          posY: 0,
           updatedAt: '2026-01-01T00:00:00.000Z',
         },
         {
@@ -69,6 +71,8 @@ describe('commercialWorkflowToLive', () => {
           blockingReason: null,
           plannedAt: null,
           completedAt: null,
+          posX: 0,
+          posY: 0,
           updatedAt: '2026-01-01T00:00:00.000Z',
         },
       ],
@@ -85,6 +89,8 @@ describe('commercialWorkflowToLive', () => {
       blockingReason: null,
       plannedAt: null,
       completedAt: null,
+      posX: 0,
+      posY: 0,
       updatedAt: '2026-01-01T00:00:00.000Z',
       templateSlug: 'outline',
     });
@@ -128,8 +134,9 @@ describe('applySessionRename', () => {
     { id: 'b', name: '文案' },
   ];
 
-  test('rejects empty and duplicate names', () => {
+  test('rejects empty, overlong, and duplicate names', () => {
     expect(applySessionRename(nodes, 'a', '  ').ok).toBe(false);
+    expect(applySessionRename(nodes, 'a', 'x'.repeat(61)).ok).toBe(false);
     const duplicate = applySessionRename(nodes, 'a', '文案');
     expect(duplicate.ok).toBe(false);
     if (!duplicate.ok) expect(duplicate.message).toContain('唯一');

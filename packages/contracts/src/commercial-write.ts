@@ -6,6 +6,7 @@ import {
   isUuidString,
   isWfNodeKind,
   isWfNodeStatus,
+  type CommercialWorkflowNode,
   type OverallStage,
   type PublishSource,
   type WfNodeKind,
@@ -212,6 +213,36 @@ export type CommercialStepResponse = {
   projectId: string;
   overallStage: OverallStage;
   nodes: CommercialNodeSnapshot[];
+};
+
+/** Max length for wf_nodes.name on layout / rename writes (WP-R2-21A). */
+export const COMMERCIAL_WORKFLOW_NODE_NAME_MAX = 60;
+
+export type CommercialWorkflowLayoutNodePatch = {
+  nodeId: string;
+  expectedUpdatedAt: string;
+  /** Trimmed non-empty name. Omit to leave the stored name unchanged. */
+  name?: string;
+  /** Canvas X. Omit to leave the stored pos_x unchanged. */
+  posX?: number;
+  /** Canvas Y. Omit to leave the stored pos_y unchanged. */
+  posY?: number;
+};
+
+/**
+ * Batch rename / position save. The node id set must match the workflow exactly.
+ * Edges are never modified by this route.
+ */
+export type CommercialWorkflowLayoutRequest = {
+  nodes: CommercialWorkflowLayoutNodePatch[];
+};
+
+export type CommercialWorkflowLayoutResponse = {
+  projectId: string;
+  /** Latest node updatedAt among the workflow after the write. */
+  updatedAt: string;
+  /** Same shape as GET .../workflow nodes. */
+  nodes: CommercialWorkflowNode[];
 };
 
 function asRecord(value: unknown, label: string): Record<string, unknown> {
@@ -642,5 +673,106 @@ export function parseCommercialStepResponse(value: unknown): CommercialStepRespo
     projectId: parseUuid(record.projectId, 'projectId'),
     overallStage: record.overallStage,
     nodes: record.nodes.map((node) => parseCommercialNodeSnapshot(node)),
+  };
+}
+
+function parseFiniteNumber(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${label} must be a finite number`);
+  }
+  return value;
+}
+
+function parseLayoutNodeName(value: unknown, label: string): string {
+  if (typeof value !== 'string') throw new Error(`${label} must be a string`);
+  const trimmed = value.trim();
+  if (trimmed.length === 0) throw new Error(`${label} must be a non-empty string`);
+  if (trimmed.length > COMMERCIAL_WORKFLOW_NODE_NAME_MAX) {
+    throw new Error(`${label} must be at most ${COMMERCIAL_WORKFLOW_NODE_NAME_MAX} characters`);
+  }
+  return trimmed;
+}
+
+function parseLayoutNodePatch(value: unknown, index: number): CommercialWorkflowLayoutNodePatch {
+  const record = asRecord(value, `nodes[${index}]`);
+  const patch: CommercialWorkflowLayoutNodePatch = {
+    nodeId: parseUuid(record.nodeId, `nodes[${index}].nodeId`),
+    expectedUpdatedAt: parseIso(record.expectedUpdatedAt, `nodes[${index}].expectedUpdatedAt`),
+  };
+  if (record.name !== undefined) {
+    patch.name = parseLayoutNodeName(record.name, `nodes[${index}].name`);
+  }
+  if (record.posX !== undefined) {
+    patch.posX = parseFiniteNumber(record.posX, `nodes[${index}].posX`);
+  }
+  if (record.posY !== undefined) {
+    patch.posY = parseFiniteNumber(record.posY, `nodes[${index}].posY`);
+  }
+  return patch;
+}
+
+/**
+ * Layout / rename batch. The node id set must match the workflow exactly (no add/drop).
+ * Unchanged rows may send only nodeId + expectedUpdatedAt; at least one row must patch
+ * name, posX, or posY.
+ */
+export function parseCommercialWorkflowLayoutRequest(
+  value: unknown,
+): CommercialWorkflowLayoutRequest {
+  const record = asRecord(value, 'layout request');
+  if (!Array.isArray(record.nodes) || record.nodes.length === 0) {
+    throw new Error('nodes must be a non-empty array');
+  }
+  const nodes = record.nodes.map((item, index) => parseLayoutNodePatch(item, index));
+  const seen = new Set<string>();
+  for (const node of nodes) {
+    if (seen.has(node.nodeId)) throw new Error('nodes must not list the same nodeId twice');
+    seen.add(node.nodeId);
+  }
+  const hasChange = nodes.some(
+    (node) => node.name !== undefined || node.posX !== undefined || node.posY !== undefined,
+  );
+  if (!hasChange) {
+    throw new Error('nodes must include at least one name, posX, or posY change');
+  }
+  return { nodes };
+}
+
+function parseLayoutResponseNode(value: unknown): CommercialWorkflowNode {
+  const record = asRecord(value, 'layout node');
+  if (!isWfNodeStatus(record.status)) throw new Error('node status is invalid');
+  if (!isWfNodeKind(record.kind)) throw new Error('node kind is invalid');
+  const blockingReason =
+    record.blockingReason === null || record.blockingReason === undefined
+      ? null
+      : parseName(record.blockingReason, 'blockingReason');
+  const templateSlug =
+    record.templateSlug === null || record.templateSlug === undefined
+      ? null
+      : parseName(record.templateSlug, 'templateSlug');
+  return {
+    id: parseUuid(record.id, 'node id'),
+    name: parseName(record.name, 'node name'),
+    status: record.status,
+    kind: record.kind,
+    templateSlug,
+    blockingReason,
+    plannedAt: parseNullableIso(record.plannedAt, 'plannedAt'),
+    completedAt: parseNullableIso(record.completedAt, 'completedAt'),
+    posX: parseFiniteNumber(record.posX, 'posX'),
+    posY: parseFiniteNumber(record.posY, 'posY'),
+    updatedAt: parseIso(record.updatedAt, 'updatedAt'),
+  };
+}
+
+export function parseCommercialWorkflowLayoutResponse(
+  value: unknown,
+): CommercialWorkflowLayoutResponse {
+  const record = asRecord(value, 'layout result');
+  if (!Array.isArray(record.nodes)) throw new Error('nodes must be an array');
+  return {
+    projectId: parseUuid(record.projectId, 'projectId'),
+    updatedAt: parseIso(record.updatedAt, 'updatedAt'),
+    nodes: record.nodes.map((node) => parseLayoutResponseNode(node)),
   };
 }

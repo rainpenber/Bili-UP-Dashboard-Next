@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import type { CommercialProjectWorkflow } from '@studio/contracts';
 import { PageHeader } from '@/components/layout/page-header';
 import { ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +23,7 @@ import {
   postLiveNodeStep,
   postLiveStageStep,
   saveLiveNodePlan,
+  saveLiveWorkflowLayout,
   unarchiveLiveProject,
 } from '../commercial-live-api';
 import { isArchivedLiveProject } from '../commercial-live-selectors';
@@ -106,13 +108,56 @@ function withNames(nodes: LiveGraphNode[], names: Record<string, string>): LiveG
   });
 }
 
-/** Database project workflow. Rename stays in this page until a write route exists. */
+function withPositions(
+  nodes: LiveGraphNode[],
+  positions: Record<string, { x: number; y: number }> | null,
+): LiveGraphNode[] {
+  if (!positions) return nodes;
+  return nodes.map((node) => {
+    const pos = positions[node.id];
+    return pos ? { ...node, posX: pos.x, posY: pos.y } : node;
+  });
+}
+
+function buildLayoutRequest(
+  workflow: CommercialProjectWorkflow,
+  names: Record<string, string>,
+  positions: Record<string, { x: number; y: number }> | null,
+) {
+  return {
+    nodes: workflow.nodes.map((node) => {
+      const patch: {
+        nodeId: string;
+        expectedUpdatedAt: string;
+        name?: string;
+        posX?: number;
+        posY?: number;
+      } = {
+        nodeId: node.id,
+        expectedUpdatedAt: node.updatedAt,
+      };
+      const name = names[node.id];
+      if (name !== undefined && name !== node.name) patch.name = name;
+      const pos = positions?.[node.id];
+      if (pos && (pos.x !== node.posX || pos.y !== node.posY)) {
+        patch.posX = pos.x;
+        patch.posY = pos.y;
+      }
+      return patch;
+    }),
+  };
+}
+
+/** Database project workflow with persisted rename and layout. */
 export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
   const detailQuery = useLiveProjectDetailQuery(projectId);
   const workflowQuery = useLiveProjectWorkflowQuery(projectId);
   const queryClient = useQueryClient();
   const [names, setNames] = useState<Record<string, string>>({});
-  const [renameError, setRenameError] = useState<string | null>(null);
+  const [positions, setPositions] = useState<Record<string, { x: number; y: number }> | null>(null);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
+  const [layoutSaving, setLayoutSaving] = useState(false);
+  const [layoutNotice, setLayoutNotice] = useState<string | null>(null);
   const [savingPlanId, setSavingPlanId] = useState<string | null>(null);
   const [planError, setPlanError] = useState<{ nodeId: string; message: string } | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
@@ -142,6 +187,8 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
   const softArchived = detailQuery.data != null && detailQuery.data.archivedAt !== null;
   const businessState = detailQuery.data?.businessState ?? null;
   const displayReadOnly = archived || isBusinessStateReadOnly(businessState);
+  const layoutDirty =
+    Object.keys(names).length > 0 || (positions != null && Object.keys(positions).length > 0);
 
   const onToggleArchive = () => {
     if (!detailQuery.data) return;
@@ -176,9 +223,87 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
   const live = useMemo(() => {
     if (!workflowQuery.data) return null;
     const base = commercialWorkflowToLive(workflowQuery.data);
-    const nodes = applyBusinessStateToLiveNodes(withNames(base.nodes, names), businessState);
+    const nodes = applyBusinessStateToLiveNodes(
+      withPositions(withNames(base.nodes, names), positions),
+      businessState,
+    );
     return { nodes, edges: base.edges };
-  }, [workflowQuery.data, names, businessState]);
+  }, [workflowQuery.data, names, positions, businessState]);
+
+  const saveLayout = useCallback(() => {
+    const workflow = workflowQuery.data;
+    if (!workflow || displayReadOnly || layoutSaving || !layoutDirty) return;
+    const body = buildLayoutRequest(workflow, names, positions);
+    const hasChange = body.nodes.some(
+      (node) => node.name !== undefined || node.posX !== undefined || node.posY !== undefined,
+    );
+    if (!hasChange) {
+      setNames({});
+      setPositions(null);
+      setLayoutError(null);
+      setLayoutNotice('已保存');
+      return;
+    }
+    setLayoutSaving(true);
+    setLayoutError(null);
+    setLayoutNotice(null);
+    void saveLiveWorkflowLayout(projectId, body)
+      .then((result) => {
+        queryClient.setQueryData(
+          ['commercial', 'live-workflow', projectId],
+          (current: CommercialProjectWorkflow | undefined) =>
+            current
+              ? {
+                  ...current,
+                  nodes: result.nodes,
+                }
+              : current,
+        );
+        setNames({});
+        setPositions(null);
+        setLayoutNotice('已保存');
+        return Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ['commercial', 'live-project', projectId],
+          }),
+          queryClient.invalidateQueries({ queryKey: liveCommercialProjectsKey }),
+        ]);
+      })
+      .catch((err: unknown) => {
+        setLayoutError(err instanceof Error ? err.message : '布局保存失败');
+      })
+      .finally(() => setLayoutSaving(false));
+  }, [
+    displayReadOnly,
+    layoutDirty,
+    layoutSaving,
+    names,
+    positions,
+    projectId,
+    queryClient,
+    workflowQuery.data,
+  ]);
+
+  useEffect(() => {
+    if (displayReadOnly || !layoutDirty) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 's') return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable ||
+          target.closest('[data-testid="plan-date-editor"]'))
+      ) {
+        return;
+      }
+      event.preventDefault();
+      saveLayout();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [displayReadOnly, layoutDirty, saveLayout]);
 
   const planEditor = useMemo<PlanEditor>(
     () => ({
@@ -340,26 +465,50 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
         />
         {publishedBvid ? <ProjectVideoMetrics bvid={publishedBvid} /> : null}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">流程</CardTitle>
-            <p
-              className="text-sm font-normal text-muted-foreground"
-              data-testid="workflow-live-counts"
-            >
-              {live.nodes.length} 个节点 · {live.edges.length} 条连线
-              {displayReadOnly
-                ? '。当前只读，不能改名或推进。'
-                : '。改名只留在本页，尚未写回数据库。'}
-            </p>
+          <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+            <div className="space-y-1.5">
+              <CardTitle className="text-base">流程</CardTitle>
+              <p
+                className="text-sm font-normal text-muted-foreground"
+                data-testid="workflow-live-counts"
+              >
+                {live.nodes.length} 个节点 · {live.edges.length} 条连线
+                {displayReadOnly
+                  ? '。当前只读，不能改名或调整布局。'
+                  : layoutDirty
+                    ? '。有未保存的改名或位置变更。'
+                    : '。名称与位置已与数据库一致。'}
+              </p>
+            </div>
+            {!displayReadOnly ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className="text-xs text-muted-foreground"
+                  data-testid="workflow-layout-status"
+                  data-dirty={layoutDirty ? 'true' : 'false'}
+                >
+                  {layoutSaving ? '保存中…' : layoutDirty ? '未保存' : (layoutNotice ?? '已保存')}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!layoutDirty || layoutSaving}
+                  onClick={saveLayout}
+                  data-testid="workflow-layout-save"
+                >
+                  {layoutSaving ? '保存中…' : '保存布局'}
+                </Button>
+              </div>
+            ) : null}
           </CardHeader>
           <CardContent className="space-y-3">
-            {renameError ? (
+            {layoutError ? (
               <p
                 className="text-sm text-destructive"
                 role="alert"
                 data-testid="workflow-action-error"
               >
-                {renameError}
+                {layoutError}
               </p>
             ) : null}
             <WorkflowLiveCanvas
@@ -376,15 +525,20 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
                 />
               )}
               onRename={(id, name) => {
-                // TODO(I-2): persist rename. The commercial API has no rename route yet.
                 const result = applySessionRename(live.nodes, id, name);
                 if (!result.ok) {
-                  setRenameError(result.message);
+                  setLayoutError(result.message);
                   return result.message;
                 }
                 setNames((current) => ({ ...current, [id]: result.name }));
-                setRenameError(null);
+                setLayoutError(null);
+                setLayoutNotice(null);
                 return null;
+              }}
+              onPositionsChange={(next) => {
+                setPositions(next);
+                setLayoutError(null);
+                setLayoutNotice(null);
               }}
             />
           </CardContent>

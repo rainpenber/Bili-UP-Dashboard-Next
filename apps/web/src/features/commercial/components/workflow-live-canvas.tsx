@@ -169,11 +169,32 @@ function toFlowGraph(nodes: LiveGraphNode[], edges: LiveGraphEdge[]): FlowGraph 
       id: node.id,
       name: node.name,
       kind: node.kind,
-      x: 0,
-      y: 0,
+      x: typeof node.posX === 'number' ? node.posX : 0,
+      y: typeof node.posY === 'number' ? node.posY : 0,
     })),
     edges: edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target })),
   };
+}
+
+function hasStoredPositions(nodes: LiveGraphNode[]): boolean {
+  return nodes.some((node) => typeof node.posX === 'number' && typeof node.posY === 'number');
+}
+
+function layoutSourceGraph(
+  nodes: LiveGraphNode[],
+  edges: LiveGraphEdge[],
+  direction: FlowDirection,
+): FlowGraph {
+  const logical = toFlowGraph(nodes, edges);
+  return hasStoredPositions(nodes) ? logical : layoutWithDagre(logical, direction);
+}
+
+function positionsFromFlow(nodes: FlowNode[]): Record<string, { x: number; y: number }> {
+  const next: Record<string, { x: number; y: number }> = {};
+  for (const node of nodes) {
+    next[node.id] = { x: node.position.x, y: node.position.y };
+  }
+  return next;
 }
 
 function toFlowNodes(
@@ -265,6 +286,7 @@ function LiveCanvasInner({
   label,
   readOnly = false,
   onRename,
+  onPositionsChange,
   renderDetail,
 }: {
   nodes: LiveGraphNode[];
@@ -272,6 +294,8 @@ function LiveCanvasInner({
   label: string;
   readOnly?: boolean;
   onRename?: (id: string, name: string) => string | null;
+  /** Fired after drag end or tidy with logical (pre-nudge) positions. */
+  onPositionsChange?: (positions: Record<string, { x: number; y: number }>) => void;
   renderDetail?: (node: LiveGraphNode) => ReactNode;
 }) {
   const meta = useMemo(() => {
@@ -291,10 +315,10 @@ function LiveCanvasInner({
   const [direction, setDirection] = useState<FlowDirection>('lr');
   const directionRef = useRef<FlowDirection>('lr');
   const [flowNodes, setFlowNodes] = useState<FlowNode[]>(() =>
-    toFlowNodes(layoutWithDagre(toFlowGraph(sourceNodes, sourceEdges), 'lr'), meta, 'lr'),
+    toFlowNodes(layoutSourceGraph(sourceNodes, sourceEdges, 'lr'), meta, 'lr'),
   );
   const [flowEdges, setFlowEdges] = useState<Edge[]>(() =>
-    toFlowEdges(layoutWithDagre(toFlowGraph(sourceNodes, sourceEdges), 'lr')),
+    toFlowEdges(layoutSourceGraph(sourceNodes, sourceEdges, 'lr')),
   );
   const [nudge, setNudge] = useState<Record<string, { x: number; y: number }>>({});
   const nudgeRef = useRef(nudge);
@@ -310,12 +334,14 @@ function LiveCanvasInner({
   const shellRef = useRef<HTMLDivElement>(null);
   const readOnlyRef = useRef(readOnly);
   const onRenameRef = useRef(onRename);
+  const onPositionsChangeRef = useRef(onPositionsChange);
   const metaRef = useRef(meta);
   nodesRef.current = flowNodes;
   edgesRef.current = flowEdges;
   directionRef.current = direction;
   readOnlyRef.current = readOnly;
   onRenameRef.current = onRename;
+  onPositionsChangeRef.current = onPositionsChange;
   metaRef.current = meta;
   const { fitView } = useReactFlow();
   const booted = useRef(false);
@@ -355,7 +381,7 @@ function LiveCanvasInner({
   useEffect(() => {
     if (structureRef.current !== structure) {
       structureRef.current = structure;
-      const laid = layoutWithDagre(toFlowGraph(sourceNodes, sourceEdges), directionRef.current);
+      const laid = layoutSourceGraph(sourceNodes, sourceEdges, directionRef.current);
       syncLayout(laid, directionRef.current);
       return;
     }
@@ -389,8 +415,8 @@ function LiveCanvasInner({
   const applyDirection = useCallback(
     (next: FlowDirection) => {
       if (next === directionRef.current) return;
-      const logical = toFlowGraph(sourceNodes, sourceEdges);
-      const laid = layoutWithDagre(logical, next);
+      // Direction is view-only: re-dagre for display but do not mark layout dirty.
+      const laid = layoutWithDagre(toFlowGraph(sourceNodes, sourceEdges), next);
       directionRef.current = next;
       setDirection(next);
       setNudge({});
@@ -404,6 +430,9 @@ function LiveCanvasInner({
     const laid = layoutWithDagre(toFlowGraph(sourceNodes, sourceEdges), directionRef.current);
     setNudge({});
     syncLayout(laid, directionRef.current);
+    if (!readOnlyRef.current) {
+      onPositionsChangeRef.current?.(positionsFromFlow(nodesRef.current));
+    }
   }, [sourceEdges, sourceNodes, syncLayout]);
 
   const fit = useCallback(() => {
@@ -542,6 +571,16 @@ function LiveCanvasInner({
   );
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
+    if (readOnlyRef.current) {
+      const nonPosition = changes.filter((change) => change.type !== 'position');
+      if (nonPosition.length === 0) return;
+      const next = (applyNodeChanges(nonPosition, nodesRef.current) as FlowNode[]).map((node) =>
+        withStageHandles(node, directionRef.current),
+      );
+      nodesRef.current = next;
+      setFlowNodes(next);
+      return;
+    }
     const structural = changes
       .filter((change) => change.type !== 'remove')
       .map((change) => {
@@ -563,7 +602,10 @@ function LiveCanvasInner({
       (change) => change.type === 'position' && change.dragging === false,
     );
     if (dragging) dragOrigin.current = true;
-    if (ended) dragOrigin.current = false;
+    if (ended) {
+      dragOrigin.current = false;
+      onPositionsChangeRef.current?.(positionsFromFlow(next));
+    }
   }, []);
 
   const startEditSelected = useCallback(() => {
@@ -698,9 +740,9 @@ function LiveCanvasInner({
           <Kbd className="border-white/20 bg-white/10 text-zinc-200">L</Kbd>
           整理
           <Kbd className="border-white/20 bg-white/10 text-zinc-200">F</Kbd>
-          复位
-          <Kbd className="border-white/20 bg-white/10 text-zinc-200">Ctrl+Z</Kbd>
-          撤销改名
+          复位视口
+          <Kbd className="border-white/20 bg-white/10 text-zinc-200">Ctrl+S</Kbd>
+          保存布局
         </p>
         <ContextMenu>
           <ContextMenuTrigger asChild>
@@ -805,6 +847,8 @@ export function WorkflowLiveCanvas(props: {
   readOnly?: boolean;
   /** Returns an error message, or null when the name was accepted. */
   onRename?: (id: string, name: string) => string | null;
+  /** Fired after drag end or tidy with logical (pre-nudge) positions. */
+  onPositionsChange?: (positions: Record<string, { x: number; y: number }>) => void;
   /** Instance graphs render shared step controls here. Templates leave this unset. */
   renderDetail?: (node: LiveGraphNode) => ReactNode;
 }) {

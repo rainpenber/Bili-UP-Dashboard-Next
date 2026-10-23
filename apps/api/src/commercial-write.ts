@@ -14,6 +14,8 @@ import {
   parseCommercialPublishResponse,
   parseCommercialStageStepRequest,
   parseCommercialStepResponse,
+  parseCommercialWorkflowLayoutRequest,
+  parseCommercialWorkflowLayoutResponse,
   parseCommercialWriteError,
   type OverallStage,
   type CommercialNodeSnapshot,
@@ -27,6 +29,9 @@ import {
   type CommercialStepPublish,
   type CommercialStepResponse,
   type CommercialStepSuccessor,
+  type CommercialWorkflowLayoutRequest,
+  type CommercialWorkflowLayoutResponse,
+  type CommercialWorkflowNode,
   type CommercialWriteErrorBody,
   type CommercialWriteErrorCode,
   type MonitorJobType,
@@ -113,6 +118,8 @@ type DbNode = {
   primary_block_pinned_item_id: string | null;
   planned_at: string | null;
   completed_at: string | null;
+  pos_x: number;
+  pos_y: number;
   template_slug: string | null;
   workflow_id: string;
 };
@@ -217,6 +224,8 @@ async function loadGraph(tx: Tx, projectId: string): Promise<Graph> {
       n.primary_block_pinned_item_id,
       to_char(n.planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       to_char(n.completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
+      n.pos_x,
+      n.pos_y,
       t.slug AS template_slug,
       n.workflow_id
     FROM wf_nodes n
@@ -316,6 +325,8 @@ async function updateNode(
       primary_block_pinned_item_id,
       to_char(planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       to_char(completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
+      pos_x,
+      pos_y,
       workflow_id
   `;
   const row = rows[0];
@@ -612,6 +623,8 @@ async function planNode(
       primary_block_pinned_item_id,
       to_char(planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       to_char(completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
+      pos_x,
+      pos_y,
       workflow_id
   `;
   const row = rows[0];
@@ -622,6 +635,181 @@ async function planNode(
   }
   await audit(tx, projectId, 'wf_node', nodeId, 'plan', { plannedAt: input.plannedAt });
   return nodeResponse(tx, projectId, updated);
+}
+
+type LayoutChangeDetail = {
+  nodeId: string;
+  nameBefore?: string;
+  nameAfter?: string;
+  posBefore?: { x: number; y: number };
+  posAfter?: { x: number; y: number };
+};
+
+async function readWorkflowNodes(
+  tx: Tx,
+  projectId: string,
+  workflowId: string,
+): Promise<CommercialWorkflowNode[]> {
+  const nodes = await tx<
+    {
+      id: string;
+      name: string;
+      status: string;
+      kind: string;
+      template_slug: string | null;
+      blocking_reason: string | null;
+      planned_at: string | null;
+      completed_at: string | null;
+      pos_x: number;
+      pos_y: number;
+      updated_at: string;
+    }[]
+  >`
+    SELECT
+      n.id,
+      n.name,
+      n.status,
+      n.kind,
+      t.slug AS template_slug,
+      (
+        SELECT oi.title
+        FROM open_items oi
+        WHERE n.status = 'blocked'
+          AND oi.project_id = n.project_id
+          AND oi.lifecycle = 'open'
+          AND oi.impact = 'blocking'
+          AND (
+            oi.id = n.primary_block_pinned_item_id
+            OR oi.blocks_node_id = n.id
+          )
+        ORDER BY
+          (oi.id = n.primary_block_pinned_item_id) DESC,
+          oi.sort_rank ASC,
+          oi.created_at ASC,
+          oi.id ASC
+        LIMIT 1
+      ) AS blocking_reason,
+      to_char(n.planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
+      to_char(n.completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
+      n.pos_x,
+      n.pos_y,
+      to_char(n.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
+    FROM wf_nodes n
+    LEFT JOIN wf_template_nodes t
+      ON t.id = n.template_node_id
+     AND t.template_version_id = n.template_version_id
+    WHERE n.project_id = ${projectId} AND n.workflow_id = ${workflowId}
+    ORDER BY n.pos_y, n.pos_x, n.id
+  `;
+  return nodes.map((node) => ({
+    id: node.id,
+    name: node.name,
+    status: asStatus(node.status),
+    kind: asKind(node.kind),
+    templateSlug: node.template_slug,
+    blockingReason: node.blocking_reason,
+    plannedAt: node.planned_at,
+    completedAt: node.completed_at,
+    posX: node.pos_x,
+    posY: node.pos_y,
+    updatedAt: node.updated_at,
+  }));
+}
+
+/** Renames and/or moves nodes. Never inserts, deletes, or rewires edges. */
+async function applyWorkflowLayout(
+  tx: Tx,
+  projectId: string,
+  input: CommercialWorkflowLayoutRequest,
+): Promise<CommercialWorkflowLayoutResponse> {
+  await assertProjectWritable(tx, projectId);
+  const graph = await loadGraph(tx, projectId);
+  const workflowId = graph.nodes[0]?.workflow_id;
+  if (!workflowId) refuse(404, 'not_found', '流程不存在');
+
+  const submittedIds = new Set(input.nodes.map((node) => node.nodeId));
+  if (
+    submittedIds.size !== graph.nodes.length ||
+    graph.nodes.some((node) => !submittedIds.has(node.id))
+  ) {
+    refuse(409, 'constraint_violation', '提交的节点集合与流程不一致，布局接口不能增删节点');
+  }
+
+  for (const patch of input.nodes) {
+    const current = graph.byId.get(patch.nodeId);
+    if (!current) refuse(404, 'not_found', '节点不存在');
+    assertToken(current.updated_at, patch.expectedUpdatedAt);
+  }
+
+  const nextNames = new Map(graph.nodes.map((node) => [node.id, node.name]));
+  for (const patch of input.nodes) {
+    if (patch.name !== undefined) nextNames.set(patch.nodeId, patch.name);
+  }
+  const seenNames = new Set<string>();
+  for (const [nodeId, name] of nextNames) {
+    if (seenNames.has(name)) {
+      refuse(409, 'constraint_violation', `节点名称「${name}」已存在，同一流程内名称必须唯一`, [
+        name,
+      ]);
+    }
+    seenNames.add(name);
+    void nodeId;
+  }
+
+  const changes: LayoutChangeDetail[] = [];
+  for (const patch of input.nodes) {
+    const current = graph.byId.get(patch.nodeId);
+    if (!current) refuse(404, 'not_found', '节点不存在');
+    const nextName = patch.name ?? current.name;
+    const nextPosX = patch.posX ?? current.pos_x;
+    const nextPosY = patch.posY ?? current.pos_y;
+    const nameChanged = nextName !== current.name;
+    const posChanged = nextPosX !== current.pos_x || nextPosY !== current.pos_y;
+    if (!nameChanged && !posChanged) continue;
+
+    const detail: LayoutChangeDetail = { nodeId: current.id };
+    if (nameChanged) {
+      detail.nameBefore = current.name;
+      detail.nameAfter = nextName;
+    }
+    if (posChanged) {
+      detail.posBefore = { x: current.pos_x, y: current.pos_y };
+      detail.posAfter = { x: nextPosX, y: nextPosY };
+    }
+    changes.push(detail);
+
+    await tx`
+      UPDATE wf_nodes SET
+        name = ${nextName},
+        pos_x = ${nextPosX},
+        pos_y = ${nextPosY},
+        updated_at = now()
+      WHERE id = ${current.id} AND project_id = ${projectId}
+    `;
+  }
+
+  if (changes.length === 0) {
+    refuse(400, 'invalid_body', '没有可保存的名称或坐标变更');
+  }
+
+  const edgeCountBefore = graph.edges.length;
+  const edgeCountAfter = await tx<{ count: string }[]>`
+    SELECT count(*)::text AS count FROM wf_edges WHERE workflow_id = ${workflowId}
+  `;
+  if (Number(edgeCountAfter[0]?.count ?? -1) !== edgeCountBefore) {
+    refuse(409, 'constraint_violation', '布局保存不得改写连线');
+  }
+
+  await audit(tx, projectId, 'project_workflow', workflowId, 'layout', {
+    changes,
+  });
+
+  const nodes = await readWorkflowNodes(tx, projectId, workflowId);
+  const updatedAt = nodes.reduce(
+    (latest, node) => (node.updatedAt > latest ? node.updatedAt : latest),
+    nodes[0]?.updatedAt ?? '',
+  );
+  return { projectId, updatedAt, nodes };
 }
 
 async function liftPinnedBlocks(
@@ -1523,6 +1711,20 @@ export function registerCommercialWriteRoutes(app: Hono, db: Sql): void {
       db
         .begin((tx) => cancelItem(tx, ids.projectId, ids.itemId, body))
         .then((result) => c.json(parseCommercialOpenItemWriteResponse(result))),
+    );
+  });
+
+  app.patch('/projects/:projectId/workflow/layout', async (c) => {
+    const projectId = c.req.param('projectId');
+    if (!isUuid(projectId)) return invalidBody(c, '项目 id 不是 uuid');
+    const raw = await readBody(c);
+    if (isResponse(raw)) return raw;
+    const body = parseRequest(c, raw, parseCommercialWorkflowLayoutRequest);
+    if (body instanceof Response) return body;
+    return runWrite(c, () =>
+      db
+        .begin((tx) => applyWorkflowLayout(tx, projectId, body))
+        .then((result) => c.json(parseCommercialWorkflowLayoutResponse(result))),
     );
   });
 }

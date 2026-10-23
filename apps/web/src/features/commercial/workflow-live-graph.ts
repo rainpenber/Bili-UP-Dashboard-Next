@@ -1,4 +1,8 @@
-import type { CommercialDefaultTemplate, CommercialProjectWorkflow } from '@studio/contracts';
+import {
+  COMMERCIAL_WORKFLOW_NODE_NAME_MAX,
+  type CommercialDefaultTemplate,
+  type CommercialProjectWorkflow,
+} from '@studio/contracts';
 import { layoutWithDagre, type FlowDirection } from '../workflow-mock/layout';
 import type { FlowGraph } from '../workflow-mock/model';
 import { indexWorkflowNodes } from './workflow-edit-logic';
@@ -21,6 +25,10 @@ export type LiveGraphNode = {
   plannedAt?: string | null;
   /** Instance completion instant, or null until completion. Omitted on templates. */
   completedAt?: string | null;
+  /** Persisted canvas X. Omitted on templates and demos that only use dagre. */
+  posX?: number;
+  /** Persisted canvas Y. Omitted on templates and demos that only use dagre. */
+  posY?: number;
   /** Instance concurrency token. Omitted on templates. */
   updatedAt?: string | null;
   /** Template slug for an instance row. Null for ad-hoc nodes. Omitted on templates. */
@@ -103,8 +111,8 @@ export function commercialWorkflowToFlowGraph(workflow: CommercialProjectWorkflo
       id: node.id,
       name: node.name,
       kind: node.kind,
-      x: 0,
-      y: 0,
+      x: node.posX,
+      y: node.posY,
     })),
     edges: workflow.edges.map((edge) => ({
       id: edge.id,
@@ -164,6 +172,8 @@ export function commercialWorkflowToLive(workflow: CommercialProjectWorkflow): L
       blockingReason: node.blockingReason,
       plannedAt: node.plannedAt,
       completedAt: node.completedAt,
+      posX: node.posX,
+      posY: node.posY,
       updatedAt: node.updatedAt,
       templateSlug: node.templateSlug,
     })),
@@ -188,8 +198,8 @@ export function templateToLive(template: CommercialDefaultTemplate): LiveGraph {
 }
 
 /**
- * Session-local rename for graphs that have no rename HTTP route.
- * TODO(I-2): persist once a rename endpoint exists.
+ * Client-side rename check before PATCH .../workflow/layout.
+ * Empty, overlong, and duplicate names are refused here and again on the server.
  */
 export function applySessionRename(
   nodes: { id: string; name: string }[],
@@ -198,6 +208,12 @@ export function applySessionRename(
 ): { ok: true; name: string } | { ok: false; message: string } {
   const trimmed = name.trim();
   if (!trimmed) return { ok: false, message: '节点名称不能为空。' };
+  if (trimmed.length > COMMERCIAL_WORKFLOW_NODE_NAME_MAX) {
+    return {
+      ok: false,
+      message: `节点名称最多 ${COMMERCIAL_WORKFLOW_NODE_NAME_MAX} 个字符。`,
+    };
+  }
   if (!nodes.some((node) => node.id === nodeId)) {
     return { ok: false, message: '找不到该节点。' };
   }

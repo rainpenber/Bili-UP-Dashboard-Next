@@ -14,6 +14,7 @@ import {
   parseCommercialProjectWorkflow,
   parseCommercialPublishResponse,
   parseCommercialStepResponse,
+  parseCommercialWorkflowLayoutResponse,
   parseCommercialWriteError,
   parseHealthResponse,
   parseMetadataRunResponse,
@@ -1591,6 +1592,77 @@ describe('HTTP API coverage against isolated Postgres', () => {
         plannedAt: '2026-05-01',
       });
       expect(parseCommercialWriteError(await expectStatus(stale, 409)).code).toBe('stale_write');
+
+      tokens = await loadTokens(projectId);
+      const layoutGraph = parseCommercialProjectWorkflow(
+        await expectStatus(await api(`/api/v1/commercial/projects/${projectId}/workflow`), 200),
+      );
+      const layoutOutline = layoutGraph.nodes.find((node) => node.name === '大纲');
+      if (!layoutOutline) throw new Error('missing outline for layout');
+      const layoutOk = parseCommercialWorkflowLayoutResponse(
+        await expectStatus(
+          await api(
+            `/api/v1/commercial/projects/${projectId}/workflow/layout`,
+            json('PATCH', {
+              nodes: layoutGraph.nodes.map((node) =>
+                node.id === layoutOutline.id
+                  ? {
+                      nodeId: node.id,
+                      expectedUpdatedAt: node.updatedAt,
+                      name: '大纲覆盖',
+                      posX: node.posX + 1,
+                      posY: node.posY + 1,
+                    }
+                  : { nodeId: node.id, expectedUpdatedAt: node.updatedAt },
+              ),
+            }),
+          ),
+          200,
+        ),
+      );
+      expect(layoutOk.nodes.find((node) => node.id === layoutOutline.id)?.name).toBe('大纲覆盖');
+      const afterLayout = parseCommercialProjectWorkflow(
+        await expectStatus(await api(`/api/v1/commercial/projects/${projectId}/workflow`), 200),
+      );
+      const renamedOutline = afterLayout.nodes.find((node) => node.id === layoutOutline.id);
+      if (!renamedOutline) throw new Error('missing outline after layout');
+      const layoutStale = await api(
+        `/api/v1/commercial/projects/${projectId}/workflow/layout`,
+        json('PATCH', {
+          nodes: afterLayout.nodes.map((node) =>
+            node.id === layoutOutline.id
+              ? {
+                  nodeId: node.id,
+                  expectedUpdatedAt: layoutOutline.updatedAt,
+                  name: '过期布局',
+                }
+              : { nodeId: node.id, expectedUpdatedAt: node.updatedAt },
+          ),
+        }),
+      );
+      expect(parseCommercialWriteError(await expectStatus(layoutStale, 409)).code).toBe(
+        'stale_write',
+      );
+      parseCommercialWorkflowLayoutResponse(
+        await expectStatus(
+          await api(
+            `/api/v1/commercial/projects/${projectId}/workflow/layout`,
+            json('PATCH', {
+              nodes: afterLayout.nodes.map((node) =>
+                node.id === layoutOutline.id
+                  ? {
+                      nodeId: node.id,
+                      expectedUpdatedAt: renamedOutline.updatedAt,
+                      name: '大纲',
+                    }
+                  : { nodeId: node.id, expectedUpdatedAt: node.updatedAt },
+              ),
+            }),
+          ),
+          200,
+        ),
+      );
+      tokens = await loadTokens(projectId);
       const [plannedRow] = await db<{ planned_at: Date | null }[]>`
       SELECT planned_at FROM wf_nodes WHERE project_id = ${projectId} AND name = '大纲'
     `;

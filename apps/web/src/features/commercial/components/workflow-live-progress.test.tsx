@@ -39,6 +39,8 @@ type Row = {
   blockingReason: string | null;
   plannedAt: string | null;
   completedAt: string | null;
+  posX: number;
+  posY: number;
   updatedAt: string;
 };
 
@@ -70,6 +72,8 @@ function row(
     blockingReason: null,
     plannedAt: null,
     completedAt: null,
+    posX: 0,
+    posY: 0,
     updatedAt: '2026-05-20T12:00:00.000000Z',
     ...extra,
   };
@@ -103,6 +107,16 @@ function detailPayload(overallStage = 'pre_publish', published = false) {
   };
 }
 
+type LayoutBody = {
+  nodes: Array<{
+    nodeId: string;
+    expectedUpdatedAt: string;
+    name?: string;
+    posX?: number;
+    posY?: number;
+  }>;
+};
+
 function installApi(options: {
   rows: Row[];
   edges?: { id: string; fromNodeId: string; toNodeId: string }[];
@@ -110,15 +124,26 @@ function installApi(options: {
   published?: boolean;
   onStep?: (url: string, body: StepBody, rows: Row[]) => Response | Promise<Response>;
   onPlan?: (url: string, body: { plannedAt: string | null; expectedUpdatedAt: string }) => Response;
+  onLayout?: (url: string, body: LayoutBody, rows: Row[]) => Response | Promise<Response>;
 }) {
   const posts: Posted[] = [];
   const planPosts: {
     url: string;
     body: { plannedAt: string | null; expectedUpdatedAt: string };
   }[] = [];
+  const layoutPatches: { url: string; body: LayoutBody }[] = [];
   let gets = 0;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (init?.method === 'PATCH' && url.includes('/workflow/layout')) {
+      const body = JSON.parse(String(init.body)) as LayoutBody;
+      layoutPatches.push({ url, body });
+      if (options.onLayout) return options.onLayout(url, body, options.rows);
+      return new Response(JSON.stringify({ error: '未处理的布局写入', code: 'invalid_body' }), {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
     if (init?.method === 'POST' && url.includes('/plan')) {
       const body = JSON.parse(String(init.body)) as {
         plannedAt: string | null;
@@ -168,6 +193,7 @@ function installApi(options: {
   return {
     posts,
     planPosts,
+    layoutPatches,
     gets: () => gets,
   };
 }
@@ -940,7 +966,7 @@ describe('live graph step controls', () => {
     expect(graphCard(container, ID.copy).getAttribute('data-workflow-status')).toBe('not_reached');
   });
 
-  test('archived graphs have no writers, and a session rename does not survive reload', async () => {
+  test('archived graphs have no writers, and unsaved rename does not survive reload', async () => {
     const rows = [
       row(ID.outline, '大纲', 'blocked', 'outline', { blockingReason: '等甲方' }),
       row(ID.copy, '文案', 'not_reached', 'copy'),
@@ -950,6 +976,7 @@ describe('live graph step controls', () => {
     const { container, unmount } = renderProject();
     await ready(container);
     expect(screen.getByText('该项目已结案归档，流程只读。')).toBeTruthy();
+    expect(screen.queryByTestId('workflow-layout-save')).toBeNull();
     const outline = graphCard(container, ID.outline);
     expand(outline);
     expect(outline.querySelector('[data-testid="workflow-node-status"]')).toBeNull();
@@ -983,7 +1010,6 @@ describe('live graph step controls', () => {
     fireEvent.click(card);
     const liveShell = first.container.querySelector('[data-testid="workflow-live-canvas"]');
     if (!(liveShell instanceof HTMLElement)) throw new Error('missing shell');
-    fireEvent.keyDown(liveShell, { key: 'z', ctrlKey: true });
     fireEvent.keyDown(liveShell, { key: 'Enter' });
     const name = await within(first.container).findByTestId('workflow-node-name');
     fireEvent.change(name, { target: { value: '大纲定稿' } });
@@ -991,7 +1017,8 @@ describe('live graph step controls', () => {
     await waitFor(() => expect(card.textContent).toContain('大纲定稿'));
     openTimeline('write_outline');
     expect(timelineCard('outline').textContent).toContain('大纲定稿');
-    expect(screen.getByTestId('workflow-live-counts').textContent).toContain('尚未写回数据库');
+    expect(screen.getByTestId('workflow-live-counts').textContent).toContain('未保存');
+    expect(screen.getByTestId('workflow-layout-status').getAttribute('data-dirty')).toBe('true');
     first.unmount();
     installApi({ rows: editable });
     const reloaded = renderProject();
@@ -1000,6 +1027,89 @@ describe('live graph step controls', () => {
     expect(graphCard(reloaded.container, ID.outline).textContent).not.toContain('大纲定稿');
     openTimeline('write_outline');
     expect(timelineCard('outline').textContent).not.toContain('大纲定稿');
+  });
+
+  test('layout save persists rename across reload and keeps local input on failure', async () => {
+    const rows = [
+      row(ID.outline, '大纲', 'not_reached', 'outline', { posX: 10, posY: 20 }),
+      row(ID.copy, '文案', 'not_reached', 'copy', { posX: 30, posY: 40 }),
+      row(ID.merge, '汇合节点', 'not_applicable', 'merge', { posX: 50, posY: 60 }),
+    ];
+    let failOnce = true;
+    const api = installApi({
+      rows,
+      onLayout: (_url, body) => {
+        if (failOnce) {
+          failOnce = false;
+          return new Response(
+            JSON.stringify({
+              error: '节点名称「文案」已存在，同一流程内名称必须唯一',
+              code: 'constraint_violation',
+            }),
+            { status: 409, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        for (const patch of body.nodes) {
+          const subject = rows.find((item) => item.id === patch.nodeId);
+          if (!subject) continue;
+          if (patch.name !== undefined) subject.name = patch.name;
+          if (patch.posX !== undefined) subject.posX = patch.posX;
+          if (patch.posY !== undefined) subject.posY = patch.posY;
+          subject.updatedAt = '2026-05-21T12:00:00.000000Z';
+        }
+        return new Response(
+          JSON.stringify({
+            projectId: PROJECT_ID,
+            updatedAt: '2026-05-21T12:00:00.000000Z',
+            nodes: rows,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+    });
+    const first = renderProject();
+    await ready(first.container);
+    const card = graphCard(first.container, ID.outline);
+    fireEvent.click(card);
+    const liveShell = first.container.querySelector('[data-testid="workflow-live-canvas"]');
+    if (!(liveShell instanceof HTMLElement)) throw new Error('missing shell');
+    fireEvent.keyDown(liveShell, { key: 'Enter' });
+    const name = await within(first.container).findByTestId('workflow-node-name');
+    fireEvent.change(name, { target: { value: '文案' } });
+    fireEvent.keyDown(name, { key: 'Enter' });
+    await waitFor(() =>
+      expect(screen.getByTestId('workflow-action-error').textContent).toContain('已存在'),
+    );
+    expect(api.layoutPatches).toHaveLength(0);
+
+    fireEvent.keyDown(liveShell, { key: 'Enter' });
+    const retry = await within(first.container).findByTestId('workflow-node-name');
+    fireEvent.change(retry, { target: { value: '大纲定稿' } });
+    fireEvent.keyDown(retry, { key: 'Enter' });
+    await waitFor(() => expect(card.textContent).toContain('大纲定稿'));
+    fireEvent.click(screen.getByTestId('workflow-layout-save'));
+    await waitFor(() =>
+      expect(screen.getByTestId('workflow-action-error').textContent).toContain('已存在'),
+    );
+    expect(card.textContent).toContain('大纲定稿');
+    expect(screen.getByTestId('workflow-layout-status').getAttribute('data-dirty')).toBe('true');
+
+    fireEvent.click(screen.getByTestId('workflow-layout-save'));
+    await waitFor(() =>
+      expect(screen.getByTestId('workflow-layout-status').getAttribute('data-dirty')).toBe('false'),
+    );
+    expect(api.layoutPatches.length).toBeGreaterThanOrEqual(2);
+    const saved = api.layoutPatches.at(-1)?.body.nodes.find((node) => node.nodeId === ID.outline);
+    expect(saved?.name).toBe('大纲定稿');
+    expect(screen.getByTestId('workflow-live-counts').textContent).toContain('已与数据库一致');
+    first.unmount();
+
+    installApi({ rows });
+    const reloaded = renderProject();
+    await ready(reloaded.container);
+    expect(graphCard(reloaded.container, ID.outline).textContent).toContain('大纲定稿');
+    openTimeline('write_outline');
+    expect(timelineCard('outline').textContent).toContain('大纲定稿');
   });
 
   test('a narrow viewport still shows the full reason and the legal blocked action', async () => {

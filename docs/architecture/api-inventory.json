@@ -2,8 +2,8 @@
   "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
   "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 69,
-  "wiredRouteCount": 47,
+  "apiRouteCount": 70,
+  "wiredRouteCount": 48,
   "unwiredImplementedRouteCount": 22,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes and registerCommercialIngressRoutes add fixed POST/GET lists.",
@@ -170,8 +170,30 @@
         }
       ],
       "wired": true,
-      "notes": "Registered before the project detail route. pos_x and pos_y order the rows but are not in the JSON.",
+      "notes": "Registered before the project detail route. Includes posX/posY from wf_nodes for canvas reload.",
       "storedEntity": "project_workflows, wf_nodes, wf_edges, wf_template_nodes.slug, open_items title as blockingReason"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/commercial/projects/:projectId/workflow/layout",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1717,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialWorkflowLayoutRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialWorkflowLayoutResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "saveLiveWorkflowLayout",
+          "evidence": "/workflow/layout"
+        }
+      ],
+      "wired": true,
+      "notes": "Batch rename and position save. Node id set must match the workflow. Does not touch wf_edges. Archived/closed return 409.",
+      "storedEntity": "wf_nodes.name, wf_nodes.pos_x, wf_nodes.pos_y, domain_audit_events"
     },
     {
       "method": "GET",

@@ -605,6 +605,8 @@ export function createCommercialRoutes(db: Sql) {
           blocking_reason: string | null;
           planned_at: string | null;
           completed_at: string | null;
+          pos_x: number;
+          pos_y: number;
           updated_at: string;
         }[]
       >`
@@ -634,6 +636,8 @@ export function createCommercialRoutes(db: Sql) {
           ) AS blocking_reason,
           to_char(n.planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
           to_char(n.completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
+          n.pos_x,
+          n.pos_y,
           to_char(n.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
         FROM wf_nodes n
         LEFT JOIN wf_template_nodes t ON t.id = n.template_node_id
@@ -662,6 +666,8 @@ export function createCommercialRoutes(db: Sql) {
             blockingReason: node.blocking_reason,
             plannedAt: node.planned_at,
             completedAt: node.completed_at,
+            posX: node.pos_x,
+            posY: node.pos_y,
             updatedAt: node.updated_at,
           })),
           edges: edges.map((edge) => ({
