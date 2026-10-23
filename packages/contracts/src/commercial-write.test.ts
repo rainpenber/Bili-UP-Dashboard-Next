@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  COMMERCIAL_WORKFLOW_NODE_NAME_MAX,
   parseCommercialBlockRequest,
   parseCommercialNodeStepRequest,
   parseCommercialStageStepRequest,
@@ -8,6 +9,8 @@ import {
   parseCommercialPlanRequest,
   parseCommercialPublishRequest,
   parseCommercialPublishResponse,
+  parseCommercialWorkflowLayoutRequest,
+  parseCommercialWorkflowLayoutResponse,
   parseCommercialWriteError,
 } from './commercial-write';
 
@@ -187,5 +190,81 @@ describe('commercial write contracts', () => {
     });
     expect(parsed.monitor.jobs.map((job) => job.jobType)).toEqual(['metadata', 'metrics']);
     expect(parsed.idempotentReplay).toBe(false);
+  });
+
+  test('layout request trims names, caps length, and requires a real change', () => {
+    expect(
+      parseCommercialWorkflowLayoutRequest({
+        nodes: [
+          { nodeId: NODE_ID, expectedUpdatedAt: STAMP, name: '  大纲定稿  ' },
+          {
+            nodeId: 'dddddddd-dddd-4ddd-8ddd-ddddddddd014',
+            expectedUpdatedAt: STAMP,
+          },
+        ],
+      }),
+    ).toEqual({
+      nodes: [
+        { nodeId: NODE_ID, expectedUpdatedAt: STAMP, name: '大纲定稿' },
+        {
+          nodeId: 'dddddddd-dddd-4ddd-8ddd-ddddddddd014',
+          expectedUpdatedAt: STAMP,
+        },
+      ],
+    });
+
+    expect(() =>
+      parseCommercialWorkflowLayoutRequest({
+        nodes: [{ nodeId: NODE_ID, expectedUpdatedAt: STAMP, name: '   ' }],
+      }),
+    ).toThrow(/name/);
+    expect(() =>
+      parseCommercialWorkflowLayoutRequest({
+        nodes: [
+          {
+            nodeId: NODE_ID,
+            expectedUpdatedAt: STAMP,
+            name: 'x'.repeat(COMMERCIAL_WORKFLOW_NODE_NAME_MAX + 1),
+          },
+        ],
+      }),
+    ).toThrow(/at most/);
+    expect(() =>
+      parseCommercialWorkflowLayoutRequest({
+        nodes: [{ nodeId: NODE_ID, expectedUpdatedAt: STAMP }],
+      }),
+    ).toThrow(/at least one/);
+    expect(() =>
+      parseCommercialWorkflowLayoutRequest({
+        nodes: [
+          { nodeId: NODE_ID, expectedUpdatedAt: STAMP, posX: 1 },
+          { nodeId: NODE_ID, expectedUpdatedAt: STAMP, posY: 2 },
+        ],
+      }),
+    ).toThrow(/same nodeId/);
+  });
+
+  test('layout response keeps workflow node fields including coordinates', () => {
+    const parsed = parseCommercialWorkflowLayoutResponse({
+      projectId: PROJECT_ID,
+      updatedAt: STAMP,
+      nodes: [
+        {
+          id: NODE_ID,
+          name: '文案',
+          status: 'blocked',
+          kind: 'stage',
+          templateSlug: 'copy',
+          blockingReason: '等甲方',
+          plannedAt: null,
+          completedAt: null,
+          posX: 120,
+          posY: 40,
+          updatedAt: STAMP,
+        },
+      ],
+    });
+    expect(parsed.nodes[0]?.posX).toBe(120);
+    expect(parsed.nodes[0]?.blockingReason).toBe('等甲方');
   });
 });

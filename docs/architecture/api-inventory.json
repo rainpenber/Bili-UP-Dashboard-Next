@@ -170,8 +170,30 @@
         }
       ],
       "wired": true,
-      "notes": "Registered before the project detail route. pos_x and pos_y order the rows but are not in the JSON.",
+      "notes": "Registered before the project detail route. Includes posX/posY from wf_nodes for canvas reload.",
       "storedEntity": "project_workflows, wf_nodes, wf_edges, wf_template_nodes.slug, open_items title as blockingReason"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/commercial/projects/:projectId/workflow/layout",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1729,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialWorkflowLayoutRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialWorkflowLayoutResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "saveLiveWorkflowLayout",
+          "evidence": "/workflow/layout"
+        }
+      ],
+      "wired": true,
+      "notes": "Batch rename and position save. Node id set must match the workflow. Does not touch wf_edges. Archived/closed return 409.",
+      "storedEntity": "wf_nodes.name, wf_nodes.pos_x, wf_nodes.pos_y, domain_audit_events"
     },
     {
       "method": "GET",

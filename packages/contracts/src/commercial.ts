@@ -212,6 +212,10 @@ export type CommercialWorkflowNode = {
   plannedAt: string | null;
   /** Actual completion instant. Written only by status completion. Null until then. */
   completedAt: string | null;
+  /** Canvas X from wf_nodes.pos_x. Reloads should prefer this over a fresh dagre pass. */
+  posX: number;
+  /** Canvas Y from wf_nodes.pos_y. Reloads should prefer this over a fresh dagre pass. */
+  posY: number;
   /** Concurrency token. Clients send this value back unchanged as expectedUpdatedAt. */
   updatedAt: string;
 };
@@ -512,6 +516,13 @@ function parseNodeBlockingReason(value: unknown): string | null {
   return value;
 }
 
+function parseFiniteNumber(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${label} must be a finite number`);
+  }
+  return value;
+}
+
 function parseWorkflowNode(value: unknown): CommercialWorkflowNode {
   const record = asRecord(value, 'workflow node');
   if (!isWfNodeStatus(record.status)) throw new Error('node status is invalid');
@@ -525,6 +536,8 @@ function parseWorkflowNode(value: unknown): CommercialWorkflowNode {
     blockingReason: parseNodeBlockingReason(record.blockingReason),
     plannedAt: parseNullableIso(record.plannedAt, 'plannedAt'),
     completedAt: parseNullableIso(record.completedAt, 'completedAt'),
+    posX: parseFiniteNumber(record.posX, 'posX'),
+    posY: parseFiniteNumber(record.posY, 'posY'),
     updatedAt: parseIso(record.updatedAt, 'updatedAt'),
   };
 }

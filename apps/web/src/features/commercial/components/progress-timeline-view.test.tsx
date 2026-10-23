@@ -422,6 +422,8 @@ describe('LiveProjectWorkflow timeline placement', () => {
               blockingReason: item.blockingReason,
               plannedAt: null,
               completedAt: null,
+              posX: 0,
+              posY: 0,
               updatedAt: '2026-05-20T12:00:00.000Z',
             })),
             edges: [],
@@ -505,6 +507,8 @@ describe('LiveProjectWorkflow timeline placement', () => {
       blockingReason: item.blockingReason ?? null,
       plannedAt: item.plannedAt,
       completedAt: item.completedAt,
+      posX: 0,
+      posY: 0,
       updatedAt: item.updatedAt,
     }));
     const calls: { plannedAt: string | null; expectedUpdatedAt: string }[] = [];
@@ -654,6 +658,8 @@ describe('LiveProjectWorkflow timeline placement', () => {
       blockingReason: slug === 'copy' ? '等甲方' : null,
       plannedAt: null,
       completedAt: null,
+      posX: 0,
+      posY: 0,
       updatedAt: '2026-05-20T12:00:00.000000Z',
     }));
     const posts: string[] = [];
@@ -852,6 +858,8 @@ describe('LiveProjectWorkflow timeline placement', () => {
       blockingReason: null,
       plannedAt: null,
       completedAt: null,
+      posX: 0,
+      posY: 0,
       updatedAt: '2026-05-20T12:00:00.000000Z',
     };
     let posts = 0;

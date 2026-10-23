@@ -6,6 +6,8 @@ import {
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
   parseCommercialStepResponse,
+  parseCommercialWorkflowLayoutRequest,
+  parseCommercialWorkflowLayoutResponse,
   parseCommercialWriteError,
   type CommercialDefaultTemplate,
   type CommercialNodeWriteResponse,
@@ -15,6 +17,8 @@ import {
   type CommercialProjectWorkflow,
   type CommercialStepPublish,
   type CommercialStageStepToken,
+  type CommercialWorkflowLayoutRequest,
+  type CommercialWorkflowLayoutResponse,
   type CommercialWriteErrorBody,
 } from '@studio/contracts';
 
@@ -149,6 +153,33 @@ export async function saveLiveNodePlan(
     throw new Error(message);
   }
   return parseCommercialNodeWriteResponse(payload);
+}
+
+export async function saveLiveWorkflowLayout(
+  projectId: string,
+  body: CommercialWorkflowLayoutRequest,
+): Promise<CommercialWorkflowLayoutResponse> {
+  const request = parseCommercialWorkflowLayoutRequest(body);
+  const res = await fetch(
+    `/api/v1/commercial/projects/${encodeURIComponent(projectId)}/workflow/layout`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    },
+  );
+  const payload: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message =
+      typeof payload === 'object' &&
+      payload !== null &&
+      'error' in payload &&
+      typeof payload.error === 'string'
+        ? payload.error
+        : `HTTP ${res.status}`;
+    throw new Error(message);
+  }
+  return parseCommercialWorkflowLayoutResponse(payload);
 }
 
 export type LiveStepResult =
