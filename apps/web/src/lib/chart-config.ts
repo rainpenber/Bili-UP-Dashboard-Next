@@ -271,10 +271,12 @@ export function buildFollowerOption(
           type: 'scatter',
           data: publishPoints,
           symbol: 'diamond',
-          symbolSize: 12,
+          symbolSize: 16,
           animation: false,
           z: 10,
+          zlevel: 1,
           clip: true,
+          cursor: 'pointer',
           itemStyle: { color: semantic.series2, opacity: 1 },
           emphasis: {
             focus: 'self',

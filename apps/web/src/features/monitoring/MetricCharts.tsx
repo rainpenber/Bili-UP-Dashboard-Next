@@ -11,12 +11,14 @@ import type {
 import { formatFullLocalTime } from '@/lib/format-time';
 import { parseSeriesNumber } from '@/lib/chart-follower-axis';
 import {
+  aggregateFollowerEvents,
   buildDynamicOption,
   buildFollowerOption,
   buildVideoEngagementOption,
   buildVideoViewsOption,
   FOLLOWER_PUBLISH_SERIES_NAME,
   visibleIndexRange,
+  type FollowerChartPublishEvent,
 } from '@/lib/chart-config';
 import { defaultDataZoomRange } from '@/lib/chart-window';
 import { chartSemanticFromResolved } from '@/lib/chart-colors';
@@ -99,6 +101,27 @@ function CreatorFollowerCharts({
     () => sampledAtList.map((t) => formatFullLocalTime(t)),
     [sampledAtList],
   );
+  const mappedPublishEvents = useMemo<FollowerChartPublishEvent[]>(
+    () =>
+      publishEvents.map((event) => ({
+        publishedAt: event.publishedAt,
+        eventKind: event.eventKind,
+        titleSnapshot: event.titleSnapshot,
+        externalId: event.externalId,
+        navigable: event.navigable,
+        monitoredTargetId: event.monitoredTargetId,
+      })),
+    [publishEvents],
+  );
+  /** Sample-index → monitored bvid; used when the line series steals the marker click. */
+  const navigableBySampleIndex = useMemo(() => {
+    const buckets = aggregateFollowerEvents(sampledAtList, mappedPublishEvents);
+    const map = new Map<number, string>();
+    for (const [idx, bucket] of buckets) {
+      if (bucket.navigableExternalId) map.set(idx, bucket.navigableExternalId);
+    }
+    return map;
+  }, [sampledAtList, mappedPublishEvents]);
   const initialZoom = useMemo(() => defaultDataZoomRange(sampledAtList), [sampledAtList]);
   const [followerZoom, setFollowerZoom] = useState<{ start: number; end: number } | null>(null);
 
@@ -118,15 +141,25 @@ function CreatorFollowerCharts({
       componentType?: string;
       seriesType?: string;
       seriesName?: string;
-      data?: { navigableExternalId?: string | null };
+      dataIndex?: number;
+      data?: unknown;
     }) => {
-      if (params.componentType !== 'series' || params.seriesType !== 'scatter') return;
-      if (params.seriesName !== FOLLOWER_PUBLISH_SERIES_NAME) return;
-      const bvid = params.data?.navigableExternalId;
+      if (params.componentType !== 'series') return;
+      let bvid: string | null = null;
+      if (params.seriesType === 'scatter' && params.seriesName === FOLLOWER_PUBLISH_SERIES_NAME) {
+        const row = params.data;
+        if (row && typeof row === 'object' && !Array.isArray(row)) {
+          const id = (row as { navigableExternalId?: string | null }).navigableExternalId;
+          bvid = id ?? null;
+        }
+      } else if (typeof params.dataIndex === 'number') {
+        // Category/line hit at a publish bucket (scatter is easy to miss at 16px).
+        bvid = navigableBySampleIndex.get(params.dataIndex) ?? null;
+      }
       if (!bvid) return;
       navigate(`/monitoring/videos/${encodeURIComponent(bvid)}`);
     },
-    [navigate],
+    [navigate, navigableBySampleIndex],
   );
 
   if (points.length === 0) {
@@ -150,14 +183,7 @@ function CreatorFollowerCharts({
     tooltipTimes,
     start,
     end,
-    publishEvents.map((event) => ({
-      publishedAt: event.publishedAt,
-      eventKind: event.eventKind,
-      titleSnapshot: event.titleSnapshot,
-      externalId: event.externalId,
-      navigable: event.navigable,
-      monitoredTargetId: event.monitoredTargetId,
-    })),
+    mappedPublishEvents,
   );
   if (variant === 'sparkline') {
     return (
