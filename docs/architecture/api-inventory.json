@@ -178,7 +178,7 @@
       "path": "/api/v1/commercial/projects/:projectId/workflow/layout",
       "mountPrefix": "/api/v1/commercial",
       "sourceFile": "apps/api/src/commercial-write.ts",
-      "sourceLine": 1729,
+      "sourceLine": 1717,
       "registration": "registerCommercialWriteRoutes",
       "readWrite": "write",
       "area": "commercial",
