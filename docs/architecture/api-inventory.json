@@ -2,8 +2,8 @@
   "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
   "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 71,
-  "wiredRouteCount": 49,
+  "apiRouteCount": 73,
+  "wiredRouteCount": 51,
   "unwiredImplementedRouteCount": 22,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes and registerCommercialIngressRoutes add fixed POST/GET lists.",
@@ -512,7 +512,7 @@
         }
       ],
       "wired": true,
-      "notes": "Video and creator cards. Active monitor_targets are joined to entities; targets may exist first. Status is not taken from monitoring_enabled. onlyMine=1 filters video cards by studio_owner_account.mid before count/sort/page; missing owner config returns 400. Unified q also matches video category and creator uname (via videos.mid → creators).",
+      "notes": "Video and creator cards. Active monitor_targets are joined to entities; targets may exist first. Status is not taken from monitoring_enabled. onlyMine=1 filters video cards by studio_owner_account.mid before count/sort/page; missing owner config returns 400. Unified q also matches video category and creator uname (via videos.mid → creators). sort is type-scoped: video published_desc|published_asc; creator sampled_desc|followers_desc|name_asc; all sorts are pinned-first. Invalid sort → 400.",
       "query": "type, monitor, page, pageSize, q, category, sort, onlyMine",
       "storedEntity": "monitor_targets"
     },
@@ -890,6 +890,48 @@
       "notes": "Sets videos.pinned_at to now() or NULL. Idempotent. Invalid bvid 400; missing video 404."
     },
     {
+      "method": "PATCH",
+      "path": "/api/v1/monitor/creators/:mid/pin",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 0,
+      "registration": "createMonitorRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-cards.ts#parsePinEntityRequest",
+      "responseContract": "packages/contracts/src/monitor-cards.ts#parsePinEntityResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-cards-client.ts",
+          "symbol": "pinMonitorCreator",
+          "evidence": "/creators/${encodeURIComponent(mid)}/pin"
+        }
+      ],
+      "wired": true,
+      "notes": "Sets creators.pinned_at to now() or NULL. Idempotent. Invalid mid 400; missing creator 404. Returns { pinned, pinnedAt }."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/monitor/dynamics/:dynamicId/pin",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 0,
+      "registration": "createMonitorRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-cards.ts#parsePinEntityRequest",
+      "responseContract": "packages/contracts/src/monitor-cards.ts#parsePinEntityResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-cards-client.ts",
+          "symbol": "pinMonitorDynamic",
+          "evidence": "/dynamics/${encodeURIComponent(dynamicId)}/pin"
+        }
+      ],
+      "wired": true,
+      "notes": "Sets dynamics.pinned_at to now() or NULL. Idempotent. Invalid id 400; missing dynamic 404. Returns { pinned, pinnedAt }."
+    },
+    {
       "method": "POST",
       "path": "/api/v1/monitor/videos/:bvid/refresh",
       "mountPrefix": "/api/v1/monitor",
@@ -1093,7 +1135,7 @@
       "registration": "createMonitorRoutes",
       "readWrite": "read",
       "area": "monitor",
-      "requestContract": null,
+      "requestContract": "packages/contracts/src/monitor-cards.ts#parseDynamicListQuery",
       "responseContract": "packages/contracts/src/monitor.ts",
       "frontendCallers": [
         {
@@ -1103,8 +1145,8 @@
         }
       ],
       "wired": true,
-      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
-      "query": "page, pageSize, status",
+      "notes": "List shape is DynamicListItem (includes pinned). sort=sampled_desc|likes_desc|comments_desc (default sampled_desc); always pinned-first. Invalid sort → 400.",
+      "query": "page, pageSize, status, sort",
       "storedEntity": "dynamics + latest dynamic_metric_samples"
     },
     {

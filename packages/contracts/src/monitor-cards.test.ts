@@ -178,6 +178,28 @@ describe('monitor card contracts', () => {
     ).toThrow(/只看我的/);
   });
 
+  test('creator sort defaults to sampled_desc and rejects video sorts', () => {
+    expect(parseMonitorCardListQuery({ type: 'creator', page: '1', pageSize: '8' }).sort).toBe(
+      'sampled_desc',
+    );
+    expect(
+      parseMonitorCardListQuery({
+        type: 'creator',
+        page: '1',
+        pageSize: '8',
+        sort: 'followers_desc',
+      }).sort,
+    ).toBe('followers_desc');
+    expect(() =>
+      parseMonitorCardListQuery({
+        type: 'creator',
+        page: '1',
+        pageSize: '8',
+        sort: 'published_desc',
+      }),
+    ).toThrow(/排序/);
+  });
+
   test('pin body and bvid reuse existing validation', () => {
     expect(parsePinVideoRequest({ pinned: true })).toEqual({ pinned: true });
     expect(() => parsePinVideoRequest({ pinned: 'yes' })).toThrow(/pinned/);

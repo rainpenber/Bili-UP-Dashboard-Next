@@ -99,8 +99,12 @@ export function fetchCreatorVideos(
   return getJson(`/creators/${encodeURIComponent(mid)}/videos${query ? `?${query}` : ''}`);
 }
 
-export function fetchDynamics(params: { page: number }): Promise<Paginated<DynamicListItem>> {
+export function fetchDynamics(params: {
+  page: number;
+  sort?: string;
+}): Promise<Paginated<DynamicListItem>> {
   const qs = new URLSearchParams({ page: String(params.page), pageSize: '8' });
+  if (params.sort) qs.set('sort', params.sort);
   return getJson(`/dynamics?${qs}`);
 }
 

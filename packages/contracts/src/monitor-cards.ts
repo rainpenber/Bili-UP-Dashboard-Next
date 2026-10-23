@@ -6,9 +6,13 @@ import {
 } from './monitor-targets';
 import {
   bigintToJson,
+  DEFAULT_MONITOR_DYNAMIC_SORT,
+  MONITOR_DYNAMIC_SORTS,
   parseMonitorPage,
   parseMonitorPageSize,
   type BigIntString,
+  type DynamicListQuery,
+  type MonitorDynamicSort,
   type Paginated,
 } from './monitor';
 import { parseOnlyMineFlag } from './studio-owner-account';
@@ -22,10 +26,20 @@ export type MonitorCardState = (typeof MONITOR_CARD_STATES)[number];
 export const MONITOR_EXECUTION_STATES = ['waiting', 'running', 'failed', 'none'] as const;
 export type MonitorExecutionState = (typeof MONITOR_EXECUTION_STATES)[number];
 
-/** Video card list sort only. Creators ignore this and keep sampled_at order. */
-export const MONITOR_CARD_SORTS = ['published_desc', 'published_asc'] as const;
-export type MonitorCardSort = (typeof MONITOR_CARD_SORTS)[number];
-export const DEFAULT_MONITOR_CARD_SORT: MonitorCardSort = 'published_desc';
+/** Video card list sort. */
+export const MONITOR_VIDEO_CARD_SORTS = ['published_desc', 'published_asc'] as const;
+export type MonitorVideoCardSort = (typeof MONITOR_VIDEO_CARD_SORTS)[number];
+export const DEFAULT_MONITOR_VIDEO_CARD_SORT: MonitorVideoCardSort = 'published_desc';
+
+/** Creator card list sort. */
+export const MONITOR_CREATOR_CARD_SORTS = ['sampled_desc', 'followers_desc', 'name_asc'] as const;
+export type MonitorCreatorCardSort = (typeof MONITOR_CREATOR_CARD_SORTS)[number];
+export const DEFAULT_MONITOR_CREATOR_CARD_SORT: MonitorCreatorCardSort = 'sampled_desc';
+
+/** @deprecated Prefer MONITOR_VIDEO_CARD_SORTS; kept for existing video-only imports. */
+export const MONITOR_CARD_SORTS = MONITOR_VIDEO_CARD_SORTS;
+export type MonitorCardSort = MonitorVideoCardSort | MonitorCreatorCardSort;
+export const DEFAULT_MONITOR_CARD_SORT: MonitorVideoCardSort = DEFAULT_MONITOR_VIDEO_CARD_SORT;
 
 const MAX_QUERY_LENGTH = 120;
 const MAX_CATEGORY_LENGTH = 80;
@@ -71,7 +85,7 @@ export type MonitorCard = {
   displayName: string;
   hasEntity: boolean;
   hasSamples: boolean;
-  /** True when videos.pinned_at is set. Always false for creator cards. */
+  /** True when videos.pinned_at / creators.pinned_at is set. */
   pinned: boolean;
   monitorState: MonitorCardState;
   execution: MonitorExecutionState;
@@ -87,7 +101,7 @@ export type MonitorCardListQuery = {
   pageSize: number;
   q: string | null;
   category: string | null;
-  /** Only applied for type=video. Creators keep sampled_at order. */
+  /** type=video → published_*; type=creator → sampled_desc|followers_desc|name_asc. */
   sort: MonitorCardSort;
   /**
    * Video-only. When true the server filters by the configured studio owner mid
@@ -102,6 +116,15 @@ export type PinVideoRequest = {
 
 export type PinVideoResponse = {
   bvid: string;
+  pinned: boolean;
+  pinnedAt: string | null;
+};
+
+/** Shared pin body for video / creator / dynamic pin routes. */
+export type PinEntityRequest = PinVideoRequest;
+
+/** Creator/dynamic pin response (no identity echo; path already identifies the row). */
+export type PinEntityResponse = {
   pinned: boolean;
   pinnedAt: string | null;
 };
@@ -305,8 +328,12 @@ export function parseMonitorCardListQuery(input: {
       message.includes('pageSize') ? '每页条数不正确' : '页码不正确',
     );
   }
-  const sortRaw = input.sort ?? DEFAULT_MONITOR_CARD_SORT;
-  if (!(MONITOR_CARD_SORTS as readonly string[]).includes(sortRaw)) {
+  const allowedSorts =
+    input.type === 'video' ? MONITOR_VIDEO_CARD_SORTS : MONITOR_CREATOR_CARD_SORTS;
+  const defaultSort =
+    input.type === 'video' ? DEFAULT_MONITOR_VIDEO_CARD_SORT : DEFAULT_MONITOR_CREATOR_CARD_SORT;
+  const sortRaw = input.sort ?? defaultSort;
+  if (!(allowedSorts as readonly string[]).includes(sortRaw)) {
     throw new MonitorContractError('invalid_sort', '排序参数不正确');
   }
   return {
@@ -321,12 +348,53 @@ export function parseMonitorCardListQuery(input: {
   };
 }
 
+export function parseDynamicListQuery(input: {
+  page?: string | undefined;
+  pageSize?: string | undefined;
+  status?: string | undefined;
+  sort?: string | undefined;
+}): DynamicListQuery {
+  const statusRaw = input.status ?? 'all';
+  if (
+    statusRaw !== 'all' &&
+    statusRaw !== 'active' &&
+    statusRaw !== 'archived' &&
+    statusRaw !== 'deleted'
+  ) {
+    throw new MonitorContractError('invalid_status', '状态筛选不正确');
+  }
+  let page: number;
+  let pageSize: number;
+  try {
+    page = parseMonitorPage(input.page);
+    pageSize = parseMonitorPageSize(input.pageSize);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'invalid page';
+    throw new MonitorContractError(
+      'invalid_page',
+      message.includes('pageSize') ? '每页条数不正确' : '页码不正确',
+    );
+  }
+  const sortRaw = input.sort ?? DEFAULT_MONITOR_DYNAMIC_SORT;
+  if (!(MONITOR_DYNAMIC_SORTS as readonly string[]).includes(sortRaw)) {
+    throw new MonitorContractError('invalid_sort', '排序参数不正确');
+  }
+  return {
+    page,
+    pageSize,
+    status: statusRaw,
+    sort: sortRaw as MonitorDynamicSort,
+  };
+}
+
 export function parsePinVideoRequest(value: unknown): PinVideoRequest {
   if (!isRecord(value) || typeof value.pinned !== 'boolean') {
     throw new MonitorContractError('invalid_body', '请提供 pinned 布尔值');
   }
   return { pinned: value.pinned };
 }
+
+export const parsePinEntityRequest = parsePinVideoRequest;
 
 export function parsePinVideoResponse(value: unknown): PinVideoResponse {
   if (!isRecord(value) || typeof value.bvid !== 'string' || typeof value.pinned !== 'boolean') {
@@ -341,12 +409,39 @@ export function parsePinVideoResponse(value: unknown): PinVideoResponse {
   return { bvid: value.bvid, pinned: value.pinned, pinnedAt };
 }
 
+export function parsePinEntityResponse(value: unknown): PinEntityResponse {
+  if (!isRecord(value) || typeof value.pinned !== 'boolean') {
+    throw new MonitorContractError('invalid_body', '置顶响应不完整');
+  }
+  const pinnedAt = value.pinnedAt;
+  if (pinnedAt !== null && typeof pinnedAt !== 'string') {
+    throw new MonitorContractError('invalid_body', '置顶响应不完整');
+  }
+  return { pinned: value.pinned, pinnedAt };
+}
+
 /** Reuses video external-id rules for /videos/:bvid/pin. */
 export function parseVideoBvidParam(raw: string): string {
   const bvid = raw.trim();
   const idError = externalIdError('video', bvid);
   if (idError) throw new MonitorContractError('invalid_external_id', idError);
   return bvid;
+}
+
+/** Reuses creator external-id rules for /creators/:mid/pin. */
+export function parseCreatorMidParam(raw: string): string {
+  const mid = raw.trim();
+  const idError = externalIdError('creator', mid);
+  if (idError) throw new MonitorContractError('invalid_external_id', idError);
+  return mid;
+}
+
+/** Reuses dynamic external-id rules for /dynamics/:dynamicId/pin. */
+export function parseDynamicIdParam(raw: string): string {
+  const dynamicId = raw.trim();
+  const idError = externalIdError('dynamic', dynamicId);
+  if (idError) throw new MonitorContractError('invalid_external_id', idError);
+  return dynamicId;
 }
 
 export function parseMonitorCardIdentity(
@@ -481,9 +576,6 @@ export function parseMonitorCard(value: unknown): MonitorCard {
   }
   if (typeof value.pinned !== 'boolean') {
     throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
-  }
-  if (value.type === 'creator' && value.pinned) {
-    throw new MonitorContractError('invalid_body', 'UP 主卡片不能置顶');
   }
   return {
     type: value.type,

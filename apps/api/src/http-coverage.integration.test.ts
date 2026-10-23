@@ -1191,6 +1191,55 @@ describe('HTTP API coverage against isolated Postgres', () => {
         404,
       );
 
+      await db`
+        INSERT INTO creators (mid, uname) VALUES (880001, '待刷新')
+        ON CONFLICT (mid) DO NOTHING
+      `;
+      const creatorPinned = (await expectStatus(
+        await api('/api/v1/monitor/creators/880001/pin', json('PATCH', { pinned: true })),
+        200,
+      )) as { pinned: boolean; pinnedAt: string | null };
+      expect(creatorPinned.pinned).toBe(true);
+      expect(creatorPinned.pinnedAt).toBeTruthy();
+      await expectStatus(
+        await api('/api/v1/monitor/creators/880001/pin', json('PATCH', { pinned: false })),
+        200,
+      );
+      await expectStatus(
+        await api('/api/v1/monitor/creators/999999999/pin', json('PATCH', { pinned: true })),
+        404,
+      );
+
+      await db`
+        INSERT INTO dynamics (dynamic_id, mid, monitoring_enabled)
+        VALUES ('966692349750018048', 880001, true)
+        ON CONFLICT (dynamic_id) DO NOTHING
+      `;
+      const dynamicPinned = (await expectStatus(
+        await api(
+          '/api/v1/monitor/dynamics/966692349750018048/pin',
+          json('PATCH', { pinned: true }),
+        ),
+        200,
+      )) as { pinned: boolean; pinnedAt: string | null };
+      expect(dynamicPinned.pinned).toBe(true);
+      expect(dynamicPinned.pinnedAt).toBeTruthy();
+      await expectStatus(
+        await api(
+          '/api/v1/monitor/dynamics/966692349750018048/pin',
+          json('PATCH', { pinned: false }),
+        ),
+        200,
+      );
+      await expectStatus(
+        await api('/api/v1/monitor/dynamics/966692349750019999/pin', json('PATCH', { pinned: true })),
+        404,
+      );
+      await expectStatus(
+        await api('/api/v1/monitor/dynamics?page=1&sort=bogus'),
+        400,
+      );
+
       const failed = await api(
         '/api/v1/monitor/videos/BV1metafaaax/refresh',
         json('POST', { force: true }),

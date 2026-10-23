@@ -120,7 +120,7 @@ describe('WP-R2-MON-01 video pin + sort UI', () => {
     expect(ordered[0]?.getAttribute('data-external-id')).toBe(OTHER);
   });
 
-  test('creators and dynamics tabs hide sort and pin controls', async () => {
+  test('creators and dynamics tabs expose sort and pin controls', async () => {
     globalThis.fetch = ((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url.includes('/api/v1/monitor/cards?')) {
@@ -157,6 +157,7 @@ describe('WP-R2-MON-01 video pin + sort UI', () => {
                 monitoringEnabled: true,
                 archivedAt: null,
                 deletedAt: null,
+                pinned: false,
                 target: null,
                 latestMetrics: {
                   sampledAt: null,
@@ -177,14 +178,14 @@ describe('WP-R2-MON-01 video pin + sort UI', () => {
 
     wrap(<MonitoringPage />, '/monitoring?tab=creators');
     await screen.findByTestId('monitor-object-card');
-    expect(screen.queryByLabelText('排序')).toBeNull();
-    expect(screen.queryByTestId('video-pin-button')).toBeNull();
+    expect(screen.getByLabelText('排序')).toBeTruthy();
+    expect(screen.getByTestId('monitor-pin-button')).toBeTruthy();
 
     cleanup();
     wrap(<MonitoringPage />, '/monitoring?tab=dynamics');
     await screen.findByTestId('dynamic-card-list');
-    expect(screen.queryByLabelText('排序')).toBeNull();
-    expect(screen.queryByTestId('video-pin-button')).toBeNull();
+    expect(screen.getByLabelText('排序')).toBeTruthy();
+    expect(screen.getByTestId('monitor-pin-button')).toBeTruthy();
   });
 
   test('pin button is outside the two action keys and rolls back on error', async () => {
@@ -227,7 +228,7 @@ describe('WP-R2-MON-01 video pin + sort UI', () => {
     const row = screen.getByTestId('monitor-object-card');
     const actions = within(row).getByTestId('monitor-card-actions');
     expect(within(actions).queryByTestId('video-pin-button')).toBeNull();
-    expect(within(actions).getByRole('button', { name: /详情/ })).toBeTruthy();
+    expect(within(actions).queryByRole('button', { name: /^详情$/ })).toBeNull();
     expect(within(actions).getByRole('button', { name: '暂停' })).toBeTruthy();
 
     const pin = within(row).getByTestId('video-pin-button');
@@ -285,7 +286,7 @@ describe('WP-R2-MON-01 video pin + sort UI', () => {
       const actions = within(refreshed!).getByTestId('monitor-card-actions');
       expect(
         within(actions).getAllByRole('button').length + within(actions).getAllByRole('link').length,
-      ).toBe(2);
+      ).toBe(1);
     });
   });
 });

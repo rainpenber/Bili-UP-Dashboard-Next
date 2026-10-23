@@ -30,6 +30,7 @@ describe('monitor card pin + published sort', () => {
     if (!sql) return;
     const applied = await runMigrations(sql);
     expect(applied.includes('014_video_pinned_at') || applied.length === 0).toBe(true);
+    expect(applied.includes('018_creator_dynamic_pinned_at') || applied.length === 0).toBe(true);
     expect((await runMigrations(sql)).length).toBe(0);
 
     await sql`
@@ -170,33 +171,66 @@ describe('monitor card pin + published sort', () => {
     expect(after.items.find((item) => item.externalId === IDS.oldest)?.pinned).toBe(false);
   });
 
-  test('creator list ignores video sort and stays sampled_at ordered', async () => {
+  test('creator list sorts with pin first across sampled/followers/name', async () => {
     if (!sql) return;
     await db()`
-      INSERT INTO creators (mid, uname, monitoring_enabled) VALUES
-        (910001, 'UP甲', true),
-        (910002, 'UP乙', true)
+      INSERT INTO creators (mid, uname, monitoring_enabled, pinned_at) VALUES
+        (910001, 'UP甲', true, NULL),
+        (910002, 'UP乙', true, NULL),
+        (910003, 'UP丙', true, '2026-03-01T00:00:00Z')
     `;
     await db()`
       INSERT INTO creator_follower_samples (
         mid, sampled_at, source_timezone, raw_time, timestamp_precision, follower_count
       ) VALUES
-        (910001, '2026-01-01T00:00:00Z', 'Asia/Shanghai', 't', 'minute', 1),
-        (910002, '2026-02-01T00:00:00Z', 'Asia/Shanghai', 't', 'minute', 2)
+        (910001, '2026-01-01T00:00:00Z', 'Asia/Shanghai', 't', 'minute', 100),
+        (910002, '2026-02-01T00:00:00Z', 'Asia/Shanghai', 't', 'minute', 50),
+        (910003, '2026-01-15T00:00:00Z', 'Asia/Shanghai', 't', 'minute', 10)
     `;
-    const listed = await listMonitorCards(db(), {
+    const sampled = await listMonitorCards(db(), {
       type: 'creator',
       monitor: 'all',
       page: 1,
       pageSize: 50,
       q: null,
       category: null,
-      sort: 'published_asc',
+      sort: 'sampled_desc',
     });
-    const mids = listed.items
-      .filter((item) => item.externalId === '910001' || item.externalId === '910002')
+    const sampledMids = sampled.items
+      .filter((item) => ['910001', '910002', '910003'].includes(item.externalId))
       .map((item) => item.externalId);
-    expect(mids).toEqual(['910002', '910001']);
-    expect(listed.items.every((item) => item.pinned === false)).toBe(true);
+    expect(sampledMids).toEqual(['910003', '910002', '910001']);
+    expect(sampled.items.find((item) => item.externalId === '910003')?.pinned).toBe(true);
+
+    const followers = await listMonitorCards(db(), {
+      type: 'creator',
+      monitor: 'all',
+      page: 1,
+      pageSize: 50,
+      q: null,
+      category: null,
+      sort: 'followers_desc',
+    });
+    expect(
+      followers.items
+        .filter((item) => ['910001', '910002', '910003'].includes(item.externalId))
+        .map((item) => item.externalId),
+    ).toEqual(['910003', '910001', '910002']);
+
+    const names = await listMonitorCards(db(), {
+      type: 'creator',
+      monitor: 'all',
+      page: 1,
+      pageSize: 50,
+      q: null,
+      category: null,
+      sort: 'name_asc',
+    });
+    // Default C collation: 丙 < 乙 < 甲 by codepoint; pinned 丙 still first.
+    expect(
+      names.items
+        .filter((item) => ['910001', '910002', '910003'].includes(item.externalId))
+        .map((item) => item.externalId),
+    ).toEqual(['910003', '910002', '910001']);
   });
 });

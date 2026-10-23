@@ -2,7 +2,9 @@ import type { Sql } from './client';
 
 export type MonitorCardKind = 'video' | 'creator';
 export type MonitorCardFilter = 'all' | 'active' | 'paused' | 'unmonitored';
-export type MonitorCardSort = 'published_desc' | 'published_asc';
+export type MonitorVideoCardSort = 'published_desc' | 'published_asc';
+export type MonitorCreatorCardSort = 'sampled_desc' | 'followers_desc' | 'name_asc';
+export type MonitorCardSort = MonitorVideoCardSort | MonitorCreatorCardSort;
 
 export type MonitorCardQuery = {
   type: MonitorCardKind;
@@ -11,7 +13,7 @@ export type MonitorCardQuery = {
   pageSize: number;
   q: string | null;
   category: string | null;
-  /** Video-only. Ignored for creators (sampled_at DESC). Default published_desc. */
+  /** Video: published_*; creator: sampled_desc|followers_desc|name_asc. Always pinned-first. */
   sort?: MonitorCardSort | null;
   /**
    * Video-only exact mid filter (decimal string). Applied before count/sort/page.
@@ -172,7 +174,7 @@ SELECT
   e.face_asset_id AS image_asset_id,
   (e.external_id IS NOT NULL) AS has_entity,
   (e.sampled_at IS NOT NULL) AS has_samples,
-  NULL::timestamptz AS pinned_at,
+  e.pinned_at,
   NULL::timestamptz AS pubdate,
   e.sampled_at,
   NULL::bigint AS view_count,
@@ -198,6 +200,7 @@ FROM (
     c.category,
     c.mid::text AS mid,
     c.face_asset_id,
+    c.pinned_at,
     f.sampled_at,
     f.follower_count
   FROM creators c
@@ -252,8 +255,8 @@ function mapRow(type: MonitorCardKind, row: SqlCardRow): MonitorCardRow | null {
     mid: row.mid,
     hasEntity: row.has_entity === true,
     hasSamples: row.has_samples === true,
-    pinned: type === 'video' && row.pinned_at != null,
-    pinnedAt: type === 'video' ? row.pinned_at : null,
+    pinned: row.pinned_at != null,
+    pinnedAt: row.pinned_at,
     pubdate: type === 'video' ? row.pubdate : null,
     targetId: row.target_id,
     targetLabel: row.target_label,
@@ -294,12 +297,22 @@ export async function listMonitorCards(
   const pattern = q ? likePattern(q) : null;
   const unified = query.type === 'video' ? VIDEO_UNIFIED : CREATOR_UNIFIED;
   const videoSort = query.sort === 'published_asc' ? 'published_asc' : 'published_desc';
+  const creatorSort =
+    query.sort === 'followers_desc'
+      ? 'followers_desc'
+      : query.sort === 'name_asc'
+        ? 'name_asc'
+        : 'sampled_desc';
   const orderBy =
     query.type === 'video'
       ? videoSort === 'published_asc'
         ? sql`ORDER BY (pinned_at IS NOT NULL) DESC, pubdate ASC NULLS LAST, external_id ASC`
         : sql`ORDER BY (pinned_at IS NOT NULL) DESC, pubdate DESC NULLS LAST, external_id ASC`
-      : sql`ORDER BY sampled_at DESC NULLS LAST, external_id ASC`;
+      : creatorSort === 'followers_desc'
+        ? sql`ORDER BY (pinned_at IS NOT NULL) DESC, follower_count DESC NULLS LAST, external_id ASC`
+        : creatorSort === 'name_asc'
+          ? sql`ORDER BY (pinned_at IS NOT NULL) DESC, title ASC NULLS LAST, external_id ASC`
+          : sql`ORDER BY (pinned_at IS NOT NULL) DESC, sampled_at DESC NULLS LAST, external_id ASC`;
   const rows = await sql<SqlCardRow[]>`
     WITH unified AS (
       ${sql.unsafe(unified)}
@@ -428,6 +441,44 @@ export async function setVideoPinned(
   const row = rows[0];
   if (!row) return null;
   return { bvid: row.bvid, pinnedAt: row.pinned_at };
+}
+
+/** Pin or unpin a creator row. Returns null when the mid does not exist. Idempotent. */
+export async function setCreatorPinned(
+  sql: Sql,
+  mid: string,
+  pinned: boolean,
+): Promise<{ mid: string; pinnedAt: Date | null } | null> {
+  const rows = await sql<{ mid: string; pinned_at: Date | null }[]>`
+    UPDATE creators
+    SET
+      pinned_at = CASE WHEN ${pinned}::boolean THEN now() ELSE NULL END,
+      updated_at = now()
+    WHERE mid = ${mid}::bigint
+    RETURNING mid::text AS mid, pinned_at
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return { mid: row.mid, pinnedAt: row.pinned_at };
+}
+
+/** Pin or unpin a dynamic row. Returns null when the id does not exist. Idempotent. */
+export async function setDynamicPinned(
+  sql: Sql,
+  dynamicId: string,
+  pinned: boolean,
+): Promise<{ dynamicId: string; pinnedAt: Date | null } | null> {
+  const rows = await sql<{ dynamic_id: string; pinned_at: Date | null }[]>`
+    UPDATE dynamics
+    SET
+      pinned_at = CASE WHEN ${pinned}::boolean THEN now() ELSE NULL END,
+      updated_at = now()
+    WHERE dynamic_id = ${dynamicId}
+    RETURNING dynamic_id, pinned_at
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return { dynamicId: row.dynamic_id, pinnedAt: row.pinned_at };
 }
 
 export async function getMonitorCard(

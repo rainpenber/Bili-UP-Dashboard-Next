@@ -60,6 +60,7 @@ function dynamicItem(patch: Partial<DynamicListItem> = {}): DynamicListItem {
     monitoringEnabled: true,
     archivedAt: null,
     deletedAt: null,
+    pinned: false,
     target: {
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       enabled: true,
@@ -117,14 +118,17 @@ describe('WP-R2-16F two-button cards', () => {
     const title = within(card).getByTitle('很长的UP主名称用于截断验证');
     expect(title.className).toContain('truncate');
     expect(within(card).getByTestId('creator-grid-metrics').textContent).toMatch(/粉丝/);
-    expect(within(card).getByRole('link', { name: /详情/ })).toBeTruthy();
+    expect(within(card).queryByRole('link', { name: /详情/ })).toBeNull();
+    expect(within(card).getByRole('button', { name: /打开 UP 主/ })).toBeTruthy();
     expect(within(card).getByRole('button', { name: '暂停' })).toBeTruthy();
     expect(within(card).queryByRole('button', { name: '更多' })).toBeNull();
     expect(within(card).queryByRole('button', { name: '监控详情' })).toBeNull();
-    fireEvent.click(within(card).getByTestId('creator-grid-avatar'));
-    expect(selected).toBe(1);
     fireEvent.click(within(card).getByRole('button', { name: '暂停' }));
-    expect(selected).toBe(1);
+    expect(selected).toBe(0);
+    expect(screen.queryByTestId('creator-detail')).toBeNull();
+    fireEvent.click(within(card).getByTestId('creator-grid-avatar'));
+    expect(selected).toBe(0);
+    expect(screen.getByTestId('creator-detail')).toBeTruthy();
   });
 
   test('creator grid failure shows red dot without failure text', () => {
@@ -167,10 +171,11 @@ describe('WP-R2-16F two-button cards', () => {
     expect(within(listCard).getByTitle('966692349750018048').className).toContain('truncate');
     expect(within(listCard).getByTestId('dynamic-card-metrics').textContent).toMatch(/赞/);
     const actions = within(listCard).getByTestId('dynamic-monitor-controls');
-    expect(within(actions).getByRole('link', { name: /详情/ })).toBeTruthy();
+    expect(within(actions).queryByRole('link', { name: /详情/ })).toBeNull();
     expect(within(actions).getByRole('button', { name: '暂停' })).toBeTruthy();
     expect(within(actions).queryByRole('button', { name: '监控详情' })).toBeNull();
     expect(within(actions).queryByRole('button', { name: '更多' })).toBeNull();
+    expect(within(listCard).getByTestId('monitor-pin-button')).toBeTruthy();
     fireEvent.click(within(listCard).getByTitle('966692349750018048'));
     expect(selected).toBe(1);
     fireEvent.click(within(actions).getByRole('button', { name: '暂停' }));

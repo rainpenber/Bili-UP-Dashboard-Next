@@ -46,6 +46,7 @@ function dynamicItem(overrides: Record<string, unknown> = {}) {
     monitoringEnabled: false,
     archivedAt: null,
     deletedAt: null,
+    pinned: false,
     target: null,
     latestMetrics: {
       sampledAt: '2026-10-21T08:00:00.000Z',
@@ -342,12 +343,12 @@ describe('dynamic monitor page', () => {
       if (url.includes('/metrics')) return jsonResponse({ items: [] });
       return jsonResponse(list([]));
     });
-    renderDynamics();
+    renderDynamics('/monitoring?tab=dynamics&view=grid');
     const card = await screen.findByTestId('dynamic-list-item');
     expect(within(card).getByTestId('dynamic-card-failure-dot')).toBeTruthy();
     expect(within(card).queryByRole('button', { name: '监控详情' })).toBeNull();
     expect(card.textContent).not.toContain('最近失败：');
-    fireEvent.click(within(card).getByRole('link', { name: /详情/ }));
+    fireEvent.click(within(card).getByRole('button', { name: /打开动态/ }));
     expect(await screen.findByTestId('dynamic-detail-page')).toBeTruthy();
     const controls = await screen.findByTestId('dynamic-monitor-controls');
     expect(within(controls).getByTestId('dynamic-last-failure').textContent).toContain(

@@ -91,6 +91,8 @@ export {
 export {
   getMonitorCard,
   listMonitorCards,
+  setCreatorPinned,
+  setDynamicPinned,
   setVideoPinned,
   type MonitorCardFilter,
   type MonitorCardKind,
@@ -98,6 +100,8 @@ export {
   type MonitorCardQuery,
   type MonitorCardRow,
   type MonitorCardSort,
+  type MonitorCreatorCardSort,
+  type MonitorVideoCardSort,
 } from './monitor-cards';
 export {
   listMonitorSearchSuggestions,

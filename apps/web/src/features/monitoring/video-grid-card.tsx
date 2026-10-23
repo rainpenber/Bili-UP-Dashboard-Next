@@ -1,9 +1,10 @@
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import type { MonitorCard } from '@studio/contracts';
 import { coverAssetUrl } from '@/api/monitor-client';
 import { Button } from '@/components/ui/button';
+import { handleCardActivateKey, stopCardActivatePropagation } from '@/features/monitoring/card-activate';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
-import { VideoPinButton } from '@/features/monitoring/video-pin-button';
+import { MonitorPinButton } from '@/features/monitoring/monitor-pin-button';
 import {
   formatVideoGridMetricsLine,
   formatVideoGridUpdateText,
@@ -18,8 +19,8 @@ type PrimaryAction = {
 };
 
 /**
- * 视频网格卡片：整宽 16:9 封面；标题与播放/在线各占整行保证窄四列可读；
- * 分类/更新与两键共下一行（无 mt-auto 空底行）。列表分栏不走这里。
+ * 视频网格卡片：整卡进入详情页；无冗余「详情」按钮。
+ * 封面右上角置顶；主操作 stopPropagation。
  */
 export function VideoGridCard({
   card,
@@ -29,7 +30,6 @@ export function VideoGridCard({
   notice,
   error,
   primary,
-  onSelect,
   onPinError,
 }: {
   card: MonitorCard;
@@ -42,17 +42,26 @@ export function VideoGridCard({
   onSelect?: (() => void) | undefined;
   onPinError: (message: string) => void;
 }) {
+  const navigate = useNavigate();
   const failed = card.execution === 'failed';
   const detailHref = `/monitoring/videos/${encodeURIComponent(card.externalId)}?from=${encodeURIComponent(listQuery)}`;
   const category = card.category?.trim() || '未分类';
   const updateText = formatVideoGridUpdateText(card.latest.sampledAt);
   const metricsLine = card.hasSamples ? formatVideoGridMetricsLine(card.latest) : '尚无采集数据';
   const metaFull = `分类：${category} · 更新：${updateText}`;
+  const openDetail = () => navigate(detailHref);
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label={`打开视频 ${card.displayName}`}
+      onClick={openDetail}
+      onKeyDown={(event) => handleCardActivateKey(event, openDetail)}
       className={cn(
-        'flex h-full min-w-0 max-w-full flex-col gap-2 rounded-lg border p-3',
+        'flex h-full min-w-0 max-w-full cursor-pointer flex-col gap-2 rounded-lg border p-3',
+        'transition-colors hover:border-primary/30 hover:bg-accent/20',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
       )}
       data-testid="monitor-card-controls"
@@ -66,36 +75,24 @@ export function VideoGridCard({
       aria-busy={pending}
     >
       <div className="relative min-w-0">
-        <button
-          type="button"
-          onClick={onSelect}
-          className="block w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-pressed={selected}
-          aria-label={`选择视频 ${card.displayName}`}
-        >
-          <img
-            src={coverAssetUrl(card.imageAssetId)}
-            alt=""
-            className="aspect-[16/9] w-full rounded-md object-cover"
-            data-testid="video-grid-cover"
-          />
-        </button>
-        <VideoPinButton
-          bvid={card.externalId}
+        <img
+          src={coverAssetUrl(card.imageAssetId)}
+          alt=""
+          className="aspect-[16/9] w-full rounded-md object-cover"
+          data-testid="video-grid-cover"
+        />
+        <MonitorPinButton
+          kind="video"
+          id={card.externalId}
           pinned={card.pinned}
           onError={onPinError}
           className="absolute right-1.5 top-1.5 z-10"
+          testId="video-pin-button"
         />
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <button
-          type="button"
-          onClick={onSelect}
-          className="flex min-w-0 flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-pressed={selected}
-          aria-label={`选择视频 ${card.displayName} 详情区`}
-        >
+        <div className="flex min-w-0 flex-col gap-1 text-left">
           <span className="flex min-w-0 items-center gap-1.5">
             <MonitorStateBadge
               state={card.monitorState}
@@ -119,33 +116,24 @@ export function VideoGridCard({
           >
             {metricsLine}
           </span>
-        </button>
+        </div>
 
         <div className="flex min-w-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={onSelect}
-            className="min-w-0 flex-1 truncate rounded-md text-left text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-pressed={selected}
-            aria-label={`选择视频 ${card.displayName} 分类与更新`}
+          <span
+            className="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground"
             data-testid="video-grid-meta"
             title={metaFull}
           >
             分类：{category}
             <span className="mx-1 text-border">·</span>
             更新：{updateText}
-          </button>
+          </span>
           <div
             data-testid="monitor-card-actions"
             className="flex shrink-0 items-center justify-end gap-1.5"
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
+            onClick={stopCardActivatePropagation}
+            onKeyDown={stopCardActivatePropagation}
           >
-            <Button type="button" size="sm" variant="outline" asChild>
-              <Link to={detailHref} aria-label={`查看 ${card.displayName} 详情`}>
-                详情
-              </Link>
-            </Button>
             {primary ? (
               <Button
                 type="button"

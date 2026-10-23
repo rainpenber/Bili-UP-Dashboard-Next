@@ -53,6 +53,14 @@ describe('monitor URL state', () => {
       { tab: 'creators' },
     );
     expect(creators.has('sort')).toBe(false);
+    const creatorFollowers = writeMonitorSearchParams(new URLSearchParams('tab=creators'), {
+      sort: 'followers_desc',
+    });
+    expect(creatorFollowers.get('sort')).toBe('followers_desc');
+    const dynamics = writeMonitorSearchParams(new URLSearchParams('tab=dynamics'), {
+      sort: 'likes_desc',
+    });
+    expect(dynamics.get('sort')).toBe('likes_desc');
   });
 
   test('view falls back to split unless the query is grid', () => {

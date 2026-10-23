@@ -1,7 +1,9 @@
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import type { MonitorCard } from '@studio/contracts';
 import { coverAssetUrl, formatCount } from '@/api/monitor-client';
 import { Button } from '@/components/ui/button';
+import { handleCardActivateKey, stopCardActivatePropagation } from '@/features/monitoring/card-activate';
+import { MonitorPinButton } from '@/features/monitoring/monitor-pin-button';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
 import { cn } from '@/lib/utils';
 
@@ -13,8 +15,7 @@ type PrimaryAction = {
 };
 
 /**
- * UP 主网格卡片：大圆形头像；名称独占一行；粉丝摘要整行可读；
- * 两键落在下一行右侧（无 mt-auto 空底行）。不伪造封面。
+ * UP 主网格卡片：整卡进入详情页；无冗余「详情」按钮。头像角置顶。
  */
 export function CreatorGridCard({
   card,
@@ -24,7 +25,7 @@ export function CreatorGridCard({
   notice,
   error,
   primary,
-  onSelect,
+  onPinError,
 }: {
   card: MonitorCard;
   selected: boolean;
@@ -34,17 +35,28 @@ export function CreatorGridCard({
   error: string | null;
   primary: PrimaryAction | null;
   onSelect?: (() => void) | undefined;
+  onPinError?: (message: string) => void;
 }) {
+  const navigate = useNavigate();
   const failed = card.execution === 'failed';
   const detailHref = `/monitoring/creators/${encodeURIComponent(card.externalId)}?from=${encodeURIComponent(listQuery)}`;
   const metricsLine = card.hasSamples
     ? `粉丝 ${formatCount(card.latest.followerCount)}`
     : '尚无采集数据';
+  const openDetail = () => navigate(detailHref);
+  const handlePinError = onPinError ?? (() => undefined);
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label={`打开 UP 主 ${card.displayName}`}
+      onClick={openDetail}
+      onKeyDown={(event) => handleCardActivateKey(event, openDetail)}
       className={cn(
-        'flex h-full min-w-0 max-w-full flex-col gap-2 rounded-lg border p-3',
+        'flex h-full min-w-0 max-w-full cursor-pointer flex-col gap-2 rounded-lg border p-3',
+        'transition-colors hover:border-primary/30 hover:bg-accent/20',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
       )}
       data-testid="monitor-card-controls"
@@ -53,16 +65,11 @@ export function CreatorGridCard({
       data-execution={card.execution}
       data-external-id={card.externalId}
       data-target-id={card.target?.id ?? ''}
+      data-pinned={card.pinned ? 'true' : 'false'}
       data-pending={pending ? 'true' : 'false'}
       aria-busy={pending}
     >
-      <button
-        type="button"
-        onClick={onSelect}
-        className="flex min-w-0 flex-col items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        aria-pressed={selected}
-        aria-label={`选择 UP 主 ${card.displayName}`}
-      >
+      <div className="relative flex min-w-0 flex-col items-center gap-2">
         <span
           className="flex aspect-[16/9] w-full items-center justify-center"
           data-testid="creator-grid-avatar-frame"
@@ -74,16 +81,17 @@ export function CreatorGridCard({
             data-testid="creator-grid-avatar"
           />
         </span>
-      </button>
+        <MonitorPinButton
+          kind="creator"
+          id={card.externalId}
+          pinned={card.pinned}
+          onError={handlePinError}
+          className="absolute right-1.5 top-1.5 z-10"
+        />
+      </div>
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <button
-          type="button"
-          onClick={onSelect}
-          className="flex min-w-0 flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-pressed={selected}
-          aria-label={`选择 UP 主 ${card.displayName} 详情区`}
-        >
+        <div className="flex min-w-0 flex-col gap-1 text-left">
           <span className="flex min-w-0 items-center gap-1.5">
             <MonitorStateBadge
               state={card.monitorState}
@@ -107,19 +115,14 @@ export function CreatorGridCard({
           >
             {metricsLine}
           </span>
-        </button>
+        </div>
 
         <div
           data-testid="monitor-card-actions"
           className="flex shrink-0 items-center justify-end gap-1.5"
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
+          onClick={stopCardActivatePropagation}
+          onKeyDown={stopCardActivatePropagation}
         >
-          <Button type="button" size="sm" variant="outline" asChild>
-            <Link to={detailHref} aria-label={`查看 ${card.displayName} 详情`}>
-              详情
-            </Link>
-          </Button>
           {primary ? (
             <Button
               type="button"

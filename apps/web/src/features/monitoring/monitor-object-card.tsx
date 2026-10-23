@@ -13,7 +13,8 @@ import { formatVideoCardMetricsSummary } from '@/features/monitoring/video-card-
 import { MonitorSettingsDialog } from '@/features/monitoring/monitor-settings-dialog';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
 import { VideoGridCard } from '@/features/monitoring/video-grid-card';
-import { VideoPinButton } from '@/features/monitoring/video-pin-button';
+import { handleCardActivateKey, stopCardActivatePropagation } from '@/features/monitoring/card-activate';
+import { MonitorPinButton } from '@/features/monitoring/monitor-pin-button';
 import { formatStartAtDisplay } from '@/lib/datetime-local';
 import { formatFullLocalTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
@@ -207,23 +208,33 @@ export function MonitorCardControls({
         notice={notice}
         error={error}
         primary={primaryAction ? { ...primaryAction, disabled: pending } : null}
+        onPinError={onPinError}
         {...(onSelect ? { onSelect } : {})}
       />
     );
   }
 
-  /** 分栏卡片：详情选中右侧面板，不跳转详情页 */
+  /** 分栏卡片：整卡选中右侧面板；无冗余「详情」按钮 */
   if (layout === 'card') {
     const metricsLine = card.hasSamples
       ? card.type === 'video'
         ? formatVideoCardMetricsSummary(card.latest)
         : `粉丝 ${formatCount(card.latest.followerCount)}`
       : '尚无采集数据';
+    const kindLabel = card.type === 'video' ? '视频' : 'UP 主';
 
     return (
       <div
+        role="button"
+        tabIndex={0}
+        aria-pressed={selected}
+        aria-label={`选择${kindLabel} ${card.displayName}`}
+        onClick={() => onSelect?.()}
+        onKeyDown={(event) => handleCardActivateKey(event, onSelect)}
         className={cn(
-          'flex min-w-0 max-w-full flex-col gap-2 rounded-lg border p-3',
+          'flex min-w-0 max-w-full cursor-pointer flex-col gap-2 rounded-lg border p-3',
+          'transition-colors hover:border-primary/30 hover:bg-accent/20',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
         )}
         data-testid="monitor-card-controls"
@@ -232,48 +243,34 @@ export function MonitorCardControls({
         data-execution={card.execution}
         data-external-id={card.externalId}
         data-target-id={card.target?.id ?? ''}
-        data-pinned={card.type === 'video' && card.pinned ? 'true' : 'false'}
+        data-pinned={card.pinned ? 'true' : 'false'}
         data-pending={pending ? 'true' : 'false'}
         aria-busy={pending}
       >
-        {/* 封面/头像 · 信息 · 两键同一横行；极窄时允许 wrap 回退 */}
+        {/* 封面/头像 · 信息 · 动作同一横行；极窄时允许 wrap 回退 */}
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={onSelect}
-              className="block rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-pressed={selected}
-              aria-label={`选择${card.type === 'video' ? '视频' : ' UP 主'}封面 ${card.displayName}`}
-            >
-              <img
-                src={coverAssetUrl(card.imageAssetId)}
-                alt=""
-                width={card.type === 'creator' ? 56 : 96}
-                height={card.type === 'creator' ? 56 : 54}
-                data-testid={card.type === 'creator' ? 'monitor-list-avatar' : 'monitor-list-cover'}
-                className={cn(
-                  'object-cover',
-                  card.type === 'creator' ? 'size-14 rounded-full' : 'aspect-video w-24 rounded-md',
-                )}
-              />
-            </button>
-            {card.type === 'video' ? (
-              <VideoPinButton
-                bvid={card.externalId}
-                pinned={card.pinned}
-                onError={onPinError}
-                className="absolute -right-1 -top-1 z-10 size-6"
-              />
-            ) : null}
+            <img
+              src={coverAssetUrl(card.imageAssetId)}
+              alt=""
+              width={card.type === 'creator' ? 56 : 96}
+              height={card.type === 'creator' ? 56 : 54}
+              data-testid={card.type === 'creator' ? 'monitor-list-avatar' : 'monitor-list-cover'}
+              className={cn(
+                'object-cover',
+                card.type === 'creator' ? 'size-14 rounded-full' : 'aspect-video w-24 rounded-md',
+              )}
+            />
+            <MonitorPinButton
+              kind={card.type}
+              id={card.externalId}
+              pinned={card.pinned}
+              onError={onPinError}
+              className="absolute -right-1 -top-1 z-10 size-6"
+              testId={card.type === 'video' ? 'video-pin-button' : 'monitor-pin-button'}
+            />
           </div>
-          <button
-            type="button"
-            onClick={onSelect}
-            className="min-w-0 flex-1 basis-[10rem] space-y-1 rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-pressed={selected}
-            aria-label={`选择${card.type === 'video' ? '视频' : ' UP 主'} ${card.displayName}`}
-          >
+          <div className="min-w-0 flex-1 basis-[10rem] space-y-1 text-left">
             <span className="flex min-w-0 items-center gap-1.5">
               <MonitorStateBadge
                 state={card.monitorState}
@@ -294,22 +291,13 @@ export function MonitorCardControls({
             >
               {metricsLine}
             </span>
-          </button>
+          </div>
           <div
             data-testid="monitor-card-actions"
             className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2"
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
+            onClick={stopCardActivatePropagation}
+            onKeyDown={stopCardActivatePropagation}
           >
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              aria-label={`查看 ${card.displayName} 详情`}
-              onClick={() => onSelect?.()}
-            >
-              详情
-            </Button>
             {primary}
           </div>
         </div>

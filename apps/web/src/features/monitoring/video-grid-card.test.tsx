@@ -109,7 +109,8 @@ describe('video grid card', () => {
       /更新：\d{4}-\d{2}-\d{2} \d{2}:\d{2}/,
     );
 
-    expect(within(card).getByRole('link', { name: /详情/ })).toBeTruthy();
+    expect(within(card).queryByRole('link', { name: /详情/ })).toBeNull();
+    expect(within(card).getByRole('button', { name: /打开视频/ })).toBeTruthy();
     expect(within(card).getByRole('button', { name: '暂停' })).toBeTruthy();
     expect(within(card).queryByRole('button', { name: '更多' })).toBeNull();
     expect(within(card).queryByRole('button', { name: '监控详情' })).toBeNull();
@@ -141,18 +142,13 @@ describe('video grid card', () => {
     expect(card.textContent).not.toContain('最近失败：上游超时');
   });
 
-  test('card select fires from body but not from action buttons', () => {
-    let selected = 0;
-    renderGrid(videoCard(), () => {
-      selected += 1;
-    });
+  test('grid card body navigates to detail; primary action does not', () => {
+    const router = renderGrid(videoCard());
     const card = screen.getByTestId('monitor-object-card');
-    fireEvent.click(within(card).getByTestId('video-grid-cover'));
-    expect(selected).toBe(1);
     fireEvent.click(within(card).getByRole('button', { name: '暂停' }));
-    expect(selected).toBe(1);
-    fireEvent.click(within(card).getByRole('link', { name: /详情/ }));
-    expect(selected).toBe(1);
+    expect(router.state.location.pathname).toBe('/');
+    fireEvent.click(within(card).getByTestId('video-grid-cover'));
+    expect(router.state.location.pathname).toBe('/monitoring/videos/BV1xx411c7mD');
   });
 
   test('list presentation uses two buttons and no disclosure or more', () => {
@@ -185,7 +181,8 @@ describe('video grid card', () => {
       </QueryClientProvider>,
     );
     const card = screen.getByTestId('monitor-object-card');
-    expect(within(card).getByRole('button', { name: /详情/ })).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: /^详情$/ })).toBeNull();
+    expect(within(card).getByRole('button', { name: /选择视频/ })).toBeTruthy();
     expect(within(card).getByRole('button', { name: '暂停' })).toBeTruthy();
     expect(within(card).queryByRole('button', { name: '更多' })).toBeNull();
     expect(within(card).queryByRole('button', { name: '监控详情' })).toBeNull();
@@ -193,7 +190,7 @@ describe('video grid card', () => {
     expect(within(card).queryByTestId('video-grid-cover')).toBeNull();
     const title = within(card).getByTitle('很长很长的视频标题用来验证单行截断');
     expect(title.className).toContain('truncate');
-    fireEvent.click(within(card).getByRole('button', { name: /详情/ }));
+    fireEvent.click(within(card).getByTestId('monitor-card-controls'));
     expect(selected).toBe(1);
     fireEvent.click(within(card).getByRole('button', { name: '暂停' }));
     expect(selected).toBe(1);
