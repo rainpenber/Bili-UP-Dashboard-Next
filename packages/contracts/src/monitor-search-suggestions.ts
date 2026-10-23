@@ -16,7 +16,10 @@ export type MonitorSearchSuggestionItem = {
   kind: MonitorSearchSuggestionKind;
   /** Primary readable label (title / UP name / category name). Never BV/MID alone. */
   label: string;
-  /** Secondary gray text (UP name, BV, UID). Null when unused. */
+  /**
+   * Secondary gray hint only: video → UP name; creator → fixed「UP 主」; category → null.
+   * Never BV / MID / UID — those stay in `value` for exact apply.
+   */
   secondary: string | null;
   /**
    * Apply value: video bvid, creator mid, or exact category name.

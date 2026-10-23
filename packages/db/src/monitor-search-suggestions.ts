@@ -76,7 +76,8 @@ export async function listMonitorSearchSuggestions(
         return {
           kind: 'creator' as const,
           label,
-          secondary: mid === label ? null : mid,
+          // Readable type hint only — never surface MID/UID in the dropdown.
+          secondary: 'UP 主',
           value: mid,
         };
       }),
@@ -178,13 +179,12 @@ export async function listMonitorSearchSuggestions(
     videos: videos.map((row) => {
       const bvid = row.bvid;
       const label = (row.title?.trim() || row.target_label?.trim() || bvid).trim();
-      const parts = [row.creator_name?.trim() || null, bvid].filter((part): part is string =>
-        Boolean(part),
-      );
+      const creatorName = row.creator_name?.trim() || null;
       return {
         kind: 'video' as const,
         label,
-        secondary: parts.length > 0 ? parts.join(' · ') : null,
+        // UP name only — never surface BV in the dropdown (still kept as value).
+        secondary: creatorName,
         value: bvid,
       };
     }),
@@ -194,7 +194,8 @@ export async function listMonitorSearchSuggestions(
       return {
         kind: 'creator' as const,
         label,
-        secondary: mid === label ? null : mid,
+        // Readable type hint only — never surface MID/UID in the dropdown.
+        secondary: 'UP 主',
         value: mid,
       };
     }),

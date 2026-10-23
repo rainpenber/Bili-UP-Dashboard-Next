@@ -78,7 +78,7 @@ describe('WP-R2-23A unified monitor search', () => {
               {
                 kind: 'video',
                 label: '新视频标题',
-                secondary: '狐正正 · BV1xx411c7mD',
+                secondary: '狐正正',
                 value: 'BV1xx411c7mD',
               },
             ],
@@ -126,7 +126,7 @@ describe('WP-R2-23A unified monitor search', () => {
           {
             kind: 'video',
             label: '过期标题不应出现',
-            secondary: 'BV1yy411c7mD',
+            secondary: '其他UP',
             value: 'BV1yy411c7mD',
           },
         ],
@@ -155,7 +155,7 @@ describe('WP-R2-23A unified monitor search', () => {
               {
                 kind: 'video',
                 label: '狐正正的日常',
-                secondary: '狐正正 · BV1xx411c7mD',
+                secondary: '狐正正',
                 value: 'BV1xx411c7mD',
               },
             ],
@@ -163,7 +163,7 @@ describe('WP-R2-23A unified monitor search', () => {
               {
                 kind: 'creator',
                 label: '狐正正',
-                secondary: '3493141386627335',
+                secondary: 'UP 主',
                 value: '3493141386627335',
               },
             ],
@@ -202,12 +202,13 @@ describe('WP-R2-23A unified monitor search', () => {
       await new Promise((resolve) => setTimeout(resolve, MONITOR_SEARCH_DEBOUNCE_MS + 50));
     });
 
+    const panel = await screen.findByTestId('monitor-search-suggestions');
     expect(await screen.findByText('狐正正的日常')).toBeTruthy();
-    expect(screen.getByText('狐正正')).toBeTruthy();
     expect(screen.getByText('游戏')).toBeTruthy();
-    // Primary labels are readable — BV/UID only as secondary.
-    expect(screen.getByText(/BV1xx411c7mD/)).toBeTruthy();
-    expect(screen.getByText('3493141386627335')).toBeTruthy();
+    expect(screen.getByText('UP 主')).toBeTruthy();
+    // Dropdown must not expose BV / UID as visible copy.
+    expect(panel.textContent).not.toContain('BV1xx411c7mD');
+    expect(panel.textContent).not.toContain('3493141386627335');
 
     fireEvent.click(screen.getByRole('option', { name: /游戏/ }));
     expect(applies.at(-1)).toEqual({

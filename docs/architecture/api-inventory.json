@@ -535,7 +535,7 @@
         }
       ],
       "wired": true,
-      "notes": "WP-R2-23A typed search suggestions (video/creator/category groups, ≤5 each). Searches full corpus, not the current cards page. Escapes LIKE %/_. Primary labels are readable titles/names; BV/MID only as secondary.",
+      "notes": "WP-R2-23A typed search suggestions (video/creator/category groups, ≤5 each). Searches full corpus, not the current cards page. Escapes LIKE %/_. Primary labels are readable titles/names; secondary is UP name or fixed「UP 主」— never BV/MID/UID (those remain in value for exact apply).",
       "query": "q, type, limit",
       "storedEntity": "videos"
     },

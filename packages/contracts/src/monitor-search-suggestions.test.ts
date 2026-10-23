@@ -35,7 +35,7 @@ describe('monitor search suggestions contracts', () => {
         {
           kind: 'video',
           label: '狐正正的日常',
-          secondary: '狐正正 · BV1xx411c7mD',
+          secondary: '狐正正',
           value: 'BV1xx411c7mD',
         },
       ],
@@ -43,14 +43,16 @@ describe('monitor search suggestions contracts', () => {
         {
           kind: 'creator',
           label: '狐正正',
-          secondary: '3493141386627335',
+          secondary: 'UP 主',
           value: '3493141386627335',
         },
       ],
       categories: [{ kind: 'category', label: '游戏', secondary: null, value: '游戏' }],
     });
     expect(parsed.videos[0]?.label).toBe('狐正正的日常');
+    expect(parsed.videos[0]?.secondary).toBe('狐正正');
     expect(parsed.creators[0]?.label).toBe('狐正正');
+    expect(parsed.creators[0]?.secondary).toBe('UP 主');
     expect(parsed.categories[0]?.secondary).toBeNull();
     expect(() =>
       parseMonitorSearchSuggestionsResponse({

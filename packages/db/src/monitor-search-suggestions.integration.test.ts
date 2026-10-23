@@ -49,8 +49,8 @@ describe('monitor search suggestions + q creator/category match', () => {
     });
     expect(byTitle.videos[0]?.label).toBe('可读视频标题甲');
     expect(byTitle.videos[0]?.value).toBe('BV1srchaaaaa');
-    expect(byTitle.videos[0]?.secondary).toContain('可读UP主甲');
-    expect(byTitle.videos[0]?.secondary).toContain('BV1srchaaaaa');
+    expect(byTitle.videos[0]?.secondary).toBe('可读UP主甲');
+    expect(byTitle.videos[0]?.secondary).not.toContain('BV');
 
     const byBv = await listMonitorSearchSuggestions(db(), {
       q: 'BV1srchaaaaa',
@@ -59,6 +59,9 @@ describe('monitor search suggestions + q creator/category match', () => {
     });
     expect(byBv.videos[0]?.label).toBe('可读视频标题甲');
     expect(byBv.videos[0]?.label).not.toBe('BV1srchaaaaa');
+    expect(byBv.videos[0]?.secondary).toBe('可读UP主甲');
+    expect(byBv.videos[0]?.value).toBe('BV1srchaaaaa');
+    expect(byBv.videos[0]?.secondary).not.toContain('BV');
 
     const byUp = await listMonitorSearchSuggestions(db(), {
       q: '可读UP主甲',
@@ -66,6 +69,7 @@ describe('monitor search suggestions + q creator/category match', () => {
       limit: 5,
     });
     expect(byUp.creators.some((item) => item.label === '可读UP主甲')).toBe(true);
+    expect(byUp.creators.every((item) => item.secondary === 'UP 主')).toBe(true);
     expect(byUp.videos.some((item) => item.label === '可读视频标题甲')).toBe(true);
 
     const byMid = await listMonitorSearchSuggestions(db(), {
@@ -74,7 +78,9 @@ describe('monitor search suggestions + q creator/category match', () => {
       limit: 5,
     });
     expect(byMid.creators[0]?.label).toBe('可读UP主甲');
+    expect(byMid.creators[0]?.secondary).toBe('UP 主');
     expect(byMid.creators[0]?.value).toBe('910001');
+    expect(byMid.creators[0]?.secondary).not.toContain('910001');
 
     const byCategory = await listMonitorSearchSuggestions(db(), {
       q: '知',
