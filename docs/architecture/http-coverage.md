@@ -1,6 +1,6 @@
 # HTTP API 覆盖
 
-验收库 `wp_r2_11_2d7c41aaf859` 保留，本文件不执行 DROP DATABASE。
+验收库 `wp_r2_11_9a37f00da4ae` 保留，本文件不执行 DROP DATABASE。
 
 注册 69，清单 69，已执行 69，HTTP 成功 69，断言验收 69。
 
@@ -695,3 +695,4 @@
 - 断言验收：是
 - monitor-targets：HTTP 200（成功响应，断言通过）
 - monitor-targets：HTTP 400（拒绝响应，断言通过）
+
