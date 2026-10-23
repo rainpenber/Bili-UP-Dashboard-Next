@@ -979,6 +979,7 @@ describe('commercial read API', () => {
   });
 
   test('list and detail expose sourceWindow dates without payload chat text (WP-R2-22A)', async () => {
+    if (!sql || !app) return;
     const hisenseId = 'bb100022-0001-4001-8001-000000000022';
     const djiId = 'bb100023-0001-4001-8001-000000000023';
     const emptyId = 'bb100024-0001-4001-8001-000000000024';
