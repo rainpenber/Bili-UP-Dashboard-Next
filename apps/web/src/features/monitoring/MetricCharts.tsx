@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
-import type { VideoMetricPoint, CreatorMetricPoint, DynamicMetricPoint } from '@studio/contracts';
+import { useNavigate } from 'react-router-dom';
+import type {
+  CreatorPublishEvent,
+  VideoMetricPoint,
+  CreatorMetricPoint,
+  DynamicMetricPoint,
+} from '@studio/contracts';
 import { formatFullLocalTime } from '@/lib/format-time';
 import { parseSeriesNumber } from '@/lib/chart-follower-axis';
 import {
+  aggregateFollowerEvents,
   buildDynamicOption,
   buildFollowerOption,
   buildVideoEngagementOption,
   buildVideoViewsOption,
+  FOLLOWER_PUBLISH_SERIES_NAME,
   visibleIndexRange,
+  type FollowerChartPublishEvent,
 } from '@/lib/chart-config';
 import { defaultDataZoomRange } from '@/lib/chart-window';
 import { chartSemanticFromResolved } from '@/lib/chart-colors';
@@ -24,7 +33,12 @@ type Props =
       playbackSummary?: ReactNode;
       engagementSummary?: ReactNode;
     }
-  | { kind: 'creator'; points: CreatorMetricPoint[]; variant?: 'full' | 'sparkline' }
+  | {
+      kind: 'creator';
+      points: CreatorMetricPoint[];
+      variant?: 'full' | 'sparkline';
+      publishEvents?: CreatorPublishEvent[];
+    }
   | { kind: 'dynamic'; points: DynamicMetricPoint[] };
 
 function hasDrawnPoint(value: number | string | null): boolean {
@@ -71,15 +85,43 @@ function hasAnyNumeric(values: (number | null)[]): boolean {
   return values.some((v) => v !== null);
 }
 
-export function MetricCharts(props: Props) {
+function CreatorFollowerCharts({
+  points,
+  variant,
+  publishEvents = [],
+}: {
+  points: CreatorMetricPoint[];
+  variant?: 'full' | 'sparkline';
+  publishEvents?: CreatorPublishEvent[];
+}) {
   const colors = useResolvedChartColors();
-  const points = props.points;
+  const navigate = useNavigate();
   const sampledAtList = useMemo(() => points.map((p) => p.sampledAt), [points]);
   const tooltipTimes = useMemo(
     () => sampledAtList.map((t) => formatFullLocalTime(t)),
     [sampledAtList],
   );
-
+  const mappedPublishEvents = useMemo<FollowerChartPublishEvent[]>(
+    () =>
+      publishEvents.map((event) => ({
+        publishedAt: event.publishedAt,
+        eventKind: event.eventKind,
+        titleSnapshot: event.titleSnapshot,
+        externalId: event.externalId,
+        navigable: event.navigable,
+        monitoredTargetId: event.monitoredTargetId,
+      })),
+    [publishEvents],
+  );
+  /** Sample-index → monitored bvid; used when the line series steals the marker click. */
+  const navigableBySampleIndex = useMemo(() => {
+    const buckets = aggregateFollowerEvents(sampledAtList, mappedPublishEvents);
+    const map = new Map<number, string>();
+    for (const [idx, bucket] of buckets) {
+      if (bucket.navigableExternalId) map.set(idx, bucket.navigableExternalId);
+    }
+    return map;
+  }, [sampledAtList, mappedPublishEvents]);
   const initialZoom = useMemo(() => defaultDataZoomRange(sampledAtList), [sampledAtList]);
   const [followerZoom, setFollowerZoom] = useState<{ start: number; end: number } | null>(null);
 
@@ -94,14 +136,109 @@ export function MetricCharts(props: Props) {
     [],
   );
 
+  const onPublishMarkClick = useCallback(
+    (params: {
+      componentType?: string;
+      seriesType?: string;
+      seriesName?: string;
+      dataIndex?: number;
+      data?: unknown;
+    }) => {
+      if (params.componentType !== 'series') return;
+      let bvid: string | null = null;
+      if (params.seriesType === 'scatter' && params.seriesName === FOLLOWER_PUBLISH_SERIES_NAME) {
+        const row = params.data;
+        if (row && typeof row === 'object' && !Array.isArray(row)) {
+          const id = (row as { navigableExternalId?: string | null }).navigableExternalId;
+          bvid = id ?? null;
+        }
+      } else if (typeof params.dataIndex === 'number') {
+        // Category/line hit at a publish bucket (scatter is easy to miss at 16px).
+        bvid = navigableBySampleIndex.get(params.dataIndex) ?? null;
+      }
+      if (!bvid) return;
+      navigate(`/monitoring/videos/${encodeURIComponent(bvid)}`);
+    },
+    [navigate, navigableBySampleIndex],
+  );
+
   if (points.length === 0) {
-    if (props.kind === 'creator' && props.variant === 'sparkline') {
+    if (variant === 'sparkline') {
       return (
         <p className="text-sm text-muted-foreground" data-testid="follower-sparkline-empty">
           暂无样本
         </p>
       );
     }
+    return <p className="text-sm text-muted-foreground">暂无播放与互动数据</p>;
+  }
+
+  const followers = points.map((p) => parseSeriesNumber(p.followerCount));
+  const zoom = followerZoom ?? initialZoom;
+  const { start, end } = visibleIndexRange(followers.length, zoom.start, zoom.end);
+  const option = buildFollowerOption(
+    sampledAtList,
+    followers,
+    colors,
+    tooltipTimes,
+    start,
+    end,
+    mappedPublishEvents,
+  );
+  if (variant === 'sparkline') {
+    return (
+      <div className="min-w-0 overflow-hidden" data-testid="follower-sparkline">
+        <ReactECharts
+          option={{
+            ...option,
+            legend: { show: false },
+            toolbox: { show: false },
+            dataZoom: [{ type: 'inside', start: zoom.start, end: zoom.end }],
+            grid: { left: 8, right: 8, top: 16, bottom: 24, containLabel: true },
+          }}
+          style={{ height: 140, width: '100%' }}
+          opts={{ renderer: 'canvas' }}
+          notMerge
+        />
+      </div>
+    );
+  }
+
+  return (
+    <ReactECharts
+      option={option}
+      style={{ height: 320, width: '100%' }}
+      opts={{ renderer: 'canvas' }}
+      notMerge
+      onEvents={{
+        datazoom: onFollowerZoom,
+        restore: () => setFollowerZoom(null),
+        click: onPublishMarkClick,
+      }}
+    />
+  );
+}
+
+export function MetricCharts(props: Props) {
+  const colors = useResolvedChartColors();
+  const points = props.points;
+  const sampledAtList = useMemo(() => points.map((p) => p.sampledAt), [points]);
+  const tooltipTimes = useMemo(
+    () => sampledAtList.map((t) => formatFullLocalTime(t)),
+    [sampledAtList],
+  );
+
+  if (props.kind === 'creator') {
+    return (
+      <CreatorFollowerCharts
+        points={props.points}
+        {...(props.variant ? { variant: props.variant } : {})}
+        {...(props.publishEvents ? { publishEvents: props.publishEvents } : {})}
+      />
+    );
+  }
+
+  if (points.length === 0) {
     return <p className="text-sm text-muted-foreground">暂无播放与互动数据</p>;
   }
 
@@ -193,45 +330,6 @@ export function MetricCharts(props: Props) {
         />
         {commentNote}
       </div>
-    );
-  }
-
-  if (props.kind === 'creator') {
-    const followers = props.points.map((p) => parseSeriesNumber(p.followerCount));
-    const zoom = followerZoom ?? initialZoom;
-    const { start, end } = visibleIndexRange(followers.length, zoom.start, zoom.end);
-
-    const option = buildFollowerOption(sampledAtList, followers, colors, tooltipTimes, start, end);
-    if (props.variant === 'sparkline') {
-      return (
-        <div className="min-w-0 overflow-hidden" data-testid="follower-sparkline">
-          <ReactECharts
-            option={{
-              ...option,
-              legend: { show: false },
-              toolbox: { show: false },
-              dataZoom: [{ type: 'inside', start: zoom.start, end: zoom.end }],
-              grid: { left: 8, right: 8, top: 16, bottom: 24, containLabel: true },
-            }}
-            style={{ height: 140, width: '100%' }}
-            opts={{ renderer: 'canvas' }}
-            notMerge
-          />
-        </div>
-      );
-    }
-
-    return (
-      <ReactECharts
-        option={option}
-        style={{ height: 320, width: '100%' }}
-        opts={{ renderer: 'canvas' }}
-        notMerge
-        onEvents={{
-          datazoom: onFollowerZoom,
-          restore: () => setFollowerZoom(null),
-        }}
-      />
     );
   }
 

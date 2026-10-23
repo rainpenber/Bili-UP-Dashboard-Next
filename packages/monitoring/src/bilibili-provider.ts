@@ -10,6 +10,12 @@ import {
 } from './bilibili-failure';
 import { assertDynamicId, parseDynamicDetail, type ParsedDynamicDetail } from './bilibili-dynamic';
 import {
+  parseSpaceArcSearch,
+  parseSpaceDynamicFeed,
+  type ParsedArchiveVideo,
+  type ParsedSpaceDynamic,
+} from './bilibili-discovery-parse';
+import {
   onlineRawFromPayload,
   parseOnlineTotal,
   parseRelation,
@@ -27,11 +33,17 @@ import {
 } from './bilibili-transport';
 import { acquireRequestSlot, rateAccountId } from './rate-limiter';
 import { createAccountThrottle, type ThrottleClock } from './throttle';
+import { encodeSignedQuery, extractWbiKeysFromNav, mixinWbiKey, signWbiParams } from './wbi';
 
 const VIEW_URL = 'https://api.bilibili.com/x/web-interface/view';
 const ONLINE_URL = 'https://api.bilibili.com/x/player/online/total';
 const RELATION_URL = 'https://api.bilibili.com/x/relation/stat';
 const DYNAMIC_DETAIL_URL = 'https://api.bilibili.com/x/polymer/web-dynamic/v1/detail';
+/** Fixed-doc path: reference/bilibili-api/space-arc-search.md */
+const SPACE_ARC_SEARCH_URL = 'https://api.bilibili.com/x/space/wbi/arc/search';
+/** Fixed-doc path: reference/bilibili-api/space-dynamic-feed.md */
+const SPACE_DYNAMIC_FEED_URL = 'https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space';
+const NAV_URL = 'https://api.bilibili.com/x/web-interface/nav';
 
 export type VideoFetchResult = {
   bvid: string;
@@ -62,6 +74,18 @@ export type DynamicFetchResult = {
   extra: Record<string, unknown>;
 };
 
+export type CreatorArchivesFetchResult = {
+  mid: string;
+  videos: ParsedArchiveVideo[];
+  calls: UpstreamCall[];
+};
+
+export type CreatorDynamicsFetchResult = {
+  mid: string;
+  dynamics: ParsedSpaceDynamic[];
+  calls: UpstreamCall[];
+};
+
 export type BilibiliProvider = MonitorProvider & {
   readonly id: 'bilibili';
   fetchVideo(input: {
@@ -85,6 +109,16 @@ export type BilibiliProvider = MonitorProvider & {
     cookieHeader: string | null;
     accountKey: string;
   }): Promise<DynamicFetchResult>;
+  fetchCreatorArchives(input: {
+    mid: string;
+    cookieHeader: string | null;
+    accountKey: string;
+  }): Promise<CreatorArchivesFetchResult>;
+  fetchCreatorDynamics(input: {
+    mid: string;
+    cookieHeader: string | null;
+    accountKey: string;
+  }): Promise<CreatorDynamicsFetchResult>;
 };
 
 function endpointUrl(base: string, params: Record<string, string>): string {
@@ -121,6 +155,7 @@ export function createBilibiliProvider(
         ...(overrides.clock ? { clock: overrides.clock } : {}),
       });
   const log = overrides.log ?? (() => undefined);
+  let cachedMixinKey: string | null = null;
 
   async function waitTurn(accountKey: string, interval: number): Promise<void> {
     if (overrides.sql) {
@@ -224,6 +259,27 @@ export function createBilibiliProvider(
       });
     }
     return payload;
+  }
+
+  async function ensureMixinKey(
+    cookieHeader: string | null,
+    accountKey: string,
+    calls: UpstreamCall[],
+  ): Promise<string> {
+    if (cachedMixinKey) return cachedMixinKey;
+    const navPayload = await request('nav', NAV_URL, cookieHeader, accountKey, calls);
+    const keys = extractWbiKeysFromNav(navPayload);
+    cachedMixinKey = mixinWbiKey(keys.imgKey, keys.subKey);
+    return cachedMixinKey;
+  }
+
+  function signedUrl(
+    base: string,
+    params: Record<string, string | number>,
+    mixinKey: string,
+  ): string {
+    const signed = signWbiParams(params, mixinKey, Math.floor(Date.now() / 1000));
+    return `${base}?${encodeSignedQuery(signed.query)}`;
   }
 
   return {
@@ -394,6 +450,108 @@ export function createBilibiliProvider(
         calls,
         extra: {},
       };
+    },
+    async fetchCreatorArchives(input) {
+      if (config.dryRun) {
+        const message = `dry-run GET ${SPACE_ARC_SEARCH_URL}?mid=${input.mid}`;
+        log(`[collector] ${message}`);
+        throw new BilibiliFailure({
+          message,
+          kind: 'dry_run',
+          endpoint: 'space_arc_search',
+          statusCode: null,
+          bizCode: null,
+          calls: [],
+        });
+      }
+      const calls: UpstreamCall[] = [];
+      const mixinKey = await ensureMixinKey(input.cookieHeader, input.accountKey, calls);
+      const url = signedUrl(
+        SPACE_ARC_SEARCH_URL,
+        { mid: input.mid, order: 'pubdate', ps: 30, pn: 1 },
+        mixinKey,
+      );
+      const payload = await request(
+        'space_arc_search',
+        url,
+        input.cookieHeader,
+        input.accountKey,
+        calls,
+      );
+      let videos: ParsedArchiveVideo[];
+      try {
+        videos = parseSpaceArcSearch(payload);
+      } catch (error) {
+        throw new BilibiliFailure({
+          message: scrubSensitive(error instanceof Error ? error.message : '投稿列表解析失败'),
+          kind: 'retryable',
+          endpoint: 'space_arc_search',
+          statusCode: calls.at(-1)?.statusCode ?? null,
+          bizCode: calls.at(-1)?.bizCode ?? null,
+          calls: [...calls],
+        });
+      }
+      return { mid: input.mid, videos, calls };
+    },
+    async fetchCreatorDynamics(input) {
+      if (config.dryRun) {
+        const message = `dry-run GET ${SPACE_DYNAMIC_FEED_URL}?host_mid=${input.mid}`;
+        log(`[collector] ${message}`);
+        throw new BilibiliFailure({
+          message,
+          kind: 'dry_run',
+          endpoint: 'space_dynamic_feed',
+          statusCode: null,
+          bizCode: null,
+          calls: [],
+        });
+      }
+      const calls: UpstreamCall[] = [];
+      // Logged-in SESSDATA path preferred per space-dynamic-feed.md; still sign when possible.
+      let url = endpointUrl(SPACE_DYNAMIC_FEED_URL, {
+        host_mid: input.mid,
+        timezone_offset: '-480',
+        platform: 'web',
+        features:
+          'itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,forwardListHidden,decorationCard,commentsNewVersion,onlyfansAssetsV2,ugcDelete,onlyfansQaCard',
+        web_location: '333.1387',
+      });
+      if (!input.cookieHeader?.includes('SESSDATA=')) {
+        const mixinKey = await ensureMixinKey(input.cookieHeader, input.accountKey, calls);
+        url = signedUrl(
+          SPACE_DYNAMIC_FEED_URL,
+          {
+            host_mid: input.mid,
+            timezone_offset: '-480',
+            platform: 'web',
+            features:
+              'itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,forwardListHidden,decorationCard,commentsNewVersion,onlyfansAssetsV2,ugcDelete,onlyfansQaCard',
+            web_location: '333.1387',
+          },
+          mixinKey,
+        );
+      }
+      const payload = await request(
+        'space_dynamic_feed',
+        url,
+        input.cookieHeader,
+        input.accountKey,
+        calls,
+      );
+      let dynamics: ParsedSpaceDynamic[];
+      try {
+        dynamics = parseSpaceDynamicFeed(payload).items;
+      } catch (error) {
+        throw new BilibiliFailure({
+          message: scrubSensitive(error instanceof Error ? error.message : '空间动态解析失败'),
+          kind: 'retryable',
+          endpoint: 'space_dynamic_feed',
+          statusCode: calls.at(-1)?.statusCode ?? null,
+          bizCode: calls.at(-1)?.bizCode ?? null,
+          calls: [...calls],
+        });
+      }
+      return { mid: input.mid, dynamics, calls };
     },
   };
 }

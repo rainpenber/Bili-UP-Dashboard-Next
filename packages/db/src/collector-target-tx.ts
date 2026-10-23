@@ -5,7 +5,7 @@ type Queryable = postgres.Sql | postgres.TransactionSql;
 type Tx = postgres.TransactionSql;
 
 export type CollectorJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
-export type MonitorTargetType = 'video' | 'creator' | 'dynamic';
+export type MonitorTargetType = 'video' | 'creator' | 'dynamic' | 'discovery';
 
 /** Terminal message when a redundant pending is closed without inventing a collection failure run. */
 export const SUPERSEDED_ACTIVE_JOB_ERROR = '被新的任务安排取代，不再执行';

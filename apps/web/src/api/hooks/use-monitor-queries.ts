@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   fetchCreator,
   fetchCreatorMetrics,
+  fetchCreatorPublishEvents,
   fetchCreators,
   fetchDynamic,
   fetchDynamicMetrics,
@@ -92,6 +93,14 @@ export function useCreatorMetricsDetailQuery(mid: string) {
   return useQuery({
     queryKey: ['monitor', 'creator-metrics', mid] as const,
     queryFn: () => fetchCreatorMetrics(mid),
+    enabled: Boolean(mid),
+  });
+}
+
+export function useCreatorPublishEventsQuery(mid: string) {
+  return useQuery({
+    queryKey: ['monitor', 'creator-publish-events', mid] as const,
+    queryFn: () => fetchCreatorPublishEvents(mid),
     enabled: Boolean(mid),
   });
 }

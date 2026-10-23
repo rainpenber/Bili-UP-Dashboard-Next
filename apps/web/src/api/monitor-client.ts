@@ -1,5 +1,8 @@
 import type {
+  CreatorDiscoveryConfig,
+  CreatorDiscoveryConfigPutRequest,
   CreatorListItem,
+  CreatorPublishEvent,
   CreatorVideoList,
   DynamicListItem,
   DynamicTargetRef,
@@ -18,6 +21,19 @@ async function getJson<T>(path: string): Promise<T> {
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
 }
@@ -48,6 +64,28 @@ export function fetchCreators(params: {
 
 export function fetchCreatorMetrics(mid: string): Promise<{ items: CreatorMetricPoint[] }> {
   return getJson(`/creators/${encodeURIComponent(mid)}/metrics?limit=500`);
+}
+
+export function fetchCreatorDiscovery(mid: string): Promise<CreatorDiscoveryConfig> {
+  return getJson(`/creators/${encodeURIComponent(mid)}/discovery`);
+}
+
+export function putCreatorDiscovery(
+  mid: string,
+  body: CreatorDiscoveryConfigPutRequest,
+): Promise<CreatorDiscoveryConfig> {
+  return putJson(`/creators/${encodeURIComponent(mid)}/discovery`, body);
+}
+
+export function fetchCreatorPublishEvents(
+  mid: string,
+  params: { pageSize?: number } = {},
+): Promise<Paginated<CreatorPublishEvent>> {
+  const qs = new URLSearchParams({
+    page: '1',
+    pageSize: String(params.pageSize ?? 200),
+  });
+  return getJson(`/creators/${encodeURIComponent(mid)}/publish-events?${qs}`);
 }
 
 export function fetchCreatorVideos(

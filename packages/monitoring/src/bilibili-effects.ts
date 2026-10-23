@@ -5,19 +5,35 @@ import {
   commitBilibiliVideo,
   deferCollectorJob,
   disableMonitorTarget,
+  getVideoDenseCollectPlan,
   insertCollectorRequests,
   markBiliAccountExpired,
   markBiliAccountUsed,
   openCollectorCircuit,
+  persistDenseCollectPhase,
   readBiliAccountSecret,
   readCollectorCircuit,
   readTargetSchedule,
   recordCollectorFailure,
   resolveCollectorAccount,
+  resolveDenseCollectMinutes,
   type Sql,
 } from '@studio/db';
 import type { BilibiliEffects } from './bilibili-job';
 import { cookieHeader, decryptCookieJar, type EncryptedCookie } from './credentials';
+
+async function advanceDensePhaseIfNeeded(sql: Sql, targetId: string, now: Date): Promise<void> {
+  const plan = await getVideoDenseCollectPlan(sql, targetId);
+  if (!plan) return;
+  const resolved = resolveDenseCollectMinutes(plan, now);
+  if (resolved.shouldPersistPhase) {
+    await persistDenseCollectPhase(sql, {
+      targetId,
+      phase: resolved.phase,
+      now,
+    });
+  }
+}
 
 export function createSqlBilibiliEffects(
   sql: Sql,
@@ -48,7 +64,10 @@ export function createSqlBilibiliEffects(
       };
       return cookieHeader(decryptCookieJar(payload, options.secretKey));
     },
-    commitVideo: (input) => commitBilibiliVideo(sql, input),
+    async commitVideo(input) {
+      await advanceDensePhaseIfNeeded(sql, input.targetId, input.startedAt);
+      return commitBilibiliVideo(sql, input);
+    },
     commitCreator: (input) => commitBilibiliCreator(sql, input),
     commitDynamic: (input) => commitBilibiliDynamic(sql, input),
     async failJob(input) {

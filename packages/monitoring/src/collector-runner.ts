@@ -3,10 +3,15 @@ import {
   commitBilibiliCreator,
   commitBilibiliDynamic,
   commitBilibiliVideo,
+  deferCollectorJob,
   enqueueDueCollectorJobs,
+  getVideoDenseCollectPlan,
+  persistDenseCollectPhase,
   readTargetSchedule,
   recordCollectorFailure,
+  recordCollectorSuccess,
   refreshCollectorHeartbeat,
+  resolveDenseCollectMinutes,
   upsertCollectorHeartbeat,
   type CollectorTargetTxHooks,
   type Sql,
@@ -18,6 +23,7 @@ import {
 } from './auto-video-metadata';
 import { createSqlBilibiliEffects } from './bilibili-effects';
 import { runBilibiliJob, type BilibiliEffects } from './bilibili-job';
+import { runDiscoveryJob, type DiscoveryListProvider } from './discovery-job';
 import { decideSchedule, readFrequencyPolicy } from './frequency';
 import { isBilibiliProvider } from './bilibili-provider';
 import { loadCollectorSecretKey, scrubCollectorError } from './credentials';
@@ -28,6 +34,7 @@ import {
   truncateToUtcMinute,
   type MonitorProvider,
 } from './offline-provider';
+import { createOfflineDiscoveryProvider } from './offline-discovery';
 
 export const COLLECTOR_HEARTBEAT_MS = 10_000;
 
@@ -97,6 +104,8 @@ export async function runCollectorOnce(options: {
   instanceId?: string;
   env?: NodeJS.ProcessEnv;
   effects?: BilibiliEffects;
+  /** Offline/mock discovery list source (tests inject fixed samples). */
+  discoveryProvider?: DiscoveryListProvider;
   /** Test-only commit hooks (production omits). */
   commitHooks?: CollectorTargetTxHooks;
   /**
@@ -142,6 +151,47 @@ export async function runCollectorOnce(options: {
         createSqlBilibiliEffects(options.sql, {
           secretKey: loadCollectorSecretKey(env.COLLECTOR_SECRET_KEY),
         });
+      if (job.targetType === 'discovery') {
+        return await runDiscoveryJob({
+          sql: options.sql,
+          job,
+          provider: options.provider,
+          effects: {
+            cookieHeaderFor: (accountId) => effects.cookieHeaderFor(accountId),
+            resolveAccount: (input) => effects.resolveAccount(input),
+            deferJob: (jobId, until) => effects.deferJob(jobId, until),
+            audit: (input) => effects.audit(input),
+            async commitDiscovery(input) {
+              if (input.success) {
+                const result = await recordCollectorSuccess(options.sql, {
+                  jobId: input.jobId,
+                  targetId: input.targetId,
+                  samplesWritten: 0,
+                  durationMs: input.durationMs,
+                  startedAt: input.startedAt,
+                  schedule: input.schedule,
+                });
+                return { runId: result.runId ?? crypto.randomUUID() };
+              }
+              const result = await recordCollectorFailure(options.sql, {
+                jobId: input.jobId,
+                targetId: input.targetId,
+                attempts: job.attempts,
+                maxAttempts: options.config.maxAttempts,
+                error: input.error ?? '发现失败',
+                durationMs: input.durationMs,
+                startedAt: input.startedAt,
+                retryAt: new Date(input.startedAt.getTime() + input.schedule.minutes * 60_000),
+                schedule: input.schedule,
+              });
+              return { runId: result.runId ?? crypto.randomUUID() };
+            },
+          },
+          forcedAccountId: forced.length > 0 ? forced : null,
+          now: startedAt,
+          log,
+        });
+      }
       const autoMeta = options.autoMetadata;
       return await runBilibiliJob({
         job,
@@ -162,6 +212,57 @@ export async function runCollectorOnce(options: {
               },
             }
           : {}),
+      });
+    }
+    if (job.targetType === 'discovery') {
+      const discoveryProvider: DiscoveryListProvider =
+        options.discoveryProvider ?? createOfflineDiscoveryProvider();
+      return await runDiscoveryJob({
+        sql: options.sql,
+        job,
+        provider: discoveryProvider,
+        effects: {
+          async cookieHeaderFor() {
+            return null;
+          },
+          async resolveAccount() {
+            return null;
+          },
+          async deferJob(jobId, until) {
+            await deferCollectorJob(options.sql, jobId, until);
+          },
+          async audit() {
+            // Offline discovery has no upstream audit rows.
+          },
+          async commitDiscovery(input) {
+            if (input.success) {
+              const result = await recordCollectorSuccess(options.sql, {
+                jobId: input.jobId,
+                targetId: input.targetId,
+                samplesWritten: 0,
+                durationMs: input.durationMs,
+                startedAt: input.startedAt,
+                schedule: input.schedule,
+              });
+              return { runId: result.runId ?? crypto.randomUUID() };
+            }
+            const result = await recordCollectorFailure(options.sql, {
+              jobId: input.jobId,
+              targetId: input.targetId,
+              attempts: job.attempts,
+              maxAttempts: options.config.maxAttempts,
+              error: input.error ?? '发现失败',
+              durationMs: input.durationMs,
+              startedAt: input.startedAt,
+              retryAt: new Date(input.startedAt.getTime() + input.schedule.minutes * 60_000),
+              schedule: input.schedule,
+            });
+            return { runId: result.runId ?? crypto.randomUUID() };
+          },
+        },
+        forcedAccountId: null,
+        now: startedAt,
+        log,
       });
     }
     const sampledAt = truncateToUtcMinute(startedAt);
@@ -320,6 +421,22 @@ async function offlineSchedule(
 ): Promise<{ schedule: ReturnType<typeof decideSchedule> } | Record<string, never>> {
   const context = await readTargetSchedule(sql, targetId);
   if (!context) return {};
+  if (context.type === 'video') {
+    const dense = await getVideoDenseCollectPlan(sql, targetId);
+    if (dense) {
+      const resolved = resolveDenseCollectMinutes(dense, now);
+      if (resolved.shouldPersistPhase) {
+        await persistDenseCollectPhase(sql, {
+          targetId,
+          phase: resolved.phase,
+          now,
+        });
+      }
+      if (resolved.minutes !== null) {
+        return { schedule: { minutes: resolved.minutes, persistMinutes: true } };
+      }
+    }
+  }
   return {
     schedule: decideSchedule(
       {

@@ -529,18 +529,20 @@ describe('monitoring chart layout stays stacked by default', () => {
     cleanup();
 
     render(
-      <MetricCharts
-        kind="creator"
-        points={[
-          {
-            sampledAt: '2026-05-20T12:00:00.000Z',
-            rawTime: '2026-05-20T12:00:00.000Z',
-            sourceTimezone: 'Asia/Shanghai',
-            timestampPrecision: 'minute',
-            followerCount: '1000',
-          },
-        ]}
-      />,
+      <MemoryRouter>
+        <MetricCharts
+          kind="creator"
+          points={[
+            {
+              sampledAt: '2026-05-20T12:00:00.000Z',
+              rawTime: '2026-05-20T12:00:00.000Z',
+              sourceTimezone: 'Asia/Shanghai',
+              timestampPrecision: 'minute',
+              followerCount: '1000',
+            },
+          ]}
+        />
+      </MemoryRouter>,
     );
     expect(screen.queryByTestId('metric-charts-columns')).toBeNull();
     expect(readSeries(screen.getByTestId('mock-echart'))[0]?.name).toBe('粉丝数');

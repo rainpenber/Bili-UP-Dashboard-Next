@@ -79,7 +79,7 @@ export type OpsJobAttemptSummary = {
 export type OpsCollectorJob = {
   id: string;
   targetId: string;
-  targetType: 'video' | 'creator' | 'dynamic';
+  targetType: 'video' | 'creator' | 'dynamic' | 'discovery';
   externalId: string;
   label: string;
   displayName: string;
@@ -109,7 +109,7 @@ export type OpsCollectorJobList = {
 
 export type OpsCollectorJobGroup = {
   targetId: string;
-  targetType: 'video' | 'creator' | 'dynamic';
+  targetType: 'video' | 'creator' | 'dynamic' | 'discovery';
   externalId: string;
   label: string;
   displayName: string;
@@ -180,7 +180,7 @@ export type OpsCollectorJobDetail = {
 
 export type OpsCollectorTargetOption = {
   id: string;
-  type: 'video' | 'creator' | 'dynamic';
+  type: 'video' | 'creator' | 'dynamic' | 'discovery';
   externalId: string;
   label: string;
   displayName: string;
@@ -213,7 +213,7 @@ export type OpsOperation = {
   action: OpsOperationAction;
   event: OpsOperationEvent;
   targetId: string | null;
-  targetType: 'video' | 'creator' | 'dynamic' | null;
+  targetType: 'video' | 'creator' | 'dynamic' | 'discovery' | null;
   externalId: string | null;
   label: string | null;
   actor: string | null;
@@ -231,7 +231,7 @@ export type OpsOperationList = {
 };
 
 export type OpsCollectorJobQuery = {
-  type: 'video' | 'creator' | 'dynamic' | null;
+  type: 'video' | 'creator' | 'dynamic' | 'discovery' | null;
   targetId: string | null;
   externalId: string | null;
   q: string | null;
@@ -415,7 +415,10 @@ export function parseOpsCollectorJobQuery(input: {
   const group = input.group?.trim() || 'time';
   if (!OPS_RECORD_GROUPS.includes(group as OpsRecordGroup)) throw new Error('invalid group');
   return {
-    type: type === '' || type === 'all' ? null : (type as 'video' | 'creator' | 'dynamic'),
+    type:
+      type === '' || type === 'all'
+        ? null
+        : (type as 'video' | 'creator' | 'dynamic' | 'discovery'),
     targetId: parseUuid(input.targetId, 'targetId'),
     externalId: parseSearch(input.externalId),
     q: parseSearch(input.q),
@@ -489,7 +492,12 @@ function parseAttemptSummary(value: unknown): OpsJobAttemptSummary | null {
 export function parseOpsCollectorJob(value: unknown): OpsCollectorJob {
   const row = asObject(value, 'job');
   const targetType = row.targetType;
-  if (targetType !== 'video' && targetType !== 'creator' && targetType !== 'dynamic')
+  if (
+    targetType !== 'video' &&
+    targetType !== 'creator' &&
+    targetType !== 'dynamic' &&
+    targetType !== 'discovery'
+  )
     throw new Error('target type is invalid');
   const status = row.status;
   if (typeof status !== 'string' || !OPS_JOB_STATUSES.includes(status as OpsJobStatus)) {
@@ -541,7 +549,12 @@ export function parseOpsCollectorJobGroups(value: unknown): OpsCollectorJobGroup
     items: row.items.map((item) => {
       const group = asObject(item, 'group');
       const targetType = group.targetType;
-      if (targetType !== 'video' && targetType !== 'creator' && targetType !== 'dynamic') {
+      if (
+        targetType !== 'video' &&
+        targetType !== 'creator' &&
+        targetType !== 'dynamic' &&
+        targetType !== 'discovery'
+      ) {
         throw new Error('target type is invalid');
       }
       if (!Array.isArray(group.jobs)) throw new Error('group jobs must be an array');
@@ -650,7 +663,7 @@ export function parseOpsCollectorTargetSearch(value: unknown): OpsCollectorTarge
     items: row.items.map((item) => {
       const target = asObject(item, 'target');
       const type = target.type;
-      if (type !== 'video' && type !== 'creator' && type !== 'dynamic') {
+      if (type !== 'video' && type !== 'creator' && type !== 'dynamic' && type !== 'discovery') {
         throw new Error('target type is invalid');
       }
       return {
@@ -716,7 +729,8 @@ export function parseOpsOperation(value: unknown): OpsOperation {
     targetType !== null &&
     targetType !== 'video' &&
     targetType !== 'creator' &&
-    targetType !== 'dynamic'
+    targetType !== 'dynamic' &&
+    targetType !== 'discovery'
   ) {
     throw new Error('target type is invalid');
   }

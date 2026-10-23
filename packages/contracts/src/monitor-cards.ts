@@ -154,7 +154,7 @@ export function deriveMonitorCardState(input: {
 
 function emptyMessage(type: MonitorTargetType): string {
   if (type === 'video') return '请输入 BV 号或视频长链接';
-  if (type === 'creator') return '请输入 UID 或空间长链接';
+  if (type === 'creator' || type === 'discovery') return '请输入 UID 或空间长链接';
   return '请输入动态 id 或 t.bilibili.com 链接';
 }
 
@@ -162,7 +162,7 @@ function unsupportedMessage(type: MonitorTargetType): string {
   if (type === 'video') {
     return '无法识别。请粘贴完整 BV 号，或 www.bilibili.com/video/BV… 长链接。短链不会发起请求。';
   }
-  if (type === 'creator') {
+  if (type === 'creator' || type === 'discovery') {
     return '无法识别。请粘贴完整 UID，或 space.bilibili.com/UID 长链接。短链不会发起请求。';
   }
   return '无法识别。请粘贴十进制动态 id，或 https://t.bilibili.com/<id> 长链接。短链不会发起请求。';
@@ -170,7 +170,7 @@ function unsupportedMessage(type: MonitorTargetType): string {
 
 function mismatchMessage(type: MonitorTargetType): string {
   if (type === 'video') return '这是 UP 主身份，请到 UP 主页添加';
-  if (type === 'creator') return '这是视频身份，请到视频页添加';
+  if (type === 'creator' || type === 'discovery') return '这是视频身份，请到视频页添加';
   return '这不是动态身份，请粘贴动态 id 或 t.bilibili.com 链接';
 }
 

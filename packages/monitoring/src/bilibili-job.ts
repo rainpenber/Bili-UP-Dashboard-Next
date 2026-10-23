@@ -332,7 +332,29 @@ function scheduleFrom(
   env: NodeJS.ProcessEnv,
 ): CollectorScheduleWrite | null {
   if (!context) return null;
+  if (context.type === 'video' && context.densePlan && context.densePlan.phase !== 'normal') {
+    const plan = context.densePlan;
+    if (now.getTime() < plan.dense15Until.getTime()) {
+      return { minutes: 15, persistMinutes: true };
+    }
+    if (now.getTime() < plan.dense30Until.getTime()) {
+      return { minutes: 30, persistMinutes: true };
+    }
+    // Past 10-day window: fall through to age-tier / fixed policy.
+  }
   const type = context.type;
+  if (type === 'discovery') {
+    return decideSchedule(
+      {
+        type: 'discovery',
+        mode: 'fixed',
+        fixedMinutes: context.intervalMinutes,
+        pubdate: null,
+      },
+      now,
+      readFrequencyPolicy(env),
+    );
+  }
   return decideSchedule(
     {
       type,

@@ -4,6 +4,7 @@ import { useMonitorCardQuery } from '@/api/hooks/use-monitor-card-queries';
 import {
   useCreatorDetailQuery,
   useCreatorMetricsDetailQuery,
+  useCreatorPublishEventsQuery,
 } from '@/api/hooks/use-monitor-queries';
 import { coverAssetUrl } from '@/api/monitor-client';
 import { ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
@@ -30,6 +31,7 @@ export function MonitoringCreatorDetailPage() {
   const detailQuery = useCreatorDetailQuery(mid);
   const cardQuery = useMonitorCardQuery('creator', mid);
   const metricsQuery = useCreatorMetricsDetailQuery(mid);
+  const publishEventsQuery = useCreatorPublishEventsQuery(mid);
   const monitorToolbar = cardQuery.isLoading ? (
     <LoadingListSkeleton rows={1} />
   ) : cardQuery.isError ? (
@@ -142,7 +144,11 @@ export function MonitoringCreatorDetailPage() {
             onRetry={() => void metricsQuery.refetch()}
           />
         ) : (
-          <MetricCharts kind="creator" points={metricsQuery.data?.items ?? []} />
+          <MetricCharts
+            kind="creator"
+            points={metricsQuery.data?.items ?? []}
+            publishEvents={publishEventsQuery.data?.items ?? []}
+          />
         )
       }
     />

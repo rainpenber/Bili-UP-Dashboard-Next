@@ -41,6 +41,12 @@ function provider(fetchVideo: BilibiliProvider['fetchVideo']): BilibiliProvider 
     fetchDynamic: async () => {
       throw new Error('动态详情尚未接入采集任务');
     },
+    fetchCreatorArchives: async () => {
+      throw new Error('unused');
+    },
+    fetchCreatorDynamics: async () => {
+      throw new Error('unused');
+    },
     collectDynamic: async () => {
       throw new Error('unused');
     },
@@ -82,6 +88,7 @@ function effects(patch: Partial<BilibiliEffects> = {}): BilibiliEffects & {
       intervalMinutes: 60,
       pubdate: null,
       lastSuccessAt: null,
+      densePlan: null,
     }),
     commitVideo: async (input) => {
       const key = `${input.sample.bvid}|${input.sample.sampledAt.toISOString()}`;
@@ -451,6 +458,7 @@ describe('bilibili job orchestration', () => {
         intervalMinutes: 60,
         pubdate: new Date('2026-10-01T00:00:00.000Z'),
         lastSuccessAt: new Date('2026-10-18T00:00:00.000Z'),
+        densePlan: null,
       }),
     });
     let calls = 0;
@@ -609,6 +617,7 @@ describe('dynamic job dispatch', () => {
         intervalMinutes: 60,
         pubdate: new Date('2020-01-01T00:00:00.000Z'),
         lastSuccessAt: null,
+        densePlan: null,
       }),
       commitDynamic: async (input) => {
         captured.push({
