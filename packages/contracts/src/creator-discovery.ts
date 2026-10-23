@@ -14,6 +14,14 @@ const MAX_TITLE = 200;
 /** Allow a small clock skew when clients stamp "now". */
 export const MANUAL_PUBLISH_EVENT_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
+/** Per-item skip from the last successful discovery list round (max 20 in API). */
+export type DiscoveryItemSkip = {
+  externalId: string;
+  reason: string;
+};
+
+export const DISCOVERY_LAST_SKIPS_LIMIT = 20;
+
 export type CreatorDiscoveryConfig = {
   mid: string;
   enabled: boolean;
@@ -25,6 +33,9 @@ export type CreatorDiscoveryConfig = {
   lastError: string | null;
   lastRunAt: string | null;
   suppressedAutoCreateTotal: number;
+  /** Count of items skipped in the last successful list round (may exceed lastSkips.length). */
+  lastSkippedCount: number;
+  lastSkips: DiscoveryItemSkip[];
   updatedAt: string | null;
 };
 
@@ -261,9 +272,41 @@ export function parseCreatorDiscoveryConfigPutRequest(
   return { enabled, discoverVideos, discoverDynamics, monitorNewVideos };
 }
 
+function parseDiscoveryItemSkip(value: unknown, index: number): DiscoveryItemSkip {
+  if (!isRecord(value)) {
+    throw new MonitorContractError('invalid_body', `lastSkips[${index}] 必须是对象`);
+  }
+  return {
+    externalId: asString(value.externalId, `lastSkips[${index}].externalId`),
+    reason: asString(value.reason, `lastSkips[${index}].reason`),
+  };
+}
+
 export function parseCreatorDiscoveryConfig(value: unknown): CreatorDiscoveryConfig {
   if (!isRecord(value)) {
     throw new MonitorContractError('invalid_body', '发现配置必须是对象');
+  }
+  const lastSkippedCount = (() => {
+    if (typeof value.lastSkippedCount !== 'number') {
+      throw new MonitorContractError('invalid_body', 'lastSkippedCount 必须是数字');
+    }
+    if (!Number.isInteger(value.lastSkippedCount) || value.lastSkippedCount < 0) {
+      throw new MonitorContractError('invalid_body', 'lastSkippedCount 非法');
+    }
+    return value.lastSkippedCount;
+  })();
+  if (!Array.isArray(value.lastSkips)) {
+    throw new MonitorContractError('invalid_body', 'lastSkips 必须是数组');
+  }
+  if (value.lastSkips.length > DISCOVERY_LAST_SKIPS_LIMIT) {
+    throw new MonitorContractError(
+      'invalid_body',
+      `lastSkips 最多 ${DISCOVERY_LAST_SKIPS_LIMIT} 条`,
+    );
+  }
+  const lastSkips = value.lastSkips.map(parseDiscoveryItemSkip);
+  if (lastSkippedCount < lastSkips.length) {
+    throw new MonitorContractError('invalid_body', 'lastSkippedCount 不能小于 lastSkips 长度');
   }
   return {
     mid: parseCreatorMid(asString(value.mid, 'mid')),
@@ -287,6 +330,8 @@ export function parseCreatorDiscoveryConfig(value: unknown): CreatorDiscoveryCon
       }
       return value.suppressedAutoCreateTotal;
     })(),
+    lastSkippedCount,
+    lastSkips,
     updatedAt: asNullableIso(value.updatedAt, 'updatedAt'),
   };
 }

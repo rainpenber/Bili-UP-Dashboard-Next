@@ -10,6 +10,8 @@ import {
   upsertCreatorDiscoveryConfig,
   type Sql,
 } from '@studio/db';
+import { BilibiliFailure } from './bilibili-failure';
+import { enrichDiscoveryDynamics } from './discovery-dynamics';
 import { applyDiscoveryRound } from './discovery-job';
 import { installOfflineFetchGuard } from './network-guard';
 
@@ -156,5 +158,130 @@ describe('creator content discovery (offline)', () => {
     expect(config?.enabled).toBe(false);
     const after = await listCreatorPublishEvents(sql, { mid: MID, limit: 50 });
     expect(after.totalItems).toBe(before.totalItems);
+  });
+
+  test('one detail failure skips that item and still creates events for the other two', async () => {
+    if (!sql) return;
+    const mid = '10002';
+    await insertMonitorTarget(sql, {
+      id: crypto.randomUUID(),
+      type: 'creator',
+      externalId: mid,
+      label: '跳过隔离UP',
+      tags: [],
+      intervalMinutes: 240,
+      intervalMode: 'auto',
+      now: new Date('2026-10-23T04:00:00.000Z'),
+    });
+    await upsertCreatorDiscoveryConfig(sql, {
+      mid,
+      enabled: true,
+      discoverVideos: false,
+      discoverDynamics: true,
+      monitorNewVideos: false,
+      now: new Date('2026-10-23T04:00:00.000Z'),
+    });
+    // Seed watermark so the next round emits events.
+    await applyDiscoveryRound(sql, {
+      config: (await getCreatorDiscoveryConfig(sql, mid))!,
+      now: new Date('2026-10-23T04:01:00.000Z'),
+      videos: [],
+      dynamics: [{ dynamicId: '8000', publishedAtSec: 1_700_200_000n, title: '种子' }],
+    });
+
+    const listItems = [
+      { dynamicId: '8001', publishedAtSec: 1_700_200_100n, title: '坏详情', text: '充电专属' },
+      { dynamicId: '8002', publishedAtSec: 1_700_200_200n, title: '正常甲' },
+      { dynamicId: '8003', publishedAtSec: 1_700_200_300n, title: '正常乙' },
+    ];
+    const enriched = await enrichDiscoveryDynamics({
+      listItems,
+      listSkips: [],
+      shouldEnrich: () => true,
+      fetchDetail: async (dynamicId) => {
+        if (dynamicId === '8001') {
+          throw new BilibiliFailure({
+            message: `dynamic_detail 业务码 500 Cannot read property 'only_fans' of undefined`,
+            kind: 'retryable',
+            endpoint: 'dynamic_detail',
+            statusCode: 200,
+            bizCode: 500,
+            calls: [
+              {
+                endpoint: 'dynamic_detail',
+                statusCode: 200,
+                bizCode: 500,
+                durationMs: 1,
+                error: 'only_fans',
+              },
+            ],
+          });
+        }
+        return {
+          title: dynamicId === '8002' ? '正常甲' : '正常乙',
+          text: null,
+          calls: [
+            {
+              endpoint: 'dynamic_detail',
+              statusCode: 200,
+              bizCode: 0,
+              durationMs: 1,
+              error: null,
+            },
+          ],
+        };
+      },
+    });
+    expect(enriched.dynamics.map((d) => d.dynamicId)).toEqual(['8002', '8003']);
+    expect(enriched.skips).toHaveLength(1);
+    expect(enriched.skips[0]?.externalId).toBe('8001');
+
+    const summary = await applyDiscoveryRound(sql, {
+      config: (await getCreatorDiscoveryConfig(sql, mid))!,
+      now: new Date('2026-10-23T04:05:00.000Z'),
+      videos: [],
+      dynamics: enriched.dynamics,
+      skips: enriched.skips,
+    });
+    expect(summary.dynamicEventsCreated).toBe(2);
+    expect(summary.skippedCount).toBe(1);
+
+    const after = (await getCreatorDiscoveryConfig(sql, mid))!;
+    expect(after.lastSuccessAt).not.toBeNull();
+    expect(after.lastError).toBeNull();
+    expect(after.lastSkippedCount).toBe(1);
+    expect(after.lastSkips).toHaveLength(1);
+    expect(after.lastSkips[0]?.externalId).toBe('8001');
+
+    const events = await listCreatorPublishEvents(sql, { mid, limit: 50 });
+    expect(
+      events.items
+        .filter((e) => e.eventKind === 'dynamic')
+        .map((e) => e.externalId)
+        .sort(),
+    ).toEqual(['8002', '8003']);
+  });
+
+  test('non-isolated detail failure degrades to list title fallbacks', async () => {
+    const body =
+      '一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十超出';
+    expect(body.length).toBeGreaterThan(40);
+    const enriched = await enrichDiscoveryDynamics({
+      listItems: [
+        {
+          dynamicId: '9001',
+          publishedAtSec: 1n,
+          title: '',
+          text: body,
+        },
+      ],
+      shouldEnrich: () => true,
+      fetchDetail: async () => {
+        throw new Error('timeout talking to upstream');
+      },
+    });
+    expect(enriched.skips).toHaveLength(0);
+    expect(enriched.dynamics).toHaveLength(1);
+    expect(enriched.dynamics[0]?.title).toBe(body.slice(0, 40));
   });
 });

@@ -29,6 +29,7 @@ export * from './bilibili-discovery-parse';
 export * from './bilibili-job';
 export * from './bilibili-effects';
 export * from './discovery-job';
+export * from './discovery-dynamics';
 export * from './offline-discovery';
 export * from './creator-uploads-sync';
 export * from './wbi';

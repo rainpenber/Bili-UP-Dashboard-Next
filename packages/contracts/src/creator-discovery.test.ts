@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   parseManualPublishEventCreateRequest,
   parseManualPublishedAt,
+  parseCreatorDiscoveryConfig,
   parseCreatorPublishEvent,
   parseCreatorUploadsSyncResponse,
   parseCreatorUploadsSyncStatus,
@@ -68,6 +69,33 @@ describe('manual publish event contracts', () => {
       navigable: false,
     });
     expect(event.source).toBe('manual');
+  });
+});
+
+describe('creator discovery config skips', () => {
+  test('parses lastSkippedCount and lastSkips', () => {
+    const config = parseCreatorDiscoveryConfig({
+      mid: '3493141386627335',
+      enabled: true,
+      discoverVideos: false,
+      discoverDynamics: true,
+      monitorNewVideos: false,
+      discoveryTargetId: null,
+      lastSuccessAt: '2026-10-23T12:00:00.000Z',
+      lastError: null,
+      lastRunAt: '2026-10-23T12:00:00.000Z',
+      suppressedAutoCreateTotal: 0,
+      lastSkippedCount: 1,
+      lastSkips: [
+        {
+          externalId: '123',
+          reason: "dynamic_detail 业务码 500 Cannot read property 'only_fans' of undefined",
+        },
+      ],
+      updatedAt: '2026-10-23T12:00:00.000Z',
+    });
+    expect(config.lastSkippedCount).toBe(1);
+    expect(config.lastSkips[0]?.externalId).toBe('123');
   });
 });
 

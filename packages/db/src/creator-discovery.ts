@@ -11,6 +11,14 @@ function pgTextArray(values: readonly string[]): string {
 
 export type DenseCollectPhase = 'dense15' | 'dense30' | 'normal';
 
+/** Max skip rows exposed on discovery config (persisted + API). */
+export const DISCOVERY_LAST_SKIPS_LIMIT = 20;
+
+export type DiscoveryItemSkip = {
+  externalId: string;
+  reason: string;
+};
+
 export type CreatorDiscoveryConfigRow = {
   mid: string;
   enabled: boolean;
@@ -24,6 +32,8 @@ export type CreatorDiscoveryConfigRow = {
   lastError: string | null;
   lastRunAt: Date | null;
   suppressedAutoCreateTotal: number;
+  lastSkippedCount: number;
+  lastSkips: DiscoveryItemSkip[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -74,9 +84,24 @@ type ConfigSqlRow = {
   last_error: string | null;
   last_run_at: Date | null;
   suppressed_auto_create_total: number;
+  last_skipped_count: number;
+  last_skips: unknown;
   created_at: Date;
   updated_at: Date;
 };
+
+function mapDiscoverySkips(value: unknown): DiscoveryItemSkip[] {
+  if (!Array.isArray(value)) return [];
+  const out: DiscoveryItemSkip[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
+    const row = entry as Record<string, unknown>;
+    if (typeof row.externalId !== 'string' || typeof row.reason !== 'string') continue;
+    out.push({ externalId: row.externalId, reason: row.reason });
+    if (out.length >= DISCOVERY_LAST_SKIPS_LIMIT) break;
+  }
+  return out;
+}
 
 type EventSqlRow = {
   id: string;
@@ -118,6 +143,8 @@ function mapConfig(row: ConfigSqlRow): CreatorDiscoveryConfigRow {
     lastError: row.last_error,
     lastRunAt: row.last_run_at,
     suppressedAutoCreateTotal: row.suppressed_auto_create_total,
+    lastSkippedCount: row.last_skipped_count,
+    lastSkips: mapDiscoverySkips(row.last_skips),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -155,6 +182,7 @@ const configColumns = `
   mid, enabled, discover_videos, discover_dynamics, monitor_new_videos,
   discovery_target_id, video_watermark_created, dynamic_watermark_pub_ts,
   last_success_at, last_error, last_run_at, suppressed_auto_create_total,
+  last_skipped_count, last_skips,
   created_at, updated_at
 `;
 
@@ -187,6 +215,8 @@ export function defaultCreatorDiscoveryConfig(mid: string): CreatorDiscoveryConf
     lastError: null,
     lastRunAt: null,
     suppressedAutoCreateTotal: 0,
+    lastSkippedCount: 0,
+    lastSkips: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -387,6 +417,13 @@ export async function upsertCreatorDiscoveryConfig(
   });
 }
 
+export function clipDiscoverySkips(skips: readonly DiscoveryItemSkip[]): DiscoveryItemSkip[] {
+  return skips.slice(0, DISCOVERY_LAST_SKIPS_LIMIT).map((skip) => ({
+    externalId: skip.externalId.slice(0, 64),
+    reason: skip.reason.slice(0, 500),
+  }));
+}
+
 export async function markDiscoveryRunResult(
   sql: Queryable,
   input: {
@@ -397,11 +434,14 @@ export async function markDiscoveryRunResult(
     videoWatermarkCreated?: bigint | null;
     dynamicWatermarkPubTs?: bigint | null;
     suppressedAutoCreateDelta?: number;
+    /** Per-item skips from this round; persisted on success (list request ok). */
+    skips?: readonly DiscoveryItemSkip[];
   },
 ): Promise<void> {
   const suppress = input.suppressedAutoCreateDelta ?? 0;
   if (!input.success) {
     // Failure: keep watermarks / last success; record error only (no fake events).
+    // Do not overwrite last_skips — those describe the last successful list round.
     await sql`
       UPDATE creator_discovery_configs
       SET last_run_at = ${input.now},
@@ -419,6 +459,9 @@ export async function markDiscoveryRunResult(
     input.dynamicWatermarkPubTs === undefined || input.dynamicWatermarkPubTs === null
       ? null
       : input.dynamicWatermarkPubTs.toString();
+  const rawSkips = input.skips ?? [];
+  const skips = clipDiscoverySkips(rawSkips);
+  const skippedCount = rawSkips.length;
   await sql`
     UPDATE creator_discovery_configs
     SET last_run_at = ${input.now},
@@ -433,6 +476,8 @@ export async function markDiscoveryRunResult(
           ELSE ${dynWm}::bigint
         END,
         suppressed_auto_create_total = suppressed_auto_create_total + ${suppress},
+        last_skipped_count = ${skippedCount},
+        last_skips = ${sql.json(JSON.parse(JSON.stringify(skips)) as postgres.JSONValue)},
         updated_at = ${input.now}
     WHERE mid = ${input.mid}
   `;

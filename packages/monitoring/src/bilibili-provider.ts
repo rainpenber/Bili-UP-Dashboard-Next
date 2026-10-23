@@ -12,6 +12,7 @@ import { assertDynamicId, parseDynamicDetail, type ParsedDynamicDetail } from '.
 import {
   parseSpaceArcSearch,
   parseSpaceDynamicFeed,
+  type DiscoveryItemSkip,
   type ParsedArchiveVideo,
   type ParsedSpaceDynamic,
 } from './bilibili-discovery-parse';
@@ -84,6 +85,8 @@ export type CreatorArchivesFetchResult = {
 export type CreatorDynamicsFetchResult = {
   mid: string;
   dynamics: ParsedSpaceDynamic[];
+  /** Per-item skips from list parse (only_fans / malformed); round still succeeds. */
+  skips: DiscoveryItemSkip[];
   calls: UpstreamCall[];
 };
 
@@ -558,8 +561,11 @@ export function createBilibiliProvider(
         calls,
       );
       let dynamics: ParsedSpaceDynamic[];
+      let skips: CreatorDynamicsFetchResult['skips'];
       try {
-        dynamics = parseSpaceDynamicFeed(payload).items;
+        const parsed = parseSpaceDynamicFeed(payload);
+        dynamics = parsed.items;
+        skips = parsed.skips;
       } catch (error) {
         throw new BilibiliFailure({
           message: scrubSensitive(error instanceof Error ? error.message : '空间动态解析失败'),
@@ -570,7 +576,7 @@ export function createBilibiliProvider(
           calls: [...calls],
         });
       }
-      return { mid: input.mid, dynamics, calls };
+      return { mid: input.mid, dynamics, skips, calls };
     },
   };
 }

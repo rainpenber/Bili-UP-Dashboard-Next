@@ -361,7 +361,7 @@
         }
       ],
       "wired": true,
-      "notes": "WP-R2-05A discovery config. Requires an active creator monitor target.",
+      "notes": "WP-R2-05A discovery config + WP-R2-26D lastSkippedCount/lastSkips. Requires an active creator monitor target.",
       "storedEntity": "creator_discovery_configs"
     },
     {
@@ -1549,7 +1549,7 @@
         }
       ],
       "wired": true,
-      "notes": "Idempotent upsert. Disabling stops polling and keeps historical publish events.",
+      "notes": "Idempotent upsert. Disabling stops polling and keeps historical publish events. Response includes WP-R2-26D lastSkippedCount/lastSkips.",
       "storedEntity": "creator_discovery_configs"
     },
     {

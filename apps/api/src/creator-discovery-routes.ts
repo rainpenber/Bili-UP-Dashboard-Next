@@ -56,6 +56,8 @@ function toConfigDto(
     lastError: row.lastError,
     lastRunAt: row.lastRunAt?.toISOString() ?? null,
     suppressedAutoCreateTotal: row.suppressedAutoCreateTotal,
+    lastSkippedCount: row.lastSkippedCount,
+    lastSkips: row.lastSkips,
     updatedAt: row.updatedAt.getTime() === 0 ? null : row.updatedAt.toISOString(),
   });
 }

@@ -340,6 +340,15 @@ export function MonitorSettingsDialog({
                     : '无法加载发现设置'}
                 </p>
               ) : null}
+              {(discoveryQuery.data?.lastSkippedCount ?? 0) > 0 ? (
+                <p
+                  className="text-xs text-muted-foreground"
+                  data-testid="monitor-settings-discovery-skips"
+                  role="status"
+                >
+                  本轮跳过 {discoveryQuery.data!.lastSkippedCount} 条（多为充电/专属动态）
+                </p>
+              ) : null}
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"

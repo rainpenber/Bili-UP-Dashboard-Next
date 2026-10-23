@@ -50,6 +50,8 @@ export {
 } from './monitor-targets';
 export {
   DISCOVERY_AUTO_CREATE_LIMIT,
+  DISCOVERY_LAST_SKIPS_LIMIT,
+  clipDiscoverySkips,
   defaultCreatorDiscoveryConfig,
   deleteManualCreatorPublishEvent,
   ensureVideoDenseCollectPlan,
@@ -74,6 +76,7 @@ export {
   type CreatorPublishEventSource,
   type CreatorUploadsSyncStateRow,
   type DenseCollectPhase,
+  type DiscoveryItemSkip,
   type VideoDenseCollectPlanRow,
 } from './creator-discovery';
 export {

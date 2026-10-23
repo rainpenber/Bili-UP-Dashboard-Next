@@ -1,11 +1,16 @@
 import type { UpstreamCall } from './bilibili-failure';
-import type { ParsedArchiveVideo, ParsedSpaceDynamic } from './bilibili-discovery-parse';
+import type {
+  DiscoveryItemSkip,
+  ParsedArchiveVideo,
+  ParsedSpaceDynamic,
+} from './bilibili-discovery-parse';
 import type { DiscoveryListProvider } from './discovery-job';
 import { installOfflineFetchGuard } from './network-guard';
 
 export type OfflineDiscoveryFixture = {
   videosByMid?: Record<string, ParsedArchiveVideo[]>;
   dynamicsByMid?: Record<string, ParsedSpaceDynamic[]>;
+  skipsByMid?: Record<string, DiscoveryItemSkip[]>;
   /** When set, fetch throws BilibiliFailure-like errors via this factory. */
   fail?: (kind: 'archives' | 'dynamics') => Error;
 };
@@ -54,6 +59,7 @@ export function createOfflineDiscoveryProvider(
       ];
       return {
         dynamics: fixture.dynamicsByMid?.[input.mid] ?? [],
+        skips: fixture.skipsByMid?.[input.mid] ?? [],
         calls,
       };
     },

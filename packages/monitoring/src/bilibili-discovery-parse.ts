@@ -3,6 +3,8 @@
  * 端点与字段来自固定 commit 文档：
  * - reference/bilibili-api/space-arc-search.md → GET /x/space/wbi/arc/search
  * - reference/bilibili-api/space-dynamic-feed.md → GET /x/polymer/web-dynamic/v1/feed/space
+ *
+ * WP-R2-26D: 空间动态逐条解析；单条失败记 skip，不拖垮整页。
  */
 
 const BVID = /^BV[1-9A-HJ-NP-Za-km-z]{10}$/;
@@ -20,6 +22,13 @@ export type ParsedSpaceDynamic = {
   dynamicId: string;
   publishedAtSec: bigint;
   title: string;
+  /** Optional body text from list modules (for title fallback). */
+  text?: string;
+};
+
+export type DiscoveryItemSkip = {
+  externalId: string;
+  reason: string;
 };
 
 function requireRecord(value: unknown, message: string): Record<string, unknown> {
@@ -81,6 +90,15 @@ export function parseSpaceArcSearch(payload: unknown): ParsedArchiveVideo[] {
   return out;
 }
 
+function dynamicTextFromModules(modules: Record<string, unknown> | null): string {
+  if (!modules) return '';
+  const dynamic = optionalRecord(modules.module_dynamic, 'module_dynamic');
+  if (!dynamic) return '';
+  const desc = optionalRecord(dynamic.desc, 'module_dynamic.desc');
+  const fromDesc = desc ? optionalString(desc.text) : null;
+  return fromDesc ? fromDesc.slice(0, 500) : '';
+}
+
 function dynamicTitleFromModules(modules: Record<string, unknown> | null): string {
   if (!modules) return '';
   const dynamic = optionalRecord(modules.module_dynamic, 'module_dynamic');
@@ -99,8 +117,63 @@ function dynamicTitleFromModules(modules: Record<string, unknown> | null): strin
   return '';
 }
 
+/** Charging / only_fans list cards — detail usually 500; skip rather than fail the round. */
+export function isOnlyFansSpaceDynamicItem(row: Record<string, unknown>): boolean {
+  const type = optionalString(row.type) ?? '';
+  if (/only_?fans|ONLY_FANS|opusGoods|SUBSCRIPTION/i.test(type)) return true;
+  const modules = optionalRecord(row.modules, 'modules');
+  if (!modules) return false;
+  const dynamic = optionalRecord(modules.module_dynamic, 'module_dynamic');
+  if (!dynamic) return false;
+  const major = optionalRecord(dynamic.major, 'module_dynamic.major');
+  if (!major) return false;
+  if ('only_fans' in major || 'onlyfans' in major) return true;
+  const majorType = optionalString(major.type) ?? '';
+  return /only_?fans|ONLY_FANS/i.test(majorType);
+}
+
+function peekDynamicId(row: Record<string, unknown>): string {
+  const id = optionalString(row.id_str);
+  return id && DYNAMIC_ID.test(id) ? id : '';
+}
+
+function parseOneSpaceDynamicItem(item: unknown): ParsedSpaceDynamic | DiscoveryItemSkip {
+  try {
+    const row = requireRecord(item, '动态条目不是对象');
+    const id = optionalString(row.id_str);
+    if (!id || !DYNAMIC_ID.test(id)) {
+      return { externalId: peekDynamicId(row), reason: '动态 id_str 非法或缺失' };
+    }
+    if (isOnlyFansSpaceDynamicItem(row)) {
+      return { externalId: id, reason: 'only_fans/充电专属动态（列表识别）' };
+    }
+    const modules = optionalRecord(row.modules, 'modules');
+    const author = modules ? optionalRecord(modules.module_author, 'module_author') : null;
+    if (!author || author.pub_ts === undefined || author.pub_ts === null) {
+      return { externalId: id, reason: '动态缺少 module_author.pub_ts' };
+    }
+    const publishedAtSec = readNonNegative(author.pub_ts, 'module_author.pub_ts');
+    const text = dynamicTextFromModules(modules);
+    const title = dynamicTitleFromModules(modules);
+    return {
+      dynamicId: id,
+      publishedAtSec,
+      title,
+      ...(text ? { text } : {}),
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : '动态条目解析异常';
+    let externalId = '';
+    if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+      externalId = peekDynamicId(item as Record<string, unknown>);
+    }
+    return { externalId, reason };
+  }
+}
+
 export function parseSpaceDynamicFeed(payload: unknown): {
   items: ParsedSpaceDynamic[];
+  skips: DiscoveryItemSkip[];
   offset: string | null;
   hasMore: boolean;
 } {
@@ -108,29 +181,41 @@ export function parseSpaceDynamicFeed(payload: unknown): {
   const data = requireRecord(root.data, '空间动态缺少 data');
   const rawItems = data.items;
   if (rawItems === undefined || rawItems === null) {
-    return { items: [], offset: optionalString(data.offset), hasMore: Boolean(data.has_more) };
+    return {
+      items: [],
+      skips: [],
+      offset: optionalString(data.offset),
+      hasMore: Boolean(data.has_more),
+    };
   }
   if (!Array.isArray(rawItems)) throw new Error('空间动态 items 不是数组');
   const items: ParsedSpaceDynamic[] = [];
+  const skips: DiscoveryItemSkip[] = [];
   for (const item of rawItems) {
-    const row = requireRecord(item, '动态条目不是对象');
-    const id = optionalString(row.id_str);
-    if (!id || !DYNAMIC_ID.test(id)) throw new Error('动态 id_str 非法');
-    const modules = optionalRecord(row.modules, 'modules');
-    const author = modules ? optionalRecord(modules.module_author, 'module_author') : null;
-    if (!author || author.pub_ts === undefined || author.pub_ts === null) {
-      throw new Error('动态缺少 module_author.pub_ts');
+    const parsed = parseOneSpaceDynamicItem(item);
+    if ('dynamicId' in parsed) {
+      items.push(parsed);
+    } else {
+      skips.push(parsed);
     }
-    const publishedAtSec = readNonNegative(author.pub_ts, 'module_author.pub_ts');
-    items.push({
-      dynamicId: id,
-      publishedAtSec,
-      title: dynamicTitleFromModules(modules),
-    });
   }
   return {
     items,
+    skips,
     offset: optionalString(data.offset),
     hasMore: Boolean(data.has_more),
   };
+}
+
+/** Title for publish events: title → body first 40 → `动态 <id>`. */
+export function resolveDiscoveryDynamicTitle(input: {
+  title: string;
+  text?: string | null;
+  dynamicId: string;
+}): string {
+  const title = input.title.trim();
+  if (title) return title.slice(0, 200);
+  const text = (input.text ?? '').trim();
+  if (text) return text.slice(0, 40);
+  return `动态 ${input.dynamicId}`;
 }

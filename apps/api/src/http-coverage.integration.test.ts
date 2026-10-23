@@ -614,9 +614,16 @@ describe('HTTP API coverage against isolated Postgres', () => {
       const discoveryDefault = (await expectStatus(
         await api('/api/v1/monitor/creators/240240/discovery'),
         200,
-      )) as { enabled: boolean; monitorNewVideos: boolean };
+      )) as {
+        enabled: boolean;
+        monitorNewVideos: boolean;
+        lastSkippedCount: number;
+        lastSkips: unknown[];
+      };
       expect(discoveryDefault.enabled).toBe(false);
       expect(discoveryDefault.monitorNewVideos).toBe(false);
+      expect(discoveryDefault.lastSkippedCount).toBe(0);
+      expect(discoveryDefault.lastSkips).toEqual([]);
       const discoverySaved = (await expectStatus(
         await api(
           '/api/v1/monitor/creators/240240/discovery',
