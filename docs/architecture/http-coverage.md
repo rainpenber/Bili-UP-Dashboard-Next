@@ -1,12 +1,20 @@
 # HTTP API 覆盖
 
-验收库 `wp_r2_11_45cbc613bfd1` 保留，本文件不执行 DROP DATABASE。
+验收库 `wp_r2_11_ed435e6e853a` 保留，本文件不执行 DROP DATABASE。
 
-注册 72，清单 72，已执行 72，HTTP 成功 72，断言验收 72。
+注册 77，清单 77，已执行 77，HTTP 成功 77，断言验收 77。
 
 验收结论：通过。每一条注册路由都有一次 HTTP 成功响应，且发出该响应的测试断言已通过。
 
-注入 transport 调用 8 次，逃逸到上游的 fetch 0 次。
+注入 transport 调用 9 次，逃逸到上游的 fetch 0 次。
+
+## DELETE `/api/v1/accounts/:id`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- accounts：HTTP 200（成功响应，断言通过）
 
 ## DELETE `/api/v1/monitor/targets/:id`
 
@@ -24,6 +32,14 @@
 - HTTP 成功：是
 - 断言验收：是
 - health：HTTP 200（成功响应，断言通过）
+
+## GET `/api/v1/accounts`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- accounts：HTTP 200（成功响应，断言通过）
 
 ## GET `/api/v1/assets/:assetId`
 
@@ -429,6 +445,15 @@
 - 断言验收：是
 - health：HTTP 200（成功响应，断言通过）
 
+## PATCH `/api/v1/accounts/:id`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- accounts：HTTP 200（成功响应，断言通过）
+- accounts：HTTP 404（拒绝响应，断言通过）
+
 ## PATCH `/api/v1/commercial/projects/:projectId/workflow/layout`
 
 - 前端调用：有
@@ -482,6 +507,24 @@
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 - metadata-refresh：HTTP 404（拒绝响应，断言通过）
+
+## POST `/api/v1/accounts`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- accounts：HTTP 201（成功响应，断言通过）
+- accounts：HTTP 409（拒绝响应，断言通过）
+
+## POST `/api/v1/accounts/:id/verify`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- accounts：HTTP 409（拒绝响应，断言通过）
+- accounts：HTTP 200（成功响应，断言通过）
 
 ## POST `/api/v1/commercial/ingress/batch`
 

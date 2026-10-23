@@ -83,14 +83,20 @@ function AccountCard({
     >
       <div className="flex min-w-0 flex-wrap items-start gap-2">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground" data-testid="bili-account-uname">
+          <p
+            className="truncate text-sm font-medium text-foreground"
+            data-testid="bili-account-uname"
+          >
             {account.uname?.trim() || '未命名账号'}
           </p>
           <p className="truncate text-xs text-muted-foreground" data-testid="bili-account-mid">
             mid {account.mid ?? '—'}
           </p>
         </div>
-        <Badge variant={expiryVariant(account.derivedExpiryState)} data-testid="bili-account-status">
+        <Badge
+          variant={expiryVariant(account.derivedExpiryState)}
+          data-testid="bili-account-status"
+        >
           {expiryLabel(account.derivedExpiryState)}
         </Badge>
         {account.isDefault ? (
@@ -137,11 +143,7 @@ function AccountCard({
           size="sm"
           variant="outline"
           disabled={busy || revoked || !realAccessEnabled}
-          title={
-            realAccessEnabled
-              ? undefined
-              : 'mock / 未开启真实 B 站访问，不能校验登录态'
-          }
+          title={realAccessEnabled ? undefined : 'mock / 未开启真实 B 站访问，不能校验登录态'}
           onClick={onVerify}
           data-testid="bili-account-verify"
         >
@@ -224,10 +226,14 @@ export function BiliAccountsPanel() {
   return (
     <div className="min-w-0 space-y-4" data-testid="bili-accounts-panel">
       <p className="text-sm text-muted-foreground">
-        管理采集用的 B 站登录账号。Cookie 只保存加密副本，接口与日志不会回显明文。撤销会删除凭据并保留账号行供审计。
+        管理采集用的 B 站登录账号。Cookie
+        只保存加密副本，接口与日志不会回显明文。撤销会删除凭据并保留账号行供审计。
       </p>
       {!realAccessEnabled ? (
-        <p className="text-sm text-muted-foreground" data-testid="bili-accounts-verify-disabled-hint">
+        <p
+          className="text-sm text-muted-foreground"
+          data-testid="bili-accounts-verify-disabled-hint"
+        >
           当前为 mock / 未开启真实 B 站访问，「重新校验」已禁用。
         </p>
       ) : null}
@@ -275,7 +281,11 @@ export function BiliAccountsPanel() {
         </div>
       )}
 
-      <form className="min-w-0 space-y-3 border-t border-border pt-4" onSubmit={onCreate} noValidate>
+      <form
+        className="min-w-0 space-y-3 border-t border-border pt-4"
+        onSubmit={onCreate}
+        noValidate
+      >
         <p className="text-sm font-medium text-foreground">新增账号</p>
         <div className="grid gap-1.5">
           <Label htmlFor="bili-account-cookie">Cookie</Label>
@@ -293,7 +303,9 @@ export function BiliAccountsPanel() {
               setLocalError(null);
             }}
           />
-          <p className="text-xs text-muted-foreground">只保存加密副本，不会在列表或日志中回显明文。</p>
+          <p className="text-xs text-muted-foreground">
+            只保存加密副本，不会在列表或日志中回显明文。
+          </p>
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="bili-account-note">备注（可选）</Label>

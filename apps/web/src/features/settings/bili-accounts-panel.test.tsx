@@ -41,10 +41,10 @@ describe('bili accounts panel', () => {
       if (init?.method) entry.method = init.method;
       calls.push(entry);
       if (url.includes('/api/v1/accounts') && (!init || init.method === 'GET' || !init.method)) {
-        return new Response(
-          JSON.stringify({ items: [ACCOUNT], realAccessEnabled: false }),
-          { status: 200, headers: { 'content-type': 'application/json' } },
-        );
+        return new Response(JSON.stringify({ items: [ACCOUNT], realAccessEnabled: false }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
       }
       if (url.includes('/api/v1/accounts/') && init?.method === 'DELETE') {
         return new Response(

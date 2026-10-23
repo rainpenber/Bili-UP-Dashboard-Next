@@ -17,7 +17,8 @@ import { installOfflineFetchGuard, type HttpTransport } from '@studio/monitoring
 import { Hono } from 'hono';
 import { createAccountsRoutes } from './accounts-routes';
 
-const SECRET_COOKIE = 'SESSDATA=plain-sess-fixture-9f3a; DedeUserID=900001; bili_jct=plain-jct-9f3a';
+const SECRET_COOKIE =
+  'SESSDATA=plain-sess-fixture-9f3a; DedeUserID=900001; bili_jct=plain-jct-9f3a';
 const SECRET_KEY = randomBytes(32).toString('base64');
 
 describe('bili accounts API (WP-R2-25A)', () => {

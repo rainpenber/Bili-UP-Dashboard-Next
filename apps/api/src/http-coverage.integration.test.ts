@@ -226,6 +226,23 @@ describe('HTTP API coverage against isolated Postgres', () => {
       onBackfill: (task) => {
         backfills.push(task);
       },
+      accounts: {
+        transport: async (request) => {
+          injectedUrls.push(request.url);
+          if (request.url.includes('/x/web-interface/nav')) {
+            return {
+              status: 200,
+              headers: {},
+              durationMs: 1,
+              body: JSON.stringify({
+                code: 0,
+                data: { isLogin: true, mid: 880001, uname: '覆盖号', face: '' },
+              }),
+            };
+          }
+          return { status: 200, headers: {}, durationMs: 1, body: '{}' };
+        },
+      },
     });
   }, 60_000);
 
@@ -1963,7 +1980,28 @@ describe('HTTP API coverage against isolated Postgres', () => {
           200,
         )) as { note: string };
         expect(patched.note).toBe('http-cover-2');
-        await expectStatus(await api(`/api/v1/accounts/${created.id}/verify`, { method: 'POST' }), 409);
+        await expectStatus(
+          await api(`/api/v1/accounts/${created.id}/verify`, { method: 'POST' }),
+          409,
+        );
+        const previousSource = process.env.MONITOR_DATA_SOURCE;
+        const previousProvider = process.env.COLLECTOR_PROVIDER;
+        process.env.MONITOR_DATA_SOURCE = 'collector';
+        process.env.COLLECTOR_PROVIDER = 'bilibili';
+        try {
+          const verified = (await expectStatus(
+            await api(`/api/v1/accounts/${created.id}/verify`, { method: 'POST' }),
+            200,
+          )) as { verified: boolean; account: { uname: string | null } };
+          expect(verified.verified).toBe(true);
+          expect(verified.account.uname).toBe('覆盖号');
+          expect(JSON.stringify(verified)).not.toContain('http-cover-sess-9f3a');
+        } finally {
+          if (previousSource === undefined) delete process.env.MONITOR_DATA_SOURCE;
+          else process.env.MONITOR_DATA_SOURCE = previousSource;
+          if (previousProvider === undefined) delete process.env.COLLECTOR_PROVIDER;
+          else process.env.COLLECTOR_PROVIDER = previousProvider;
+        }
         const revoked = (await expectStatus(
           await api(`/api/v1/accounts/${created.id}`, { method: 'DELETE' }),
           200,

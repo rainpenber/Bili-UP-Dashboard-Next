@@ -1,10 +1,7 @@
 import type { Sql } from '@studio/db';
 import type { Hono } from 'hono';
 import type { ApiEnv } from './app';
-import {
-  createAccountsRoutes,
-  type AccountsRouteOptions,
-} from './accounts-routes';
+import { createAccountsRoutes, type AccountsRouteOptions } from './accounts-routes';
 import { createAssetsRoutes } from './assets-routes';
 import { createCommercialRoutes } from './commercial-routes';
 import { createImportRoutes } from './import-routes';
@@ -16,11 +13,7 @@ export type MountApiOptions = MonitorRefreshOptions & {
 };
 
 /** Same prefix list as the process entry. Call once per process. */
-export function mountApiRoutes(
-  app: Hono<ApiEnv>,
-  db: Sql,
-  monitor: MountApiOptions = {},
-): void {
+export function mountApiRoutes(app: Hono<ApiEnv>, db: Sql, monitor: MountApiOptions = {}): void {
   app.route('/api/v1/monitor', createMonitorRoutes(db, monitor));
   app.route('/api/v1/assets', createAssetsRoutes(db));
   app.route('/api/v1/imports', createImportRoutes(db));

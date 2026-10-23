@@ -4,23 +4,23 @@
 
 ## 数据
 
-| 表 / 列 | 说明 |
-| --- | --- |
-| `bili_accounts` | mid / uname / status / is_default / cookie_expires_at / last_verified_at / last_used_at / note |
-| `bili_accounts.revoked_at` | 迁移 `019_account_revoked_at`；软撤销时间 |
-| `bili_account_secrets` | AES-256-GCM（ciphertext / iv / auth_tag / key_version），密钥 `COLLECTOR_SECRET_KEY` |
+| 表 / 列                    | 说明                                                                                           |
+| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `bili_accounts`            | mid / uname / status / is_default / cookie_expires_at / last_verified_at / last_used_at / note |
+| `bili_accounts.revoked_at` | 迁移 `019_account_revoked_at`；软撤销时间                                                      |
+| `bili_account_secrets`     | AES-256-GCM（ciphertext / iv / auth_tag / key_version），密钥 `COLLECTOR_SECRET_KEY`           |
 
 回滚：`ALTER TABLE bili_accounts DROP COLUMN IF EXISTS revoked_at;`
 
 ## HTTP
 
-| 方法 | 路径 | 行为 |
-| --- | --- | --- |
-| GET | `/api/v1/accounts` | 列表；含 `secretPresent`、`derivedExpiryState`、`realAccessEnabled` |
-| POST | `/api/v1/accounts` | `{ cookie, note?, mid?, replace? }`；离线解析 Cookie，不访问 B 站；同 mid 409，除非 `replace:true` |
-| PATCH | `/api/v1/accounts/:id` | `note` / `isDefault`；设默认时事务内取消其余默认 |
-| POST | `/api/v1/accounts/:id/verify` | 显式 nav 校验；`MONITOR_DATA_SOURCE=mock` 或非 `bilibili` provider → 409 `real_access_disabled` |
-| DELETE | `/api/v1/accounts/:id` | 删 secret、`status=revoked`、`revoked_at=now`；允许无默认；保留账号行 |
+| 方法   | 路径                          | 行为                                                                                               |
+| ------ | ----------------------------- | -------------------------------------------------------------------------------------------------- |
+| GET    | `/api/v1/accounts`            | 列表；含 `secretPresent`、`derivedExpiryState`、`realAccessEnabled`                                |
+| POST   | `/api/v1/accounts`            | `{ cookie, note?, mid?, replace? }`；离线解析 Cookie，不访问 B 站；同 mid 409，除非 `replace:true` |
+| PATCH  | `/api/v1/accounts/:id`        | `note` / `isDefault`；设默认时事务内取消其余默认                                                   |
+| POST   | `/api/v1/accounts/:id/verify` | 显式 nav 校验；`MONITOR_DATA_SOURCE=mock` 或非 `bilibili` provider → 409 `real_access_disabled`    |
+| DELETE | `/api/v1/accounts/:id`        | 删 secret、`status=revoked`、`revoked_at=now`；允许无默认；保留账号行                              |
 
 `derivedExpiryState`：`ok`｜`expiring_soon`（≤7 天）｜`expired`｜`missing_secret`｜`revoked`。
 

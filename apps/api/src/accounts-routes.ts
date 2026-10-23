@@ -39,18 +39,13 @@ import type { ApiEnv } from './app';
 import { readMonitorDataSource } from './data-source';
 
 const NAV_URL = 'https://api.bilibili.com/x/web-interface/nav';
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function contextLogger(c: { get?: (key: string) => unknown }): StudioLogger | null {
   if (!c.get) return null;
   try {
     const value = c.get('log');
-    if (
-      value &&
-      typeof value === 'object' &&
-      typeof (value as StudioLogger).info === 'function'
-    ) {
+    if (value && typeof value === 'object' && typeof (value as StudioLogger).info === 'function') {
       return value as StudioLogger;
     }
     return null;
@@ -256,8 +251,7 @@ export function createAccountsRoutes(db: Sql, options: AccountsRouteOptions = {}
       };
       const jar = decryptCookieJar(payload, key);
       const cookie = cookieHeader(jar);
-      const transport =
-        options.transport ?? createLiveBilibiliTransport(10_000);
+      const transport = options.transport ?? createLiveBilibiliTransport(10_000);
       let response;
       try {
         response = await transport({
@@ -296,11 +290,7 @@ export function createAccountsRoutes(db: Sql, options: AccountsRouteOptions = {}
         throw new BiliAccountStoreError('risk_control', `校验失败：风控（${biz.code}）`, 409);
       }
       if (biz.code !== 0 && biz.code !== null) {
-        throw new BiliAccountStoreError(
-          'verify_failed',
-          `校验失败：业务码 ${biz.code}`,
-          409,
-        );
+        throw new BiliAccountStoreError('verify_failed', `校验失败：业务码 ${biz.code}`, 409);
       }
       const nav = parseNav(parsed);
       if (!nav.isLogin) {

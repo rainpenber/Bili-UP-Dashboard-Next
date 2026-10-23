@@ -1,15 +1,32 @@
 {
-  "databaseName": "wp_r2_11_45cbc613bfd1",
+  "databaseName": "wp_r2_11_ed435e6e853a",
   "retainedDatabase": true,
-  "registeredCount": 72,
-  "inventoryCount": 72,
-  "executedCount": 72,
-  "httpSuccessCount": 72,
-  "acceptedCount": 72,
+  "registeredCount": 77,
+  "inventoryCount": 77,
+  "executedCount": 77,
+  "httpSuccessCount": 77,
+  "acceptedCount": 77,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
-  "injectedTransportCalls": 8,
+  "injectedTransportCalls": 9,
   "routes": [
+    {
+      "method": "DELETE",
+      "path": "/api/v1/accounts/:id",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "accounts",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
     {
       "method": "DELETE",
       "path": "/api/v1/monitor/targets/:id",
@@ -44,6 +61,23 @@
       "cases": [
         {
           "test": "health",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/accounts",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "accounts",
           "status": 200,
           "http": "success",
           "assertions": "passed"
@@ -1205,6 +1239,29 @@
     },
     {
       "method": "PATCH",
+      "path": "/api/v1/accounts/:id",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "accounts",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "accounts",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
       "path": "/api/v1/commercial/projects/:projectId/workflow/layout",
       "readWrite": "write",
       "frontendCaller": true,
@@ -1368,6 +1425,52 @@
           "test": "metadata-refresh",
           "status": 404,
           "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/accounts",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "accounts",
+          "status": 201,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "accounts",
+          "status": 409,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/accounts/:id/verify",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "accounts",
+          "status": 409,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "accounts",
+          "status": 200,
+          "http": "success",
           "assertions": "passed"
         }
       ]
