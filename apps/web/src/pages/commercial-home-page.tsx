@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/layout/page-header';
 import { EmptyState, ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
-import { Badge } from '@/components/ui/badge';
 import { ActionItemRow } from '@/features/commercial/components/action-item-row';
 import {
+  excludeSoftArchivedProjects,
   getLiveBlockedSummaries,
   getLiveClientActionItems,
   getLiveOurActionItems,
@@ -72,7 +72,9 @@ function ActionColumn({
 }
 
 export function CommercialHomePage() {
-  const query = useLiveCommercialProjectsQuery();
+  // Default list already omits archived_at; filter again so no module can show soft-deleted rows.
+  const query = useLiveCommercialProjectsQuery({ includeArchived: false });
+  const projects = query.data ? excludeSoftArchivedProjects(query.data.items) : [];
 
   return (
     <>
@@ -97,15 +99,15 @@ export function CommercialHomePage() {
             title="我方要处理的事项"
             emptyTitle="这边暂时没有待办"
             emptyDescription="有商单需要你们推进时，会出现在这里。"
-            items={getLiveOurActionItems(query.data.items)}
-            projects={query.data.items}
+            items={getLiveOurActionItems(projects)}
+            projects={projects}
           />
           <ActionColumn
             title="等待甲方处理的事项"
             emptyTitle="没有在等甲方的开放事项"
             emptyDescription="需要品牌或中介回复、确认、开票时，会列在这里。"
-            items={getLiveClientActionItems(query.data.items)}
-            projects={query.data.items}
+            items={getLiveClientActionItems(projects)}
+            projects={projects}
           />
           <Section
             className="lg:col-span-2 xl:col-span-1"
@@ -113,7 +115,7 @@ export function CommercialHomePage() {
             description="按项目列出卡住的节点。没有记录的原因、对外时间或阻塞开始时间会照实标出。"
           >
             {(() => {
-              const rows = getLiveBlockedSummaries(query.data.items);
+              const rows = getLiveBlockedSummaries(projects);
               if (rows.length === 0) {
                 return (
                   <EmptyState
@@ -132,10 +134,7 @@ export function CommercialHomePage() {
                         data-testid="home-block"
                         data-project-id={row.projectId}
                       >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium">{row.projectName}</p>
-                          {row.archived ? <Badge variant="secondary">已归档</Badge> : null}
-                        </div>
+                        <p className="font-medium">{row.projectName}</p>
                         <p className="text-sm">
                           <span className="text-muted-foreground">卡住的节点：</span>
                           {row.blockedNodeNames.length > 0

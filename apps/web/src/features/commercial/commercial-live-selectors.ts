@@ -16,6 +16,23 @@ export function isArchivedLiveProject(project: CommercialProjectListItem): boole
   return project.overallStage === 'archived' || project.archivedAt !== null;
 }
 
+/** Soft-delete flag (WP-R2-19E): archived_at set. Dashboard must exclude these entirely. */
+export function isSoftArchivedLiveProject(project: CommercialProjectListItem): boolean {
+  return project.archivedAt !== null;
+}
+
+export function excludeSoftArchivedProjects(
+  projects: CommercialProjectListItem[],
+): CommercialProjectListItem[] {
+  return projects.filter((project) => !isSoftArchivedLiveProject(project));
+}
+
+export function onlySoftArchivedProjects(
+  projects: CommercialProjectListItem[],
+): CommercialProjectListItem[] {
+  return projects.filter((project) => isSoftArchivedLiveProject(project));
+}
+
 export function liveStageLabel(project: CommercialProjectListItem): string {
   if (project.currentStageNames.length === 0) return '无活动节点';
   return project.currentStageNames.join('、');
@@ -86,7 +103,7 @@ function liveOpenActions(
 ): LiveActionItem[] {
   const rows: LiveActionItem[] = [];
   for (const project of projects) {
-    if (isArchivedLiveProject(project)) continue;
+    if (isSoftArchivedLiveProject(project)) continue;
     for (const item of project.openItems) {
       if (item.lifecycle !== 'open' || item.nextActor !== actor) continue;
       rows.push({ ...item, projectId: project.id });
@@ -118,11 +135,12 @@ export function getLiveBlockedSummaries(
   projects: CommercialProjectListItem[],
 ): LiveBlockedSummary[] {
   return projects
+    .filter((project) => !isSoftArchivedLiveProject(project))
     .filter((project) => project.anyNodeBlocked || project.blockedNodeNames.length > 0)
     .map((project) => ({
       projectId: project.id,
       projectName: project.name,
-      archived: isArchivedLiveProject(project),
+      archived: false,
       blockedNodeNames: project.blockedNodeNames,
       blockingReason: project.blockingReason,
       userDeadlineAt: project.userDeadlineAt,

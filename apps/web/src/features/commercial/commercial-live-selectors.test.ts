@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import type { CommercialOpenItemRead, CommercialProjectListItem } from '@studio/contracts';
 import {
+  excludeSoftArchivedProjects,
   filterLiveProjects,
   getLiveBlockedSummaries,
   getLiveClientActionItems,
   getLiveOurActionItems,
+  onlySoftArchivedProjects,
   sortLiveProjects,
 } from './commercial-live-selectors';
 
@@ -125,23 +127,21 @@ describe('live commercial selectors', () => {
     expect(client[0]?.plannedAt).toBeNull();
   });
 
-  test('archived projects stay out of action lists and blocked rows stay without a reason or date', () => {
+  test('soft-archived projects stay out of dashboard action and blocked modules', () => {
     expect(getLiveOurActionItems(projects).some((row) => row.projectId === ARCHIVED)).toBe(false);
+    expect(getLiveClientActionItems(projects).some((row) => row.projectId === ARCHIVED)).toBe(
+      false,
+    );
     const blocked = getLiveBlockedSummaries(projects);
-    const archived = blocked.find((row) => row.projectId === ARCHIVED);
+    expect(blocked.find((row) => row.projectId === ARCHIVED)).toBeUndefined();
     const bare = blocked.find((row) => row.projectId === BLOCKED);
-    expect(archived).toMatchObject({
-      archived: true,
-      blockingReason: null,
-      userDeadlineAt: null,
-      blockedSinceAt: null,
-      blockedNodeNames: ['结算'],
-    });
     expect(bare).toMatchObject({
       blockingReason: null,
       userDeadlineAt: null,
       blockedNodeNames: [],
     });
+    expect(excludeSoftArchivedProjects(projects).map((row) => row.id)).not.toContain(ARCHIVED);
+    expect(onlySoftArchivedProjects(projects).map((row) => row.id)).toEqual([ARCHIVED]);
   });
 
   test('keyword uses stored names and items, and the date filter uses created_at', () => {

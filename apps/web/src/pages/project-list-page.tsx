@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { ProjectListCard } from '@/features/commercial/components/project-list-card';
 import {
   filterLiveProjects,
+  onlySoftArchivedProjects,
   sortLiveProjects,
 } from '@/features/commercial/commercial-live-selectors';
 import { useLiveCommercialProjectsQuery } from '@/features/commercial/use-live-workflow';
@@ -16,7 +17,7 @@ import { cn } from '@/lib/utils';
 
 type OriginFilter = '' | 'real' | 'fixture' | 'manual' | 'unclassified';
 
-function readIncludeArchived(searchParams: URLSearchParams): boolean {
+function readArchivedExpanded(searchParams: URLSearchParams): boolean {
   return searchParams.get('includeArchived') === '1';
 }
 
@@ -26,21 +27,48 @@ export function ProjectListPage() {
   const [keyword, setKeyword] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [originKind, setOriginKind] = useState<OriginFilter>('');
-  const includeArchived = readIncludeArchived(searchParams);
-  const query = useLiveCommercialProjectsQuery({ originKind, includeArchived });
+  const archivedExpanded = readArchivedExpanded(searchParams);
 
-  const setIncludeArchived = (next: boolean) => {
+  const activeQuery = useLiveCommercialProjectsQuery({ originKind, includeArchived: false });
+  // Always fetch with includeArchived so the fold can show an accurate count while collapsed.
+  // Cards render only when expanded (includeArchived=1 in the URL).
+  const withArchivedQuery = useLiveCommercialProjectsQuery({
+    originKind,
+    includeArchived: true,
+  });
+
+  const setArchivedExpanded = (next: boolean) => {
     const nextParams = new URLSearchParams(searchParams);
     if (next) nextParams.set('includeArchived', '1');
     else nextParams.delete('includeArchived');
     setSearchParams(nextParams, { replace: true });
   };
 
-  const list = useMemo(() => {
-    if (!query.data) return [];
-    return sortLiveProjects(filterLiveProjects(query.data.items, { keyword, fromDate }));
-  }, [query.data, keyword, fromDate]);
-  const unfilteredCount = query.data?.total ?? query.data?.items.length ?? 0;
+  const filters = useMemo(() => ({ keyword, fromDate }), [keyword, fromDate]);
+
+  const activeList = useMemo(() => {
+    if (!activeQuery.data) return [];
+    return sortLiveProjects(filterLiveProjects(activeQuery.data.items, filters));
+  }, [activeQuery.data, filters]);
+
+  const archivedList = useMemo(() => {
+    if (!withArchivedQuery.data) return [];
+    return sortLiveProjects(
+      filterLiveProjects(onlySoftArchivedProjects(withArchivedQuery.data.items), filters),
+    );
+  }, [withArchivedQuery.data, filters]);
+
+  const archivedCount = useMemo(() => {
+    if (!withArchivedQuery.data || !activeQuery.data) return archivedList.length;
+    return Math.max(0, withArchivedQuery.data.total - activeQuery.data.total);
+  }, [withArchivedQuery.data, activeQuery.data, archivedList.length]);
+
+  const listReady = activeQuery.isSuccess && withArchivedQuery.isSuccess;
+  const listError = activeQuery.isError || withArchivedQuery.isError;
+  const listLoading =
+    !listError && (activeQuery.isLoading || (!listReady && withArchivedQuery.isLoading));
+  const unfilteredActiveCount = activeQuery.data?.total ?? activeQuery.data?.items.length ?? 0;
+  const error = activeQuery.error ?? withArchivedQuery.error;
 
   return (
     <>
@@ -99,75 +127,91 @@ export function ProjectListPage() {
                 <option value="unclassified">未分类</option>
               </select>
             </div>
-            <div className="flex items-center gap-2 sm:col-span-2 lg:col-span-3">
-              <input
-                id="project-include-archived"
-                type="checkbox"
-                className="size-4 rounded border border-input"
-                checked={includeArchived}
-                onChange={(e) => setIncludeArchived(e.target.checked)}
-                data-testid="project-include-archived"
-              />
-              <Label htmlFor="project-include-archived" className="font-normal">
-                显示已归档
-              </Label>
-            </div>
           </div>
         ) : null}
       </div>
 
-      {query.isError ? (
+      {listError ? (
         <ErrorState
-          message={query.error instanceof Error ? query.error.message : '加载失败'}
-          onRetry={() => void query.refetch()}
+          message={error instanceof Error ? error.message : '加载失败'}
+          onRetry={() => {
+            void activeQuery.refetch();
+            void withArchivedQuery.refetch();
+          }}
         />
       ) : null}
 
-      {!query.isError && query.isLoading ? <LoadingListSkeleton rows={6} /> : null}
+      {!listError && listLoading ? <LoadingListSkeleton rows={6} /> : null}
 
-      {!query.isError && query.isSuccess ? (
-        list.length === 0 ? (
-          <EmptyState
-            title={
-              unfilteredCount === 0
-                ? originKind === 'real'
-                  ? '还没有真实接入的商单'
-                  : '还没有数据库项目'
-                : '没有符合条件的项目'
-            }
-            description={
-              unfilteredCount === 0
-                ? originKind === 'real'
-                  ? '真实来源尚未写入。本包不假装已迁移历史商单；样例请切到来源「样例」或「全部」。'
-                  : includeArchived
-                    ? '列表来自已保存的商单。读取失败时不会改显示演示项目。'
-                    : '列表默认隐藏已归档项目。可在筛选中打开「显示已归档」查看或恢复。'
-                : '试试放宽关键词，或去掉创建日 / 来源筛选。'
-            }
-            action={
-              unfilteredCount === 0 && !originKind && !includeArchived ? null : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setKeyword('');
-                    setFromDate('');
-                    setOriginKind('');
-                    setIncludeArchived(false);
-                  }}
+      {!listError && listReady ? (
+        <div className="space-y-6">
+          {activeList.length === 0 ? (
+            <EmptyState
+              title={
+                unfilteredActiveCount === 0
+                  ? originKind === 'real'
+                    ? '还没有真实接入的商单'
+                    : '还没有数据库项目'
+                  : '没有符合条件的项目'
+              }
+              description={
+                unfilteredActiveCount === 0
+                  ? originKind === 'real'
+                    ? '真实来源尚未写入。本包不假装已迁移历史商单；样例请切到来源「样例」或「全部」。'
+                    : '列表默认隐藏已归档项目。可在底部「已归档」折叠区查看或恢复。'
+                  : '试试放宽关键词，或去掉创建日 / 来源筛选。'
+              }
+              action={
+                unfilteredActiveCount === 0 && !originKind ? null : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setKeyword('');
+                      setFromDate('');
+                      setOriginKind('');
+                    }}
+                  >
+                    清空筛选
+                  </Button>
+                )
+              }
+            />
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {activeList.map((project) => (
+                <ProjectListCard key={project.id} project={project} />
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-3 border-t pt-4" data-testid="project-archived-fold">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-left text-sm font-medium text-foreground hover:bg-muted/40"
+              aria-expanded={archivedExpanded}
+              onClick={() => setArchivedExpanded(!archivedExpanded)}
+              data-testid="project-archived-fold-toggle"
+            >
+              <span aria-hidden>{archivedExpanded ? '▾' : '▷'}</span>
+              <span>已归档（{archivedCount}）</span>
+            </button>
+            {archivedExpanded ? (
+              archivedList.length === 0 ? (
+                <EmptyState title="暂无已归档" description="归档的项目会出现在这里，可单独恢复。" />
+              ) : (
+                <div
+                  className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
+                  data-testid="project-archived-fold-list"
                 >
-                  清空筛选
-                </Button>
+                  {archivedList.map((project) => (
+                    <ProjectListCard key={project.id} project={project} />
+                  ))}
+                </div>
               )
-            }
-          />
-        ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {list.map((project) => (
-              <ProjectListCard key={project.id} project={project} />
-            ))}
+            ) : null}
           </div>
-        )
+        </div>
       ) : null}
     </>
   );
