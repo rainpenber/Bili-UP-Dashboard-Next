@@ -115,11 +115,6 @@ function install(cardUrls: string[], metricUrls: string[]) {
         }),
       );
     }
-    if (url.includes('/search-suggestions')) {
-      return Promise.resolve(
-        jsonResponse({ q: '', type: 'video', limit: 5, videos: [], creators: [], categories: [] }),
-      );
-    }
     if (url.includes('/api/v1/monitor/cards?')) {
       cardUrls.push(url);
       const params = new URL(url, 'http://localhost').searchParams;

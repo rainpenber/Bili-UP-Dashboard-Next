@@ -246,15 +246,6 @@
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 
-## GET `/api/v1/monitor/search-suggestions`
-
-- 前端调用：有
-- 已执行：是
-- HTTP 成功：是
-- 断言验收：是
-- monitor-targets：HTTP 200（成功响应，断言通过）
-- monitor-targets：HTTP 400（拒绝响应，断言通过）
-
 ## GET `/api/v1/monitor/settings/owner-account`
 
 - 前端调用：有

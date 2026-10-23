@@ -100,18 +100,6 @@ describe('WP-R2-MON-04 / WP-R2-23A onlyMine Switch', () => {
           }),
         );
       }
-      if (url.includes('/search-suggestions')) {
-        return Promise.resolve(
-          jsonResponse({
-            q: '',
-            type: 'video',
-            limit: 5,
-            videos: [],
-            creators: [],
-            categories: [],
-          }),
-        );
-      }
       if (url.includes('/api/v1/monitor/cards?')) {
         cardUrls.push(url);
         const params = new URL(url, 'http://localhost').searchParams;
@@ -182,18 +170,6 @@ describe('WP-R2-MON-04 / WP-R2-23A onlyMine Switch', () => {
           }),
         );
       }
-      if (url.includes('/search-suggestions')) {
-        return Promise.resolve(
-          jsonResponse({
-            q: '',
-            type: 'creator',
-            limit: 5,
-            videos: [],
-            creators: [],
-            categories: [],
-          }),
-        );
-      }
       if (url.includes('/api/v1/monitor/cards?')) {
         return Promise.resolve(jsonResponse(list([])));
       }
@@ -214,18 +190,6 @@ describe('WP-R2-MON-04 / WP-R2-23A onlyMine Switch', () => {
             { error: '尚未配置本人 B 站账号', code: 'owner_account_not_configured' },
             404,
           ),
-        );
-      }
-      if (url.includes('/search-suggestions')) {
-        return Promise.resolve(
-          jsonResponse({
-            q: '',
-            type: 'video',
-            limit: 5,
-            videos: [],
-            creators: [],
-            categories: [],
-          }),
         );
       }
       if (url.includes('/api/v1/monitor/cards?') && url.includes('onlyMine=1')) {

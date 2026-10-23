@@ -727,29 +727,6 @@
     },
     {
       "method": "GET",
-      "path": "/api/v1/monitor/search-suggestions",
-      "readWrite": "read",
-      "frontendCaller": true,
-      "executed": true,
-      "httpSuccess": true,
-      "accepted": true,
-      "cases": [
-        {
-          "test": "monitor-targets",
-          "status": 200,
-          "http": "success",
-          "assertions": "passed"
-        },
-        {
-          "test": "monitor-targets",
-          "status": 400,
-          "http": "reject",
-          "assertions": "passed"
-        }
-      ]
-    },
-    {
-      "method": "GET",
       "path": "/api/v1/monitor/settings/owner-account",
       "readWrite": "read",
       "frontendCaller": true,

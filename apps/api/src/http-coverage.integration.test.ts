@@ -588,11 +588,6 @@ describe('HTTP API coverage against isolated Postgres', () => {
         200,
       );
       await expectStatus(await api('/api/v1/monitor/cards?type=video&onlyMine=yes'), 400);
-      await expectStatus(
-        await api('/api/v1/monitor/search-suggestions?type=video&q=%E6%B8%B8%E6%88%8F&limit=5'),
-        200,
-      );
-      await expectStatus(await api('/api/v1/monitor/search-suggestions?type=dynamic&q=a'), 400);
       const byIdentity = (await expectStatus(
         await api('/api/v1/monitor/targets/of/creator/240240'),
         200,

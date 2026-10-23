@@ -27,4 +27,4 @@
 
 - 视频 tab 筛选栏 shadcn `Switch`「只看我的」→ URL `onlyMine=1`；再关移除 `onlyMine` 并恢复列表。身份说明放在 `title` / `aria-description`（如「只显示 狐正正 的视频」），不在布局中展示昵称与 mid。
 - 集成与设置页「本人 B 站账号」表单；保存后失效 `monitor/cards` 查询。
-- 与统一搜索 / 监控状态 / 排序 / 布局 / 详情返回兼容（`category` 精确过滤仍可由建议选择写入 URL）。
+- 与统一搜索 / 监控状态 / 排序 / 布局 / 详情返回兼容（`category` 精确过滤仍可由 URL 写入）。

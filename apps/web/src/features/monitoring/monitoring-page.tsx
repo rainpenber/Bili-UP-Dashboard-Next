@@ -211,9 +211,9 @@ export function MonitoringPage() {
         {state.tab === 'dynamics' ? (
           <div
             data-testid="monitor-filter-bar"
-            className="flex min-w-0 flex-nowrap items-end gap-3 overflow-x-auto rounded-lg border bg-muted/20 p-4"
+            className="flex min-w-0 flex-nowrap items-end justify-start gap-3 overflow-x-auto rounded-lg border bg-muted/20 p-4"
           >
-            <p className="min-w-[12rem] flex-1 text-sm text-muted-foreground">
+            <p className="min-w-[12rem] shrink-0 text-sm text-muted-foreground">
               动态可新增监控、暂停与恢复。无监控目标时仍可浏览已有互动指标。
             </p>
             <div className="grid w-auto shrink-0 gap-1">
@@ -252,10 +252,9 @@ export function MonitoringPage() {
         ) : (
           <div
             data-testid="monitor-filter-bar"
-            className="flex min-w-0 flex-nowrap items-end gap-3 overflow-x-auto rounded-lg border bg-muted/20 p-4"
+            className="flex min-w-0 flex-nowrap items-end justify-start gap-3 overflow-x-auto rounded-lg border bg-muted/20 p-4"
           >
             <MonitorSearchField
-              className="min-w-[12rem] flex-1"
               type={cardType}
               q={state.q}
               category={state.tab === 'videos' ? state.category : ''}

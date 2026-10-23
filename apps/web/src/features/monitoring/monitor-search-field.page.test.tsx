@@ -44,11 +44,9 @@ function wrapPage(entry: string) {
   return router;
 }
 
-describe('WP-R2-23A unified monitor search', () => {
-  test('debounces list requests and ignores stale suggestion responses', async () => {
+describe('WP-R2-23A / WP-R2-24A unified monitor search (no suggestions)', () => {
+  test('debounces URL q and refreshes cards list without a suggestions dropdown', async () => {
     const cardQs: string[] = [];
-    let suggestionCalls = 0;
-    const staleHolders: Array<(body: unknown) => void> = [];
     globalThis.fetch = ((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url.includes('/settings/owner-account')) {
@@ -61,124 +59,81 @@ describe('WP-R2-23A unified monitor search', () => {
         );
       }
       if (url.includes('/search-suggestions')) {
-        suggestionCalls += 1;
-        const params = new URL(url, 'http://localhost').searchParams;
-        const q = params.get('q') ?? '';
-        if (q === '旧') {
-          return new Promise((resolve) => {
-            staleHolders.push((body) => resolve(jsonResponse(body)));
-          });
-        }
-        return Promise.resolve(
-          jsonResponse({
-            q,
-            type: 'video',
-            limit: 5,
-            videos: [
-              {
-                kind: 'video',
-                label: '新视频标题',
-                secondary: '狐正正',
-                value: 'BV1xx411c7mD',
-              },
-            ],
-            creators: [],
-            categories: [],
-          }),
-        );
+        throw new Error('search-suggestions must not be called');
       }
       if (url.includes('/api/v1/monitor/cards?')) {
         cardQs.push(url);
-        return Promise.resolve(jsonResponse(list([])));
+        const q = new URL(url, 'http://localhost').searchParams.get('q') ?? '';
+        const items =
+          q.toLowerCase() === 'pocket'
+            ? [
+                {
+                  type: 'video',
+                  externalId: 'BV1pocketxxxx',
+                  title: 'Pocket Lab',
+                  category: '游戏',
+                  imageAssetId: null,
+                  mid: '1',
+                  displayName: 'Pocket Lab',
+                  hasEntity: true,
+                  hasSamples: false,
+                  pinned: false,
+                  monitorState: 'active',
+                  execution: 'waiting',
+                  target: {
+                    id: '11111111-1111-4111-8111-111111111111',
+                    label: '视频',
+                    tags: [],
+                    enabled: true,
+                    intervalMinutes: 15,
+                    intervalMode: 'auto',
+                    startAt: null,
+                    nextRunAt: null,
+                    lastRunAt: null,
+                    lastSuccessAt: null,
+                    lastError: null,
+                  },
+                  projects: [],
+                  latest: null,
+                },
+              ]
+            : [];
+        return Promise.resolve(jsonResponse(list(items)));
       }
       return Promise.resolve(jsonResponse(list([])));
     }) as typeof fetch;
 
     const router = wrapPage('/monitoring?tab=videos');
     const input = await screen.findByTestId('monitor-unified-search');
-    fireEvent.change(input, { target: { value: '旧' } });
-    fireEvent.change(input, { target: { value: '新' } });
+    expect(screen.queryByTestId('monitor-search-suggestions')).toBeNull();
+
+    fireEvent.change(input, { target: { value: 'poc' } });
+    fireEvent.change(input, { target: { value: 'pocket' } });
 
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, MONITOR_SEARCH_DEBOUNCE_MS + 50));
     });
 
     await waitFor(() => {
-      expect(router.state.location.search).toContain('q=%E6%96%B0');
+      expect(router.state.location.search).toContain('q=pocket');
     });
-    expect(router.state.location.search).not.toContain('q=%E6%97%A7');
+    expect(router.state.location.search).not.toContain('q=poc');
+    expect(screen.queryByTestId('monitor-search-suggestions')).toBeNull();
+    expect(screen.queryByRole('listbox')).toBeNull();
+
     const qValues = cardQs.map((url) => new URL(url, 'http://localhost').searchParams.get('q'));
-    expect(qValues.filter((value) => value === '旧')).toHaveLength(0);
-    expect(qValues.some((value) => value === '新')).toBe(true);
-
-    await waitFor(() => {
-      expect(screen.getByText('新视频标题')).toBeTruthy();
-    });
-    expect(suggestionCalls).toBeGreaterThanOrEqual(1);
-
-    // Late stale response must not replace the newer suggestion label.
-    for (const resolveStale of staleHolders) {
-      resolveStale({
-        q: '旧',
-        type: 'video',
-        limit: 5,
-        videos: [
-          {
-            kind: 'video',
-            label: '过期标题不应出现',
-            secondary: '其他UP',
-            value: 'BV1yy411c7mD',
-          },
-        ],
-        creators: [],
-        categories: [],
-      });
-    }
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-    expect(screen.queryByText('过期标题不应出现')).toBeNull();
-    expect(screen.getByText('新视频标题')).toBeTruthy();
+    expect(qValues.filter((value) => value === 'poc')).toHaveLength(0);
+    expect(qValues.some((value) => value === 'pocket')).toBe(true);
+    expect(await screen.findByText('Pocket Lab')).toBeTruthy();
   });
 
-  test('suggestion click and keyboard apply readable filters', async () => {
+  test('clear button and Escape restore empty q; Enter applies immediately', async () => {
     const applies: unknown[] = [];
-    globalThis.fetch = ((input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes('/search-suggestions')) {
-        return Promise.resolve(
-          jsonResponse({
-            q: '狐',
-            type: 'video',
-            limit: 5,
-            videos: [
-              {
-                kind: 'video',
-                label: '狐正正的日常',
-                secondary: '狐正正',
-                value: 'BV1xx411c7mD',
-              },
-            ],
-            creators: [
-              {
-                kind: 'creator',
-                label: '狐正正',
-                secondary: 'UP 主',
-                value: '3493141386627335',
-              },
-            ],
-            categories: [{ kind: 'category', label: '游戏', secondary: null, value: '游戏' }],
-          }),
-        );
-      }
-      return Promise.resolve(jsonResponse({}));
-    }) as typeof fetch;
-
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    function Harness() {
-      return (
+    render(
+      <QueryClientProvider client={client}>
         <MonitorSearchField
           type="video"
           q=""
@@ -187,51 +142,69 @@ describe('WP-R2-23A unified monitor search', () => {
             applies.push(next);
           }}
         />
-      );
-    }
-    render(
-      <QueryClientProvider client={client}>
-        <Harness />
       </QueryClientProvider>,
     );
 
-    const input = screen.getByTestId('monitor-unified-search');
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: '狐' } });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, MONITOR_SEARCH_DEBOUNCE_MS + 50));
-    });
+    const input = screen.getByTestId('monitor-unified-search') as HTMLInputElement;
+    expect(input.className).toContain('h-9');
+    expect(input.className).toContain('max-w-[360px]');
+    expect(input.className).not.toContain('flex-1');
+    expect(screen.queryByTestId('monitor-search-clear')).toBeNull();
 
-    const panel = await screen.findByTestId('monitor-search-suggestions');
-    // Portal mounts suggestions on document.body so overflow-x-auto cannot clip them.
-    expect(panel.parentElement).toBe(document.body);
-    expect(await screen.findByText('狐正正的日常')).toBeTruthy();
-    expect(screen.getByText('游戏')).toBeTruthy();
-    expect(screen.getByText('UP 主')).toBeTruthy();
-    // Dropdown must not expose BV / UID as visible copy.
-    expect(panel.textContent).not.toContain('BV1xx411c7mD');
-    expect(panel.textContent).not.toContain('3493141386627335');
-
-    fireEvent.click(screen.getByRole('option', { name: /游戏/ }));
+    fireEvent.change(input, { target: { value: 'BV1xx411c7mD' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
     expect(applies.at(-1)).toEqual({
-      q: '',
-      category: '游戏',
+      q: 'BV1xx411c7mD',
+      category: '',
       page: 1,
       selected: null,
     });
+    expect(screen.queryByTestId('monitor-search-suggestions')).toBeNull();
 
-    fireEvent.change(input, { target: { value: '狐' } });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, MONITOR_SEARCH_DEBOUNCE_MS + 50));
-    });
-    await screen.findByText('狐正正的日常');
-    fireEvent.keyDown(input, { key: 'ArrowDown' });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    const clear = screen.getByTestId('monitor-search-clear');
+    fireEvent.click(clear);
     expect(applies.at(-1)).toEqual({
-      q: '狐正正的日常',
+      q: '',
       category: '',
       page: 1,
-      selected: 'BV1xx411c7mD',
+      selected: null,
     });
+    expect(input.value).toBe('');
+
+    fireEvent.change(input, { target: { value: '3493141386627335' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(applies.at(-1)).toEqual({
+      q: '',
+      category: '',
+      page: 1,
+      selected: null,
+    });
+    expect(input.value).toBe('');
+  });
+
+  test('empty match shows empty-state copy without suggestions panel', async () => {
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes('/settings/owner-account')) {
+        return Promise.resolve(
+          jsonResponse({
+            mid: '3493141386627335',
+            displayName: '狐正正',
+            updatedAt: '2026-10-22T00:00:00.000Z',
+          }),
+        );
+      }
+      if (url.includes('/search-suggestions')) {
+        throw new Error('search-suggestions must not be called');
+      }
+      if (url.includes('/api/v1/monitor/cards?')) {
+        return Promise.resolve(jsonResponse(list([])));
+      }
+      return Promise.resolve(jsonResponse(list([])));
+    }) as typeof fetch;
+
+    wrapPage('/monitoring?tab=videos&q=zzz-no-match');
+    expect(await screen.findByText('没有匹配的条目')).toBeTruthy();
+    expect(screen.queryByTestId('monitor-search-suggestions')).toBeNull();
   });
 });

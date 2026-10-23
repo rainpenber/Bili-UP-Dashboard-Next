@@ -144,17 +144,6 @@ function renderAt(path: string) {
   return { router, ...view };
 }
 
-function emptySuggestions(type: 'video' | 'creator' = 'video') {
-  return {
-    q: '',
-    type,
-    limit: 5,
-    videos: [] as unknown[],
-    creators: [] as unknown[],
-    categories: [] as unknown[],
-  };
-}
-
 function install(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -167,10 +156,6 @@ function install(handler: (url: string, init?: RequestInit) => Response | Promis
           updatedAt: '2026-10-22T00:00:00.000Z',
         }),
       );
-    }
-    if (url.includes('/search-suggestions')) {
-      const type = url.includes('type=creator') ? 'creator' : 'video';
-      return Promise.resolve(jsonResponse(emptySuggestions(type)));
     }
     return Promise.resolve(handler(url, init));
   }) as typeof fetch;
