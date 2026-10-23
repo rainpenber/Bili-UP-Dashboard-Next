@@ -33,9 +33,29 @@ export function onlySoftArchivedProjects(
   return projects.filter((project) => isSoftArchivedLiveProject(project));
 }
 
+const OVERALL_STAGE_LABEL: Record<string, string> = {
+  pre_publish: '发布前',
+  published_winding_down: '已上线，收尾中',
+  closed: '已结案',
+  archived: '已归档',
+};
+
 export function liveStageLabel(project: CommercialProjectListItem): string {
   if (project.currentStageNames.length === 0) return '无活动节点';
   return project.currentStageNames.join('、');
+}
+
+/** Prefer in-progress / blocked node names; otherwise a friendly overall-stage label. */
+export function liveProgressLabel(project: CommercialProjectListItem): string {
+  if (project.currentStageNames.length > 0) return project.currentStageNames.join('、');
+  return OVERALL_STAGE_LABEL[project.overallStage] ?? project.overallStage;
+}
+
+export function liveOriginStatusLabel(project: CommercialProjectListItem): string {
+  if (project.originStatusLabel && project.originStatusLabel.trim().length > 0) {
+    return project.originStatusLabel;
+  }
+  return '未记录来源状态';
 }
 
 export function liveListBucket(project: CommercialProjectListItem): LiveListBucket {
@@ -147,4 +167,35 @@ export function getLiveBlockedSummaries(
       blockedSinceAt: project.blockedSinceAt,
       closedItemCount: project.openItems.filter((item) => item.lifecycle === 'closed').length,
     }));
+}
+
+export interface LiveActiveProjectSummary {
+  projectId: string;
+  projectName: string;
+  progressLabel: string;
+  originStatusLabel: string;
+  businessState: 'active';
+}
+
+/**
+ * Active business-state projects for the home board.
+ * Independent of openItems / blocked nodes; soft-archived rows stay out.
+ */
+export function getLiveActiveProjects(
+  projects: CommercialProjectListItem[],
+): LiveActiveProjectSummary[] {
+  return sortLiveProjects(projects)
+    .filter((project) => !isSoftArchivedLiveProject(project))
+    .filter((project) => project.businessState === 'active')
+    .map((project) => ({
+      projectId: project.id,
+      projectName: project.name,
+      progressLabel: liveProgressLabel(project),
+      originStatusLabel: liveOriginStatusLabel(project),
+      businessState: 'active' as const,
+    }));
+}
+
+export function countLiveOpenActions(projects: CommercialProjectListItem[]): number {
+  return getLiveOurActionItems(projects).length + getLiveClientActionItems(projects).length;
 }

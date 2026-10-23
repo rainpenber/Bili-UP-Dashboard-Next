@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
   parseCommercialOpenItemWriteResponse,
+  parseCommercialProjectDetail,
   parseCommercialProjectWorkflow,
   parseCommercialPublishResponse,
   parseCommercialNodeWriteResponse,
@@ -418,6 +419,81 @@ describe('commercial workflow write API', () => {
       }),
     );
     await expectRefusal(conflict, 409, 'publish_conflict');
+  }, 30_000);
+
+  test('legacy publish endpoint syncs overall_stage to published_winding_down', async () => {
+    const ctx = await ready();
+    if (!ctx) return;
+    const { projectId, tokens, app, sql } = ctx;
+    await completeThrough(ctx, [
+      '询单',
+      '大纲',
+      '文案',
+      '预拍摄',
+      '汇合节点',
+      'A-roll 拍摄',
+      'B-roll 素材',
+      'AI 后期',
+      '审核',
+    ]);
+    const publishNode = await mustNode(await postNode(app, projectId, tokens, '发布', 'advance'));
+    remember(tokens, publishNode);
+
+    const [before] = await sql<{ overall_stage: string }[]>`
+      SELECT overall_stage FROM commercial_projects WHERE id = ${projectId}
+    `;
+    expect(before?.overall_stage).toBe('pre_publish');
+
+    const firstRes = await app.request(
+      `/api/v1/commercial/projects/${projectId}/nodes/${publishNode.node.id}/publish`,
+      json({
+        expectedUpdatedAt: publishNode.node.updatedAt,
+        idempotencyKey: `stage-sync-${projectId}`,
+        platform: 'bilibili',
+        bvid: 'BV1stagesync01',
+        publishSource: 'web',
+      }),
+    );
+    expect(firstRes.status).toBe(200);
+    const first = parseCommercialPublishResponse(await firstRes.json());
+    expect(first.idempotentReplay).toBe(false);
+    expect(first.node.status).toBe('completed');
+
+    const detailRes = await app.request(`/api/v1/commercial/projects/${projectId}`);
+    expect(detailRes.status).toBe(200);
+    const detail = parseCommercialProjectDetail(await detailRes.json());
+    expect(detail.publish.published).toBe(true);
+    expect(detail.publish.bvid).toBe('BV1stagesync01');
+    expect(detail.overallStage).toBe('published_winding_down');
+
+    await sql`
+      UPDATE commercial_projects
+      SET overall_stage = 'pre_publish', updated_at = now()
+      WHERE id = ${projectId}
+    `;
+    const [drifted] = await sql<{ overall_stage: string }[]>`
+      SELECT overall_stage FROM commercial_projects WHERE id = ${projectId}
+    `;
+    expect(drifted?.overall_stage).toBe('pre_publish');
+
+    const replayRes = await app.request(
+      `/api/v1/commercial/projects/${projectId}/nodes/${publishNode.node.id}/publish`,
+      json({
+        expectedUpdatedAt: first.node.updatedAt,
+        idempotencyKey: `stage-sync-${projectId}`,
+        platform: 'bilibili',
+        bvid: 'BV1stagesync01',
+      }),
+    );
+    expect(replayRes.status).toBe(200);
+    const replay = parseCommercialPublishResponse(await replayRes.json());
+    expect(replay.idempotentReplay).toBe(true);
+
+    const healedRes = await app.request(`/api/v1/commercial/projects/${projectId}`);
+    expect(healedRes.status).toBe(200);
+    const healed = parseCommercialProjectDetail(await healedRes.json());
+    expect(healed.publish.published).toBe(true);
+    expect(healed.overallStage).toBe('published_winding_down');
   }, 30_000);
 
   test('a video URL is stored as bvid and a non-bilibili platform writes nothing', async () => {

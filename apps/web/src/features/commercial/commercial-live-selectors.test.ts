@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import type { CommercialOpenItemRead, CommercialProjectListItem } from '@studio/contracts';
 import {
+  countLiveOpenActions,
   excludeSoftArchivedProjects,
   filterLiveProjects,
+  getLiveActiveProjects,
   getLiveBlockedSummaries,
   getLiveClientActionItems,
   getLiveOurActionItems,
@@ -162,5 +164,72 @@ describe('live commercial selectors', () => {
     });
     const sorted = sortLiveProjects([projects[3]!, projects[2]!, reasoned, projects[0]!]);
     expect(sorted.map((row) => row.id)).toEqual([reasoned.id, BLOCKED, OURS, ARCHIVED]);
+  });
+
+  test('active projects appear without openItems; not_started/finished/archived stay out', () => {
+    const activeA = project('f0010001-0001-4001-8001-0000000000a1', {
+      name: '真实进行中甲',
+      businessState: 'active',
+      originStatusLabel: '2.进行中',
+      currentStageNames: ['文案'],
+      openItems: [],
+      createdAt: '2026-06-02T00:00:00.000000Z',
+    });
+    const activeB = project('f0010001-0001-4001-8001-0000000000a2', {
+      name: '真实进行中乙',
+      businessState: 'active',
+      originStatusLabel: '3.收尾-审核中',
+      currentStageNames: [],
+      overallStage: 'pre_publish',
+      openItems: [],
+      createdAt: '2026-06-01T00:00:00.000000Z',
+    });
+    const notStarted = project('f0010001-0001-4001-8001-0000000000a3', {
+      name: '未开始',
+      businessState: 'not_started',
+      originStatusLabel: '1.未开始',
+      openItems: [],
+    });
+    const finished = project('f0010001-0001-4001-8001-0000000000a4', {
+      name: '已提现',
+      businessState: 'finished',
+      originStatusLabel: '3.收尾-已提现',
+      openItems: [],
+    });
+    const archivedActive = project('f0010001-0001-4001-8001-0000000000a5', {
+      name: '归档样例不该出现',
+      businessState: 'active',
+      originStatusLabel: '2.进行中',
+      archivedAt: '2026-01-01T00:00:00.000000Z',
+      overallStage: 'archived',
+      openItems: [],
+    });
+    const unbound = project('f0010001-0001-4001-8001-0000000000a6', {
+      name: '无业务态',
+      businessState: null,
+      openItems: [],
+    });
+
+    const rows = getLiveActiveProjects([
+      finished,
+      activeB,
+      archivedActive,
+      notStarted,
+      activeA,
+      unbound,
+    ]);
+    expect(rows.map((row) => row.projectId)).toEqual([activeA.id, activeB.id]);
+    expect(rows.every((row) => row.businessState === 'active')).toBe(true);
+    expect(rows[0]).toMatchObject({
+      projectName: '真实进行中甲',
+      progressLabel: '文案',
+      originStatusLabel: '2.进行中',
+    });
+    expect(rows[1]).toMatchObject({
+      projectName: '真实进行中乙',
+      progressLabel: '发布前',
+      originStatusLabel: '3.收尾-审核中',
+    });
+    expect(countLiveOpenActions([activeA, activeB, notStarted, finished, archivedActive])).toBe(0);
   });
 });

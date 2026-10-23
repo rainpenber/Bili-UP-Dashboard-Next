@@ -857,6 +857,8 @@ async function publishNode(
   if (!isPublishNode(node)) refuse(409, 'invalid_transition', '只有发布节点可以记录发布');
   if (byProject) {
     if (asStatus(node.status) === 'completed') {
+      // Legacy publish endpoint must still heal overall_stage on replay.
+      await syncOverallStage(tx, projectId, graph);
       const bundle = await loadPublishBundle(tx, projectId, node);
       return { ...bundle, idempotentReplay: true };
     }
@@ -872,12 +874,14 @@ async function publishNode(
       primaryBlockItemId: node.primary_block_pinned_item_id,
       clearCompletedAt: false,
     });
+    rememberNode(graph, updated);
     await audit(tx, projectId, 'wf_node', nodeId, 'complete', {
       from: status,
       to: 'completed',
       bvid: input.bvid,
       idempotentReplay: true,
     });
+    await syncOverallStage(tx, projectId, graph);
     const bundle = await loadPublishBundle(tx, projectId, updated);
     return { ...bundle, idempotentReplay: true };
   }
@@ -896,6 +900,7 @@ async function publishNode(
     primaryBlockItemId: node.primary_block_pinned_item_id,
     clearCompletedAt: false,
   });
+  rememberNode(graph, updated);
   const publishedAt = input.publishedAt ?? new Date().toISOString();
   await tx`
     INSERT INTO project_publish_records (
@@ -941,6 +946,8 @@ async function publishNode(
       status: 'pending',
     });
   }
+  // Same transaction as the publish record: keep overall_stage aligned with /step.
+  await syncOverallStage(tx, projectId, graph);
   const bundle = await loadPublishBundle(tx, projectId, updated);
   return { ...bundle, idempotentReplay: false };
 }
