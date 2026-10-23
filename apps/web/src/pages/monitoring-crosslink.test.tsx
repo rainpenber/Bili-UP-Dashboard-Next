@@ -53,6 +53,7 @@ function videoDetail(creator: VideoDetail['creator']): VideoDetail {
     title: '反查视频',
     category: null,
     mid: creator?.mid ?? null,
+    pubdate: '2026-08-28T05:29:00.000Z',
     monitoringEnabled: true,
     archivedAt: null,
     deletedAt: null,

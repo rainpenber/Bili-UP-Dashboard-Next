@@ -67,8 +67,7 @@ export function DynamicObjectCard({
     listQuery ? `?from=${encodeURIComponent(listQuery)}` : ''
   }`;
   const activate = presentation === 'grid' ? () => navigate(detailHref) : onSelect;
-  const activateLabel =
-    presentation === 'grid' ? `打开动态 ${title}` : `选择动态 ${title}`;
+  const activateLabel = presentation === 'grid' ? `打开动态 ${title}` : `选择动态 ${title}`;
 
   return (
     <li

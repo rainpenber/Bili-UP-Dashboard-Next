@@ -1,15 +1,38 @@
 {
-  "databaseName": "wp_r2_11_45cbc613bfd1",
+  "databaseName": "wp_r2_11_0e7f4fa0e53d",
   "retainedDatabase": true,
-  "registeredCount": 72,
-  "inventoryCount": 72,
-  "executedCount": 72,
-  "httpSuccessCount": 72,
-  "acceptedCount": 72,
+  "registeredCount": 74,
+  "inventoryCount": 74,
+  "executedCount": 74,
+  "httpSuccessCount": 74,
+  "acceptedCount": 74,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 8,
   "routes": [
+    {
+      "method": "DELETE",
+      "path": "/api/v1/monitor/creators/:mid/publish-events/:eventId",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 204,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
     {
       "method": "DELETE",
       "path": "/api/v1/monitor/targets/:id",
@@ -1835,6 +1858,29 @@
         },
         {
           "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/creators/:mid/publish-events",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
           "status": 200,
           "http": "success",
           "assertions": "passed"

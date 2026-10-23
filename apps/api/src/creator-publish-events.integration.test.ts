@@ -1,9 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import {
-  createIsolatedTestDatabase,
-  dropIsolatedTestDatabase,
-  type Sql,
-} from '@studio/db';
+import { createIsolatedTestDatabase, dropIsolatedTestDatabase, type Sql } from '@studio/db';
 import { createApp } from './app';
 import { mountApiRoutes } from './mount-api';
 
@@ -166,10 +162,9 @@ describe('manual creator publish events', () => {
         'bilibili'
       )
     `;
-    const deny = await app.request(
-      `/api/v1/monitor/creators/${MID}/publish-events/${bilibiliId}`,
-      { method: 'DELETE' },
-    );
+    const deny = await app.request(`/api/v1/monitor/creators/${MID}/publish-events/${bilibiliId}`, {
+      method: 'DELETE',
+    });
     expect(deny.status).toBe(409);
     const denyBody = (await deny.json()) as { code: string };
     expect(denyBody.code).toBe('manual_only');

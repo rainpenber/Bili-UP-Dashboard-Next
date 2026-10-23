@@ -41,7 +41,9 @@ function toTargetRef(
   };
 }
 
-function authorNameFromMetadata(metadata: Record<string, unknown> | null | undefined): string | null {
+function authorNameFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): string | null {
   if (!metadata || typeof metadata.author_name !== 'string') return null;
   const trimmed = metadata.author_name.trim();
   return trimmed || null;

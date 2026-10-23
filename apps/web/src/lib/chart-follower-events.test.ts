@@ -135,10 +135,7 @@ describe('buildFollowerOption publish scatter', () => {
     expect(publish?.animation).toBe(false);
     expect(publish?.data).toHaveLength(1);
     expect(publish?.data?.[0]?.value).toEqual([1, 110]);
-    expect(publish?.data?.[0]?.eventLabels).toEqual([
-      '发布了视频《聚合视频》',
-      '发了动态《标题》',
-    ]);
+    expect(publish?.data?.[0]?.eventLabels).toEqual(['发布了视频《聚合视频》', '发了动态《标题》']);
     expect(publish?.data?.[0]?.navigableExternalId).toBe('BV1dd411c7mD');
   });
 });

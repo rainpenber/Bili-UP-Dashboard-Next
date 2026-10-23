@@ -34,11 +34,11 @@ export function PublishEventMarkButton({
   const [message, setMessage] = useState<string | null>(null);
 
   const matched = useMemo(() => {
-    if (!mid || !eventsQuery.data) return null;
+    const items = eventsQuery.data?.items;
+    if (!mid || !Array.isArray(items)) return null;
     return (
-      eventsQuery.data.items.find(
-        (event) => event.eventKind === eventKind && event.externalId === externalId,
-      ) ?? null
+      items.find((event) => event.eventKind === eventKind && event.externalId === externalId) ??
+      null
     );
   }, [eventsQuery.data, eventKind, externalId, mid]);
 

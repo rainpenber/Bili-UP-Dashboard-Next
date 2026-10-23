@@ -9,8 +9,7 @@ const PUBLISHED_AT_WITH_ZONE =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 const VIDEO_EXTERNAL_ID = /^BV[1-9A-HJ-NP-Za-km-z]{10}$/;
 const DYNAMIC_EXTERNAL_ID = /^[1-9]\d*$/;
-const EVENT_ID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const EVENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_TITLE = 200;
 /** Allow a small clock skew when clients stamp "now". */
 export const MANUAL_PUBLISH_EVENT_FUTURE_SKEW_MS = 5 * 60 * 1000;
@@ -187,17 +186,19 @@ export function parseManualPublishEventCreateRequest(
   if (eventKindRaw !== 'video' && eventKindRaw !== 'dynamic') {
     throw new MonitorContractError('invalid_body', 'eventKind 非法');
   }
-  const externalId = parsePublishEventExternalId(eventKindRaw, asString(value.externalId, 'externalId'));
+  const externalId = parsePublishEventExternalId(
+    eventKindRaw,
+    asString(value.externalId, 'externalId'),
+  );
   const publishedAt = parseManualPublishedAt(value.publishedAt, now);
-  let title: string | undefined;
-  if (value.title !== undefined) {
-    const rawTitle = asString(value.title, 'title').trim();
-    if (rawTitle.length > MAX_TITLE) {
-      throw new MonitorContractError('invalid_body', `title 最长 ${MAX_TITLE} 字`);
-    }
-    title = rawTitle;
+  if (value.title === undefined) {
+    return { eventKind: eventKindRaw, externalId, publishedAt };
   }
-  return { eventKind: eventKindRaw, externalId, publishedAt, title };
+  const rawTitle = asString(value.title, 'title').trim();
+  if (rawTitle.length > MAX_TITLE) {
+    throw new MonitorContractError('invalid_body', `title 最长 ${MAX_TITLE} 字`);
+  }
+  return { eventKind: eventKindRaw, externalId, publishedAt, title: rawTitle };
 }
 
 export function parseCreatorDiscoveryConfigPutRequest(

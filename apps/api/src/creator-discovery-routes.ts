@@ -24,6 +24,7 @@ import {
   type Sql,
 } from '@studio/db';
 import { Hono } from 'hono';
+import type postgres from 'postgres';
 
 function toConfigDto(
   row: ReturnType<typeof defaultCreatorDiscoveryConfig>,
@@ -76,7 +77,7 @@ async function writePublishEventAudit(
   input: {
     entityId: string | null;
     action: 'publish_event.manual.create' | 'publish_event.manual.delete';
-    detail: Record<string, unknown>;
+    detail: postgres.JSONValue;
   },
 ): Promise<void> {
   await sql`
@@ -191,7 +192,8 @@ export function registerCreatorDiscoveryRoutes(app: Hono, sql: Sql): void {
         eventKind: body.eventKind,
         externalId: body.externalId,
         publishedAt: new Date(body.publishedAt),
-        titleSnapshot: body.title?.trim() || (body.eventKind === 'dynamic' ? '动态' : body.externalId),
+        titleSnapshot:
+          body.title?.trim() || (body.eventKind === 'dynamic' ? '动态' : body.externalId),
         firstDiscoveredAt: now,
         monitoredTargetId,
         source: 'manual',
