@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_cefc7c2ec6e7",
+  "databaseName": "wp_r2_11_19c4310c6940",
   "retainedDatabase": true,
-  "registeredCount": 64,
-  "inventoryCount": 64,
-  "executedCount": 64,
-  "httpSuccessCount": 64,
-  "acceptedCount": 64,
+  "registeredCount": 66,
+  "inventoryCount": 66,
+  "executedCount": 66,
+  "httpSuccessCount": 66,
+  "acceptedCount": 66,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 8,
@@ -1263,6 +1263,23 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/archive",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/advance",
       "readWrite": "write",
       "frontendCaller": false,
@@ -1601,6 +1618,23 @@
     {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/stages/:stageId/step",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/unarchive",
       "readWrite": "write",
       "frontendCaller": true,
       "executed": true,

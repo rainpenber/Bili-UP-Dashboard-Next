@@ -117,6 +117,7 @@ function renderWorkflow(project: CommercialProjectDetail) {
 
 describe('project business display state (WP-R2-19C)', () => {
   test('list card shows finished / not_started badges with real labels and weakens stage', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const finished = detail({
       name: '已提现项目',
       businessState: 'finished',
@@ -124,9 +125,11 @@ describe('project business display state (WP-R2-19C)', () => {
       source: source('3.收尾-已提现'),
     });
     const { rerender } = render(
-      <MemoryRouter>
-        <ProjectListCard project={finished} />
-      </MemoryRouter>,
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <ProjectListCard project={finished} />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
     const finishedBadge = screen.getByTestId('project-business-state-badge');
     expect(finishedBadge.getAttribute('data-tone')).toBe('finished');
@@ -142,9 +145,11 @@ describe('project business display state (WP-R2-19C)', () => {
       source: source('1.放弃-主动拒绝'),
     });
     rerender(
-      <MemoryRouter>
-        <ProjectListCard project={notStarted} />
-      </MemoryRouter>,
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <ProjectListCard project={notStarted} />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
     const notStartedBadge = screen.getByTestId('project-business-state-badge');
     expect(notStartedBadge.getAttribute('data-tone')).toBe('not_started');
@@ -152,17 +157,20 @@ describe('project business display state (WP-R2-19C)', () => {
   });
 
   test('list card without source binding does not show a display-state badge', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <MemoryRouter>
-        <ProjectListCard
-          project={detail({
-            originKind: 'fixture',
-            source: null,
-            businessState: null,
-            originStatusLabel: null,
-          })}
-        />
-      </MemoryRouter>,
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <ProjectListCard
+            project={detail({
+              originKind: 'fixture',
+              source: null,
+              businessState: null,
+              originStatusLabel: null,
+            })}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
     expect(screen.queryByTestId('project-business-state-badge')).toBeNull();
     expect(screen.getByTestId('project-list-card').getAttribute('data-business-state')).toBe('');
