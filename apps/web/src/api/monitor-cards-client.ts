@@ -1,10 +1,12 @@
 import {
   parseMonitorCard,
   parseMonitorCardList,
+  parsePinEntityResponse,
   parsePinVideoResponse,
   type MonitorCard,
   type MonitorCardSort,
   type Paginated,
+  type PinEntityResponse,
   type PinVideoResponse,
 } from '@studio/contracts';
 import { MonitorRequestError } from '@/api/monitor-targets-client';
@@ -44,7 +46,7 @@ export function fetchMonitorCards(
   });
   if (params.q) qs.set('q', params.q);
   if (params.category) qs.set('category', params.category);
-  if (params.type === 'video' && params.sort) qs.set('sort', params.sort);
+  if (params.sort) qs.set('sort', params.sort);
   if (params.type === 'video' && params.onlyMine) qs.set('onlyMine', '1');
   return requestJson(
     `/cards?${qs.toString()}`,
@@ -67,4 +69,20 @@ export function pinMonitorVideo(bvid: string, pinned: boolean): Promise<PinVideo
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ pinned }),
   }).then(parsePinVideoResponse);
+}
+
+export function pinMonitorCreator(mid: string, pinned: boolean): Promise<PinEntityResponse> {
+  return requestJson(`/creators/${encodeURIComponent(mid)}/pin`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pinned }),
+  }).then(parsePinEntityResponse);
+}
+
+export function pinMonitorDynamic(dynamicId: string, pinned: boolean): Promise<PinEntityResponse> {
+  return requestJson(`/dynamics/${encodeURIComponent(dynamicId)}/pin`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pinned }),
+  }).then(parsePinEntityResponse);
 }

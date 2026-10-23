@@ -1,6 +1,13 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { DynamicListItem } from '@studio/contracts';
 import { formatCount } from '@/api/monitor-client';
+import {
+  handleCardActivateKey,
+  stopCardActivatePropagation,
+} from '@/features/monitoring/card-activate';
 import { DynamicMonitorControls } from '@/features/monitoring/dynamic-monitor-controls';
+import { MonitorPinButton } from '@/features/monitoring/monitor-pin-button';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
 import { formatUnknownMetric } from '@/lib/format-compact-number';
 import { formatShortTime } from '@/lib/format-time';
@@ -27,7 +34,7 @@ function dynamicSummary(item: DynamicListItem, mode: 'full' | 'core'): string {
 
 /**
  * 动态列表/网格卡片：无封面；不伪造图片。
- * 列表：信息与两键同行（可 wrap）。网格：id 与核心摘要整行可读，两键单独一行右侧。
+ * 分栏：整卡选中右栏；网格：整卡进详情。无冗余「详情」按钮。
  */
 export function DynamicObjectCard({
   item,
@@ -42,92 +49,65 @@ export function DynamicObjectCard({
   presentation: 'list' | 'grid';
   onSelect: () => void;
 }) {
+  const navigate = useNavigate();
+  const [pinError, setPinError] = useState<string | null>(null);
   const monitorState = monitorStateFromItem(item);
   const failed = Boolean(item.target?.lastError?.trim());
   const fullSummary = dynamicSummary(item, 'full');
   const coreSummary = dynamicSummary(item, 'core');
   const summary = presentation === 'grid' ? coreSummary : fullSummary;
-
-  if (presentation === 'grid') {
-    return (
-      <li
-        className="h-full min-w-0 max-w-full"
-        data-testid="dynamic-list-item"
-        data-presentation="grid"
-        data-monitor-state={monitorState}
-        data-external-id={item.dynamicId}
-      >
-        <div
-          className={cn(
-            'flex h-full min-w-0 max-w-full flex-col gap-2 rounded-lg border p-3',
-            selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
-          )}
-        >
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <button
-              type="button"
-              onClick={onSelect}
-              className="flex min-w-0 flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-pressed={selected}
-              aria-label={`选择动态 ${item.dynamicId}`}
-            >
-              <span className="flex min-w-0 items-center gap-1.5">
-                <MonitorStateBadge
-                  state={monitorState}
-                  failed={failed}
-                  badgeClassName="px-1.5 py-0 text-[10px] leading-4"
-                  testId="dynamic-card-state-badge"
-                  failureTestId="dynamic-card-failure-dot"
-                />
-                <span
-                  className="min-w-0 flex-1 truncate text-sm font-medium"
-                  title={item.dynamicId}
-                  data-testid="dynamic-card-title"
-                >
-                  {item.dynamicId}
-                </span>
-              </span>
-              <span
-                className="block truncate text-xs tabular-nums text-muted-foreground"
-                data-testid="dynamic-card-metrics"
-                title={fullSummary}
-              >
-                {summary}
-              </span>
-            </button>
-            <DynamicMonitorControls
-              dynamicId={item.dynamicId}
-              target={item.target}
-              listQuery={listQuery}
-              layout="card"
-            />
-          </div>
-        </div>
-      </li>
-    );
-  }
+  const detailHref = `/monitoring/dynamics/${encodeURIComponent(item.dynamicId)}${
+    listQuery ? `?from=${encodeURIComponent(listQuery)}` : ''
+  }`;
+  const activate = presentation === 'grid' ? () => navigate(detailHref) : onSelect;
+  const activateLabel =
+    presentation === 'grid' ? `打开动态 ${item.dynamicId}` : `选择动态 ${item.dynamicId}`;
 
   return (
     <li
-      className="min-w-0 max-w-full"
+      className={cn('min-w-0 max-w-full', presentation === 'grid' && 'h-full')}
       data-testid="dynamic-list-item"
-      data-presentation="list"
+      data-presentation={presentation}
       data-monitor-state={monitorState}
       data-external-id={item.dynamicId}
+      data-pinned={item.pinned ? 'true' : 'false'}
     >
       <div
+        role="button"
+        tabIndex={0}
+        aria-pressed={presentation === 'list' ? selected : undefined}
+        aria-label={activateLabel}
+        onClick={activate}
+        onKeyDown={(event) => handleCardActivateKey(event, activate)}
         className={cn(
-          'flex h-full min-w-0 max-w-full flex-col gap-2 rounded-lg border p-3',
+          'flex h-full min-w-0 max-w-full cursor-pointer flex-col gap-2 rounded-lg border p-3',
+          'transition-colors hover:border-primary/30 hover:bg-accent/20',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
         )}
       >
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-2">
-          <button
-            type="button"
-            onClick={onSelect}
-            className="flex min-w-0 flex-1 basis-[10rem] flex-col gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-pressed={selected}
-            aria-label={`选择动态 ${item.dynamicId}`}
+        <div
+          className={cn(
+            'relative flex min-w-0 flex-1',
+            presentation === 'grid' ? 'flex-col gap-1.5' : 'flex-wrap items-center gap-x-2 gap-y-2',
+          )}
+        >
+          <MonitorPinButton
+            kind="dynamic"
+            id={item.dynamicId}
+            pinned={item.pinned}
+            onError={(message) => setPinError(message)}
+            className={cn(
+              'z-10 size-6',
+              presentation === 'grid' ? 'absolute right-0 top-0' : 'absolute right-0 top-0',
+            )}
+          />
+          <div
+            className={cn(
+              'flex min-w-0 flex-col gap-1 text-left',
+              presentation === 'list' && 'flex-1 basis-[10rem] pr-8',
+              presentation === 'grid' && 'pr-8',
+            )}
           >
             <span className="flex min-w-0 items-center gap-1.5">
               <MonitorStateBadge
@@ -137,7 +117,11 @@ export function DynamicObjectCard({
                 testId="dynamic-card-state-badge"
                 failureTestId="dynamic-card-failure-dot"
               />
-              <span className="min-w-0 flex-1 truncate text-sm font-medium" title={item.dynamicId}>
+              <span
+                className="min-w-0 flex-1 truncate text-sm font-medium"
+                title={item.dynamicId}
+                data-testid="dynamic-card-title"
+              >
                 {item.dynamicId}
               </span>
             </span>
@@ -148,14 +132,21 @@ export function DynamicObjectCard({
             >
               {summary}
             </span>
-          </button>
-          <DynamicMonitorControls
-            dynamicId={item.dynamicId}
-            target={item.target}
-            listQuery={listQuery}
-            layout="card"
-          />
+          </div>
+          <div onClick={stopCardActivatePropagation} onKeyDown={stopCardActivatePropagation}>
+            <DynamicMonitorControls
+              dynamicId={item.dynamicId}
+              target={item.target}
+              listQuery={listQuery}
+              layout="card"
+            />
+          </div>
         </div>
+        {pinError ? (
+          <p role="alert" className="break-words text-xs text-destructive">
+            {pinError}
+          </p>
+        ) : null}
       </div>
     </li>
   );

@@ -59,6 +59,8 @@ export type DynamicListItem = {
   monitoringEnabled: boolean;
   archivedAt: string | null;
   deletedAt: string | null;
+  /** True when dynamics.pinned_at is set. */
+  pinned: boolean;
   /** Joined from monitor_targets (type=dynamic). Null when unmonitored. */
   target: DynamicTargetRef | null;
   latestMetrics: {
@@ -67,6 +69,18 @@ export type DynamicListItem = {
     repostCount: BigIntString | null;
     commentCount: BigIntString | null;
   };
+};
+
+/** Dynamic list sort (GET /dynamics). Always pinned-first on the server. */
+export const MONITOR_DYNAMIC_SORTS = ['sampled_desc', 'likes_desc', 'comments_desc'] as const;
+export type MonitorDynamicSort = (typeof MONITOR_DYNAMIC_SORTS)[number];
+export const DEFAULT_MONITOR_DYNAMIC_SORT: MonitorDynamicSort = 'sampled_desc';
+
+export type DynamicListQuery = {
+  page: number;
+  pageSize: number;
+  status: 'all' | 'active' | 'archived' | 'deleted';
+  sort: MonitorDynamicSort;
 };
 
 export type Paginated<T> = PaginationMeta & { items: T[] };

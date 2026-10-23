@@ -110,7 +110,7 @@ export function registerMonitorCardRoutes(app: Hono, db: Sql): void {
       }
       const listed = await listMonitorCards(db, {
         ...query,
-        sort: query.type === 'video' ? query.sort : null,
+        sort: query.sort,
         ownerMid,
       });
       const totalPages = Math.max(1, Math.ceil(listed.totalItems / query.pageSize));

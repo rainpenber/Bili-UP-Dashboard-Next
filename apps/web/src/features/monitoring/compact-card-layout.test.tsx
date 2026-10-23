@@ -87,6 +87,7 @@ function dynamicItem(patch: Partial<DynamicListItem> = {}): DynamicListItem {
     monitoringEnabled: true,
     archivedAt: null,
     deletedAt: null,
+    pinned: false,
     target: {
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       enabled: true,
@@ -148,13 +149,14 @@ describe('WP-R2-16G compact card layout', () => {
     expect(title.className).toContain('truncate');
 
     const actions = within(card).getByTestId('monitor-card-actions');
-    expect(within(actions).getByRole('button', { name: /详情/ })).toBeTruthy();
+    expect(within(actions).queryByRole('button', { name: /^详情$/ })).toBeNull();
     expect(within(actions).getByRole('button', { name: '开始监控' })).toBeTruthy();
+    expect(within(card).getByTestId('video-pin-button')).toBeTruthy();
     expect(within(actions).queryByTestId('video-pin-button')).toBeNull();
     expect(actions.className).toContain('items-center');
     expect(actions.className).not.toContain('mt-auto');
 
-    fireEvent.click(within(actions).getByRole('button', { name: /详情/ }));
+    fireEvent.click(within(card).getByTestId('monitor-card-controls'));
     expect(selected).toBe(1);
     fireEvent.click(within(actions).getByRole('button', { name: '开始监控' }));
     expect(selected).toBe(1);
@@ -214,8 +216,9 @@ describe('WP-R2-16G compact card layout', () => {
     expect(avatar.className).toContain('size-14');
     expect(within(card).getByTestId('monitor-list-metrics').textContent).toMatch(/粉丝/);
     const actions = within(card).getByTestId('monitor-card-actions');
-    expect(within(actions).getByRole('button', { name: /详情/ })).toBeTruthy();
+    expect(within(actions).queryByRole('button', { name: /^详情$/ })).toBeNull();
     expect(within(actions).getByRole('button', { name: '暂停' })).toBeTruthy();
+    expect(within(card).getByTestId('monitor-pin-button')).toBeTruthy();
   });
 
   test('grid video: title and metrics are full-width rows; actions sit with meta, pin on cover', () => {
@@ -259,14 +262,15 @@ describe('WP-R2-16G compact card layout', () => {
     expect(actions.contains(title)).toBe(false);
     expect(actions.contains(metrics)).toBe(false);
     expect(actions.className).not.toContain('mt-auto');
-    expect(within(actions).getByRole('link', { name: /详情/ })).toBeTruthy();
+    expect(within(actions).queryByRole('link', { name: /详情/ })).toBeNull();
     expect(within(actions).getByRole('button', { name: '开始监控' })).toBeTruthy();
     expect(within(actions).queryByTestId('video-pin-button')).toBeNull();
     const pin = within(card).getByTestId('video-pin-button');
     fireEvent.click(pin);
     expect(selected).toBe(0);
     fireEvent.click(within(card).getByTestId('video-grid-cover'));
-    expect(selected).toBe(1);
+    // grid click navigates; onSelect is unused for grid bodies
+    expect(selected).toBe(0);
   });
 
   test('grid creator and dynamic keep full-width title/metrics away from action strip', () => {
@@ -331,8 +335,9 @@ describe('WP-R2-16G compact card layout', () => {
     const controls = within(listCard).getByTestId('dynamic-monitor-controls');
     expect(controls.className).not.toContain('mt-auto');
     expect(controls.className).toContain('items-center');
-    expect(within(controls).getByRole('link', { name: /详情/ })).toBeTruthy();
+    expect(within(controls).queryByRole('link', { name: /详情/ })).toBeNull();
     expect(within(controls).getByRole('button', { name: '暂停' })).toBeTruthy();
+    expect(within(listCard).getByTestId('monitor-pin-button')).toBeTruthy();
 
     cleanup();
     wrap(

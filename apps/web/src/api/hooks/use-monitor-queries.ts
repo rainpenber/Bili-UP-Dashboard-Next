@@ -17,7 +17,7 @@ export const monitorQueryKeys = {
   videos: (page: number, category: string, q: string) =>
     ['monitor', 'videos', page, category, q] as const,
   creators: (page: number, q: string) => ['monitor', 'creators', page, q] as const,
-  dynamics: (page: number) => ['monitor', 'dynamics', page] as const,
+  dynamics: (page: number, sort: string) => ['monitor', 'dynamics', page, sort] as const,
   metrics: (tab: MonitorTab, id: string | null) => ['monitor', 'metrics', tab, id] as const,
 };
 
@@ -37,10 +37,10 @@ export function useCreatorsQuery(page: number, q: string, enabled: boolean) {
   });
 }
 
-export function useDynamicsQuery(page: number, enabled: boolean) {
+export function useDynamicsQuery(page: number, enabled: boolean, sort: string = 'sampled_desc') {
   return useQuery({
-    queryKey: monitorQueryKeys.dynamics(page),
-    queryFn: () => fetchDynamics({ page }),
+    queryKey: monitorQueryKeys.dynamics(page, sort),
+    queryFn: () => fetchDynamics({ page, sort }),
     enabled,
   });
 }

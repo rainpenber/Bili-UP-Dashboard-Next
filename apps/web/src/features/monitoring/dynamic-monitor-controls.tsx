@@ -87,7 +87,7 @@ function RecentCollectLogs({
 export function DynamicMonitorControls({
   dynamicId,
   target,
-  listQuery = '',
+  listQuery: _listQuery = '',
   layout = 'card',
   onStarted,
 }: {
@@ -97,6 +97,7 @@ export function DynamicMonitorControls({
   layout?: 'card' | 'detail';
   onStarted?: (result: { message: string; enabled: boolean }) => void;
 }) {
+  void _listQuery;
   const mutations = useMonitorTargetMutations();
   const [detailsOpen, setDetailsOpen] = useState(layout === 'detail');
   const [notice, setNotice] = useState<string | null>(null);
@@ -110,9 +111,6 @@ export function DynamicMonitorControls({
     null;
   const detailsId = `dynamic-monitor-details-${dynamicId}`;
   const failed = Boolean(target?.lastError?.trim());
-  const detailHref = `/monitoring/dynamics/${encodeURIComponent(dynamicId)}${
-    listQuery ? `?from=${encodeURIComponent(listQuery)}` : ''
-  }`;
 
   const start = () => {
     setNotice(null);
@@ -191,11 +189,6 @@ export function DynamicMonitorControls({
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
-        <Button type="button" size="sm" variant="outline" asChild>
-          <Link to={detailHref} aria-label={`查看动态 ${dynamicId} 详情`}>
-            详情
-          </Link>
-        </Button>
         {primary}
         {notice ? (
           <p role="status" className="basis-full break-words text-xs text-muted-foreground">

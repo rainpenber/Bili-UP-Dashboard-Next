@@ -1,15 +1,6 @@
-import {
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from 'react';
-import { createPortal } from 'react-dom';
-import type { MonitorSearchSuggestionItem } from '@studio/contracts';
-import { useMonitorSearchSuggestionsQuery } from '@/api/hooks/use-monitor-search-suggestions';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
@@ -24,53 +15,29 @@ export type MonitorSearchApply = {
   page: number;
 };
 
-type FlatSuggestion = MonitorSearchSuggestionItem & { groupLabel: string };
-
-type PanelPlacement = {
-  top: number;
-  left: number;
-  width: number;
-};
-
-function flattenSuggestions(data: {
-  videos: MonitorSearchSuggestionItem[];
-  creators: MonitorSearchSuggestionItem[];
-  categories: MonitorSearchSuggestionItem[];
-}): FlatSuggestion[] {
-  return [
-    ...data.videos.map((item) => ({ ...item, groupLabel: '视频' })),
-    ...data.creators.map((item) => ({ ...item, groupLabel: 'UP主' })),
-    ...data.categories.map((item) => ({ ...item, groupLabel: '分类' })),
-  ];
-}
-
 function urlDraft(q: string, category: string): string {
   return q || category;
 }
 
+/**
+ * Unified monitor search: debounced URL `q` refresh only — no suggestion dropdown.
+ * List filtering remains on GET /cards?q=… (title / UP name / category / exact BV|UID).
+ */
 export function MonitorSearchField({
-  type,
   q,
   category,
   onApply,
   className,
 }: {
-  type: 'video' | 'creator';
+  /** Kept for call-site compatibility; list type is decided by the page tab. */
+  type?: 'video' | 'creator';
   q: string;
   category: string;
   onApply: (next: MonitorSearchApply) => void;
   className?: string;
 }) {
-  const listboxId = useId();
-  const rootRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   const onApplyRef = useRef(onApply);
   const [draft, setDraft] = useState(() => urlDraft(q, category));
-  const [open, setOpen] = useState(false);
-  const [highlight, setHighlight] = useState(-1);
-  const [debouncedSuggestQ, setDebouncedSuggestQ] = useState(() => draft.trim());
-  const [placement, setPlacement] = useState<PanelPlacement | null>(null);
   const skipDebounceRef = useRef(false);
 
   useEffect(() => {
@@ -97,231 +64,65 @@ export function MonitorSearchField({
     return () => window.clearTimeout(handle);
   }, [draft, q, category]);
 
-  useEffect(() => {
-    const handle = window.setTimeout(() => {
-      setDebouncedSuggestQ(draft.trim());
-    }, MONITOR_SEARCH_DEBOUNCE_MS);
-    return () => window.clearTimeout(handle);
-  }, [draft]);
-
-  const suggestionsQuery = useMonitorSearchSuggestionsQuery({
-    q: debouncedSuggestQ,
-    type,
-    enabled: open && debouncedSuggestQ.length > 0,
-  });
-
-  const flat = useMemo(
-    () => (suggestionsQuery.data ? flattenSuggestions(suggestionsQuery.data) : []),
-    [suggestionsQuery.data],
-  );
-
-  useEffect(() => {
-    setHighlight(-1);
-  }, [debouncedSuggestQ, suggestionsQuery.dataUpdatedAt]);
-
-  const showPanel = open && draft.trim().length > 0;
-
-  useLayoutEffect(() => {
-    if (!showPanel) {
-      setPlacement(null);
-      return;
-    }
-    const measure = () => {
-      const input = inputRef.current;
-      if (!input) return;
-      const rect = input.getBoundingClientRect();
-      const width = Math.max(rect.width, 16 * 12);
-      const maxLeft = Math.max(8, window.innerWidth - width - 8);
-      setPlacement({
-        top: rect.bottom + 4,
-        left: Math.min(Math.max(8, rect.left), maxLeft),
-        width,
-      });
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    window.addEventListener('scroll', measure, true);
-    return () => {
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure, true);
-    };
-  }, [showPanel, draft]);
-
-  useEffect(() => {
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (rootRef.current?.contains(target)) return;
-      if (panelRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
-  }, []);
-
-  const applySuggestion = (item: MonitorSearchSuggestionItem) => {
+  const applyNow = (next: string) => {
     skipDebounceRef.current = true;
-    if (item.kind === 'category') {
-      setDraft(item.label);
-      setDebouncedSuggestQ(item.label);
-      onApply({ q: '', category: item.value, page: 1, selected: null });
-    } else if (item.kind === 'video') {
-      setDraft(item.label);
-      setDebouncedSuggestQ(item.label);
-      onApply({ q: item.label, category: '', page: 1, selected: item.value });
-    } else {
-      setDraft(item.label);
-      setDebouncedSuggestQ(item.label);
-      onApply({
-        q: item.label,
-        category: '',
-        page: 1,
-        selected: type === 'creator' ? item.value : null,
-      });
-    }
-    setOpen(false);
+    const trimmed = next.trim();
+    setDraft(next);
+    onApplyRef.current({ q: trimmed, category: '', page: 1, selected: null });
+  };
+
+  const clear = () => {
+    applyNow('');
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Escape') {
-      if (open) {
-        event.preventDefault();
-        setOpen(false);
-      }
-      return;
-    }
-    if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-      setOpen(true);
-      return;
-    }
-    if (event.key === 'ArrowDown') {
+      if (draft.length === 0) return;
       event.preventDefault();
-      if (flat.length === 0) return;
-      setHighlight((index) => (index + 1) % flat.length);
+      clear();
       return;
     }
-    if (event.key === 'ArrowUp') {
+    if (event.key === 'Enter') {
       event.preventDefault();
-      if (flat.length === 0) return;
-      setHighlight((index) => (index <= 0 ? flat.length - 1 : index - 1));
-      return;
-    }
-    if (event.key === 'Enter' && open && highlight >= 0 && flat[highlight]) {
-      event.preventDefault();
-      applySuggestion(flat[highlight]!);
+      applyNow(draft);
     }
   };
 
-  const loading = suggestionsQuery.isFetching;
-  const empty =
-    showPanel &&
-    !loading &&
-    suggestionsQuery.isSuccess &&
-    flat.length === 0 &&
-    debouncedSuggestQ === draft.trim();
-
-  let lastGroup: string | null = null;
-
-  const panel =
-    showPanel && placement && typeof document !== 'undefined'
-      ? createPortal(
-          <div
-            ref={panelRef}
-            id={listboxId}
-            role="listbox"
-            aria-label="搜索建议"
-            data-testid="monitor-search-suggestions"
-            className="z-50 max-h-72 overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md"
-            style={{
-              position: 'fixed',
-              top: placement.top,
-              left: placement.left,
-              width: placement.width,
-            }}
-          >
-            {loading && flat.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-muted-foreground" role="status">
-                正在搜索…
-              </p>
-            ) : null}
-            {empty ? (
-              <p className="px-3 py-2 text-sm text-muted-foreground" role="status">
-                无匹配结果
-              </p>
-            ) : null}
-            {flat.map((item, index) => {
-              const showGroup = item.groupLabel !== lastGroup;
-              lastGroup = item.groupLabel;
-              return (
-                <div key={`${item.kind}:${item.value}:${item.label}`}>
-                  {showGroup ? (
-                    <p className="px-3 pb-1 pt-2 text-xs font-medium text-muted-foreground">
-                      {item.groupLabel}
-                    </p>
-                  ) : null}
-                  <button
-                    type="button"
-                    id={`${listboxId}-option-${index}`}
-                    role="option"
-                    aria-selected={highlight === index}
-                    className={cn(
-                      'flex w-full min-w-0 flex-col items-start gap-0.5 px-3 py-2 text-left text-sm',
-                      highlight === index
-                        ? 'bg-accent text-accent-foreground'
-                        : 'hover:bg-muted/60',
-                    )}
-                    onMouseEnter={() => setHighlight(index)}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => applySuggestion(item)}
-                  >
-                    <span className="w-full truncate font-medium">{item.label}</span>
-                    {item.secondary ? (
-                      <span className="w-full truncate text-xs text-muted-foreground">
-                        {item.secondary}
-                      </span>
-                    ) : null}
-                  </button>
-                </div>
-              );
-            })}
-          </div>,
-          document.body,
-        )
-      : null;
-
   return (
-    <div ref={rootRef} className={cn('grid min-w-0 gap-1', className)}>
+    <div className={cn('grid w-full max-w-[360px] shrink-0 gap-1', className)}>
       <Label
         htmlFor="monitor-q"
         className="whitespace-nowrap text-xs font-medium text-muted-foreground"
       >
         搜索
       </Label>
-      <div className="flex min-w-0">
+      <div className="relative flex h-9 w-full max-w-[360px] min-w-0 items-center">
         <Input
-          ref={inputRef}
           id="monitor-q"
-          role="combobox"
-          aria-autocomplete="list"
-          aria-expanded={showPanel}
-          aria-controls={listboxId}
-          aria-activedescendant={
-            highlight >= 0 && flat[highlight] ? `${listboxId}-option-${highlight}` : undefined
-          }
           value={draft}
           placeholder="标题、分类、UP 主或 BV 号"
           title="按视频标题、分类、UP 主名称或 BV / UID 搜索"
-          className="min-w-[12rem] flex-1"
+          className="h-9 w-full max-w-[360px] min-w-0 pr-9"
           data-testid="monitor-unified-search"
           autoComplete="off"
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => setOpen(true)}
+          aria-label="搜索监控对象"
+          onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
         />
+        {draft.length > 0 ? (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="absolute right-0.5 top-1/2 size-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            aria-label="清除搜索"
+            data-testid="monitor-search-clear"
+            onClick={clear}
+          >
+            <X className="size-3.5" aria-hidden />
+          </Button>
+        ) : null}
       </div>
-      {panel}
     </div>
   );
 }

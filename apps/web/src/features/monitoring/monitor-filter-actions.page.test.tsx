@@ -59,11 +59,6 @@ function installOwnerFetch() {
         }),
       );
     }
-    if (url.includes('/search-suggestions')) {
-      return Promise.resolve(
-        jsonResponse({ q: '', type: 'video', limit: 5, videos: [], creators: [], categories: [] }),
-      );
-    }
     if (url.includes('/api/v1/monitor/cards?')) {
       return Promise.resolve(jsonResponse(list([])));
     }
@@ -120,22 +115,31 @@ describe('WP-R2-16H / WP-R2-23A monitor filter bar and detail actions', () => {
     expect(bar.className).toContain('flex');
     expect(bar.className).toContain('flex-nowrap');
     expect(bar.className).toContain('items-end');
+    expect(bar.className).toContain('justify-start');
     expect(bar.className).toContain('overflow-x-auto');
     expect(bar.className).not.toContain('grid-cols-1');
     expect(bar.className).not.toContain('flex-wrap');
+    expect(bar.className).not.toContain('justify-center');
+    expect(bar.className).not.toContain('justify-between');
 
     expect(screen.queryByLabelText('分类（视频标签）')).toBeNull();
     expect(screen.queryByText('关键词')).toBeNull();
+    expect(screen.queryByTestId('monitor-search-suggestions')).toBeNull();
 
     const searchLabel = screen.getByText('搜索');
     expect(searchLabel.className).toContain('whitespace-nowrap');
     const searchInput = screen.getByTestId('monitor-unified-search') as HTMLInputElement;
     expect(searchInput.placeholder).toBe('标题、分类、UP 主或 BV 号');
-    expect(searchInput.className).toContain('min-w-[12rem]');
-    expect(searchInput.className).toContain('flex-1');
+    expect(searchInput.className).toContain('h-9');
+    expect(searchInput.className).toContain('max-w-[360px]');
+    expect(searchInput.className).not.toContain('flex-1');
+    expect(searchInput.className).not.toContain('min-w-[12rem]');
+
+    const presenceSelect = bar.querySelector('#monitor-presence') as HTMLSelectElement | null;
+    expect(presenceSelect?.className).toContain('h-9');
 
     expect(within(bar).getByText('监控状态').className).toContain('whitespace-nowrap');
-    expect(bar.querySelector('label[for="monitor-video-sort"]')?.className).toContain(
+    expect(bar.querySelector('label[for="monitor-list-sort"]')?.className).toContain(
       'whitespace-nowrap',
     );
     expect(within(bar).getByText('只看我的').className).toContain('whitespace-nowrap');

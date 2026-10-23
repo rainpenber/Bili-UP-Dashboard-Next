@@ -2,12 +2,17 @@ import {
   bigintToJson,
   MonitorContractError,
   parseCreatorMid,
+  parseCreatorMidParam,
   parseCreatorVideosLimit,
   parseCreatorVideosOffset,
+  parseDynamicIdParam,
+  parseDynamicListQuery,
   parseIsoDateParam,
   parseMetricsLimit,
   parseMonitorPage,
   parseMonitorPageSize,
+  parsePinEntityRequest,
+  parsePinEntityResponse,
   parsePinVideoRequest,
   parsePinVideoResponse,
   parseVideoBvidParam,
@@ -26,6 +31,8 @@ import {
   type VideoCreatorSummary,
 } from '@studio/contracts';
 import {
+  setCreatorPinned,
+  setDynamicPinned,
   setVideoPinned,
   VIDEO_PARTITION_JOINS,
   VIDEO_PARTITION_NAME_SQL,
@@ -49,7 +56,6 @@ import { Hono } from 'hono';
 import { readAssetsRoot } from './assets-config';
 import { registerCreatorDiscoveryRoutes } from './creator-discovery-routes';
 import { registerMonitorCardRoutes } from './monitor-card-routes';
-import { registerMonitorSearchSuggestionRoutes } from './monitor-search-suggestion-routes';
 import { registerMonitorTargetRoutes } from './monitor-target-routes';
 import { registerStudioOwnerRoutes } from './studio-owner-routes';
 
@@ -134,7 +140,6 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
   const app = new Hono();
   registerMonitorTargetRoutes(app, db);
   registerMonitorCardRoutes(app, db);
-  registerMonitorSearchSuggestionRoutes(app, db);
   registerCreatorDiscoveryRoutes(app, db);
   registerStudioOwnerRoutes(app, db);
   const deps = (c?: { get: (key: string) => unknown }) => {
@@ -619,10 +624,20 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
 
   app.get('/dynamics', async (c) => {
     try {
-      const page = parseMonitorPage(c.req.query('page'));
-      const pageSize = parseMonitorPageSize(c.req.query('pageSize'));
-      const status = parseStatus(c.req.query('status'));
+      const query = parseDynamicListQuery({
+        page: c.req.query('page'),
+        pageSize: c.req.query('pageSize'),
+        status: c.req.query('status'),
+        sort: c.req.query('sort'),
+      });
+      const { page, pageSize, status, sort } = query;
       const offset = (page - 1) * pageSize;
+      const orderBy =
+        sort === 'likes_desc'
+          ? db`ORDER BY (d.pinned_at IS NOT NULL) DESC, m.like_count DESC NULLS LAST, d.dynamic_id ASC`
+          : sort === 'comments_desc'
+            ? db`ORDER BY (d.pinned_at IS NOT NULL) DESC, m.comment_count DESC NULLS LAST, d.dynamic_id ASC`
+            : db`ORDER BY (d.pinned_at IS NOT NULL) DESC, m.sampled_at DESC NULLS LAST, d.dynamic_id ASC`;
       const countRows = await db<{ count: string }[]>`
         SELECT count(*)::text AS count FROM dynamics d
         WHERE
@@ -639,6 +654,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
           monitoring_enabled: boolean;
           archived_at: Date | null;
           deleted_at: Date | null;
+          pinned_at: Date | null;
           sampled_at: Date | null;
           like_count: bigint | null;
           repost_count: bigint | null;
@@ -652,6 +668,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
         }[]
       >`
         SELECT d.dynamic_id, d.mid, d.category, d.monitoring_enabled, d.archived_at, d.deleted_at,
+          d.pinned_at,
           m.sampled_at, m.like_count, m.repost_count, m.comment_count,
           t.id::text AS target_id, t.enabled AS target_enabled,
           t.interval_minutes AS target_interval_minutes, t.interval_mode AS target_interval_mode,
@@ -667,7 +684,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
           (${status} = 'all' OR (${status} = 'active' AND d.deleted_at IS NULL AND d.archived_at IS NULL)
             OR (${status} = 'archived' AND d.archived_at IS NOT NULL AND d.deleted_at IS NULL)
             OR (${status} = 'deleted' AND d.deleted_at IS NOT NULL))
-        ORDER BY m.sampled_at DESC NULLS LAST, d.dynamic_id
+        ${orderBy}
         LIMIT ${pageSize} OFFSET ${offset}
       `;
       const items: DynamicListItem[] = rows.map((r) => ({
@@ -677,6 +694,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
         monitoringEnabled: r.monitoring_enabled,
         archivedAt: r.archived_at?.toISOString() ?? null,
         deletedAt: r.deleted_at?.toISOString() ?? null,
+        pinned: r.pinned_at != null,
         target: toDynamicTargetRef(r),
         latestMetrics: {
           sampledAt: r.sampled_at?.toISOString() ?? null,
@@ -693,6 +711,9 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
         items,
       } satisfies Paginated<DynamicListItem>);
     } catch (err) {
+      if (err instanceof MonitorContractError) {
+        return c.json({ error: err.message, code: err.code }, 400);
+      }
       return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
     }
   });
@@ -794,6 +815,62 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
       return c.json(
         parsePinVideoResponse({
           bvid: updated.bvid,
+          pinned: updated.pinnedAt != null,
+          pinnedAt: updated.pinnedAt ? updated.pinnedAt.toISOString() : null,
+        }),
+      );
+    } catch (err) {
+      if (err instanceof MonitorContractError) {
+        return c.json({ error: err.message, code: err.code }, 400);
+      }
+      if (err instanceof SyntaxError) {
+        return c.json({ error: '请求体不是合法 JSON', code: 'invalid_body' }, 400);
+      }
+      return c.json(
+        { error: err instanceof Error ? err.message : '请求无法处理', code: 'internal' },
+        500,
+      );
+    }
+  });
+
+  app.patch('/creators/:mid/pin', async (c) => {
+    try {
+      const mid = parseCreatorMidParam(c.req.param('mid'));
+      const body = parsePinEntityRequest(await readJsonBody(c.req.raw));
+      const updated = await setCreatorPinned(db, mid, body.pinned);
+      if (!updated) {
+        return c.json({ error: '未找到该 UP 主', code: 'not_found' }, 404);
+      }
+      return c.json(
+        parsePinEntityResponse({
+          pinned: updated.pinnedAt != null,
+          pinnedAt: updated.pinnedAt ? updated.pinnedAt.toISOString() : null,
+        }),
+      );
+    } catch (err) {
+      if (err instanceof MonitorContractError) {
+        return c.json({ error: err.message, code: err.code }, 400);
+      }
+      if (err instanceof SyntaxError) {
+        return c.json({ error: '请求体不是合法 JSON', code: 'invalid_body' }, 400);
+      }
+      return c.json(
+        { error: err instanceof Error ? err.message : '请求无法处理', code: 'internal' },
+        500,
+      );
+    }
+  });
+
+  app.patch('/dynamics/:dynamicId/pin', async (c) => {
+    try {
+      const dynamicId = parseDynamicIdParam(c.req.param('dynamicId'));
+      const body = parsePinEntityRequest(await readJsonBody(c.req.raw));
+      const updated = await setDynamicPinned(db, dynamicId, body.pinned);
+      if (!updated) {
+        return c.json({ error: '未找到该动态', code: 'not_found' }, 404);
+      }
+      return c.json(
+        parsePinEntityResponse({
           pinned: updated.pinnedAt != null,
           pinnedAt: updated.pinnedAt ? updated.pinnedAt.toISOString() : null,
         }),

@@ -22,8 +22,13 @@ import { MetricCharts } from '@/features/monitoring/MetricCharts';
 import { MonitorAddDialog } from '@/features/monitoring/monitor-add-dialog';
 import { MonitorCardControls, MonitorObjectCard } from '@/features/monitoring/monitor-object-card';
 import {
+  defaultSortForTab,
   parseMonitorSearchParams,
+  parseSortForTab,
   writeMonitorSearchParams,
+  type MonitorCreatorSort,
+  type MonitorDynamicListSort,
+  type MonitorListSort,
   type MonitorPresenceFilter,
   type MonitorTab,
   type MonitorVideoSort,
@@ -60,6 +65,18 @@ const MONITOR_FILTER_LABEL: Record<MonitorPresenceFilter, string> = {
 const VIDEO_SORT_LABEL: Record<MonitorVideoSort, string> = {
   published_desc: '最新发布',
   published_asc: '最早发布',
+};
+
+const CREATOR_SORT_LABEL: Record<MonitorCreatorSort, string> = {
+  sampled_desc: '最近采样',
+  followers_desc: '粉丝最多',
+  name_asc: '名称 A→Z',
+};
+
+const DYNAMIC_SORT_LABEL: Record<MonitorDynamicListSort, string> = {
+  sampled_desc: '最近采样',
+  likes_desc: '点赞最多',
+  comments_desc: '评论最多',
 };
 
 function MonitorLayoutToggle({
@@ -117,6 +134,7 @@ export function MonitoringPage() {
       tab,
       page: 1,
       selected: null,
+      sort: defaultSortForTab(tab),
       ...(tab === 'dynamics' ? { category: '', q: '' } : {}),
     });
   };
@@ -131,10 +149,15 @@ export function MonitoringPage() {
     monitor: state.monitor,
     q: state.q,
     category: state.category,
-    ...(state.tab === 'videos' ? { sort: state.sort, onlyMine: state.onlyMine } : {}),
+    sort: state.sort as MonitorVideoSort | MonitorCreatorSort,
+    ...(state.tab === 'videos' ? { onlyMine: state.onlyMine } : {}),
     enabled: state.tab === 'videos' || state.tab === 'creators',
   });
-  const dynamicsQuery = useDynamicsQuery(state.page, state.tab === 'dynamics');
+  const dynamicsQuery = useDynamicsQuery(
+    state.page,
+    state.tab === 'dynamics',
+    state.sort as MonitorDynamicListSort,
+  );
   const selectedCard =
     cardsQuery.data?.items.find((item) => item.externalId === state.selected) ?? null;
   const selectedDynamic =
@@ -186,23 +209,52 @@ export function MonitoringPage() {
         </TabsList>
 
         {state.tab === 'dynamics' ? (
-          <div className="flex min-w-0 flex-wrap items-end gap-4 rounded-lg border bg-muted/20 p-4">
-            <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+          <div
+            data-testid="monitor-filter-bar"
+            className="flex min-w-0 flex-nowrap items-end justify-start gap-3 overflow-x-auto rounded-lg border bg-muted/20 p-4"
+          >
+            <p className="min-w-[12rem] shrink-0 text-sm text-muted-foreground">
               动态可新增监控、暂停与恢复。无监控目标时仍可浏览已有互动指标。
             </p>
-            <MonitorLayoutToggle
-              className="ml-auto"
-              value={state.view}
-              onValueChange={(view) => patchUrl({ view })}
-            />
+            <div className="grid w-auto shrink-0 gap-1">
+              <Label
+                htmlFor="monitor-dynamic-sort"
+                className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+              >
+                排序
+              </Label>
+              <Select
+                value={state.sort}
+                onValueChange={(value) => {
+                  const next = parseSortForTab('dynamics', value);
+                  if (next !== value) return;
+                  patchUrl({ sort: next, page: 1, selected: null });
+                }}
+              >
+                <SelectTrigger
+                  id="monitor-dynamic-sort"
+                  aria-label="排序"
+                  className="w-auto min-w-[7.5rem]"
+                >
+                  <SelectValue placeholder="排序" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(DYNAMIC_SORT_LABEL) as MonitorDynamicListSort[]).map((sort) => (
+                    <SelectItem key={sort} value={sort}>
+                      {DYNAMIC_SORT_LABEL[sort]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <MonitorLayoutToggle value={state.view} onValueChange={(view) => patchUrl({ view })} />
           </div>
         ) : (
           <div
             data-testid="monitor-filter-bar"
-            className="flex min-w-0 flex-nowrap items-end gap-3 overflow-x-auto rounded-lg border bg-muted/20 p-4"
+            className="flex min-w-0 flex-nowrap items-end justify-start gap-3 overflow-x-auto rounded-lg border bg-muted/20 p-4"
           >
             <MonitorSearchField
-              className="min-w-[12rem] flex-1"
               type={cardType}
               q={state.q}
               category={state.tab === 'videos' ? state.category : ''}
@@ -234,38 +286,43 @@ export function MonitoringPage() {
                 ))}
               </select>
             </div>
-            {state.tab === 'videos' ? (
-              <div className="grid w-auto shrink-0 gap-1">
-                <Label
-                  htmlFor="monitor-video-sort"
-                  className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+            <div className="grid w-auto shrink-0 gap-1">
+              <Label
+                htmlFor="monitor-list-sort"
+                className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+              >
+                排序
+              </Label>
+              <Select
+                value={state.sort}
+                onValueChange={(value) => {
+                  const next = parseSortForTab(state.tab, value);
+                  if (next !== value) return;
+                  patchUrl({ sort: next as MonitorListSort, page: 1, selected: null });
+                }}
+              >
+                <SelectTrigger
+                  id="monitor-list-sort"
+                  aria-label="排序"
+                  className="w-auto min-w-[7.5rem]"
                 >
-                  排序
-                </Label>
-                <Select
-                  value={state.sort}
-                  onValueChange={(value) => {
-                    if (value !== 'published_desc' && value !== 'published_asc') return;
-                    patchUrl({ sort: value, page: 1, selected: null });
-                  }}
-                >
-                  <SelectTrigger
-                    id="monitor-video-sort"
-                    aria-label="排序"
-                    className="w-auto min-w-[7.5rem]"
-                  >
-                    <SelectValue placeholder="排序" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(VIDEO_SORT_LABEL) as MonitorVideoSort[]).map((sort) => (
-                      <SelectItem key={sort} value={sort}>
-                        {VIDEO_SORT_LABEL[sort]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : null}
+                  <SelectValue placeholder="排序" />
+                </SelectTrigger>
+                <SelectContent>
+                  {state.tab === 'videos'
+                    ? (Object.keys(VIDEO_SORT_LABEL) as MonitorVideoSort[]).map((sort) => (
+                        <SelectItem key={sort} value={sort}>
+                          {VIDEO_SORT_LABEL[sort]}
+                        </SelectItem>
+                      ))
+                    : (Object.keys(CREATOR_SORT_LABEL) as MonitorCreatorSort[]).map((sort) => (
+                        <SelectItem key={sort} value={sort}>
+                          {CREATOR_SORT_LABEL[sort]}
+                        </SelectItem>
+                      ))}
+                </SelectContent>
+              </Select>
+            </div>
             {state.tab === 'videos' ? (
               <div className="grid w-auto shrink-0 gap-1">
                 <Label

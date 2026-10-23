@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_cc9f7305211b",
+  "databaseName": "wp_r2_11_45cbc613bfd1",
   "retainedDatabase": true,
-  "registeredCount": 71,
-  "inventoryCount": 71,
-  "executedCount": 71,
-  "httpSuccessCount": 71,
-  "acceptedCount": 71,
+  "registeredCount": 72,
+  "inventoryCount": 72,
+  "executedCount": 72,
+  "httpSuccessCount": 72,
+  "acceptedCount": 72,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 8,
@@ -595,6 +595,12 @@
           "status": 200,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
         }
       ]
     },
@@ -715,29 +721,6 @@
           "test": "metadata-refresh",
           "status": 200,
           "http": "success",
-          "assertions": "passed"
-        }
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/api/v1/monitor/search-suggestions",
-      "readWrite": "read",
-      "frontendCaller": true,
-      "executed": true,
-      "httpSuccess": true,
-      "accepted": true,
-      "cases": [
-        {
-          "test": "monitor-targets",
-          "status": 200,
-          "http": "success",
-          "assertions": "passed"
-        },
-        {
-          "test": "monitor-targets",
-          "status": 400,
-          "http": "reject",
           "assertions": "passed"
         }
       ]
@@ -1245,6 +1228,64 @@
           "test": "commercial",
           "status": 200,
           "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/monitor/creators/:mid/pin",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/monitor/dynamics/:dynamicId/pin",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 404,
+          "http": "reject",
           "assertions": "passed"
         }
       ]
