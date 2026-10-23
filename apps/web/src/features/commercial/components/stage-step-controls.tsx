@@ -4,6 +4,7 @@ import { Pencil } from 'lucide-react';
 import type { CommercialStepPublish } from '@studio/contracts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { createClientIdempotencyKey } from '@/lib/client-idempotency-key';
 import { stageIdForNode, type TimelineChild } from '../progress-timeline';
 
 const STATUS_WORD: Record<string, string> = {
@@ -115,7 +116,7 @@ export function useStepController(
         const recorded = editor.recordedPublish ?? null;
         setPublish({
           call,
-          key: recorded?.idempotencyKey ?? crypto.randomUUID(),
+          key: recorded?.idempotencyKey ?? createClientIdempotencyKey(),
           bvid: recorded?.bvid ?? '',
           publishedAt: recorded?.publishedAt ?? '',
         });
