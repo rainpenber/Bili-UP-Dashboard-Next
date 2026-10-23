@@ -1,6 +1,7 @@
 import {
   parseCommercialDefaultTemplate,
   parseCommercialNodeWriteResponse,
+  parseCommercialProjectArchiveResponse,
   parseCommercialProjectDetail,
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
@@ -8,6 +9,7 @@ import {
   parseCommercialWriteError,
   type CommercialDefaultTemplate,
   type CommercialNodeWriteResponse,
+  type CommercialProjectArchiveResponse,
   type CommercialProjectDetail,
   type CommercialProjectListResponse,
   type CommercialProjectWorkflow,
@@ -60,6 +62,8 @@ function parseRead<T>(parse: (value: unknown) => T, value: unknown): T {
 
 export type LiveProjectListParams = {
   originKind?: 'real' | 'fixture' | 'manual' | 'unclassified' | '';
+  /** When true, list includes soft-archived rows (`includeArchived=1`). */
+  includeArchived?: boolean;
 };
 
 export function fetchLiveProjectList(
@@ -67,10 +71,45 @@ export function fetchLiveProjectList(
 ): Promise<CommercialProjectListResponse> {
   const search = new URLSearchParams();
   if (params.originKind) search.set('originKind', params.originKind);
+  if (params.includeArchived) search.set('includeArchived', '1');
   const qs = search.toString();
   return getJson('/api/v1/commercial/projects' + (qs ? `?${qs}` : '')).then((body) =>
     parseRead(parseCommercialProjectList, body),
   );
+}
+
+async function postArchiveAction(
+  projectId: string,
+  action: 'archive' | 'unarchive',
+): Promise<CommercialProjectArchiveResponse> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/v1/commercial/projects/${encodeURIComponent(projectId)}/${action}`, {
+      method: 'POST',
+    });
+  } catch (err) {
+    throw new CommercialReadError(err instanceof Error ? err.message : '网络异常', 0, 'http');
+  }
+  const payload: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message =
+      typeof payload === 'object' &&
+      payload !== null &&
+      'error' in payload &&
+      typeof payload.error === 'string'
+        ? payload.error
+        : `HTTP ${res.status}`;
+    throw new CommercialReadError(message, res.status, 'http');
+  }
+  return parseRead(parseCommercialProjectArchiveResponse, payload);
+}
+
+export function archiveLiveProject(projectId: string): Promise<CommercialProjectArchiveResponse> {
+  return postArchiveAction(projectId, 'archive');
+}
+
+export function unarchiveLiveProject(projectId: string): Promise<CommercialProjectArchiveResponse> {
+  return postArchiveAction(projectId, 'unarchive');
 }
 
 export function fetchLiveProjectDetail(projectId: string): Promise<CommercialProjectDetail> {

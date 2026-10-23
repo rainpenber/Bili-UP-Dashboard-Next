@@ -17,11 +17,14 @@ import {
   type LiveGraphNode,
 } from '../workflow-live-graph';
 import {
+  archiveLiveProject,
   CommercialReadError,
   postLiveNodeStep,
   postLiveStageStep,
   saveLiveNodePlan,
+  unarchiveLiveProject,
 } from '../commercial-live-api';
+import { isArchivedLiveProject } from '../commercial-live-selectors';
 import {
   liveCommercialProjectsKey,
   useLiveProjectDetailQuery,
@@ -112,6 +115,8 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [savingPlanId, setSavingPlanId] = useState<string | null>(null);
   const [planError, setPlanError] = useState<{ nodeId: string; message: string } | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const locateRef = useRef<(stageId: string) => void>(() => undefined);
   const bindLocate = useCallback((locate: ((stageId: string) => void) | null) => {
     locateRef.current = locate ?? (() => undefined);
@@ -133,9 +138,30 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
       idempotencyKey: publish.idempotencyKey,
     };
   }, [detailQuery.data?.publish]);
-  const archived = detailQuery.data?.overallStage === 'archived';
+  const archived = detailQuery.data ? isArchivedLiveProject(detailQuery.data) : false;
+  const softArchived = detailQuery.data != null && detailQuery.data.archivedAt !== null;
   const businessState = detailQuery.data?.businessState ?? null;
   const displayReadOnly = archived || isBusinessStateReadOnly(businessState);
+
+  const onToggleArchive = () => {
+    if (!detailQuery.data) return;
+    setArchiveBusy(true);
+    setArchiveError(null);
+    const action = softArchived ? unarchiveLiveProject(projectId) : archiveLiveProject(projectId);
+    void action
+      .then(() =>
+        Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ['commercial', 'live-project', projectId],
+          }),
+          queryClient.invalidateQueries({ queryKey: liveCommercialProjectsKey }),
+        ]),
+      )
+      .catch((err: unknown) => {
+        setArchiveError(err instanceof Error ? err.message : '操作失败');
+      })
+      .finally(() => setArchiveBusy(false));
+  };
   const stepEditor = useMemo<StepEditor>(
     () => ({
       disabled: Boolean(displayReadOnly),
@@ -215,13 +241,15 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
   );
   const publishedBvid = detailQuery.data?.publish.published ? detailQuery.data.publish.bvid : null;
   const originStatusLabel = detailQuery.data?.originStatusLabel ?? null;
-  const headerDescription = archived
-    ? '该项目已结案归档，流程只读。'
-    : businessState === 'finished'
-      ? '来源已结束：时间轴与节点图按全部完成展示，不改真实流程记录。'
-      : businessState === 'not_started'
-        ? '来源未开始：时间轴与节点图按全部未到展示，不改真实流程记录。'
-        : '数据库中的项目流程';
+  const headerDescription = softArchived
+    ? '该项目已软删除（归档），流程只读；可恢复后继续编辑。'
+    : archived
+      ? '该项目已结案归档，流程只读。'
+      : businessState === 'finished'
+        ? '来源已结束：时间轴与节点图按全部完成展示，不改真实流程记录。'
+        : businessState === 'not_started'
+          ? '来源未开始：时间轴与节点图按全部未到展示，不改真实流程记录。'
+          : '数据库中的项目流程';
 
   return (
     <>
@@ -246,9 +274,28 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
                 未开始{originStatusLabel ? ` · ${originStatusLabel}` : ''}
               </Badge>
             ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={archiveBusy}
+              onClick={onToggleArchive}
+              data-testid={softArchived ? 'project-unarchive' : 'project-archive'}
+            >
+              {archiveBusy ? '处理中…' : softArchived ? '恢复' : '归档'}
+            </Button>
           </>
         }
       />
+      {archiveError ? (
+        <p
+          className="mb-3 text-sm text-destructive"
+          role="alert"
+          data-testid="project-archive-error"
+        >
+          {archiveError}
+        </p>
+      ) : null}
       <div
         className="space-y-4"
         data-testid="project-workflow-shell"
