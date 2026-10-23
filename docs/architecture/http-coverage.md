@@ -1,8 +1,8 @@
 # HTTP API 覆盖
 
-验收库 `wp_r2_11_0e7f4fa0e53d` 保留，本文件不执行 DROP DATABASE。
+验收库 `wp_r2_11_8e9c8c2864a8` 保留，本文件不执行 DROP DATABASE。
 
-注册 74，清单 74，已执行 74，HTTP 成功 74，断言验收 74。
+注册 76，清单 76，已执行 76，HTTP 成功 76，断言验收 76。
 
 验收结论：通过。每一条注册路由都有一次 HTTP 成功响应，且发出该响应的测试断言已通过。
 
@@ -184,6 +184,14 @@
 - imports：HTTP 200（成功响应，断言通过）
 
 ## GET `/api/v1/monitor/creators/:mid/publish-events`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- monitor-targets：HTTP 200（成功响应，断言通过）
+
+## GET `/api/v1/monitor/creators/:mid/uploads/sync`
 
 - 前端调用：有
 - 已执行：是
@@ -675,6 +683,15 @@
 - 断言验收：是
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 - metadata-refresh：HTTP 404（拒绝响应，断言通过）
+
+## POST `/api/v1/monitor/creators/:mid/uploads/sync`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- monitor-targets：HTTP 200（成功响应，断言通过）
+- monitor-targets：HTTP 200（成功响应，断言通过）
 
 ## POST `/api/v1/monitor/metadata/refresh`
 

@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_0e7f4fa0e53d",
+  "databaseName": "wp_r2_11_8e9c8c2864a8",
   "retainedDatabase": true,
-  "registeredCount": 74,
-  "inventoryCount": 74,
-  "executedCount": 74,
-  "httpSuccessCount": 74,
-  "acceptedCount": 74,
+  "registeredCount": 76,
+  "inventoryCount": 76,
+  "executedCount": 76,
+  "httpSuccessCount": 76,
+  "acceptedCount": 76,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 8,
@@ -567,6 +567,23 @@
     {
       "method": "GET",
       "path": "/api/v1/monitor/creators/:mid/publish-events",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/uploads/sync",
       "readWrite": "read",
       "frontendCaller": true,
       "executed": true,
@@ -1906,6 +1923,29 @@
           "test": "metadata-refresh",
           "status": 404,
           "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/creators/:mid/uploads/sync",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
           "assertions": "passed"
         }
       ]

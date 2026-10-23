@@ -289,10 +289,13 @@ describe('WP-R2-MON-01 video pin + sort UI', () => {
       );
       expect(within(refreshed!).getByTestId('video-pin-icon-filled')).toBeTruthy();
       const actions = within(refreshed!).getByTestId('monitor-card-actions');
+      // Primary monitor action + Bilibili external link (WP-R2-26B).
       expect(
         within(actions).getAllByRole('button').length +
           within(actions).queryAllByRole('link').length,
-      ).toBe(1);
+      ).toBe(2);
+      expect(within(actions).getByRole('link', { name: '在 B 站打开' })).toBeTruthy();
+      expect(within(actions).getByRole('button', { name: '暂停' })).toBeTruthy();
     });
   });
 });
