@@ -73,3 +73,15 @@ curl -sS "$API/api/v1/commercial/projects?originKind=real&limit=20&offset=0"
 
 读接口在列表 / 详情上附加 `businessState` 与 `originStatusLabel`（仅来源绑定项目；无来源为 `null`）。  
 映射是纯函数，只读 `sourceStatus`，不写节点 / 金额 / 完成时间。finished / not_started 仅改变时间轴与节点图的视觉样式并隐藏写操作入口。
+
+## 来源档期只读（WP-R2-22A）
+
+列表 / 详情附加 `sourceWindow: { startAt, endAt, reminderAt } | null`：
+
+| 情况                                 | `sourceWindow`                      |
+| ------------------------------------ | ----------------------------------- |
+| 无 `commercial_project_sources` 绑定 | `null`                              |
+| 有绑定                               | 始终为对象；缺失的日期字段为 `null` |
+
+抽取纯函数见 `packages/contracts/src/commercial-source-window.ts`：只读 `payload.startAt` / `endAt` / `reminderAt`（ISO 或 `YYYY-MM-DD` → 上海日切），**从不**把 payload 其他键或聊天原文放进响应。  
+前端详情排期卡区分「来源档期（未确认）」与「已确认排期」；来源档期不写入 `wf_nodes.planned_at`，不参与逾期判断。

@@ -1,5 +1,6 @@
 import {
   commercialDisplayStateFromSource,
+  commercialSourceWindowFromPayload,
   isCommercialOriginKind,
   isOpenItemActor,
   isOpenItemImpact,
@@ -58,6 +59,8 @@ type ProjectCoreRow = {
   source_content_hash: string | null;
   source_status: string | null;
   source_notes: string | null;
+  /** JSONB object from commercial_project_sources; dates only are exposed via sourceWindow. */
+  source_payload: unknown;
 };
 
 type OpenItemRow = {
@@ -178,6 +181,12 @@ function toSourceSummary(row: ProjectCoreRow): CommercialProjectSourceSummary | 
   };
 }
 
+/** Dates only from the bound payload; never return chat text or other fields. */
+function sourcePayloadObject(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
 function toListItem(
   row: ProjectCoreRow,
   openItems: CommercialOpenItemRead[],
@@ -204,6 +213,10 @@ function toListItem(
     source,
     businessState: display.businessState,
     originStatusLabel: display.originStatusLabel,
+    sourceWindow: commercialSourceWindowFromPayload(
+      source !== null,
+      sourcePayloadObject(row.source_payload),
+    ),
     blockedNodeNames: stageNames(row.blocked_node_names),
     openItems,
   };
@@ -404,7 +417,8 @@ async function readProjectCores(
         to_char(s.imported_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS source_imported_at,
         s.content_hash AS source_content_hash,
         s.source_status AS source_status,
-        s.source_notes AS source_notes
+        s.source_notes AS source_notes,
+        s.payload AS source_payload
       FROM commercial_projects p
       LEFT JOIN commercial_project_sources s ON s.project_id = p.id
       WHERE p.id = ${projectId}
@@ -478,7 +492,8 @@ async function readProjectCores(
             to_char(s.imported_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS source_imported_at,
             s.content_hash AS source_content_hash,
             s.source_status AS source_status,
-            s.source_notes AS source_notes
+            s.source_notes AS source_notes,
+            s.payload AS source_payload
           FROM commercial_projects p
           LEFT JOIN commercial_project_sources s ON s.project_id = p.id
           WHERE (
@@ -536,7 +551,8 @@ async function readProjectCores(
             to_char(s.imported_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS source_imported_at,
             s.content_hash AS source_content_hash,
             s.source_status AS source_status,
-            s.source_notes AS source_notes
+            s.source_notes AS source_notes,
+            s.payload AS source_payload
           FROM commercial_projects p
           LEFT JOIN commercial_project_sources s ON s.project_id = p.id
           WHERE (

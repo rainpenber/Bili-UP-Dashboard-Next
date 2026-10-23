@@ -33,6 +33,7 @@ const READ = {
   source: null,
   businessState: null,
   originStatusLabel: null,
+  sourceWindow: null,
 };
 
 function openItem(id: string, title: string, extra: Record<string, unknown> = {}) {

@@ -99,6 +99,7 @@ describe('commercial live read client', () => {
               source: null,
               businessState: null,
               originStatusLabel: null,
+              sourceWindow: null,
               blockedNodeNames: [],
             },
           ],

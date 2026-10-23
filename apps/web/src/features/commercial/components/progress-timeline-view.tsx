@@ -1,4 +1,4 @@
-import type { CommercialBusinessState } from '@studio/contracts';
+import type { CommercialBusinessState, CommercialSourceWindow } from '@studio/contracts';
 import { useEffect, useRef, useState } from 'react';
 import {
   NodeStepActions,
@@ -31,6 +31,7 @@ import {
   type TimelineProjectFacts,
   type TimelineSourceNode,
 } from '../progress-timeline';
+import { sourceWindowCardCopy } from '../source-window-display';
 import { DEMO_STATUS_COLOR } from '../workflow-status-map';
 import type { MockStatus } from '../../workflow-mock/flow-nodes';
 import { AnchoredRecordOverlay, RecordOverlayList, type RecordOverlayItem } from './record-overlay';
@@ -750,12 +751,50 @@ export function ProgressTimeline({
   );
 }
 
-function ScheduleCopy({ schedule }: { schedule: KeySchedule }) {
+function SourceWindowSecondary({
+  sourceWindow,
+  sourceNamespace,
+}: {
+  sourceWindow: CommercialSourceWindow | null;
+  sourceNamespace: string | null;
+}) {
+  const copy = sourceWindowCardCopy(sourceWindow, sourceNamespace);
+  if (copy.kind === 'none') return null;
+  if (copy.kind === 'empty') {
+    return (
+      <p
+        className="mt-1 text-xs text-muted-foreground"
+        data-testid="progress-source-window-secondary"
+      >
+        来源档期（未确认）：来源未给档期
+      </p>
+    );
+  }
+  return (
+    <p
+      className="mt-1 text-xs text-muted-foreground"
+      data-testid="progress-source-window-secondary"
+    >
+      来源档期（未确认）：{copy.rangeLabel}（来自{copy.originLabel}）
+    </p>
+  );
+}
+
+function ScheduleCopy({
+  schedule,
+  sourceWindow,
+  sourceNamespace,
+}: {
+  schedule: KeySchedule;
+  sourceWindow: CommercialSourceWindow | null;
+  sourceNamespace: string | null;
+}) {
   const summary = schedule.summary;
+  const sourceCopy = sourceWindowCardCopy(sourceWindow, sourceNamespace);
   if (summary.kind === 'next') {
     return (
       <>
-        <p className="text-xs text-muted-foreground">下一次交付</p>
+        <p className="text-xs text-muted-foreground">已确认排期 · 下一次交付</p>
         <p className="font-medium leading-tight" data-testid="progress-next-name">
           {summary.name}
         </p>
@@ -771,15 +810,17 @@ function ScheduleCopy({ schedule }: { schedule: KeySchedule }) {
           ) : null}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">整体阶段 {summary.overallStageLabel}</p>
+        <SourceWindowSecondary sourceWindow={sourceWindow} sourceNamespace={sourceNamespace} />
       </>
     );
   }
   if (summary.kind === 'published') {
     return (
       <>
-        <p className="text-xs text-muted-foreground">发布时间</p>
+        <p className="text-xs text-muted-foreground">已确认排期 · 发布时间</p>
         <p className="font-medium leading-tight">{summary.dateLabel ?? '已发布'}</p>
         <p className="mt-1 text-xs text-muted-foreground">已发布</p>
+        <SourceWindowSecondary sourceWindow={sourceWindow} sourceNamespace={sourceNamespace} />
       </>
     );
   }
@@ -789,6 +830,33 @@ function ScheduleCopy({ schedule }: { schedule: KeySchedule }) {
         <p className="text-xs text-muted-foreground">商单</p>
         <p className="font-medium leading-tight">{summary.title}</p>
         <p className="mt-1 text-xs text-muted-foreground">无下一交付</p>
+        <SourceWindowSecondary sourceWindow={sourceWindow} sourceNamespace={sourceNamespace} />
+      </>
+    );
+  }
+  if (sourceCopy.kind === 'range') {
+    return (
+      <>
+        <p className="text-xs text-muted-foreground">来源档期（未确认）</p>
+        <p className="font-medium leading-tight" data-testid="progress-source-window-range">
+          来源档期：{sourceCopy.rangeLabel}（来自{sourceCopy.originLabel}）
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          非已确认排期 · 整体阶段 {summary.overallStageLabel}
+        </p>
+      </>
+    );
+  }
+  if (sourceCopy.kind === 'empty') {
+    return (
+      <>
+        <p className="text-xs text-muted-foreground">来源档期（未确认）</p>
+        <p className="font-medium leading-tight" data-testid="progress-source-window-empty">
+          来源未给档期
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          来自{sourceCopy.originLabel} · 整体阶段 {summary.overallStageLabel}
+        </p>
       </>
     );
   }
@@ -801,7 +869,16 @@ function ScheduleCopy({ schedule }: { schedule: KeySchedule }) {
   );
 }
 
-function ScheduleOverlayBody({ schedule }: { schedule: KeySchedule }) {
+function ScheduleOverlayBody({
+  schedule,
+  sourceWindow,
+  sourceNamespace,
+}: {
+  schedule: KeySchedule;
+  sourceWindow: CommercialSourceWindow | null;
+  sourceNamespace: string | null;
+}) {
+  const sourceCopy = sourceWindowCardCopy(sourceWindow, sourceNamespace);
   return (
     <>
       {schedule.records.length > 0 ? <RecordOverlayList items={schedule.records} /> : null}
@@ -812,6 +889,16 @@ function ScheduleOverlayBody({ schedule }: { schedule: KeySchedule }) {
       ) : null}
       {schedule.records.length === 0 && schedule.pendingNames.length === 0 ? (
         <p className="record-overlay-note">暂无关键排期</p>
+      ) : null}
+      {sourceCopy.kind === 'range' ? (
+        <p className="record-overlay-note" data-testid="progress-source-window-overlay">
+          来源档期（未确认）：{sourceCopy.rangeLabel}（来自{sourceCopy.originLabel}）
+        </p>
+      ) : null}
+      {sourceCopy.kind === 'empty' ? (
+        <p className="record-overlay-note" data-testid="progress-source-window-overlay">
+          来源档期（未确认）：来源未给档期（来自{sourceCopy.originLabel}）
+        </p>
       ) : null}
     </>
   );
@@ -825,10 +912,15 @@ export function ProgressSummary({
   facts,
   nodes = [],
   now,
+  sourceWindow = null,
+  sourceNamespace = null,
 }: {
   facts: TimelineProjectFacts | null;
   nodes?: TimelineSourceNode[];
   now?: Date;
+  /** Bound source schedule window; null when unbound (fixtures keep「排期待确认」). */
+  sourceWindow?: CommercialSourceWindow | null;
+  sourceNamespace?: string | null;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState(false);
@@ -938,7 +1030,11 @@ export function ProgressSummary({
               }
             }}
           >
-            <ScheduleCopy schedule={schedule} />
+            <ScheduleCopy
+              schedule={schedule}
+              sourceWindow={sourceWindow}
+              sourceNamespace={sourceNamespace}
+            />
           </button>
         </CardContent>
       </Card>
@@ -960,7 +1056,11 @@ export function ProgressSummary({
           leave();
         }}
       >
-        <ScheduleOverlayBody schedule={schedule} />
+        <ScheduleOverlayBody
+          schedule={schedule}
+          sourceWindow={sourceWindow}
+          sourceNamespace={sourceNamespace}
+        />
       </AnchoredRecordOverlay>
       <Card data-testid="progress-summary-tasks">
         <CardContent className="px-4 py-3">
