@@ -111,16 +111,18 @@ function videoCard(): MonitorCard {
 }
 
 describe('WP-R2-16H / WP-R2-23A monitor filter bar and detail actions', () => {
-  test('filter bar uses responsive grid; unified search replaces category+keyword inputs', async () => {
+  test('filter bar stays a single nowrap row with unified search', async () => {
     installOwnerFetch();
     wrap(<MonitoringPage />, '/monitoring?tab=videos');
     await screen.findByTestId('monitoring-page');
 
     const bar = screen.getByTestId('monitor-filter-bar');
-    expect(bar.className).toContain('grid');
-    expect(bar.className).toContain('grid-cols-1');
-    expect(bar.className).toContain('sm:grid-cols-2');
-    expect(bar.className).toContain('xl:grid-cols-4');
+    expect(bar.className).toContain('flex');
+    expect(bar.className).toContain('flex-nowrap');
+    expect(bar.className).toContain('items-end');
+    expect(bar.className).toContain('overflow-x-auto');
+    expect(bar.className).not.toContain('grid-cols-1');
+    expect(bar.className).not.toContain('flex-wrap');
 
     expect(screen.queryByLabelText('分类（视频标签）')).toBeNull();
     expect(screen.queryByText('关键词')).toBeNull();

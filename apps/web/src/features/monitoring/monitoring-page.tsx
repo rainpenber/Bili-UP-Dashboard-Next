@@ -65,13 +65,18 @@ const VIDEO_SORT_LABEL: Record<MonitorVideoSort, string> = {
 function MonitorLayoutToggle({
   value,
   onValueChange,
+  className,
 }: {
   value: MonitorView;
   onValueChange: (value: MonitorView) => void;
+  className?: string;
 }) {
   return (
-    <div className="ml-auto grid min-w-0 gap-1.5 justify-self-start sm:justify-self-end">
-      <Label id="monitor-view-label" className="whitespace-nowrap">
+    <div className={cn('grid w-auto shrink-0 gap-1', className)}>
+      <Label
+        id="monitor-view-label"
+        className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+      >
         布局
       </Label>
       <ToggleGroup
@@ -185,26 +190,34 @@ export function MonitoringPage() {
             <p className="min-w-0 flex-1 text-sm text-muted-foreground">
               动态可新增监控、暂停与恢复。无监控目标时仍可浏览已有互动指标。
             </p>
-            <MonitorLayoutToggle value={state.view} onValueChange={(view) => patchUrl({ view })} />
+            <MonitorLayoutToggle
+              className="ml-auto"
+              value={state.view}
+              onValueChange={(view) => patchUrl({ view })}
+            />
           </div>
         ) : (
           <div
             data-testid="monitor-filter-bar"
-            className="grid min-w-0 grid-cols-1 gap-4 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2 xl:grid-cols-4"
+            className="flex min-w-0 flex-nowrap items-end gap-3 overflow-x-auto rounded-lg border bg-muted/20 p-4"
           >
             <MonitorSearchField
+              className="min-w-[12rem] flex-1"
               type={cardType}
               q={state.q}
               category={state.tab === 'videos' ? state.category : ''}
               onApply={(next) => patchUrl(next)}
             />
-            <div className="grid min-w-0 gap-1.5">
-              <Label htmlFor="monitor-presence" className="whitespace-nowrap">
+            <div className="grid w-auto shrink-0 gap-1">
+              <Label
+                htmlFor="monitor-presence"
+                className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+              >
                 监控状态
               </Label>
               <select
                 id="monitor-presence"
-                className="flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+                className="flex h-9 w-auto min-w-[7rem] rounded-md border border-input bg-background px-3 text-sm"
                 value={state.monitor}
                 onChange={(event) =>
                   patchUrl({
@@ -222,8 +235,11 @@ export function MonitoringPage() {
               </select>
             </div>
             {state.tab === 'videos' ? (
-              <div className="grid min-w-0 gap-1.5">
-                <Label htmlFor="monitor-video-sort" className="whitespace-nowrap">
+              <div className="grid w-auto shrink-0 gap-1">
+                <Label
+                  htmlFor="monitor-video-sort"
+                  className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+                >
                   排序
                 </Label>
                 <Select
@@ -236,7 +252,7 @@ export function MonitoringPage() {
                   <SelectTrigger
                     id="monitor-video-sort"
                     aria-label="排序"
-                    className="w-full min-w-0"
+                    className="w-auto min-w-[7.5rem]"
                   >
                     <SelectValue placeholder="排序" />
                   </SelectTrigger>
@@ -251,11 +267,14 @@ export function MonitoringPage() {
               </div>
             ) : null}
             {state.tab === 'videos' ? (
-              <div className="grid min-w-0 gap-1.5">
-                <Label htmlFor="monitor-only-mine" className="whitespace-nowrap">
+              <div className="grid w-auto shrink-0 gap-1">
+                <Label
+                  htmlFor="monitor-only-mine"
+                  className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+                >
                   只看我的
                 </Label>
-                <div className="flex h-9 min-w-0 items-center gap-2">
+                <div className="flex h-9 w-auto items-center gap-2">
                   <Switch
                     id="monitor-only-mine"
                     checked={state.onlyMine}

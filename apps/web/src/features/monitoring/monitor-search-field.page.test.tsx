@@ -203,6 +203,8 @@ describe('WP-R2-23A unified monitor search', () => {
     });
 
     const panel = await screen.findByTestId('monitor-search-suggestions');
+    // Portal mounts suggestions on document.body so overflow-x-auto cannot clip them.
+    expect(panel.parentElement).toBe(document.body);
     expect(await screen.findByText('狐正正的日常')).toBeTruthy();
     expect(screen.getByText('游戏')).toBeTruthy();
     expect(screen.getByText('UP 主')).toBeTruthy();

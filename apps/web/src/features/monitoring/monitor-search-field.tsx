@@ -1,4 +1,13 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
+import { createPortal } from 'react-dom';
 import type { MonitorSearchSuggestionItem } from '@studio/contracts';
 import { useMonitorSearchSuggestionsQuery } from '@/api/hooks/use-monitor-search-suggestions';
 import { Input } from '@/components/ui/input';
@@ -16,6 +25,12 @@ export type MonitorSearchApply = {
 };
 
 type FlatSuggestion = MonitorSearchSuggestionItem & { groupLabel: string };
+
+type PanelPlacement = {
+  top: number;
+  left: number;
+  width: number;
+};
 
 function flattenSuggestions(data: {
   videos: MonitorSearchSuggestionItem[];
@@ -38,19 +53,24 @@ export function MonitorSearchField({
   q,
   category,
   onApply,
+  className,
 }: {
   type: 'video' | 'creator';
   q: string;
   category: string;
   onApply: (next: MonitorSearchApply) => void;
+  className?: string;
 }) {
   const listboxId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const onApplyRef = useRef(onApply);
   const [draft, setDraft] = useState(() => urlDraft(q, category));
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
   const [debouncedSuggestQ, setDebouncedSuggestQ] = useState(() => draft.trim());
+  const [placement, setPlacement] = useState<PanelPlacement | null>(null);
   const skipDebounceRef = useRef(false);
 
   useEffect(() => {
@@ -99,11 +119,40 @@ export function MonitorSearchField({
     setHighlight(-1);
   }, [debouncedSuggestQ, suggestionsQuery.dataUpdatedAt]);
 
+  const showPanel = open && draft.trim().length > 0;
+
+  useLayoutEffect(() => {
+    if (!showPanel) {
+      setPlacement(null);
+      return;
+    }
+    const measure = () => {
+      const input = inputRef.current;
+      if (!input) return;
+      const rect = input.getBoundingClientRect();
+      const width = Math.max(rect.width, 16 * 12);
+      const maxLeft = Math.max(8, window.innerWidth - width - 8);
+      setPlacement({
+        top: rect.bottom + 4,
+        left: Math.min(Math.max(8, rect.left), maxLeft),
+        width,
+      });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, [showPanel, draft]);
+
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', onPointerDown);
     return () => document.removeEventListener('mousedown', onPointerDown);
@@ -162,7 +211,6 @@ export function MonitorSearchField({
     }
   };
 
-  const showPanel = open && draft.trim().length > 0;
   const loading = suggestionsQuery.isFetching;
   const empty =
     showPanel &&
@@ -173,13 +221,84 @@ export function MonitorSearchField({
 
   let lastGroup: string | null = null;
 
+  const panel =
+    showPanel && placement && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={panelRef}
+            id={listboxId}
+            role="listbox"
+            aria-label="搜索建议"
+            data-testid="monitor-search-suggestions"
+            className="z-50 max-h-72 overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md"
+            style={{
+              position: 'fixed',
+              top: placement.top,
+              left: placement.left,
+              width: placement.width,
+            }}
+          >
+            {loading && flat.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-muted-foreground" role="status">
+                正在搜索…
+              </p>
+            ) : null}
+            {empty ? (
+              <p className="px-3 py-2 text-sm text-muted-foreground" role="status">
+                无匹配结果
+              </p>
+            ) : null}
+            {flat.map((item, index) => {
+              const showGroup = item.groupLabel !== lastGroup;
+              lastGroup = item.groupLabel;
+              return (
+                <div key={`${item.kind}:${item.value}:${item.label}`}>
+                  {showGroup ? (
+                    <p className="px-3 pb-1 pt-2 text-xs font-medium text-muted-foreground">
+                      {item.groupLabel}
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    id={`${listboxId}-option-${index}`}
+                    role="option"
+                    aria-selected={highlight === index}
+                    className={cn(
+                      'flex w-full min-w-0 flex-col items-start gap-0.5 px-3 py-2 text-left text-sm',
+                      highlight === index
+                        ? 'bg-accent text-accent-foreground'
+                        : 'hover:bg-muted/60',
+                    )}
+                    onMouseEnter={() => setHighlight(index)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => applySuggestion(item)}
+                  >
+                    <span className="w-full truncate font-medium">{item.label}</span>
+                    {item.secondary ? (
+                      <span className="w-full truncate text-xs text-muted-foreground">
+                        {item.secondary}
+                      </span>
+                    ) : null}
+                  </button>
+                </div>
+              );
+            })}
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
-    <div ref={rootRef} className="relative grid min-w-0 gap-1.5 sm:col-span-2">
-      <Label htmlFor="monitor-q" className="whitespace-nowrap">
+    <div ref={rootRef} className={cn('grid min-w-0 gap-1', className)}>
+      <Label
+        htmlFor="monitor-q"
+        className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+      >
         搜索
       </Label>
       <div className="flex min-w-0">
         <Input
+          ref={inputRef}
           id="monitor-q"
           role="combobox"
           aria-autocomplete="list"
@@ -202,59 +321,7 @@ export function MonitorSearchField({
           onKeyDown={onKeyDown}
         />
       </div>
-      {showPanel ? (
-        <div
-          id={listboxId}
-          role="listbox"
-          aria-label="搜索建议"
-          data-testid="monitor-search-suggestions"
-          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md"
-        >
-          {loading && flat.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-muted-foreground" role="status">
-              正在搜索…
-            </p>
-          ) : null}
-          {empty ? (
-            <p className="px-3 py-2 text-sm text-muted-foreground" role="status">
-              无匹配结果
-            </p>
-          ) : null}
-          {flat.map((item, index) => {
-            const showGroup = item.groupLabel !== lastGroup;
-            lastGroup = item.groupLabel;
-            return (
-              <div key={`${item.kind}:${item.value}:${item.label}`}>
-                {showGroup ? (
-                  <p className="px-3 pb-1 pt-2 text-xs font-medium text-muted-foreground">
-                    {item.groupLabel}
-                  </p>
-                ) : null}
-                <button
-                  type="button"
-                  id={`${listboxId}-option-${index}`}
-                  role="option"
-                  aria-selected={highlight === index}
-                  className={cn(
-                    'flex w-full min-w-0 flex-col items-start gap-0.5 px-3 py-2 text-left text-sm',
-                    highlight === index ? 'bg-accent text-accent-foreground' : 'hover:bg-muted/60',
-                  )}
-                  onMouseEnter={() => setHighlight(index)}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => applySuggestion(item)}
-                >
-                  <span className="w-full truncate font-medium">{item.label}</span>
-                  {item.secondary ? (
-                    <span className="w-full truncate text-xs text-muted-foreground">
-                      {item.secondary}
-                    </span>
-                  ) : null}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
+      {panel}
     </div>
   );
 }
