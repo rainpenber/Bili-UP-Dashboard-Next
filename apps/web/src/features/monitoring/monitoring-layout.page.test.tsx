@@ -106,6 +106,20 @@ function renderAt(path: string) {
 function install(cardUrls: string[], metricUrls: string[]) {
   globalThis.fetch = ((input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes('/settings/owner-account')) {
+      return Promise.resolve(
+        jsonResponse({
+          mid: '3493141386627335',
+          displayName: '狐正正',
+          updatedAt: '2026-10-22T00:00:00.000Z',
+        }),
+      );
+    }
+    if (url.includes('/search-suggestions')) {
+      return Promise.resolve(
+        jsonResponse({ q: '', type: 'video', limit: 5, videos: [], creators: [], categories: [] }),
+      );
+    }
     if (url.includes('/api/v1/monitor/cards?')) {
       cardUrls.push(url);
       const params = new URL(url, 'http://localhost').searchParams;

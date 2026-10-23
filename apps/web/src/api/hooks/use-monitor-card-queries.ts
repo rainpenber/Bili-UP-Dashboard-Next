@@ -27,16 +27,19 @@ export function useMonitorCardsQuery(input: {
       input.type === 'video' ? (input.sort ?? 'published_desc') : null,
       input.type === 'video' ? Boolean(input.onlyMine) : false,
     ] as const,
-    queryFn: () =>
-      fetchMonitorCards({
-        type: input.type,
-        page: input.page,
-        monitor: input.monitor,
-        ...(input.q ? { q: input.q } : {}),
-        ...(input.type === 'video' && input.category ? { category: input.category } : {}),
-        ...(input.type === 'video' && input.sort ? { sort: input.sort } : {}),
-        ...(input.type === 'video' && input.onlyMine ? { onlyMine: true } : {}),
-      }),
+    queryFn: ({ signal }) =>
+      fetchMonitorCards(
+        {
+          type: input.type,
+          page: input.page,
+          monitor: input.monitor,
+          ...(input.q ? { q: input.q } : {}),
+          ...(input.type === 'video' && input.category ? { category: input.category } : {}),
+          ...(input.type === 'video' && input.sort ? { sort: input.sort } : {}),
+          ...(input.type === 'video' && input.onlyMine ? { onlyMine: true } : {}),
+        },
+        { signal },
+      ),
     enabled: input.enabled,
   });
 }

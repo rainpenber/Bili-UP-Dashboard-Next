@@ -49,6 +49,7 @@ import { Hono } from 'hono';
 import { readAssetsRoot } from './assets-config';
 import { registerCreatorDiscoveryRoutes } from './creator-discovery-routes';
 import { registerMonitorCardRoutes } from './monitor-card-routes';
+import { registerMonitorSearchSuggestionRoutes } from './monitor-search-suggestion-routes';
 import { registerMonitorTargetRoutes } from './monitor-target-routes';
 import { registerStudioOwnerRoutes } from './studio-owner-routes';
 
@@ -133,6 +134,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
   const app = new Hono();
   registerMonitorTargetRoutes(app, db);
   registerMonitorCardRoutes(app, db);
+  registerMonitorSearchSuggestionRoutes(app, db);
   registerCreatorDiscoveryRoutes(app, db);
   registerStudioOwnerRoutes(app, db);
   const deps = (c?: { get: (key: string) => unknown }) => {

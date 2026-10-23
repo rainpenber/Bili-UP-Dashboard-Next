@@ -59,6 +59,11 @@ function installOwnerFetch() {
         }),
       );
     }
+    if (url.includes('/search-suggestions')) {
+      return Promise.resolve(
+        jsonResponse({ q: '', type: 'video', limit: 5, videos: [], creators: [], categories: [] }),
+      );
+    }
     if (url.includes('/api/v1/monitor/cards?')) {
       return Promise.resolve(jsonResponse(list([])));
     }
@@ -105,43 +110,43 @@ function videoCard(): MonitorCard {
   } as MonitorCard;
 }
 
-describe('WP-R2-16H monitor filter bar and detail actions', () => {
-  test('filter bar uses responsive grid and nowrap labels; keyword keeps min width class', async () => {
+describe('WP-R2-16H / WP-R2-23A monitor filter bar and detail actions', () => {
+  test('filter bar stays a single nowrap row with unified search', async () => {
     installOwnerFetch();
     wrap(<MonitoringPage />, '/monitoring?tab=videos');
     await screen.findByTestId('monitoring-page');
 
     const bar = screen.getByTestId('monitor-filter-bar');
-    expect(bar.className).toContain('grid');
-    expect(bar.className).toContain('grid-cols-1');
-    expect(bar.className).toContain('sm:grid-cols-2');
-    expect(bar.className).toContain('xl:grid-cols-4');
+    expect(bar.className).toContain('flex');
+    expect(bar.className).toContain('flex-nowrap');
+    expect(bar.className).toContain('items-end');
+    expect(bar.className).toContain('overflow-x-auto');
+    expect(bar.className).not.toContain('grid-cols-1');
+    expect(bar.className).not.toContain('flex-wrap');
 
-    const categoryLabel = screen.getByText('分类（视频标签）');
-    expect(categoryLabel.className).toContain('whitespace-nowrap');
-    const categoryInput = screen.getByLabelText('分类（视频标签）') as HTMLInputElement;
-    expect(categoryInput.placeholder).toBe('如：游戏、数码');
-    expect(categoryInput.title).toBe('按视频分类过滤，留空表示全部');
+    expect(screen.queryByLabelText('分类（视频标签）')).toBeNull();
+    expect(screen.queryByText('关键词')).toBeNull();
 
-    const keywordLabel = screen.getByText('关键词');
-    expect(keywordLabel.className).toContain('whitespace-nowrap');
-    const keywordInput = screen.getByLabelText('关键词');
-    expect(keywordInput.className).toContain('min-w-[12rem]');
-    expect(keywordInput.className).toContain('flex-1');
+    const searchLabel = screen.getByText('搜索');
+    expect(searchLabel.className).toContain('whitespace-nowrap');
+    const searchInput = screen.getByTestId('monitor-unified-search') as HTMLInputElement;
+    expect(searchInput.placeholder).toBe('标题、分类、UP 主或 BV 号');
+    expect(searchInput.className).toContain('min-w-[12rem]');
+    expect(searchInput.className).toContain('flex-1');
 
     expect(within(bar).getByText('监控状态').className).toContain('whitespace-nowrap');
     expect(bar.querySelector('label[for="monitor-video-sort"]')?.className).toContain(
       'whitespace-nowrap',
     );
-    expect(within(bar).getByText('本人视频').className).toContain('whitespace-nowrap');
+    expect(within(bar).getByText('只看我的').className).toContain('whitespace-nowrap');
   });
 
-  test('onlyMine control does not render nickname or mid in the filter area', async () => {
+  test('onlyMine switch does not render nickname or mid in the filter area', async () => {
     installOwnerFetch();
     wrap(<MonitoringPage />, '/monitoring?tab=videos');
-    const toggle = await screen.findByRole('button', { name: '只看我的' });
+    const control = await screen.findByRole('switch', { name: '只看我的' });
     await waitFor(() => {
-      expect(toggle.getAttribute('title')).toBe('只显示 狐正正 的视频');
+      expect(control.getAttribute('title')).toBe('只显示 狐正正 的视频');
     });
 
     const bar = screen.getByTestId('monitor-filter-bar');

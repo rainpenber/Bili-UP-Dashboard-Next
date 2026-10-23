@@ -105,6 +105,7 @@ SELECT
   e.title AS title,
   e.category AS category,
   e.mid::text AS mid,
+  e.creator_name AS creator_name,
   e.cover_asset_id AS image_asset_id,
   (e.external_id IS NOT NULL) AS has_entity,
   (e.sampled_at IS NOT NULL) AS has_samples,
@@ -133,6 +134,7 @@ FROM (
     v.title,
     v.category,
     v.mid,
+    cr.uname AS creator_name,
     v.cover_asset_id,
     v.pinned_at,
     v.pubdate,
@@ -142,6 +144,7 @@ FROM (
     m.online_viewers_raw,
     m.like_count
   FROM videos v
+  LEFT JOIN creators cr ON cr.mid = v.mid
   LEFT JOIN LATERAL (
     SELECT sampled_at, view_count, online_viewers, online_viewers_raw, like_count
     FROM video_metric_samples s
@@ -165,6 +168,7 @@ SELECT
   e.title AS title,
   e.category AS category,
   COALESCE(e.mid, t.external_id)::text AS mid,
+  e.title AS creator_name,
   e.face_asset_id AS image_asset_id,
   (e.external_id IS NOT NULL) AS has_entity,
   (e.sampled_at IS NOT NULL) AS has_samples,
@@ -309,6 +313,9 @@ export async function listMonitorCards(
           OR u.external_id ILIKE ${pattern} ESCAPE '\\'
           OR COALESCE(u.title, '') ILIKE ${pattern} ESCAPE '\\'
           OR COALESCE(u.target_label, '') ILIKE ${pattern} ESCAPE '\\'
+          OR COALESCE(u.category, '') ILIKE ${pattern} ESCAPE '\\'
+          OR COALESCE(u.creator_name, '') ILIKE ${pattern} ESCAPE '\\'
+          OR (u.mid IS NOT NULL AND u.mid = ${q})
         )
         AND (
           ${externalId}::text IS NOT NULL
