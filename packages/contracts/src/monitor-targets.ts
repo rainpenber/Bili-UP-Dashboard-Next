@@ -1,7 +1,10 @@
 import { parseMonitorPage, parseMonitorPageSize, type Paginated } from './monitor';
 
-export const MONITOR_TARGET_TYPES = ['video', 'creator', 'dynamic'] as const;
+export const MONITOR_TARGET_TYPES = ['video', 'creator', 'dynamic', 'discovery'] as const;
 export type MonitorTargetType = (typeof MONITOR_TARGET_TYPES)[number];
+/** Types users may create via POST /targets. Discovery targets are upserted with discovery config. */
+export const PUBLIC_MONITOR_TARGET_TYPES = ['video', 'creator', 'dynamic'] as const;
+export type PublicMonitorTargetType = (typeof PUBLIC_MONITOR_TARGET_TYPES)[number];
 
 export const MONITOR_INTERVAL_MINUTES = [5, 15, 30, 60, 180, 360, 720, 1440] as const;
 export type MonitorIntervalMinutes = (typeof MONITOR_INTERVAL_MINUTES)[number];
@@ -143,6 +146,10 @@ export function isMonitorIntervalMinutes(value: number): value is MonitorInterva
 }
 
 export function isMonitorTargetType(value: unknown): value is MonitorTargetType {
+  return value === 'video' || value === 'creator' || value === 'dynamic' || value === 'discovery';
+}
+
+export function isPublicMonitorTargetType(value: unknown): value is PublicMonitorTargetType {
   return value === 'video' || value === 'creator' || value === 'dynamic';
 }
 
@@ -153,6 +160,7 @@ export function externalIdError(type: MonitorTargetType, externalId: string): st
   if (type === 'dynamic') {
     return DYNAMIC_EXTERNAL_ID.test(externalId) ? null : '动态 id 必须是十进制整数字符串';
   }
+  // creator + discovery share mid format
   if (!CREATOR_EXTERNAL_ID.test(externalId)) return 'UID 格式不正确';
   try {
     if (BigInt(externalId) > MAX_CREATOR_MID) return 'UID 超出可存储范围';
@@ -264,7 +272,7 @@ export function parseCreateMonitorTargetRequest(value: unknown): MonitorTargetCr
     'intervalMode',
     'startAt',
   ]);
-  if (!isMonitorTargetType(value.type)) {
+  if (!isPublicMonitorTargetType(value.type)) {
     throw new MonitorContractError('invalid_target_type', '监控类型只能是视频、UP 主或动态');
   }
   if (typeof value.externalId !== 'string') {

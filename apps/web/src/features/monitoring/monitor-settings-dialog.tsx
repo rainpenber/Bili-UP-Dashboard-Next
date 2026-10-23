@@ -1,13 +1,16 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   MONITOR_INTERVAL_MINUTES,
   isMonitorIntervalMinutes,
   parsePatchMonitorTargetRequest,
   splitTagInput,
+  type CreatorDiscoveryConfig,
   type MonitorCard,
   type MonitorIntervalMinutes,
 } from '@studio/contracts';
 import { useMonitorTargetMutations } from '@/api/hooks/use-monitor-target-queries';
+import { fetchCreatorDiscovery, putCreatorDiscovery } from '@/api/monitor-client';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -78,6 +81,41 @@ export function MonitorSettingsDialog({
   );
   const [formError, setFormError] = useState<string | null>(null);
   const [startAtNotice, setStartAtNotice] = useState<string | null>(null);
+  const [discoverEnabled, setDiscoverEnabled] = useState(false);
+  const [discoverVideos, setDiscoverVideos] = useState(true);
+  const [discoverDynamics, setDiscoverDynamics] = useState(true);
+  const [monitorNewVideos, setMonitorNewVideos] = useState(false);
+  const [discoverySnapshot, setDiscoverySnapshot] = useState<CreatorDiscoveryConfig | null>(null);
+  const queryClient = useQueryClient();
+  const showDiscovery = card.type === 'creator';
+  const discoveryQuery = useQuery({
+    queryKey: ['monitor', 'creator-discovery', card.externalId] as const,
+    queryFn: () => fetchCreatorDiscovery(card.externalId),
+    enabled: open && showDiscovery && Boolean(card.externalId),
+  });
+  const discoveryMutation = useMutation({
+    mutationFn: (body: {
+      enabled: boolean;
+      discoverVideos: boolean;
+      discoverDynamics: boolean;
+      monitorNewVideos: boolean;
+    }) => putCreatorDiscovery(card.externalId, body),
+    onSuccess: (config) => {
+      setDiscoverySnapshot(config);
+      void queryClient.invalidateQueries({
+        queryKey: ['monitor', 'creator-discovery', card.externalId],
+      });
+    },
+  });
+
+  useEffect(() => {
+    if (!discoveryQuery.data) return;
+    setDiscoverEnabled(discoveryQuery.data.enabled);
+    setDiscoverVideos(discoveryQuery.data.discoverVideos);
+    setDiscoverDynamics(discoveryQuery.data.discoverDynamics);
+    setMonitorNewVideos(discoveryQuery.data.monitorNewVideos);
+    setDiscoverySnapshot(discoveryQuery.data);
+  }, [discoveryQuery.data]);
 
   if (!target) return null;
 
@@ -116,8 +154,68 @@ export function MonitorSettingsDialog({
         }
       }
     }
-    if (Object.keys(patch).length === 0) {
+
+    let nextDiscoverVideos = discoverVideos;
+    let nextDiscoverDynamics = discoverDynamics;
+    let nextMonitorNewVideos = monitorNewVideos;
+    if (showDiscovery && discoverEnabled) {
+      if (!nextDiscoverVideos && !nextDiscoverDynamics) {
+        setFormError('开启发现时至少勾选视频或动态');
+        return;
+      }
+      if (nextMonitorNewVideos && !nextDiscoverVideos) {
+        setFormError('同时监控新视频数据需要先开启发现视频');
+        return;
+      }
+    } else if (showDiscovery) {
+      nextDiscoverVideos = false;
+      nextDiscoverDynamics = false;
+      nextMonitorNewVideos = false;
+    }
+
+    const discoveryChanged =
+      showDiscovery &&
+      (!discoverySnapshot ||
+        discoverEnabled !== discoverySnapshot.enabled ||
+        nextDiscoverVideos !== discoverySnapshot.discoverVideos ||
+        nextDiscoverDynamics !== discoverySnapshot.discoverDynamics ||
+        nextMonitorNewVideos !== discoverySnapshot.monitorNewVideos);
+
+    if (Object.keys(patch).length === 0 && !discoveryChanged) {
       setFormError('没有需要保存的修改');
+      return;
+    }
+
+    const saveDiscovery = async () => {
+      if (!discoveryChanged) return;
+      try {
+        await discoveryMutation.mutateAsync({
+          enabled: discoverEnabled,
+          discoverVideos: discoverEnabled ? nextDiscoverVideos : false,
+          discoverDynamics: discoverEnabled ? nextDiscoverDynamics : false,
+          monitorNewVideos: discoverEnabled ? nextMonitorNewVideos : false,
+        });
+      } catch (error) {
+        if (discoverySnapshot) {
+          setDiscoverEnabled(discoverySnapshot.enabled);
+          setDiscoverVideos(discoverySnapshot.discoverVideos);
+          setDiscoverDynamics(discoverySnapshot.discoverDynamics);
+          setMonitorNewVideos(discoverySnapshot.monitorNewVideos);
+        }
+        throw error;
+      }
+    };
+
+    const finish = () => {
+      void saveDiscovery()
+        .then(() => onOpenChange(false))
+        .catch((error: unknown) => {
+          setFormError(error instanceof Error ? error.message : '发现设置保存失败，已回滚');
+        });
+    };
+
+    if (Object.keys(patch).length === 0) {
+      finish();
       return;
     }
     try {
@@ -127,7 +225,7 @@ export function MonitorSettingsDialog({
         {
           onSuccess: () => {
             if ('startAt' in request) setStartAtNotice('计划开始时间已更新');
-            onOpenChange(false);
+            finish();
           },
           onError: (error) => {
             setFormError(error instanceof Error ? error.message : '保存失败');
@@ -224,6 +322,66 @@ export function MonitorSettingsDialog({
                 </p>
               )}
             </div>
+          ) : null}
+          {showDiscovery ? (
+            <fieldset
+              className="grid gap-2 rounded-md border border-border p-3"
+              data-testid="monitor-settings-discovery"
+            >
+              <legend className="px-1 text-sm font-medium">发现新内容</legend>
+              <p className="text-xs text-muted-foreground">
+                默认关闭。开启后约每 5 分钟检查该 UP
+                主的新视频/动态，并在粉丝折线图上标记；不推断涨粉因果。
+              </p>
+              {discoveryQuery.isError ? (
+                <p className="text-xs text-destructive">
+                  {discoveryQuery.error instanceof Error
+                    ? discoveryQuery.error.message
+                    : '无法加载发现设置'}
+                </p>
+              ) : null}
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={discoverEnabled}
+                  onChange={(event) => setDiscoverEnabled(event.target.checked)}
+                  data-testid="monitor-settings-discovery-enabled"
+                />
+                发现新内容
+              </label>
+              {discoverEnabled ? (
+                <>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={discoverVideos}
+                      onChange={(event) => setDiscoverVideos(event.target.checked)}
+                      data-testid="monitor-settings-discovery-videos"
+                    />
+                    发现新视频
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={discoverDynamics}
+                      onChange={(event) => setDiscoverDynamics(event.target.checked)}
+                      data-testid="monitor-settings-discovery-dynamics"
+                    />
+                    发现新动态（仅图表标记，不自动建动态监控）
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={monitorNewVideos}
+                      disabled={!discoverVideos}
+                      onChange={(event) => setMonitorNewVideos(event.target.checked)}
+                      data-testid="monitor-settings-discovery-monitor-new"
+                    />
+                    同时监控他的新视频数据（前 5 天每 15 分钟，后 5 天每 30 分钟，10 天后恢复常规）
+                  </label>
+                </>
+              ) : null}
+            </fieldset>
           ) : null}
           {formError ? (
             <p role="alert" className="text-sm text-destructive">

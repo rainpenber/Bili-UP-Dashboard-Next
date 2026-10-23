@@ -12,11 +12,15 @@ export type FrequencyPolicy = {
 };
 
 export type ScheduleSubject = {
-  type: 'video' | 'creator' | 'dynamic';
+  type: 'video' | 'creator' | 'dynamic' | 'discovery';
   mode: 'auto' | 'fixed';
   fixedMinutes: number;
   pubdate: Date | null;
 };
+
+/** Dense window minutes are fixed by product: 15 then 30; never remap here. */
+export const DENSE15_MINUTES = 15;
+export const DENSE30_MINUTES = 30;
 
 export type ScheduleDecision = {
   minutes: number;
@@ -55,6 +59,9 @@ export function decideSchedule(
   }
   if (subject.type === 'dynamic') {
     throw new Error('动态监控只支持固定间隔');
+  }
+  if (subject.type === 'discovery') {
+    throw new Error('内容发现只支持固定间隔');
   }
   if (subject.type === 'creator') {
     return { minutes: policy.creatorMinutes, persistMinutes: true };

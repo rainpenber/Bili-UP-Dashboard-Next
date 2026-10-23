@@ -8,6 +8,7 @@ export {
 } from './health';
 export * from './monitor';
 export * from './monitor-targets';
+export * from './creator-discovery';
 export * from './monitor-cards';
 export * from './studio-owner-account';
 export * from './imports';

@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
-import type { VideoMetricPoint, CreatorMetricPoint, DynamicMetricPoint } from '@studio/contracts';
+import { useNavigate } from 'react-router-dom';
+import type {
+  CreatorPublishEvent,
+  VideoMetricPoint,
+  CreatorMetricPoint,
+  DynamicMetricPoint,
+} from '@studio/contracts';
 import { formatFullLocalTime } from '@/lib/format-time';
 import { parseSeriesNumber } from '@/lib/chart-follower-axis';
 import {
@@ -24,7 +30,12 @@ type Props =
       playbackSummary?: ReactNode;
       engagementSummary?: ReactNode;
     }
-  | { kind: 'creator'; points: CreatorMetricPoint[]; variant?: 'full' | 'sparkline' }
+  | {
+      kind: 'creator';
+      points: CreatorMetricPoint[];
+      variant?: 'full' | 'sparkline';
+      publishEvents?: CreatorPublishEvent[];
+    }
   | { kind: 'dynamic'; points: DynamicMetricPoint[] };
 
 function hasDrawnPoint(value: number | string | null): boolean {
@@ -73,6 +84,7 @@ function hasAnyNumeric(values: (number | null)[]): boolean {
 
 export function MetricCharts(props: Props) {
   const colors = useResolvedChartColors();
+  const navigate = useNavigate();
   const points = props.points;
   const sampledAtList = useMemo(() => points.map((p) => p.sampledAt), [points]);
   const tooltipTimes = useMemo(
@@ -92,6 +104,16 @@ export function MetricCharts(props: Props) {
       setFollowerZoom({ start, end });
     },
     [],
+  );
+
+  const onPublishMarkClick = useCallback(
+    (params: { componentType?: string; data?: { navigableExternalId?: string | null } }) => {
+      if (params.componentType !== 'markPoint') return;
+      const bvid = params.data?.navigableExternalId;
+      if (!bvid) return;
+      navigate(`/monitoring/videos/${encodeURIComponent(bvid)}`);
+    },
+    [navigate],
   );
 
   if (points.length === 0) {
@@ -200,8 +222,24 @@ export function MetricCharts(props: Props) {
     const followers = props.points.map((p) => parseSeriesNumber(p.followerCount));
     const zoom = followerZoom ?? initialZoom;
     const { start, end } = visibleIndexRange(followers.length, zoom.start, zoom.end);
+    const publishEvents = props.publishEvents ?? [];
 
-    const option = buildFollowerOption(sampledAtList, followers, colors, tooltipTimes, start, end);
+    const option = buildFollowerOption(
+      sampledAtList,
+      followers,
+      colors,
+      tooltipTimes,
+      start,
+      end,
+      publishEvents.map((event) => ({
+        publishedAt: event.publishedAt,
+        eventKind: event.eventKind,
+        titleSnapshot: event.titleSnapshot,
+        externalId: event.externalId,
+        navigable: event.navigable,
+        monitoredTargetId: event.monitoredTargetId,
+      })),
+    );
     if (props.variant === 'sparkline') {
       return (
         <div className="min-w-0 overflow-hidden" data-testid="follower-sparkline">
@@ -230,6 +268,7 @@ export function MetricCharts(props: Props) {
         onEvents={{
           datazoom: onFollowerZoom,
           restore: () => setFollowerZoom(null),
+          click: onPublishMarkClick,
         }}
       />
     );

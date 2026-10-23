@@ -176,6 +176,60 @@ export function buildVideoEngagementOption(
   };
 }
 
+export type FollowerChartPublishEvent = {
+  publishedAt: string;
+  eventKind: 'video' | 'dynamic';
+  titleSnapshot: string;
+  externalId: string;
+  navigable: boolean;
+  monitoredTargetId: string | null;
+};
+
+function nearestSampleIndex(sampledAtList: string[], publishedAt: string): number {
+  const target = Date.parse(publishedAt);
+  if (!Number.isFinite(target) || sampledAtList.length === 0) return 0;
+  let best = 0;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < sampledAtList.length; i += 1) {
+    const t = Date.parse(sampledAtList[i]!);
+    if (!Number.isFinite(t)) continue;
+    const dist = Math.abs(t - target);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/** Aggregate overlapping publish markers onto sample buckets so dense points stay readable. */
+export function aggregateFollowerEvents(
+  sampledAtList: string[],
+  events: FollowerChartPublishEvent[],
+): Map<
+  number,
+  {
+    labels: string[];
+    navigableExternalId: string | null;
+  }
+> {
+  const buckets = new Map<number, { labels: string[]; navigableExternalId: string | null }>();
+  for (const event of events) {
+    const idx = nearestSampleIndex(sampledAtList, event.publishedAt);
+    const label =
+      event.eventKind === 'video'
+        ? `发布了视频《${event.titleSnapshot || event.externalId}》`
+        : '发了动态';
+    const existing = buckets.get(idx) ?? { labels: [], navigableExternalId: null };
+    existing.labels.push(label);
+    if (event.navigable && event.externalId && !existing.navigableExternalId) {
+      existing.navigableExternalId = event.externalId;
+    }
+    buckets.set(idx, existing);
+  }
+  return buckets;
+}
+
 export function buildFollowerOption(
   sampledAtList: string[],
   followers: (number | null)[],
@@ -183,6 +237,7 @@ export function buildFollowerOption(
   tooltipTimes: string[],
   visibleStartIndex = 0,
   visibleEndIndex = sampledAtList.length - 1,
+  events: FollowerChartPublishEvent[] = [],
 ): EChartsOption {
   const base = buildTimeSeriesBase(sampledAtList, colors);
   const semantic = chartSemanticFromResolved(colors);
@@ -191,6 +246,37 @@ export function buildFollowerOption(
     Math.min(followers.length, visibleEndIndex + 1),
   );
   const bounds = followerYAxisBounds(slice, { nonNegative: true });
+  const buckets = aggregateFollowerEvents(sampledAtList, events);
+  const markData = [...buckets.entries()].map(([idx, bucket]) => ({
+    name:
+      bucket.labels.length > 1 ? `${bucket.labels.length} 条发布` : (bucket.labels[0] ?? '发布'),
+    coord: [idx, followers[idx] ?? 0] as [number, number],
+    value: followers[idx] ?? 0,
+    eventLabels: bucket.labels,
+    navigableExternalId: bucket.navigableExternalId,
+  }));
+
+  const followerSeries = lineSeries('粉丝数', followers, semantic.series1);
+  if (markData.length > 0) {
+    followerSeries.markPoint = {
+      symbol: 'diamond',
+      symbolSize: 10,
+      itemStyle: { color: semantic.series2 },
+      label: { show: false },
+      data: markData,
+      tooltip: {
+        formatter: (params: unknown) => {
+          const row = params as {
+            data?: { eventLabels?: string[]; value?: number };
+            name?: string;
+          };
+          const labels = row.data?.eventLabels ?? [row.name ?? '发布'];
+          const fans = formatExactNumber(row.data?.value ?? null);
+          return [...labels, `当时粉丝量：${fans}`].join('<br/>');
+        },
+      },
+    };
+  }
 
   return {
     ...base,
@@ -201,7 +287,11 @@ export function buildFollowerOption(
         const idx = items[0]?.dataIndex ?? 0;
         const time = tooltipTimes[idx] ?? '';
         const val = followers[idx];
-        return `${time}<br/>${items[0]?.marker}粉丝数：${formatExactNumber(val)}`;
+        const bucket = buckets.get(idx);
+        const eventLines = bucket?.labels ?? [];
+        return [time, `${items[0]?.marker}粉丝数：${formatExactNumber(val)}`, ...eventLines].join(
+          '<br/>',
+        );
       },
     },
     yAxis: {
@@ -213,7 +303,7 @@ export function buildFollowerOption(
       },
       splitLine: { lineStyle: { color: colors.border, opacity: 0.5 } },
     },
-    series: [lineSeries('粉丝数', followers, semantic.series1)],
+    series: [followerSeries],
   };
 }
 

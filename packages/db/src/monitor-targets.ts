@@ -16,7 +16,7 @@ type Queryable = postgres.Sql | postgres.TransactionSql;
 
 export type { CollectorTargetTxHooks } from './collector-target-tx';
 
-export type MonitorTargetType = 'video' | 'creator' | 'dynamic';
+export type MonitorTargetType = 'video' | 'creator' | 'dynamic' | 'discovery';
 export type CollectorJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
 
 export type MonitorTargetRow = {
@@ -193,9 +193,14 @@ export async function insertMonitorTarget(
     now: Date;
   },
 ): Promise<{ target: MonitorTargetRow; created: boolean; jobId: string | null }> {
-  const intervalMode = input.intervalMode ?? (input.type === 'dynamic' ? 'fixed' : 'auto');
+  const intervalMode =
+    input.intervalMode ??
+    (input.type === 'dynamic' || input.type === 'discovery' ? 'fixed' : 'auto');
   if (input.type === 'dynamic' && intervalMode !== 'fixed') {
     throw new Error('动态只支持固定间隔，不能使用自动频率');
+  }
+  if (input.type === 'discovery' && intervalMode !== 'fixed') {
+    throw new Error('内容发现只支持固定间隔');
   }
   const startAt = input.startAt ?? null;
   if (startAt && input.type !== 'video') {
@@ -948,6 +953,13 @@ export type TargetScheduleContext = {
   pubdate: Date | null;
   /** Null until the first successful collect for this target. */
   lastSuccessAt: Date | null;
+  /** Present only for video targets with an active/historical dense plan. */
+  densePlan: {
+    phase: 'dense15' | 'dense30' | 'normal';
+    dense15Until: Date;
+    dense30Until: Date;
+    completedAt: Date | null;
+  } | null;
 };
 
 export type CollectorScheduleWrite = {
@@ -966,12 +978,21 @@ export async function readTargetSchedule(
       interval_minutes: number;
       pubdate: Date | null;
       last_success_at: Date | null;
+      dense_phase: 'dense15' | 'dense30' | 'normal' | null;
+      dense15_until: Date | null;
+      dense30_until: Date | null;
+      dense_completed_at: Date | null;
     }[]
   >`
     SELECT t.type, t.interval_mode, t.interval_minutes, t.last_success_at,
-      CASE WHEN t.type = 'video' THEN v.pubdate ELSE NULL END AS pubdate
+      CASE WHEN t.type = 'video' THEN v.pubdate ELSE NULL END AS pubdate,
+      d.phase AS dense_phase,
+      d.dense15_until,
+      d.dense30_until,
+      d.completed_at AS dense_completed_at
     FROM monitor_targets t
     LEFT JOIN videos v ON t.type = 'video' AND v.bvid = t.external_id
+    LEFT JOIN video_dense_collect_plans d ON d.target_id = t.id
     WHERE t.id = ${targetId}::uuid
   `;
   const row = rows[0];
@@ -982,6 +1003,15 @@ export async function readTargetSchedule(
     intervalMinutes: row.interval_minutes,
     pubdate: row.pubdate,
     lastSuccessAt: row.last_success_at,
+    densePlan:
+      row.dense_phase && row.dense15_until && row.dense30_until
+        ? {
+            phase: row.dense_phase,
+            dense15Until: row.dense15_until,
+            dense30Until: row.dense30_until,
+            completedAt: row.dense_completed_at,
+          }
+        : null,
   };
 }
 

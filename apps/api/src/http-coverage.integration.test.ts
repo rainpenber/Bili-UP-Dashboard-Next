@@ -596,6 +596,47 @@ describe('HTTP API coverage against isolated Postgres', () => {
         externalId: '240240',
         enabled: true,
       });
+      const discoveryDefault = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/discovery'),
+        200,
+      )) as { enabled: boolean; monitorNewVideos: boolean };
+      expect(discoveryDefault.enabled).toBe(false);
+      expect(discoveryDefault.monitorNewVideos).toBe(false);
+      const discoverySaved = (await expectStatus(
+        await api(
+          '/api/v1/monitor/creators/240240/discovery',
+          json('PUT', {
+            enabled: true,
+            discoverVideos: true,
+            discoverDynamics: true,
+            monitorNewVideos: true,
+          }),
+        ),
+        200,
+      )) as { enabled: boolean; discoverVideos: boolean; monitorNewVideos: boolean };
+      expect(discoverySaved).toMatchObject({
+        enabled: true,
+        discoverVideos: true,
+        monitorNewVideos: true,
+      });
+      const publishEvents = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/publish-events?page=1&pageSize=20'),
+        200,
+      )) as { items: unknown[]; totalItems: number };
+      expect(publishEvents.totalItems).toBe(0);
+      expect(Array.isArray(publishEvents.items)).toBe(true);
+      await expectStatus(
+        await api(
+          '/api/v1/monitor/creators/240240/discovery',
+          json('PUT', {
+            enabled: false,
+            discoverVideos: false,
+            discoverDynamics: false,
+            monitorNewVideos: false,
+          }),
+        ),
+        200,
+      );
       await expectStatus(await api('/api/v1/monitor/targets/of/dynamic/999999999999999999'), 404);
       const dynamicTarget = parseMonitorTargetCreateResponse(
         await expectStatus(
