@@ -199,8 +199,8 @@ export function MetricCharts(props: Props) {
     return (
       <CreatorFollowerCharts
         points={props.points}
-        variant={props.variant}
-        publishEvents={props.publishEvents}
+        {...(props.variant ? { variant: props.variant } : {})}
+        {...(props.publishEvents ? { publishEvents: props.publishEvents } : {})}
       />
     );
   }
