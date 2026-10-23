@@ -285,7 +285,8 @@ describe('WP-R2-MON-01 video pin + sort UI', () => {
       expect(within(refreshed!).getByTestId('video-pin-icon-filled')).toBeTruthy();
       const actions = within(refreshed!).getByTestId('monitor-card-actions');
       expect(
-        within(actions).getAllByRole('button').length + within(actions).getAllByRole('link').length,
+        within(actions).getAllByRole('button').length +
+          within(actions).queryAllByRole('link').length,
       ).toBe(1);
     });
   });

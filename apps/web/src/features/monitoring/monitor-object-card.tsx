@@ -13,7 +13,10 @@ import { formatVideoCardMetricsSummary } from '@/features/monitoring/video-card-
 import { MonitorSettingsDialog } from '@/features/monitoring/monitor-settings-dialog';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
 import { VideoGridCard } from '@/features/monitoring/video-grid-card';
-import { handleCardActivateKey, stopCardActivatePropagation } from '@/features/monitoring/card-activate';
+import {
+  handleCardActivateKey,
+  stopCardActivatePropagation,
+} from '@/features/monitoring/card-activate';
 import { MonitorPinButton } from '@/features/monitoring/monitor-pin-button';
 import { formatStartAtDisplay } from '@/lib/datetime-local';
 import { formatFullLocalTime } from '@/lib/format-time';

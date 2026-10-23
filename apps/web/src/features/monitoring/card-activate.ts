@@ -16,8 +16,6 @@ export function handleCardActivateKey(
   activate();
 }
 
-export function stopCardActivatePropagation(
-  event: MouseEvent | KeyboardEvent,
-): void {
+export function stopCardActivatePropagation(event: MouseEvent | KeyboardEvent): void {
   event.stopPropagation();
 }

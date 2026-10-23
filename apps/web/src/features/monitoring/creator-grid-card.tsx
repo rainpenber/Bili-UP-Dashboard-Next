@@ -2,7 +2,10 @@ import { useNavigate } from 'react-router-dom';
 import type { MonitorCard } from '@studio/contracts';
 import { coverAssetUrl, formatCount } from '@/api/monitor-client';
 import { Button } from '@/components/ui/button';
-import { handleCardActivateKey, stopCardActivatePropagation } from '@/features/monitoring/card-activate';
+import {
+  handleCardActivateKey,
+  stopCardActivatePropagation,
+} from '@/features/monitoring/card-activate';
 import { MonitorPinButton } from '@/features/monitoring/monitor-pin-button';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
 import { cn } from '@/lib/utils';

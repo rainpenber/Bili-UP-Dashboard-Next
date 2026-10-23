@@ -101,7 +101,7 @@ export function VideoPinButton({
       id={bvid}
       pinned={pinned}
       onError={onError}
-      className={className}
+      {...(className ? { className } : {})}
       testId="video-pin-button"
     />
   );

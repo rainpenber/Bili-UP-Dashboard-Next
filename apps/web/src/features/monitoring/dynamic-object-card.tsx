@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { DynamicListItem } from '@studio/contracts';
 import { formatCount } from '@/api/monitor-client';
-import { handleCardActivateKey, stopCardActivatePropagation } from '@/features/monitoring/card-activate';
+import {
+  handleCardActivateKey,
+  stopCardActivatePropagation,
+} from '@/features/monitoring/card-activate';
 import { DynamicMonitorControls } from '@/features/monitoring/dynamic-monitor-controls';
 import { MonitorPinButton } from '@/features/monitoring/monitor-pin-button';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
@@ -56,8 +59,7 @@ export function DynamicObjectCard({
   const detailHref = `/monitoring/dynamics/${encodeURIComponent(item.dynamicId)}${
     listQuery ? `?from=${encodeURIComponent(listQuery)}` : ''
   }`;
-  const activate =
-    presentation === 'grid' ? () => navigate(detailHref) : onSelect;
+  const activate = presentation === 'grid' ? () => navigate(detailHref) : onSelect;
   const activateLabel =
     presentation === 'grid' ? `打开动态 ${item.dynamicId}` : `选择动态 ${item.dynamicId}`;
 

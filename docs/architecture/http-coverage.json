@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_cc9f7305211b",
+  "databaseName": "wp_r2_11_84d5daa6e925",
   "retainedDatabase": true,
-  "registeredCount": 71,
-  "inventoryCount": 71,
-  "executedCount": 71,
-  "httpSuccessCount": 71,
-  "acceptedCount": 71,
+  "registeredCount": 73,
+  "inventoryCount": 73,
+  "executedCount": 73,
+  "httpSuccessCount": 73,
+  "acceptedCount": 73,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 8,
@@ -594,6 +594,12 @@
           "test": "monitor-read",
           "status": 200,
           "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 400,
+          "http": "reject",
           "assertions": "passed"
         }
       ]
@@ -1245,6 +1251,64 @@
           "test": "commercial",
           "status": 200,
           "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/monitor/creators/:mid/pin",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 404,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/monitor/dynamics/:dynamicId/pin",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "metadata-refresh",
+          "status": 404,
+          "http": "reject",
           "assertions": "passed"
         }
       ]

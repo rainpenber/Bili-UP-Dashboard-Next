@@ -22,12 +22,12 @@ ALTER TABLE dynamics DROP COLUMN IF EXISTS pinned_at;
 
 ## API
 
-| Method | Path | Notes |
-| --- | --- | --- |
-| `PATCH` | `/api/v1/monitor/creators/:mid/pin` | body `{ pinned: boolean }` → `{ pinned, pinnedAt }` |
-| `PATCH` | `/api/v1/monitor/dynamics/:dynamicId/pin` | 同上 |
-| `GET` | `/api/v1/monitor/cards?type=creator&sort=…` | `sampled_desc`（默认）/ `followers_desc` / `name_asc` |
-| `GET` | `/api/v1/monitor/dynamics?sort=…` | `sampled_desc`（默认）/ `likes_desc` / `comments_desc` |
+| Method  | Path                                        | Notes                                                  |
+| ------- | ------------------------------------------- | ------------------------------------------------------ |
+| `PATCH` | `/api/v1/monitor/creators/:mid/pin`         | body `{ pinned: boolean }` → `{ pinned, pinnedAt }`    |
+| `PATCH` | `/api/v1/monitor/dynamics/:dynamicId/pin`   | 同上                                                   |
+| `GET`   | `/api/v1/monitor/cards?type=creator&sort=…` | `sampled_desc`（默认）/ `followers_desc` / `name_asc`  |
+| `GET`   | `/api/v1/monitor/dynamics?sort=…`           | `sampled_desc`（默认）/ `likes_desc` / `comments_desc` |
 
 所有列表排序均为：`(pinned_at IS NOT NULL) DESC`，再按所选字段，再按稳定 id 升序。非法 `sort` → 400。
 

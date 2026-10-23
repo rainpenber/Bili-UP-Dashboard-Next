@@ -1232,13 +1232,13 @@ describe('HTTP API coverage against isolated Postgres', () => {
         200,
       );
       await expectStatus(
-        await api('/api/v1/monitor/dynamics/966692349750019999/pin', json('PATCH', { pinned: true })),
+        await api(
+          '/api/v1/monitor/dynamics/966692349750019999/pin',
+          json('PATCH', { pinned: true }),
+        ),
         404,
       );
-      await expectStatus(
-        await api('/api/v1/monitor/dynamics?page=1&sort=bogus'),
-        400,
-      );
+      await expectStatus(await api('/api/v1/monitor/dynamics?page=1&sort=bogus'), 400);
 
       const failed = await api(
         '/api/v1/monitor/videos/BV1metafaaax/refresh',

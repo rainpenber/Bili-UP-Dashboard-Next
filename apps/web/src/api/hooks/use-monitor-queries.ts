@@ -37,11 +37,7 @@ export function useCreatorsQuery(page: number, q: string, enabled: boolean) {
   });
 }
 
-export function useDynamicsQuery(
-  page: number,
-  enabled: boolean,
-  sort: string = 'sampled_desc',
-) {
+export function useDynamicsQuery(page: number, enabled: boolean, sort: string = 'sampled_desc') {
   return useQuery({
     queryKey: monitorQueryKeys.dynamics(page, sort),
     queryFn: () => fetchDynamics({ page, sort }),

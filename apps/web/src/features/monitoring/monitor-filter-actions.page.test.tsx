@@ -135,7 +135,7 @@ describe('WP-R2-16H / WP-R2-23A monitor filter bar and detail actions', () => {
     expect(searchInput.className).toContain('flex-1');
 
     expect(within(bar).getByText('监控状态').className).toContain('whitespace-nowrap');
-    expect(bar.querySelector('label[for="monitor-video-sort"]')?.className).toContain(
+    expect(bar.querySelector('label[for="monitor-list-sort"]')?.className).toContain(
       'whitespace-nowrap',
     );
     expect(within(bar).getByText('只看我的').className).toContain('whitespace-nowrap');

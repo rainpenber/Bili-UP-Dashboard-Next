@@ -79,10 +79,7 @@ export function pinMonitorCreator(mid: string, pinned: boolean): Promise<PinEnti
   }).then(parsePinEntityResponse);
 }
 
-export function pinMonitorDynamic(
-  dynamicId: string,
-  pinned: boolean,
-): Promise<PinEntityResponse> {
+export function pinMonitorDynamic(dynamicId: string, pinned: boolean): Promise<PinEntityResponse> {
   return requestJson(`/dynamics/${encodeURIComponent(dynamicId)}/pin`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },

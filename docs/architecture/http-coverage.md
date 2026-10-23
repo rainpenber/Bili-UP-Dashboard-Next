@@ -1,8 +1,8 @@
 # HTTP API 覆盖
 
-验收库 `wp_r2_11_cc9f7305211b` 保留，本文件不执行 DROP DATABASE。
+验收库 `wp_r2_11_84d5daa6e925` 保留，本文件不执行 DROP DATABASE。
 
-注册 71，清单 71，已执行 71，HTTP 成功 71，断言验收 71。
+注册 73，清单 73，已执行 73，HTTP 成功 73，断言验收 73。
 
 验收结论：通过。每一条注册路由都有一次 HTTP 成功响应，且发出该响应的测试断言已通过。
 
@@ -198,6 +198,7 @@
 - HTTP 成功：是
 - 断言验收：是
 - monitor-read：HTTP 200（成功响应，断言通过）
+- metadata-refresh：HTTP 400（拒绝响应，断言通过）
 
 ## GET `/api/v1/monitor/dynamics/:id`
 
@@ -446,6 +447,26 @@
 - commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 409（拒绝响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
+
+## PATCH `/api/v1/monitor/creators/:mid/pin`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- metadata-refresh：HTTP 200（成功响应，断言通过）
+- metadata-refresh：HTTP 200（成功响应，断言通过）
+- metadata-refresh：HTTP 404（拒绝响应，断言通过）
+
+## PATCH `/api/v1/monitor/dynamics/:dynamicId/pin`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- metadata-refresh：HTTP 200（成功响应，断言通过）
+- metadata-refresh：HTTP 200（成功响应，断言通过）
+- metadata-refresh：HTTP 404（拒绝响应，断言通过）
 
 ## PATCH `/api/v1/monitor/targets/:id`
 
