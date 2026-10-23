@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { businessStateListBadge } from '../business-display-state';
 import {
   isArchivedLiveProject,
   liveInstantLabel,
@@ -19,6 +20,9 @@ export function ProjectListCard({ project }: { project: CommercialProjectListIte
   const archived = isArchivedLiveProject(project);
   const hasBlock = project.anyNodeBlocked || project.blockedNodeNames.length > 0;
   const hasExpandable = hasBlock || project.openItems.length > 0;
+  const displayBadge = businessStateListBadge(project.businessState, project.originStatusLabel);
+  const weakenStage =
+    project.businessState === 'not_started' || project.businessState === 'finished';
 
   return (
     <article
@@ -26,6 +30,7 @@ export function ProjectListCard({ project }: { project: CommercialProjectListIte
       data-testid="project-list-card"
       data-project-id={project.id}
       data-archived={archived ? 'true' : 'false'}
+      data-business-state={project.businessState ?? ''}
     >
       <div className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1">
@@ -38,8 +43,31 @@ export function ProjectListCard({ project }: { project: CommercialProjectListIte
             </Link>
             {archived ? <Badge variant="secondary">已归档</Badge> : null}
             {project.overallStage === 'closed' ? <Badge variant="outline">已结案</Badge> : null}
+            {displayBadge ? (
+              <Badge
+                variant={displayBadge.tone === 'finished' ? 'secondary' : 'outline'}
+                className={cn(
+                  'text-[11px]',
+                  displayBadge.tone === 'finished' && 'border-emerald-600/30 text-emerald-800',
+                  displayBadge.tone === 'not_started' && 'text-muted-foreground',
+                )}
+                data-testid="project-business-state-badge"
+                data-tone={displayBadge.tone}
+              >
+                {displayBadge.text}
+              </Badge>
+            ) : null}
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">当前阶段：{liveStageLabel(project)}</p>
+          <p
+            className={cn(
+              'mt-1 text-sm',
+              weakenStage ? 'text-muted-foreground/70' : 'text-muted-foreground',
+            )}
+            data-testid="project-list-stage-line"
+            data-weakened={weakenStage ? 'true' : 'false'}
+          >
+            当前阶段：{liveStageLabel(project)}
+          </p>
         </div>
         {hasExpandable ? (
           <Button

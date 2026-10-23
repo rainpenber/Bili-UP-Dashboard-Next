@@ -31,6 +31,8 @@ const READ = {
   businessClosedAt: null,
   originKind: 'fixture',
   source: null,
+  businessState: null,
+  originStatusLabel: null,
 };
 
 function openItem(id: string, title: string, extra: Record<string, unknown> = {}) {
