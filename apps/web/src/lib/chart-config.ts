@@ -307,6 +307,38 @@ export type BuildFollowerOptionArgs = {
  * publishedAt (Asia/Shanghai same-day aggregation). Default view = last 90 days of samples;
  * 「显示全部事件」 extends the domain to earlier publish dates.
  */
+export const FOLLOWER_RENDER_POINT_LIMIT = 400;
+
+/** Keep the full source range but cap canvas work, preserving bucket extrema. */
+export function downsampleFollowerPairs(
+  pairs: [number, number][],
+  limit = FOLLOWER_RENDER_POINT_LIMIT,
+): [number, number][] {
+  if (pairs.length <= limit || limit < 4) return pairs;
+  const interior = pairs.slice(1, -1);
+  const bucketCount = Math.max(1, Math.floor((limit - 2) / 2));
+  const bucketSize = Math.ceil(interior.length / bucketCount);
+  const sampled: [number, number][] = [pairs[0]!];
+  for (let start = 0; start < interior.length; start += bucketSize) {
+    const bucket = interior.slice(start, start + bucketSize);
+    let min = bucket[0]!;
+    let max = bucket[0]!;
+    for (const point of bucket.slice(1)) {
+      if (point[1] < min[1]) min = point;
+      if (point[1] > max[1]) max = point;
+    }
+    if (min[0] <= max[0]) {
+      sampled.push(min);
+      if (max !== min) sampled.push(max);
+    } else {
+      sampled.push(max);
+      if (max !== min) sampled.push(min);
+    }
+  }
+  sampled.push(pairs[pairs.length - 1]!);
+  return sampled.slice(0, limit);
+}
+
 export function buildFollowerOption(
   sampledAtList: string[],
   followers: (number | null)[],
@@ -406,16 +438,15 @@ export function buildFollowerOptionDetailed(
     }
   }
 
-  const largeMode = samplePairs.length >= 500;
+  const renderPairs = downsampleFollowerPairs(samplePairs);
 
   const followerSeries: LineSeriesOption = {
     name: FOLLOWER_SAMPLE_SERIES_NAME,
     type: 'line',
-    data: samplePairs,
+    data: renderPairs,
     connectNulls: true,
     showSymbol: false,
     animation: false,
-    ...(largeMode ? { large: true, largeThreshold: 500, sampling: 'lttb' } : {}),
     lineStyle: { width: 2, color: semantic.series1 },
     itemStyle: { color: semantic.series1 },
     emphasis: {

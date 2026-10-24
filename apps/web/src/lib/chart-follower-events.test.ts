@@ -433,25 +433,25 @@ describe('buildFollowerOption publish scatter', () => {
     expect(recentY.max).toBeLessThan(50_000);
   });
 
-  test('large sample counts enable large/lttb mode and disable animation', () => {
+  test('large sample counts are downsampled with extrema preserved and animation disabled', () => {
     const samples: string[] = [];
     const followers: number[] = [];
     const start = Date.parse('2024-01-01T00:00:00.000Z');
-    for (let i = 0; i < 600; i += 1) {
-      samples.push(new Date(start + i * 86_400_000).toISOString());
-      followers.push(1000 + i);
+    for (let i = 0; i < 2_000; i += 1) {
+      samples.push(new Date(start + i * 3_600_000).toISOString());
+      followers.push(i === 777 ? 10 : i === 1_333 ? 99_999 : 1_000 + (i % 20));
     }
     const option = buildFollowerOption(samples, followers, COLORS, samples, 0, 100, [], NOW_MS);
     const series = option.series as {
       name?: string;
       animation?: boolean;
-      large?: boolean;
-      sampling?: string;
+      data?: [number, number][];
     }[];
     const follower = series.find((item) => item.name === FOLLOWER_SAMPLE_SERIES_NAME);
     expect(follower?.animation).toBe(false);
-    expect(follower?.large).toBe(true);
-    expect(follower?.sampling).toBe('lttb');
+    expect(follower?.data?.length).toBeLessThanOrEqual(400);
+    expect(follower?.data?.some((point) => point[1] === 10)).toBe(true);
+    expect(follower?.data?.some((point) => point[1] === 99_999)).toBe(true);
     expect(option.animation).toBe(false);
   });
 });
