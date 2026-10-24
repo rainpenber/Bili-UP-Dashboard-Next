@@ -325,14 +325,24 @@ describe('follower tooltip sample proximity', () => {
     const eventMs = Date.parse('2026-08-28T05:29:00.000Z');
     const sampleMs = Date.parse('2026-10-23T01:00:00.000Z');
     const farText = formatter?.([
-      { seriesName: FOLLOWER_SAMPLE_SERIES_NAME, marker: '', value: [sampleMs, 34698], axisValue: eventMs },
+      {
+        seriesName: FOLLOWER_SAMPLE_SERIES_NAME,
+        marker: '',
+        value: [sampleMs, 34698],
+        axisValue: eventMs,
+      },
     ]);
     expect(farText).toContain('该时段无采集样本');
     expect(farText).not.toContain('34,698');
     expect(farText).toContain('抽PS5和GTA6啦!');
 
     const nearText = formatter?.([
-      { seriesName: FOLLOWER_SAMPLE_SERIES_NAME, marker: '', value: [sampleMs, 34698], axisValue: sampleMs },
+      {
+        seriesName: FOLLOWER_SAMPLE_SERIES_NAME,
+        marker: '',
+        value: [sampleMs, 34698],
+        axisValue: sampleMs,
+      },
     ]);
     expect(nearText).toContain('34,698');
     expect(nearText).not.toContain('该时段无采集样本');
