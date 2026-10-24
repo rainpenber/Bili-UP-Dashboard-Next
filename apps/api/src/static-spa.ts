@@ -1,7 +1,7 @@
 import { serveStatic } from 'hono/bun';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Context, Hono, Next } from 'hono';
+import type { Hono } from 'hono';
 
 /**
  * Hashed Vite assets never change under the same name, so they can be cached
@@ -19,25 +19,19 @@ export function registerWebSpa(app: Hono, root: string): void {
     return;
   }
 
-  const serveAsset = serveStatic({ root });
-  const serveShell = serveStatic({ root, path: 'index.html' });
+  app.use(
+    '/assets/*',
+    serveStatic({ root, onFound: (_path, c) => c.header('Cache-Control', ASSET_CACHE) }),
+  );
 
-  app.use('/assets/*', async (c: Context, next: Next) => {
-    await serveAsset(c, next);
-    if (c.res.status === 200) {
-      c.header('Cache-Control', ASSET_CACHE);
-    }
+  const shell = serveStatic({
+    root,
+    path: 'index.html',
+    onFound: (_path, c) => c.header('Cache-Control', SHELL_CACHE),
   });
 
-  const shell = async (c: Context, next: Next) => {
-    await serveShell(c, next);
-    if (c.res.status === 200) {
-      c.header('Cache-Control', SHELL_CACHE);
-    }
-  };
-
   app.get('/', shell);
-  app.get('*', (c: Context, next: Next) => {
+  app.get('*', (c, next) => {
     const path = c.req.path;
     if (path.startsWith('/api') || path === '/health') {
       return next();
