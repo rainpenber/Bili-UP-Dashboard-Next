@@ -194,7 +194,16 @@ function CreatorFollowerCharts({
       const start = batch?.start ?? params.start;
       const end = batch?.end ?? params.end;
       if (start == null || end == null) return;
-      setFollowerZoom({ start, end });
+      setFollowerZoom((previous: { start: number; end: number } | null) => {
+        if (
+          previous &&
+          Math.abs(previous.start - start) < 0.001 &&
+          Math.abs(previous.end - end) < 0.001
+        ) {
+          return previous;
+        }
+        return { start, end };
+      });
     },
     [],
   );
