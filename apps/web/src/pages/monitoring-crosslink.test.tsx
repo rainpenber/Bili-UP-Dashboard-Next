@@ -133,6 +133,29 @@ describe('video detail author card', () => {
       if (url.includes('/creators/') && url.includes('/metrics')) {
         return jsonResponse({ mid: MID, limit: 500, items: [followerPoint()] });
       }
+      if (url.includes('/creators/') && url.includes('/publish-events')) {
+        return jsonResponse({
+          page: 1,
+          pageSize: 200,
+          totalItems: 1,
+          totalPages: 1,
+          items: [
+            {
+              id: 'e-near',
+              mid: MID,
+              eventKind: 'video',
+              externalId: BVID,
+              publishedAt: SAMPLED_AT,
+              titleSnapshot: '反查视频',
+              firstDiscoveredAt: SAMPLED_AT,
+              source: 'bilibili',
+              monitored: true,
+              monitoredTargetId: '11111111-1111-4111-8111-111111111111',
+              navigable: true,
+            },
+          ],
+        });
+      }
       if (url.includes('/metrics')) return jsonResponse({ bvid: BVID, limit: 500, items: [] });
       return jsonResponse(
         videoDetail({
@@ -169,10 +192,29 @@ describe('video detail author card', () => {
     const panel = screen.getByTestId('video-author-panel');
     expect(panel.className).toContain('grid-cols-1');
     expect(panel.className).toContain('min-[1440px]:grid-cols-2');
-    expect(
-      await within(screen.getByTestId('video-author-sparkline')).findByTestId('mock-echart'),
-    ).toBeTruthy();
+    const sparklineChart = await within(screen.getByTestId('video-author-sparkline')).findByTestId(
+      'mock-echart',
+    );
+    expect(sparklineChart).toBeTruthy();
+    await waitFor(() => {
+      const option = JSON.parse(sparklineChart.getAttribute('data-option') ?? 'null') as {
+        legend?: { show?: boolean };
+        series?: {
+          name?: string;
+          symbolSize?: number;
+          itemStyle?: { color?: string; borderColor?: string; borderWidth?: number };
+          data?: unknown[];
+        }[];
+      };
+      const publish = option.series?.find((s) => s.name === '事件');
+      expect(publish?.symbolSize).toBe(6);
+      expect(publish?.itemStyle?.borderWidth).toBe(0);
+      expect(publish?.itemStyle?.color).not.toBe('transparent');
+      expect(publish?.data).toHaveLength(1);
+      expect(option.legend?.show).toBe(false);
+    });
     expect(urls.some((url) => url.includes(`/creators/${MID}/metrics`))).toBe(true);
+    expect(urls.some((url) => url.includes(`/creators/${MID}/publish-events`))).toBe(true);
     expectNoHorizontalOverflow('video-detail-page');
   });
 
@@ -340,7 +382,7 @@ function syncOkBody(kind: 'uploads' | 'dynamics') {
 }
 
 describe('creator detail follower chart (WP-R2-27B)', () => {
-  test('loads all metrics, syncs dynamics, hollow events, and allEvents URL toggle', async () => {
+  test('loads all metrics, syncs dynamics, solid events, and allEvents URL toggle', async () => {
     const urls: string[] = [];
     const methods: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -422,15 +464,17 @@ describe('creator detail follower chart (WP-R2-27B)', () => {
       series?: {
         name?: string;
         type?: string;
-        itemStyle?: { color?: string; borderWidth?: number };
+        symbolSize?: number;
+        itemStyle?: { color?: string; borderColor?: string; borderWidth?: number };
         data?: unknown[];
       }[];
     };
     expect(option.toolbox).toBeUndefined();
     const publish = option.series?.find((s) => s.name === '事件');
     expect(publish?.type).toBe('scatter');
-    expect(publish?.itemStyle?.color).toBe('transparent');
-    expect(publish?.itemStyle?.borderWidth).toBe(2);
+    expect(publish?.symbolSize).toBe(6);
+    expect(publish?.itemStyle?.color).not.toBe('transparent');
+    expect(publish?.itemStyle?.borderWidth).toBe(0);
     // Default: early 2022 event is outside the sample span → only same-day dynamic.
     expect(publish?.data).toHaveLength(1);
 

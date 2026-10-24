@@ -24,7 +24,7 @@ describe('peakOnlineFromSamples', () => {
         { viewCount: '999', onlineViewers: null, onlineViewersRaw: null },
         [120, 890, 300],
       ),
-    ).toBe('播放 999 · 峰值在线 890');
+    ).toBe('播放 999 · 7日峰值在线 890');
   });
 
   test('no samples → null / 无在线数据 (not 0)', () => {
@@ -64,7 +64,7 @@ describe('video card metrics summary', () => {
     expect(videoCardOnlineText(metrics)).not.toContain('下界');
 
     const summary = formatVideoCardMetricsSummary(metrics);
-    expect(summary).toBe(`播放 ${formatCompactNumber('12345678')} · 峰值在线 50`);
+    expect(summary).toBe(`播放 ${formatCompactNumber('12345678')} · 7日峰值在线 50`);
   });
 
   test('summary keeps play and peak online segments distinct', () => {
@@ -74,7 +74,7 @@ describe('video card metrics summary', () => {
       onlineViewersRaw: null,
     };
     const summary = formatVideoCardMetricsSummary(metrics);
-    expect(summary).toBe('播放 999 · 峰值在线 50');
+    expect(summary).toBe('播放 999 · 7日峰值在线 50');
   });
 });
 
@@ -95,7 +95,7 @@ describe('video grid metrics line', () => {
         onlineViewers: '12',
         onlineViewersRaw: null,
       }),
-    ).toBe('1.4万 (13,631) 播放 · 峰值在线 12');
+    ).toBe('1.4万 (13,631) 播放 · 7日峰值在线 12');
     expect(
       formatVideoGridMetricsLine({
         viewCount: '13631',

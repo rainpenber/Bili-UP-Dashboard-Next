@@ -1,6 +1,9 @@
 import type { VideoCreatorSummary } from '@studio/contracts';
 import { Link } from 'react-router-dom';
-import { useCreatorMetricsDetailQuery } from '@/api/hooks/use-monitor-queries';
+import {
+  useCreatorMetricsDetailQuery,
+  useCreatorPublishEventsQuery,
+} from '@/api/hooks/use-monitor-queries';
 import { coverAssetUrl } from '@/api/monitor-client';
 import { EmptyState, ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +13,7 @@ import { formatFullLocalTime, formatShortTime } from '@/lib/format-time';
 
 export function VideoAuthorPanel({ creator }: { creator: VideoCreatorSummary | null }) {
   const metricsQuery = useCreatorMetricsDetailQuery(creator?.mid ?? '');
+  const publishEventsQuery = useCreatorPublishEventsQuery(creator?.mid ?? '');
 
   if (!creator) {
     return (
@@ -92,6 +96,8 @@ export function VideoAuthorPanel({ creator }: { creator: VideoCreatorSummary | n
             kind="creator"
             variant="sparkline"
             points={metricsQuery.data?.items ?? []}
+            publishEvents={publishEventsQuery.data?.items ?? []}
+            mid={creator.mid}
           />
         )}
       </div>
