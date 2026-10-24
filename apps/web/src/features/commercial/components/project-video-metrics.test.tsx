@@ -530,24 +530,27 @@ describe('monitoring chart layout stays stacked by default', () => {
     expect(readSeries(charts[1]!).find((item) => item.name === '评论')?.data).toEqual([null, 2]);
     cleanup();
 
+    const creatorClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <MemoryRouter>
-        <MetricCharts
-          kind="creator"
-          points={[
-            {
-              sampledAt: '2026-05-20T12:00:00.000Z',
-              rawTime: '2026-05-20T12:00:00.000Z',
-              sourceTimezone: 'Asia/Shanghai',
-              timestampPrecision: 'minute',
-              followerCount: '1000',
-            },
-          ]}
-        />
-      </MemoryRouter>,
+      <QueryClientProvider client={creatorClient}>
+        <MemoryRouter>
+          <MetricCharts
+            kind="creator"
+            points={[
+              {
+                sampledAt: '2026-05-20T12:00:00.000Z',
+                rawTime: '2026-05-20T12:00:00.000Z',
+                sourceTimezone: 'Asia/Shanghai',
+                timestampPrecision: 'minute',
+                followerCount: '1000',
+              },
+            ]}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
     expect(screen.queryByTestId('metric-charts-columns')).toBeNull();
-    expect(readSeries(screen.getByTestId('mock-echart'))[0]?.name).toBe('粉丝数（样本）');
+    expect(readSeries(screen.getByTestId('mock-echart'))[0]?.name).toBe('粉丝数');
     expect(readSeries(screen.getByTestId('mock-echart'))[0]?.data).toEqual([
       [Date.parse('2026-05-20T12:00:00.000Z'), 1000],
     ]);

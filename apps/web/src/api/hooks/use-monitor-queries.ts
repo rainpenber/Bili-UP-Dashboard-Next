@@ -2,12 +2,14 @@ import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ManualPublishEventCreateRequest } from '@studio/contracts';
 import {
+  coverAssetUrl,
   createManualPublishEvent,
   deleteManualPublishEvent,
   fetchCreator,
   fetchCreatorMetrics,
   fetchCreatorPublishEvents,
   fetchCreatorUploadsSyncStatus,
+  fetchCreatorVideos,
   fetchCreators,
   fetchDynamic,
   fetchDynamicMetrics,
@@ -15,6 +17,7 @@ import {
   fetchVideo,
   fetchVideoMetrics,
   fetchVideos,
+  syncCreatorDynamics,
   syncCreatorUploads,
 } from '@/api/monitor-client';
 import type { MonitorTab } from '@/features/monitoring/monitor-url-state';
@@ -165,6 +168,51 @@ export function useCreatorUploadsAutoSync(mid: string) {
   }, [mid, trigger]);
 
   return mutation;
+}
+
+/**
+ * Silent dynamics sync on UP detail open (6h TTL). Failures are swallowed so the
+ * page never blocks; missing route (404) degrades to a no-op.
+ */
+export function useCreatorDynamicsAutoSync(mid: string) {
+  const client = useQueryClient();
+  const started = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!mid) return;
+    if (started.current === mid) return;
+    started.current = mid;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await syncCreatorDynamics(mid, { force: false });
+        if (cancelled || result == null) return;
+        await client.invalidateQueries({ queryKey: ['monitor', 'creator-publish-events', mid] });
+      } catch {
+        // Silent: chart still works with whatever events we already have.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mid, client]);
+}
+
+/** bvid → same-origin cover URL for follower-chart tooltips (best-effort). */
+export function useCreatorVideoCoverMap(mid: string, enabled = true) {
+  return useQuery({
+    queryKey: ['monitor', 'creator-video-covers', mid] as const,
+    queryFn: async () => {
+      const list = await fetchCreatorVideos(mid, { limit: 100, offset: 0 });
+      const map = new Map<string, string>();
+      for (const item of list.items) {
+        if (item.coverAssetId) map.set(item.bvid, coverAssetUrl(item.coverAssetId));
+      }
+      return map;
+    },
+    enabled: Boolean(mid) && enabled,
+    staleTime: 5 * 60_000,
+  });
 }
 
 export function useDynamicMetricsDetailQuery(dynamicId: string) {

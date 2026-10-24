@@ -13,16 +13,19 @@ import {
   aggregateFollowerEventsByDay,
   buildFollowerTimeDomain,
   followerSampleOnDay,
-  partitionEventsByWindow,
+  partitionEventsBySampleRange,
   shanghaiCalendarDayKey,
   type FollowerChartPublishEvent,
   type FollowerEventDayBucket,
+  type FollowerEventTooltipItem,
 } from '@/lib/chart-follower-events';
 
 export type { FollowerChartPublishEvent } from '@/lib/chart-follower-events';
 export {
   aggregateFollowerEventsByDay,
   FOLLOWER_EVENT_WINDOW_DAYS,
+  FOLLOWER_VIEW_WINDOW_DAYS,
+  partitionEventsBySampleRange,
   partitionEventsByWindow,
   shanghaiCalendarDayKey,
 } from '@/lib/chart-follower-events';
@@ -30,10 +33,14 @@ export {
 const EMPHASIS = { focus: 'series' as const, blurScope: 'coordinateSystem' as const };
 
 /** Follower line — samples only; gaps are not fabricated zeros. */
-export const FOLLOWER_SAMPLE_SERIES_NAME = '粉丝数（样本）';
+export const FOLLOWER_SAMPLE_SERIES_NAME = '粉丝数';
 
 /** Independent scatter series for publish markers (not markPoint — avoids stuck scale/opacity=0). */
-export const FOLLOWER_PUBLISH_SERIES_NAME = '发布（事件日期）';
+export const FOLLOWER_PUBLISH_SERIES_NAME = '事件';
+
+/** Hollow event marker size (idle / hover). */
+export const FOLLOWER_EVENT_SYMBOL_SIZE = 11;
+export const FOLLOWER_EVENT_SYMBOL_HOVER_SIZE = 14;
 
 function lineSeries(
   name: string,
@@ -211,6 +218,7 @@ export type BuildFollowerOptionResult = {
   option: EChartsOption;
   olderEventCount: number;
   dayBuckets: Map<string, FollowerEventDayBucket>;
+  domain: { minMs: number; maxMs: number };
 };
 
 function formatFollowerAtEvent(fans: number | null): string {
@@ -222,9 +230,82 @@ function markerYForEvent(fans: number | null, fallbackY: number): number {
   return fans ?? fallbackY;
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function dynamicIconSvg(foreground: string): string {
+  const fill = encodeURIComponent(foreground);
+  return `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="40" viewBox="0 0 64 40"><rect width="64" height="40" rx="4" fill="${fill}" opacity="0.12"/><path d="M18 12h28v3H18zm0 7h22v3H18zm0 7h16v3H18z" fill="${fill}" opacity="0.55"/></svg>`,
+  )}`;
+}
+
+function eventThumbHtml(item: FollowerEventTooltipItem, colors: ResolvedChartColors): string {
+  const src =
+    item.eventKind === 'video' && item.coverProxyUrl
+      ? item.coverProxyUrl
+      : dynamicIconSvg(colors.mutedForeground);
+  return `<img src="${escapeHtml(src)}" alt="" width="64" height="40" style="width:64px;height:40px;border-radius:4px;object-fit:cover;flex-shrink:0;background:${escapeHtml(colors.border)}" />`;
+}
+
+function eventTitleBlockHtml(item: FollowerEventTooltipItem, colors: ResolvedChartColors): string {
+  const title = escapeHtml(item.titleSnapshot || item.externalId);
+  const kind = item.eventKind === 'video' ? '视频' : '动态';
+  return `<div style="min-width:0;flex:1">
+    <div style="font-size:11px;color:${escapeHtml(colors.mutedForeground)};margin-bottom:2px">${kind}</div>
+    <div style="display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;word-break:break-word;line-height:1.35;max-height:4.05em">${title}</div>
+  </div>`;
+}
+
+function renderFollowerEventTooltipHtml(args: {
+  items: FollowerEventTooltipItem[];
+  fans: number | null;
+  colors: ResolvedChartColors;
+  timeLine?: string;
+  sampleLine?: string;
+  navHref: string | null;
+}): string {
+  const { items, fans, colors, timeLine, sampleLine, navHref } = args;
+  const rows = items
+    .map(
+      (item) =>
+        `<div style="display:flex;gap:8px;align-items:flex-start;margin-top:8px">${eventThumbHtml(item, colors)}${eventTitleBlockHtml(item, colors)}</div>`,
+    )
+    .join('');
+  const body = [
+    timeLine ? `<div style="margin-bottom:4px">${escapeHtml(timeLine)}</div>` : '',
+    sampleLine ? `<div>${sampleLine}</div>` : '',
+    rows,
+    `<div style="margin-top:8px;color:${escapeHtml(colors.mutedForeground)}">当时粉丝量：${escapeHtml(formatFollowerAtEvent(fans))}</div>`,
+  ].join('');
+  const clickable = Boolean(navHref);
+  const cursor = clickable ? 'pointer' : 'default';
+  const navAttr = navHref ? ` data-follower-nav="${escapeHtml(navHref)}"` : '';
+  return `<div class="follower-chart-tooltip"${navAttr} style="max-width:300px;cursor:${cursor};color:${escapeHtml(colors.foreground)}">${body}</div>`;
+}
+
+export type BuildFollowerOptionArgs = {
+  sampledAtList: string[];
+  followers: (number | null)[];
+  colors: ResolvedChartColors;
+  visibleStartPercent?: number;
+  visibleEndPercent?: number;
+  events?: FollowerChartPublishEvent[];
+  nowMs?: number;
+  /** When true, plot events before the first sample and extend the x domain. */
+  showAllEvents?: boolean;
+};
+
 /**
  * Follower chart on a time axis: samples only where collected; publish markers at real
- * publishedAt (Asia/Shanghai same-day aggregation). Default event window = 90 days.
+ * publishedAt (Asia/Shanghai same-day aggregation). Default view = last 90 days of samples;
+ * 「显示全部事件」 extends the domain to earlier publish dates.
  */
 export function buildFollowerOption(
   sampledAtList: string[],
@@ -235,6 +316,7 @@ export function buildFollowerOption(
   visibleEndPercent = 100,
   events: FollowerChartPublishEvent[] = [],
   nowMs: number = Date.now(),
+  showAllEvents = false,
 ): EChartsOption {
   return buildFollowerOptionDetailed(
     sampledAtList,
@@ -244,6 +326,7 @@ export function buildFollowerOption(
     visibleEndPercent,
     events,
     nowMs,
+    showAllEvents,
   ).option;
 }
 
@@ -255,10 +338,11 @@ export function buildFollowerOptionDetailed(
   visibleEndPercent = 100,
   events: FollowerChartPublishEvent[] = [],
   nowMs: number = Date.now(),
+  showAllEvents = false,
 ): BuildFollowerOptionResult {
   const semantic = chartSemanticFromResolved(colors);
-  const { inWindow, olderCount, windowStartMs } = partitionEventsByWindow(events, nowMs);
-  const dayBuckets = aggregateFollowerEventsByDay(inWindow);
+  /** Amber / gold — contrast against blue/green follower lines across accents. */
+  const eventColor = semantic.series3;
 
   const samplePairs: [number, number][] = [];
   for (let i = 0; i < sampledAtList.length; i += 1) {
@@ -268,12 +352,15 @@ export function buildFollowerOptionDetailed(
     samplePairs.push([t, v]);
   }
   const sampleTimesMs = samplePairs.map(([t]) => t);
+
+  const { inRange, outsideCount } = partitionEventsBySampleRange(events, sampleTimesMs);
+  const plottedEvents = showAllEvents ? events : inRange;
+  const dayBuckets = aggregateFollowerEventsByDay(plottedEvents);
   const eventTimesMs = [...dayBuckets.values()].map((b) => b.xMs);
   const domain = buildFollowerTimeDomain({
     sampleTimesMs,
     eventTimesMs,
     nowMs,
-    windowStartMs,
   });
 
   const span = Math.max(1, domain.maxMs - domain.minMs);
@@ -297,8 +384,10 @@ export function buildFollowerOptionDetailed(
         bucket.labels.length > 1 ? `${bucket.labels.length} 条发布` : (bucket.labels[0] ?? '发布'),
       value: [bucket.xMs, markerYForEvent(fans, fallbackMarkerY)] as [number, number],
       eventLabels: bucket.labels,
+      eventItems: bucket.items,
       followerAtEvent: fans,
       navigableExternalId: bucket.navigableExternalId,
+      navHref: bucket.navHref,
       dayKey: bucket.dayKey,
     };
   });
@@ -317,12 +406,16 @@ export function buildFollowerOptionDetailed(
     }
   }
 
+  const largeMode = samplePairs.length >= 500;
+
   const followerSeries: LineSeriesOption = {
     name: FOLLOWER_SAMPLE_SERIES_NAME,
     type: 'line',
     data: samplePairs,
     connectNulls: true,
     showSymbol: false,
+    animation: false,
+    ...(largeMode ? { large: true, largeThreshold: 500, sampling: 'lttb' } : {}),
     lineStyle: { width: 2, color: semantic.series1 },
     itemStyle: { color: semantic.series1 },
     emphasis: {
@@ -363,37 +456,55 @@ export function buildFollowerOptionDetailed(
           type: 'scatter',
           data: publishPoints,
           symbol: 'circle',
-          symbolSize: 12,
+          symbolSize: FOLLOWER_EVENT_SYMBOL_SIZE,
           animation: false,
+          large: publishPoints.length >= 200,
+          largeThreshold: 200,
           z: 10,
           zlevel: 1,
           clip: true,
           cursor: 'pointer',
           itemStyle: {
-            color: semantic.series2,
+            color: 'transparent',
             opacity: 1,
-            borderColor: colors.background,
+            borderColor: eventColor,
             borderWidth: 2,
           },
           emphasis: {
             focus: 'self',
-            scale: false,
-            itemStyle: { color: semantic.series2, opacity: 1, borderWidth: 1 },
+            scale: FOLLOWER_EVENT_SYMBOL_HOVER_SIZE / FOLLOWER_EVENT_SYMBOL_SIZE,
+            itemStyle: {
+              color: 'transparent',
+              opacity: 1,
+              borderColor: eventColor,
+              borderWidth: 2,
+            },
           },
           blur: { itemStyle: { opacity: 1 } },
           tooltip: {
             formatter: (params: unknown) => {
               const row = params as {
                 data?: {
+                  eventItems?: FollowerEventTooltipItem[];
                   eventLabels?: string[];
                   followerAtEvent?: number | null;
+                  navHref?: string | null;
                   name?: string;
                 };
                 name?: string;
               };
-              const labels = row.data?.eventLabels ?? [row.name ?? row.data?.name ?? '发布'];
+              const items = row.data?.eventItems ?? [];
               const fans = row.data?.followerAtEvent ?? null;
-              return [...labels, `当时粉丝量：${formatFollowerAtEvent(fans)}`].join('<br/>');
+              if (items.length === 0) {
+                const labels = row.data?.eventLabels ?? [row.name ?? row.data?.name ?? '发布'];
+                return [...labels, `当时粉丝量：${formatFollowerAtEvent(fans)}`].join('<br/>');
+              }
+              return renderFollowerEventTooltipHtml({
+                items,
+                fans,
+                colors,
+                navHref: row.data?.navHref ?? null,
+              });
             },
           },
         };
@@ -401,16 +512,31 @@ export function buildFollowerOptionDetailed(
   const bucketsByDay = dayBuckets;
   const option: EChartsOption = {
     backgroundColor: 'transparent',
+    animation: false,
     tooltip: {
       trigger: 'axis',
+      enterable: true,
+      confine: true,
+      extraCssText: 'max-width:300px;white-space:normal;',
       axisPointer: { type: 'line', lineStyle: { color: semantic.series1, opacity: 0.35 } },
       backgroundColor: colors.background,
       borderColor: colors.border,
       textStyle: { color: colors.foreground, fontSize: 12 },
       formatter: (params) => {
-        const items = Array.isArray(params) ? params : [params];
+        const tipItems = Array.isArray(params) ? params : [params];
+        const scatterHit = tipItems.find(
+          (item) => item.seriesName === FOLLOWER_PUBLISH_SERIES_NAME,
+        ) as
+          | {
+              data?: {
+                eventItems?: FollowerEventTooltipItem[];
+                followerAtEvent?: number | null;
+                navHref?: string | null;
+              };
+            }
+          | undefined;
         const primary =
-          items.find((item) => item.seriesName === FOLLOWER_SAMPLE_SERIES_NAME) ?? items[0];
+          tipItems.find((item) => item.seriesName === FOLLOWER_SAMPLE_SERIES_NAME) ?? tipItems[0];
         const raw = primary?.value;
         let timeMs: number | null = null;
         let fans: number | null = null;
@@ -426,7 +552,7 @@ export function buildFollowerOptionDetailed(
           timeMs != null && Number.isFinite(timeMs)
             ? shanghaiCalendarDayKey(new Date(timeMs).toISOString())
             : null;
-        const axisRaw = (items[0] as { axisValue?: unknown } | undefined)?.axisValue;
+        const axisRaw = (tipItems[0] as { axisValue?: unknown } | undefined)?.axisValue;
         const axisMs =
           typeof axisRaw === 'number'
             ? axisRaw
@@ -448,17 +574,32 @@ export function buildFollowerOptionDetailed(
           hoverMs != null && Number.isFinite(hoverMs)
             ? shanghaiCalendarDayKey(new Date(hoverMs).toISOString())
             : dayKey;
-        const effectiveEventLines = effectiveDayKey
-          ? (bucketsByDay.get(effectiveDayKey)?.labels ?? [])
-          : [];
+        const bucket = effectiveDayKey ? bucketsByDay.get(effectiveDayKey) : undefined;
+        const eventItems =
+          scatterHit?.data?.eventItems ?? bucket?.items ?? ([] as FollowerEventTooltipItem[]);
+        const eventFans =
+          scatterHit?.data?.followerAtEvent !== undefined
+            ? scatterHit.data.followerAtEvent
+            : sampleIsNear
+              ? fans
+              : bucket
+                ? followerSampleOnDay(bucket.dayKey, sampledAtList, followers, bucket.xMs)
+                : null;
         const marker = primary?.marker ?? '';
-        return [
-          hoverTime,
-          sampleIsNear
-            ? `${marker}${FOLLOWER_SAMPLE_SERIES_NAME}：${formatExactNumber(fans)}`
-            : `${FOLLOWER_SAMPLE_SERIES_NAME}：该时段无采集样本`,
-          ...effectiveEventLines,
-        ].join('<br/>');
+        const sampleLine = sampleIsNear
+          ? `${marker}${FOLLOWER_SAMPLE_SERIES_NAME}：${formatExactNumber(fans)}`
+          : `${FOLLOWER_SAMPLE_SERIES_NAME}：该时段无采集样本`;
+        if (eventItems.length > 0) {
+          return renderFollowerEventTooltipHtml({
+            items: eventItems,
+            fans: eventFans ?? null,
+            colors,
+            timeLine: hoverTime,
+            sampleLine,
+            navHref: scatterHit?.data?.navHref ?? bucket?.navHref ?? null,
+          });
+        }
+        return [hoverTime, sampleLine].join('<br/>');
       },
     },
     legend: {
@@ -470,15 +611,26 @@ export function buildFollowerOptionDetailed(
         ? [FOLLOWER_SAMPLE_SERIES_NAME, FOLLOWER_PUBLISH_SERIES_NAME]
         : [FOLLOWER_SAMPLE_SERIES_NAME],
     },
-    grid: { left: 52, right: 52, top: 44, bottom: 52 },
+    grid: { left: 52, right: 52, top: 44, bottom: 72 },
     dataZoom: [
-      { type: 'inside', start: visibleStartPercent, end: visibleEndPercent },
-      { type: 'slider', height: 20, start: visibleStartPercent, end: visibleEndPercent },
+      {
+        type: 'inside',
+        start: visibleStartPercent,
+        end: visibleEndPercent,
+        zoomOnMouseWheel: true,
+      },
+      {
+        type: 'slider',
+        height: 22,
+        bottom: 8,
+        start: visibleStartPercent,
+        end: visibleEndPercent,
+        borderColor: colors.border,
+        fillerColor: 'rgba(128,128,128,0.15)',
+        handleStyle: { color: colors.mutedForeground },
+        textStyle: { color: colors.mutedForeground },
+      },
     ],
-    toolbox: {
-      feature: { restore: {} },
-      iconStyle: { borderColor: colors.mutedForeground },
-    },
     xAxis: {
       type: 'time',
       min: domain.minMs,
@@ -511,7 +663,12 @@ export function buildFollowerOptionDetailed(
     series: publishSeries ? [followerSeries, publishSeries] : [followerSeries],
   };
 
-  return { option, olderEventCount: olderCount, dayBuckets };
+  return {
+    option,
+    olderEventCount: showAllEvents ? 0 : outsideCount,
+    dayBuckets,
+    domain,
+  };
 }
 
 export function buildDynamicOption(

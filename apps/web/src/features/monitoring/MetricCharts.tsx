@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type {
   CreatorPublishEvent,
   VideoMetricPoint,
@@ -22,6 +22,9 @@ import { shanghaiCalendarDayKey } from '@/lib/chart-follower-events';
 import { defaultFollowerZoomRange } from '@/lib/chart-window';
 import { chartSemanticFromResolved } from '@/lib/chart-colors';
 import { useResolvedChartColors } from '@/features/monitoring/use-resolved-chart-colors';
+import { useCreatorVideoCoverMap } from '@/api/hooks/use-monitor-queries';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 
 type Props =
   | {
@@ -37,6 +40,7 @@ type Props =
       points: CreatorMetricPoint[];
       variant?: 'full' | 'sparkline';
       publishEvents?: CreatorPublishEvent[];
+      mid?: string;
     }
   | { kind: 'dynamic'; points: DynamicMetricPoint[] };
 
@@ -84,17 +88,45 @@ function hasAnyNumeric(values: (number | null)[]): boolean {
   return values.some((v) => v !== null);
 }
 
+function parseAllEventsParam(raw: string | null): boolean {
+  return raw === '1' || raw === 'true';
+}
+
 function CreatorFollowerCharts({
   points,
   variant,
   publishEvents = [],
+  mid = '',
 }: {
   points: CreatorMetricPoint[];
   variant?: 'full' | 'sparkline';
   publishEvents?: CreatorPublishEvent[];
+  mid?: string;
 }) {
   const colors = useResolvedChartColors();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const showAllEvents = parseAllEventsParam(searchParams.get('allEvents'));
+  const needsVideoCovers = publishEvents.some((event) => event.eventKind === 'video');
+  const coverMapQuery = useCreatorVideoCoverMap(mid, needsVideoCovers);
+  const coverByBvid = coverMapQuery.data;
+  const chartHostRef = useRef<HTMLDivElement>(null);
+
+  const setShowAllEvents = useCallback(
+    (next: boolean) => {
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev);
+          if (next) params.set('allEvents', '1');
+          else params.delete('allEvents');
+          return params;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
   const sampledAtList = useMemo(() => points.map((p) => p.sampledAt), [points]);
   const mappedPublishEvents = useMemo<FollowerChartPublishEvent[]>(
     () =>
@@ -105,18 +137,56 @@ function CreatorFollowerCharts({
         externalId: event.externalId,
         navigable: event.navigable,
         monitoredTargetId: event.monitoredTargetId,
+        coverProxyUrl:
+          event.eventKind === 'video' ? (coverByBvid?.get(event.externalId) ?? null) : null,
       })),
-    [publishEvents],
+    [publishEvents, coverByBvid],
   );
-  const initialZoom = useMemo(
-    () =>
-      defaultFollowerZoomRange(
-        sampledAtList,
-        mappedPublishEvents.map((event) => event.publishedAt),
-      ),
-    [sampledAtList, mappedPublishEvents],
+
+  const followers = useMemo(() => points.map((p) => parseSeriesNumber(p.followerCount)), [points]);
+
+  const sampleTimesMs = useMemo(
+    () => sampledAtList.map((iso) => Date.parse(iso)).filter((t) => Number.isFinite(t)),
+    [sampledAtList],
   );
+
+  // Domain preview for initial zoom (matches buildFollowerOptionDetailed filtering).
+  const domainPreview = useMemo(() => {
+    const eventsForDomain = showAllEvents
+      ? mappedPublishEvents
+      : (() => {
+          if (sampleTimesMs.length === 0) return [] as FollowerChartPublishEvent[];
+          const minS = Math.min(...sampleTimesMs);
+          const maxS = Math.max(...sampleTimesMs);
+          return mappedPublishEvents.filter((event) => {
+            const t = Date.parse(event.publishedAt);
+            return Number.isFinite(t) && t >= minS && t <= maxS;
+          });
+        })();
+    const eventTimes = eventsForDomain
+      .map((e) => Date.parse(e.publishedAt))
+      .filter((t) => Number.isFinite(t));
+    const minCandidates = [...sampleTimesMs, ...eventTimes];
+    const maxCandidates = [...sampleTimesMs, ...eventTimes, Date.now()];
+    if (minCandidates.length === 0) {
+      return { minMs: Date.now(), maxMs: Date.now() };
+    }
+    const minMs = Math.min(...minCandidates);
+    const maxMs = Math.max(...maxCandidates, minMs);
+    return { minMs, maxMs };
+  }, [mappedPublishEvents, sampleTimesMs, showAllEvents]);
+
+  const initialZoom = useMemo(() => {
+    const lastSampleMs = sampleTimesMs.length > 0 ? Math.max(...sampleTimesMs) : null;
+    return defaultFollowerZoomRange(domainPreview.minMs, domainPreview.maxMs, lastSampleMs);
+  }, [domainPreview, sampleTimesMs]);
+
   const [followerZoom, setFollowerZoom] = useState<{ start: number; end: number } | null>(null);
+
+  // Reset user zoom when the default window / domain changes (toggle / new data).
+  useEffect(() => {
+    setFollowerZoom(null);
+  }, [showAllEvents, initialZoom.start, initialZoom.end]);
 
   const onFollowerZoom = useCallback(
     (params: { start?: number; end?: number; batch?: { start?: number; end?: number }[] }) => {
@@ -129,9 +199,8 @@ function CreatorFollowerCharts({
     [],
   );
 
-  const followers = useMemo(() => points.map((p) => parseSeriesNumber(p.followerCount)), [points]);
   const zoom = followerZoom ?? initialZoom;
-  const { option, olderEventCount, dayBuckets } = useMemo(
+  const { option, dayBuckets } = useMemo(
     () =>
       buildFollowerOptionDetailed(
         sampledAtList,
@@ -140,18 +209,28 @@ function CreatorFollowerCharts({
         zoom.start,
         zoom.end,
         mappedPublishEvents,
+        Date.now(),
+        showAllEvents,
       ),
-    [sampledAtList, followers, colors, zoom.start, zoom.end, mappedPublishEvents],
+    [sampledAtList, followers, colors, zoom.start, zoom.end, mappedPublishEvents, showAllEvents],
   );
 
-  /** Shanghai day → monitored bvid; line hit on a sample day with a publish marker. */
-  const navigableByDay = useMemo(() => {
+  /** Shanghai day → nav href for line-hit navigation. */
+  const navByDay = useMemo(() => {
     const map = new Map<string, string>();
     for (const [dayKey, bucket] of dayBuckets) {
-      if (bucket.navigableExternalId) map.set(dayKey, bucket.navigableExternalId);
+      if (bucket.navHref) map.set(dayKey, bucket.navHref);
     }
     return map;
   }, [dayBuckets]);
+
+  const goNav = useCallback(
+    (href: string | null | undefined) => {
+      if (!href) return;
+      navigate(href);
+    },
+    [navigate],
+  );
 
   const onPublishMarkClick = useCallback(
     (params: {
@@ -163,12 +242,16 @@ function CreatorFollowerCharts({
       value?: unknown;
     }) => {
       if (params.componentType !== 'series') return;
-      let bvid: string | null = null;
+      let href: string | null = null;
       if (params.seriesType === 'scatter' && params.seriesName === FOLLOWER_PUBLISH_SERIES_NAME) {
         const row = params.data;
         if (row && typeof row === 'object' && !Array.isArray(row)) {
-          const id = (row as { navigableExternalId?: string | null }).navigableExternalId;
-          bvid = id ?? null;
+          const data = row as { navHref?: string | null; navigableExternalId?: string | null };
+          href =
+            data.navHref ??
+            (data.navigableExternalId
+              ? `/monitoring/videos/${encodeURIComponent(data.navigableExternalId)}`
+              : null);
         }
       } else if (params.seriesType === 'line') {
         const raw = params.value;
@@ -179,14 +262,37 @@ function CreatorFollowerCharts({
           : NaN;
         if (Number.isFinite(timeMs)) {
           const dayKey = shanghaiCalendarDayKey(new Date(timeMs).toISOString());
-          if (dayKey) bvid = navigableByDay.get(dayKey) ?? null;
+          if (dayKey) href = navByDay.get(dayKey) ?? null;
         }
       }
-      if (!bvid) return;
-      navigate(`/monitoring/videos/${encodeURIComponent(bvid)}`);
+      goNav(href);
     },
-    [navigate, navigableByDay],
+    [goNav, navByDay],
   );
+
+  // Tooltip HTML uses data-follower-nav; capture clicks on the enterable tooltip.
+  useEffect(() => {
+    const host = chartHostRef.current;
+    if (!host) return;
+    const onClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const navEl = target.closest('[data-follower-nav]');
+      if (!navEl) return;
+      const href = navEl.getAttribute('data-follower-nav');
+      if (!href) return;
+      event.preventDefault();
+      event.stopPropagation();
+      goNav(href);
+    };
+    host.addEventListener('click', onClick);
+    // Tooltips may render under body; also listen on document for enterable tips.
+    document.addEventListener('click', onClick);
+    return () => {
+      host.removeEventListener('click', onClick);
+      document.removeEventListener('click', onClick);
+    };
+  }, [goNav]);
 
   if (points.length === 0) {
     if (variant === 'sparkline') {
@@ -219,15 +325,18 @@ function CreatorFollowerCharts({
   }
 
   return (
-    <div className="min-w-0 space-y-1" data-testid="follower-chart">
-      <p className="text-xs text-muted-foreground" data-testid="follower-chart-legend-hint">
-        折线为粉丝数（样本）；圆点为发布（事件日期）。浅色底表示该时段无采集样本。
-      </p>
-      {olderEventCount > 0 ? (
-        <p className="text-xs text-muted-foreground" data-testid="follower-chart-older-events">
-          另有 {olderEventCount} 条更早的发布未显示（默认仅展示近 90 天）
-        </p>
-      ) : null}
+    <div className="min-w-0 space-y-2" data-testid="follower-chart" ref={chartHostRef}>
+      <div className="flex items-center gap-2" data-testid="follower-chart-all-events-toggle">
+        <Switch
+          id="follower-all-events"
+          checked={showAllEvents}
+          onCheckedChange={setShowAllEvents}
+          data-testid="follower-all-events-switch"
+        />
+        <Label htmlFor="follower-all-events" className="cursor-pointer text-sm font-normal">
+          显示全部事件
+        </Label>
+      </div>
       <ReactECharts
         option={option}
         style={{ height: 320, width: '100%' }}
@@ -235,7 +344,6 @@ function CreatorFollowerCharts({
         notMerge
         onEvents={{
           datazoom: onFollowerZoom,
-          restore: () => setFollowerZoom(null),
           click: onPublishMarkClick,
         }}
       />
@@ -258,6 +366,7 @@ export function MetricCharts(props: Props) {
         points={props.points}
         {...(props.variant ? { variant: props.variant } : {})}
         {...(props.publishEvents ? { publishEvents: props.publishEvents } : {})}
+        {...(props.mid ? { mid: props.mid } : {})}
       />
     );
   }
