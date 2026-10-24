@@ -19,6 +19,8 @@ function creatorCard(patch: Partial<MonitorCard> = {}): MonitorCard {
     title: null,
     category: null,
     imageAssetId: null,
+    imageUrl: null,
+    imageProxyUrl: null,
     mid: '12345',
     displayName: '很长的UP主名称用于截断验证',
     hasEntity: true,

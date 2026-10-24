@@ -13,7 +13,13 @@ import {
 const MID = '496445222';
 
 function video(bvid: string, created: number, title = bvid): ParsedArchiveVideo {
-  return { bvid, title, created: BigInt(created), mid: MID };
+  return {
+    bvid,
+    title,
+    created: BigInt(created),
+    mid: MID,
+    pic: `https://i0.hdslb.com/bfs/archive/${bvid}.jpg`,
+  };
 }
 
 type CountingProvider = CreatorArchivesPageProvider & { readonly hitCount: number };

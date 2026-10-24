@@ -20,7 +20,9 @@ export type UpstreamEndpoint =
   | 'qr_poll'
   | 'dynamic_detail'
   | 'space_arc_search'
-  | 'space_dynamic_feed';
+  | 'space_dynamic_feed'
+  | 'web_interface_card'
+  | 'space_acc_info';
 
 export type UpstreamCall = {
   endpoint: UpstreamEndpoint;

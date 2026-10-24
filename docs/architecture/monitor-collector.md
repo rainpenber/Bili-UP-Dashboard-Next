@@ -38,6 +38,10 @@ MONITOR_DATA_SOURCE=collector MONITOR_PROVIDER=offline bun run apps/collector/sr
 - `GET /api/v1/monitor/jobs`
 - `GET /api/v1/monitor/cards?type=video|creator&monitor=all|active|paused|unmonitored`
 - `GET /api/v1/monitor/cards/:type/:externalId`
+- 视频默认过滤：只返回「存在未删除监控目标」或「被 `project_publish_records` / `project_monitor_contracts` 引用」的条目；`includeUnmonitored=1` 显示全部（供排查，无 UI 开关）。`totalItems` 与过滤一致。
+- `GET /api/v1/media/image?url=`：受控图片代理（`*.hdslb.com` / `*.bilibili.com` 白名单 + Referer + 进程内 LRU）；卡片 `imageUrl` 为原始地址，`imageProxyUrl` / `bilibiliMediaProxyUrl()` 给浏览器用。
+- `GET/POST /api/v1/monitor/creators/:mid/uploads/sync`、`.../dynamics/sync`、`.../media/backfill`：投稿元信息 / 动态事件 / 头像封面回填（TTL 6h）。
+- `GET /api/v1/monitor/creators/:mid/metrics?all=1`：可取全量粉丝样本（上限 20000），响应含 `totalItems`。
 
 视频 / UP 主页面读的是上面的卡片投影，不是把 `GET /targets` 整页拉到浏览器后再和当前视频页对拍。投影是 `videos` 或 `creators` 与未删除的 `monitor_targets` 做有界全外连接：目标可以先于实体存在。筛选、搜索和总数在同一次查询里计算。卡片状态只看活动目标的 `enabled`，不看 `videos.monitoring_enabled` / `creators.monitoring_enabled`。
 

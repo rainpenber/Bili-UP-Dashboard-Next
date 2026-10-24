@@ -95,7 +95,7 @@ describe('studio owner settings + onlyMine cards', () => {
     const filtered = parseMonitorCardList(
       await (
         await http().request(
-          '/api/v1/monitor/cards?type=video&category=游戏&page=1&pageSize=2&onlyMine=1&sort=published_asc',
+          '/api/v1/monitor/cards?type=video&category=游戏&page=1&pageSize=2&onlyMine=1&sort=published_asc&includeUnmonitored=1',
         )
       ).json(),
     );
@@ -106,19 +106,23 @@ describe('studio owner settings + onlyMine cards', () => {
     const page2 = parseMonitorCardList(
       await (
         await http().request(
-          '/api/v1/monitor/cards?type=video&category=游戏&page=2&pageSize=2&onlyMine=1&sort=published_asc',
+          '/api/v1/monitor/cards?type=video&category=游戏&page=2&pageSize=2&onlyMine=1&sort=published_asc&includeUnmonitored=1',
         )
       ).json(),
     );
     expect(page2.totalItems).toBe(3);
     expect(page2.items.map((item) => item.externalId)).toEqual(['BV1mineccccc']);
 
-    const badFlag = await http().request('/api/v1/monitor/cards?type=video&onlyMine=yes');
+    const badFlag = await http().request(
+      '/api/v1/monitor/cards?type=video&onlyMine=yes&includeUnmonitored=1',
+    );
     expect(badFlag.status).toBe(400);
 
     const all = parseMonitorCardList(
       await (
-        await http().request('/api/v1/monitor/cards?type=video&category=游戏&page=1&pageSize=50')
+        await http().request(
+          '/api/v1/monitor/cards?type=video&category=游戏&page=1&pageSize=50&includeUnmonitored=1',
+        )
       ).json(),
     );
     expect(all.totalItems).toBe(4);
@@ -127,7 +131,7 @@ describe('studio owner settings + onlyMine cards', () => {
     const empty = parseMonitorCardList(
       await (
         await http().request(
-          '/api/v1/monitor/cards?type=video&category=游戏&page=1&pageSize=8&onlyMine=1',
+          '/api/v1/monitor/cards?type=video&category=游戏&page=1&pageSize=8&onlyMine=1&includeUnmonitored=1',
         )
       ).json(),
     );

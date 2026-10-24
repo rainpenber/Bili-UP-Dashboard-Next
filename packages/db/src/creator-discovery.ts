@@ -845,6 +845,7 @@ export async function upsertCreatorUploadsSyncState(
 /**
  * Upsert archive-list metadata into videos without enabling monitoring.
  * Does not invent cid (space arc search has no cid).
+ * When `coverUrl` is present, writes cover_url and marks cover_state/metadata_state ok.
  */
 export async function upsertVideoArchiveMetadata(
   sql: Queryable,
@@ -853,26 +854,254 @@ export async function upsertVideoArchiveMetadata(
     title: string;
     mid: string;
     pubdate: Date;
+    coverUrl?: string | null;
   },
 ): Promise<void> {
+  const coverUrl = input.coverUrl?.trim() || null;
+  const fetchedAt = coverUrl ? new Date() : null;
   await sql`
     INSERT INTO creators (mid)
     VALUES (${input.mid}::bigint)
     ON CONFLICT (mid) DO NOTHING
   `;
   await sql`
-    INSERT INTO videos (bvid, title, mid, pubdate, monitoring_enabled)
+    INSERT INTO videos (
+      bvid, title, mid, pubdate, monitoring_enabled,
+      cover_url, cover_state, metadata_state, metadata_source, metadata_fetched_at
+    )
     VALUES (
       ${input.bvid},
       ${input.title},
       ${input.mid}::bigint,
       ${input.pubdate},
-      false
+      false,
+      ${coverUrl},
+      ${coverUrl ? 'ok' : 'pending'},
+      ${coverUrl ? 'ok' : 'pending'},
+      ${coverUrl ? 'bilibili' : null},
+      ${fetchedAt}
     )
     ON CONFLICT (bvid) DO UPDATE SET
       title = COALESCE(NULLIF(EXCLUDED.title, ''), videos.title),
       mid = COALESCE(EXCLUDED.mid, videos.mid),
       pubdate = COALESCE(EXCLUDED.pubdate, videos.pubdate),
+      cover_url = COALESCE(EXCLUDED.cover_url, videos.cover_url),
+      cover_state = CASE
+        WHEN EXCLUDED.cover_url IS NOT NULL THEN 'ok'
+        ELSE videos.cover_state
+      END,
+      metadata_state = CASE
+        WHEN EXCLUDED.cover_url IS NOT NULL AND videos.metadata_state IN ('pending', 'partial', 'failed')
+          THEN 'ok'
+        WHEN EXCLUDED.cover_url IS NOT NULL AND videos.metadata_state IS NULL
+          THEN 'ok'
+        ELSE videos.metadata_state
+      END,
+      metadata_source = CASE
+        WHEN EXCLUDED.cover_url IS NOT NULL THEN COALESCE(videos.metadata_source, 'bilibili')
+        ELSE videos.metadata_source
+      END,
+      metadata_fetched_at = CASE
+        WHEN EXCLUDED.cover_url IS NOT NULL THEN COALESCE(videos.metadata_fetched_at, now())
+        ELSE videos.metadata_fetched_at
+      END,
+      updated_at = now()
+  `;
+}
+
+export type CreatorDynamicsSyncStateRow = {
+  mid: string;
+  lastSyncedAt: Date | null;
+  lastError: string | null;
+  lastDynamicCount: number;
+  lastEventsCreated: number;
+  updatedAt: Date;
+};
+
+type DynamicsSyncSqlRow = {
+  mid: string;
+  last_synced_at: Date | null;
+  last_error: string | null;
+  last_dynamic_count: number;
+  last_events_created: number;
+  updated_at: Date;
+};
+
+function mapDynamicsSync(row: DynamicsSyncSqlRow): CreatorDynamicsSyncStateRow {
+  return {
+    mid: row.mid,
+    lastSyncedAt: row.last_synced_at,
+    lastError: row.last_error,
+    lastDynamicCount: row.last_dynamic_count,
+    lastEventsCreated: row.last_events_created,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getCreatorDynamicsSyncState(
+  sql: Queryable,
+  mid: string,
+): Promise<CreatorDynamicsSyncStateRow | null> {
+  const rows = await sql<DynamicsSyncSqlRow[]>`
+    SELECT
+      mid, last_synced_at, last_error, last_dynamic_count, last_events_created, updated_at
+    FROM creator_dynamics_sync_state
+    WHERE mid = ${mid}
+    LIMIT 1
+  `;
+  const row = rows[0];
+  return row ? mapDynamicsSync(row) : null;
+}
+
+export async function upsertCreatorDynamicsSyncState(
+  sql: Queryable,
+  input: {
+    mid: string;
+    lastSyncedAt: Date | null;
+    lastError: string | null;
+    lastDynamicCount: number;
+    lastEventsCreated: number;
+    now: Date;
+  },
+): Promise<CreatorDynamicsSyncStateRow> {
+  const rows = await sql<DynamicsSyncSqlRow[]>`
+    INSERT INTO creator_dynamics_sync_state (
+      mid, last_synced_at, last_error, last_dynamic_count, last_events_created, updated_at
+    ) VALUES (
+      ${input.mid},
+      ${input.lastSyncedAt},
+      ${input.lastError},
+      ${input.lastDynamicCount},
+      ${input.lastEventsCreated},
+      ${input.now}
+    )
+    ON CONFLICT (mid) DO UPDATE SET
+      last_synced_at = EXCLUDED.last_synced_at,
+      last_error = EXCLUDED.last_error,
+      last_dynamic_count = EXCLUDED.last_dynamic_count,
+      last_events_created = EXCLUDED.last_events_created,
+      updated_at = EXCLUDED.updated_at
+    RETURNING
+      mid, last_synced_at, last_error, last_dynamic_count, last_events_created, updated_at
+  `;
+  const row = rows[0];
+  if (!row) throw new Error('动态同步状态写入后未能读回');
+  return mapDynamicsSync(row);
+}
+
+export type CreatorMediaBackfillStateRow = {
+  mid: string;
+  lastSyncedAt: Date | null;
+  lastError: string | null;
+  lastFaceUpdated: boolean;
+  lastCoversUpdated: number;
+  updatedAt: Date;
+};
+
+type MediaBackfillSqlRow = {
+  mid: string;
+  last_synced_at: Date | null;
+  last_error: string | null;
+  last_face_updated: boolean;
+  last_covers_updated: number;
+  updated_at: Date;
+};
+
+function mapMediaBackfill(row: MediaBackfillSqlRow): CreatorMediaBackfillStateRow {
+  return {
+    mid: row.mid,
+    lastSyncedAt: row.last_synced_at,
+    lastError: row.last_error,
+    lastFaceUpdated: row.last_face_updated,
+    lastCoversUpdated: row.last_covers_updated,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getCreatorMediaBackfillState(
+  sql: Queryable,
+  mid: string,
+): Promise<CreatorMediaBackfillStateRow | null> {
+  const rows = await sql<MediaBackfillSqlRow[]>`
+    SELECT
+      mid, last_synced_at, last_error, last_face_updated, last_covers_updated, updated_at
+    FROM creator_media_backfill_state
+    WHERE mid = ${mid}
+    LIMIT 1
+  `;
+  const row = rows[0];
+  return row ? mapMediaBackfill(row) : null;
+}
+
+export async function upsertCreatorMediaBackfillState(
+  sql: Queryable,
+  input: {
+    mid: string;
+    lastSyncedAt: Date | null;
+    lastError: string | null;
+    lastFaceUpdated: boolean;
+    lastCoversUpdated: number;
+    now: Date;
+  },
+): Promise<CreatorMediaBackfillStateRow> {
+  const rows = await sql<MediaBackfillSqlRow[]>`
+    INSERT INTO creator_media_backfill_state (
+      mid, last_synced_at, last_error, last_face_updated, last_covers_updated, updated_at
+    ) VALUES (
+      ${input.mid},
+      ${input.lastSyncedAt},
+      ${input.lastError},
+      ${input.lastFaceUpdated},
+      ${input.lastCoversUpdated},
+      ${input.now}
+    )
+    ON CONFLICT (mid) DO UPDATE SET
+      last_synced_at = EXCLUDED.last_synced_at,
+      last_error = EXCLUDED.last_error,
+      last_face_updated = EXCLUDED.last_face_updated,
+      last_covers_updated = EXCLUDED.last_covers_updated,
+      updated_at = EXCLUDED.updated_at
+    RETURNING
+      mid, last_synced_at, last_error, last_face_updated, last_covers_updated, updated_at
+  `;
+  const row = rows[0];
+  if (!row) throw new Error('媒体回填状态写入后未能读回');
+  return mapMediaBackfill(row);
+}
+
+/** Write creator face_url (+ optional uname) without downloading assets. */
+export async function upsertCreatorFaceUrl(
+  sql: Queryable,
+  input: { mid: string; faceUrl: string | null; uname?: string | null },
+): Promise<void> {
+  const faceUrl = input.faceUrl?.trim() || null;
+  const uname = input.uname?.trim() || null;
+  const fetchedAt = faceUrl ? new Date() : null;
+  await sql`
+    INSERT INTO creators (mid, uname, face_url, metadata_state, metadata_source, metadata_fetched_at)
+    VALUES (
+      ${input.mid}::bigint,
+      ${uname},
+      ${faceUrl},
+      ${faceUrl ? 'ok' : 'pending'},
+      ${faceUrl ? 'bilibili' : null},
+      ${fetchedAt}
+    )
+    ON CONFLICT (mid) DO UPDATE SET
+      uname = COALESCE(EXCLUDED.uname, creators.uname),
+      face_url = COALESCE(EXCLUDED.face_url, creators.face_url),
+      metadata_state = CASE
+        WHEN EXCLUDED.face_url IS NOT NULL THEN 'ok'
+        ELSE creators.metadata_state
+      END,
+      metadata_source = CASE
+        WHEN EXCLUDED.face_url IS NOT NULL THEN COALESCE(creators.metadata_source, 'bilibili')
+        ELSE creators.metadata_source
+      END,
+      metadata_fetched_at = CASE
+        WHEN EXCLUDED.face_url IS NOT NULL THEN now()
+        ELSE creators.metadata_fetched_at
+      END,
       updated_at = now()
   `;
 }

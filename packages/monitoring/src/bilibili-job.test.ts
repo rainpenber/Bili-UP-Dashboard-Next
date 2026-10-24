@@ -47,6 +47,9 @@ function provider(fetchVideo: BilibiliProvider['fetchVideo']): BilibiliProvider 
     fetchCreatorDynamics: async () => {
       throw new Error('unused');
     },
+    fetchCreatorProfile: async () => {
+      throw new Error('unused');
+    },
     collectDynamic: async () => {
       throw new Error('unused');
     },

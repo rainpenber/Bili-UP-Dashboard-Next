@@ -2,11 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import {
   MONITOR_CREATOR_VIDEOS_DEFAULT_LIMIT,
   MONITOR_CREATOR_VIDEOS_MAX_LIMIT,
+  MONITOR_DEFAULT_METRICS_LIMIT,
   MONITOR_MAX_METRICS_LIMIT,
   newestMetricPoint,
   parseCreatorMid,
   parseCreatorVideosLimit,
   parseCreatorVideosOffset,
+  parseMetricsAllFlag,
   parseMetricsLimit,
   parseMonitorPage,
   parseMonitorPageSize,
@@ -21,10 +23,14 @@ describe('monitor query parsers', () => {
     expect(parseMonitorPageSize('999')).toBe(50);
   });
 
-  test('metrics limit capped', () => {
+  test('metrics limit defaults to 500 and caps at 20000; all=1 uses hard cap', () => {
+    expect(parseMetricsLimit(undefined)).toBe(MONITOR_DEFAULT_METRICS_LIMIT);
     expect(parseMetricsLimit(String(MONITOR_MAX_METRICS_LIMIT + 1))).toBe(
       MONITOR_MAX_METRICS_LIMIT,
     );
+    expect(parseMetricsLimit(undefined, { all: true })).toBe(MONITOR_MAX_METRICS_LIMIT);
+    expect(parseMetricsAllFlag('1')).toBe(true);
+    expect(parseMetricsAllFlag(undefined)).toBe(false);
   });
 
   test('creator video limit defaults to 20 and caps at 100', () => {
