@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -181,35 +181,7 @@ function CreatorFollowerCharts({
     return defaultFollowerZoomRange(domainPreview.minMs, domainPreview.maxMs, lastSampleMs);
   }, [domainPreview, sampleTimesMs]);
 
-  const [followerZoom, setFollowerZoom] = useState<{ start: number; end: number } | null>(null);
-  const appliedFollowerZoomRef = useRef<{ start: number; end: number }>(initialZoom);
-
-  useEffect(() => {
-    appliedFollowerZoomRef.current = followerZoom ?? initialZoom;
-  }, [followerZoom, initialZoom]);
-
-  // Reset user zoom when the default window / domain changes (toggle / new data).
-  useEffect(() => {
-    setFollowerZoom(null);
-  }, [showAllEvents, initialZoom.start, initialZoom.end]);
-
-  const onFollowerZoom = useCallback(
-    (params: { start?: number; end?: number; batch?: { start?: number; end?: number }[] }) => {
-      const batch = params.batch?.[0];
-      const start = batch?.start ?? params.start;
-      const end = batch?.end ?? params.end;
-      if (start == null || end == null) return;
-      const applied = appliedFollowerZoomRef.current;
-      if (Math.abs(applied.start - start) < 0.05 && Math.abs(applied.end - end) < 0.05) {
-        return;
-      }
-      appliedFollowerZoomRef.current = { start, end };
-      setFollowerZoom({ start, end });
-    },
-    [],
-  );
-
-  const zoom = followerZoom ?? initialZoom;
+  const zoom = initialZoom;
   const { option, dayBuckets } = useMemo(
     () =>
       buildFollowerOptionDetailed(
@@ -353,7 +325,6 @@ function CreatorFollowerCharts({
         opts={{ renderer: 'canvas' }}
         notMerge
         onEvents={{
-          datazoom: onFollowerZoom,
           click: onPublishMarkClick,
         }}
       />
