@@ -629,7 +629,7 @@ export async function listCreatorPublishEvents(
     WHERE mid = ${input.mid}
       AND (${from}::timestamptz IS NULL OR published_at >= ${from})
       AND (${to}::timestamptz IS NULL OR published_at <= ${to})
-    ORDER BY published_at ASC, id ASC
+    ORDER BY published_at DESC, id DESC
     LIMIT ${input.limit} OFFSET ${offset}
   `;
   return {

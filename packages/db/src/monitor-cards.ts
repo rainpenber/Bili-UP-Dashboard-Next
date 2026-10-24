@@ -23,10 +23,12 @@ export type MonitorCardQuery = {
   /** Exact identity read. Ignores list filters so detail matches the stored target. */
   externalId?: string | null;
   /**
-   * Video-only. When false (default), hide videos that have neither a non-deleted
-   * monitor target nor a commercial project reference. Identity reads ignore this.
+   * Video-only. `true` includes videos without a monitor target or commercial
+   * project reference. `false` explicitly hides them. Omitted (undefined) means
+   * "all" includes them while active/paused/unmonitored keep their filter.
+   * Identity reads ignore this.
    */
-  includeUnmonitored?: boolean;
+  includeUnmonitored?: boolean | null | undefined;
 };
 
 export type MonitorCardProjectRow = {
@@ -321,7 +323,10 @@ export async function listMonitorCards(
   /** Exact mid filter for「只看我的」; never applied to creator lists or identity reads. */
   const ownerMid = externalId || query.type !== 'video' || !query.ownerMid ? null : query.ownerMid;
   const includeUnmonitored =
-    Boolean(externalId) || query.type !== 'video' || query.includeUnmonitored === true;
+    Boolean(externalId) ||
+    query.type !== 'video' ||
+    query.includeUnmonitored === true ||
+    (query.monitor === 'all' && query.includeUnmonitored !== false);
   const pattern = q ? likePattern(q) : null;
   const unified = query.type === 'video' ? VIDEO_UNIFIED : CREATOR_UNIFIED;
   const videoSort = query.sort === 'published_asc' ? 'published_asc' : 'published_desc';

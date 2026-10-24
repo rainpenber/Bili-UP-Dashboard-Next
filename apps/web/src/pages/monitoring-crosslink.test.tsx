@@ -340,7 +340,7 @@ function syncOkBody(kind: 'uploads' | 'dynamics') {
 }
 
 describe('creator detail follower chart (WP-R2-27B)', () => {
-  test('loads all metrics, syncs dynamics, hollow events, and allEvents URL toggle', async () => {
+  test('loads all metrics without syncing, hollow events, and allEvents URL toggle', async () => {
     const urls: string[] = [];
     const methods: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -352,7 +352,7 @@ describe('creator detail follower chart (WP-R2-27B)', () => {
       if (url.includes('/publish-events')) {
         return jsonResponse({
           page: 1,
-          pageSize: 200,
+          pageSize: 50,
           totalItems: 2,
           totalPages: 1,
           items: [
@@ -403,12 +403,16 @@ describe('creator detail follower chart (WP-R2-27B)', () => {
 
     const chart = await screen.findByTestId('follower-chart');
     expect(urls.some((url) => url.includes(`/creators/${MID}/metrics?all=1`))).toBe(true);
-    await waitFor(() =>
-      expect(
-        urls.some((url) => url.includes(`/creators/${MID}/dynamics/sync`)) &&
-          methods.some((m, i) => m === 'POST' && urls[i]?.includes('/dynamics/sync')),
-      ).toBe(true),
+    expect(urls.some((url) => url.includes('/publish-events') && url.includes('pageSize=50'))).toBe(
+      true,
     );
+    expect(urls.some((url) => url.includes('pageSize=200'))).toBe(false);
+    const syncPosts = urls.filter(
+      (url, index) =>
+        methods[index] === 'POST' &&
+        (url.includes('/uploads/sync') || url.includes('/dynamics/sync')),
+    );
+    expect(syncPosts).toEqual([]);
 
     expect(within(chart).queryByTestId('follower-chart-legend-hint')).toBeNull();
     expect(within(chart).queryByTestId('follower-chart-older-events')).toBeNull();
@@ -453,7 +457,7 @@ describe('creator detail follower chart (WP-R2-27B)', () => {
       if (url.includes('/dynamics/sync')) return jsonResponse(syncOkBody('dynamics'));
       if (url.includes('/uploads/sync')) return jsonResponse(syncOkBody('uploads'));
       if (url.includes('/publish-events')) {
-        return jsonResponse({ page: 1, pageSize: 200, totalItems: 0, totalPages: 0, items: [] });
+        return jsonResponse({ page: 1, pageSize: 50, totalItems: 0, totalPages: 0, items: [] });
       }
       if (url.includes('/videos')) return jsonResponse({ mid: MID, total: 0, items: [] });
       if (url.includes('/metrics')) {
@@ -499,7 +503,7 @@ describe('creator detail video list', () => {
         });
       }
       if (url.includes('/publish-events')) {
-        return jsonResponse({ page: 1, pageSize: 200, totalItems: 0, totalPages: 0, items: [] });
+        return jsonResponse({ page: 1, pageSize: 50, totalItems: 0, totalPages: 0, items: [] });
       }
       if (url.includes('/videos')) {
         const parsed = new URL(url, 'http://localhost');
@@ -570,7 +574,7 @@ describe('creator detail video list', () => {
         });
       }
       if (url.includes('/publish-events')) {
-        return jsonResponse({ page: 1, pageSize: 200, totalItems: 0, totalPages: 0, items: [] });
+        return jsonResponse({ page: 1, pageSize: 50, totalItems: 0, totalPages: 0, items: [] });
       }
       if (url.includes('/videos')) return jsonResponse({ mid: MID, total: 0, items: [] });
       if (url.includes('/metrics')) return jsonResponse({ mid: MID, limit: 500, items: [] });
@@ -618,7 +622,7 @@ describe('creator detail video list', () => {
         });
       }
       if (url.includes('/publish-events')) {
-        return jsonResponse({ page: 1, pageSize: 200, totalItems: 0, totalPages: 0, items: [] });
+        return jsonResponse({ page: 1, pageSize: 50, totalItems: 0, totalPages: 0, items: [] });
       }
       if (url.includes('/videos')) {
         videosCalls += 1;
