@@ -298,3 +298,43 @@ describe('buildFollowerOption publish scatter', () => {
     expect(xAxis.max).toBeGreaterThanOrEqual(NOW_MS);
   });
 });
+
+describe('follower tooltip sample proximity', () => {
+  test('event-only day reports no sample instead of borrowing the nearest sample', () => {
+    const now = Date.parse('2026-10-24T00:00:00.000Z');
+    const option = buildFollowerOptionDetailed(
+      ['2026-10-23T01:00:00.000Z'],
+      [34698],
+      COLORS,
+      0,
+      100,
+      [
+        {
+          externalId: '1145141919810',
+          eventKind: 'dynamic',
+          publishedAt: '2026-08-28T05:29:00.000Z',
+          titleSnapshot: '抽PS5和GTA6啦!',
+        },
+      ],
+      now,
+    );
+    type TipFormatter = (params: unknown) => string;
+    const formatter = (option.option.tooltip as { formatter?: TipFormatter }).formatter;
+    expect(typeof formatter).toBe('function');
+
+    const eventMs = Date.parse('2026-08-28T05:29:00.000Z');
+    const sampleMs = Date.parse('2026-10-23T01:00:00.000Z');
+    const farText = formatter?.([
+      { seriesName: FOLLOWER_SAMPLE_SERIES_NAME, marker: '', value: [sampleMs, 34698], axisValue: eventMs },
+    ]);
+    expect(farText).toContain('该时段无采集样本');
+    expect(farText).not.toContain('34,698');
+    expect(farText).toContain('抽PS5和GTA6啦!');
+
+    const nearText = formatter?.([
+      { seriesName: FOLLOWER_SAMPLE_SERIES_NAME, marker: '', value: [sampleMs, 34698], axisValue: sampleMs },
+    ]);
+    expect(nearText).toContain('34,698');
+    expect(nearText).not.toContain('该时段无采集样本');
+  });
+});
