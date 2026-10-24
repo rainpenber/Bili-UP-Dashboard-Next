@@ -470,6 +470,7 @@ export function buildFollowerOptionDetailed(
     data: renderPairs,
     connectNulls: true,
     showSymbol: false,
+    silent: true,
     animation: false,
     lineStyle: { width: 2, color: semantic.series1 },
     itemStyle: { color: semantic.series1 },
