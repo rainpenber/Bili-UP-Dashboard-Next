@@ -182,6 +182,11 @@ function CreatorFollowerCharts({
   }, [domainPreview, sampleTimesMs]);
 
   const [followerZoom, setFollowerZoom] = useState<{ start: number; end: number } | null>(null);
+  const appliedFollowerZoomRef = useRef<{ start: number; end: number }>(initialZoom);
+
+  useEffect(() => {
+    appliedFollowerZoomRef.current = followerZoom ?? initialZoom;
+  }, [followerZoom, initialZoom]);
 
   // Reset user zoom when the default window / domain changes (toggle / new data).
   useEffect(() => {
@@ -194,16 +199,12 @@ function CreatorFollowerCharts({
       const start = batch?.start ?? params.start;
       const end = batch?.end ?? params.end;
       if (start == null || end == null) return;
-      setFollowerZoom((previous: { start: number; end: number } | null) => {
-        if (
-          previous &&
-          Math.abs(previous.start - start) < 0.001 &&
-          Math.abs(previous.end - end) < 0.001
-        ) {
-          return previous;
-        }
-        return { start, end };
-      });
+      const applied = appliedFollowerZoomRef.current;
+      if (Math.abs(applied.start - start) < 0.05 && Math.abs(applied.end - end) < 0.05) {
+        return;
+      }
+      appliedFollowerZoomRef.current = { start, end };
+      setFollowerZoom({ start, end });
     },
     [],
   );
