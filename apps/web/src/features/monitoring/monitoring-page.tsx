@@ -2,7 +2,11 @@ import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Columns2, LayoutGrid } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
-import { useDynamicsQuery, useEntityMetricsQuery } from '@/api/hooks/use-monitor-queries';
+import {
+  useCreatorPublishEventsQuery,
+  useDynamicsQuery,
+  useEntityMetricsQuery,
+} from '@/api/hooks/use-monitor-queries';
 import { useMonitorCardsQuery } from '@/api/hooks/use-monitor-card-queries';
 import {
   EmptyState,
@@ -167,6 +171,8 @@ export function MonitoringPage() {
     state.tab === 'dynamics' ? state.selected : selectedCard?.hasEntity ? state.selected : null,
     state.tab === 'dynamics' || selectedCard?.hasEntity === true,
   );
+  const publishEventsMid = state.tab === 'creators' && state.selected ? state.selected : '';
+  const publishEventsQuery = useCreatorPublishEventsQuery(publishEventsMid);
 
   const listQueryState = state.tab === 'dynamics' ? dynamicsQuery : cardsQuery;
   const totalPages = listQueryState.data?.totalPages ?? 1;
@@ -553,7 +559,12 @@ export function MonitoringPage() {
                 {state.selected &&
                 metricsQuery.isSuccess &&
                 metricsQuery.data?.kind === 'creator' ? (
-                  <MetricCharts kind="creator" points={metricsQuery.data.points} />
+                  <MetricCharts
+                    kind="creator"
+                    mid={state.selected}
+                    points={metricsQuery.data.points}
+                    publishEvents={publishEventsQuery.data?.items ?? []}
+                  />
                 ) : null}
                 {state.selected &&
                 metricsQuery.isSuccess &&

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
   createIsolatedTestDatabase,
   dropIsolatedTestDatabase,
+  insertCreatorPublishEvent,
   insertMonitorTarget,
   type Sql,
 } from '@studio/db';
@@ -113,5 +114,72 @@ describe('creator dynamics sync', () => {
       WHERE mid = ${MID} AND event_kind = 'dynamic' AND source = 'bilibili'
     `;
     expect(Number(rows[0]?.n)).toBe(3);
+  });
+
+  test('skips AV dynamic when the same bvid already has a video event', async () => {
+    if (!sql) return;
+    const now = new Date('2026-10-24T00:00:00.000Z');
+    const bvid = 'BV1xx411c7mZ';
+    await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid: MID,
+      eventKind: 'video',
+      externalId: bvid,
+      publishedAt: new Date('2026-10-24T00:00:00.000Z'),
+      titleSnapshot: '视频标题',
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+    const provider: CreatorDynamicsPageProvider = {
+      async fetchCreatorDynamics() {
+        return {
+          dynamics: [
+            {
+              dynamicId: '900000000000000010',
+              publishedAtSec: 1_700_000_010n,
+              title: '动态正文',
+              text: '动态正文',
+              bvid,
+            },
+            {
+              dynamicId: '900000000000000011',
+              publishedAtSec: 1_700_000_011n,
+              title: '普通图文',
+              text: '普通图文',
+            },
+          ],
+          calls: [],
+          offset: null,
+          hasMore: false,
+        };
+      },
+    };
+    const result = await syncCreatorDynamics({
+      sql,
+      mid: MID,
+      force: true,
+      provider,
+      effects: {
+        resolveAccount: async () => null,
+        cookieHeaderFor: async () => null,
+        audit: async () => undefined,
+      },
+      forcedAccountId: null,
+      now,
+    });
+    expect(result.createdCount).toBe(1);
+    expect(result.skippedDuplicates).toBe(1);
+
+    const rows = await sql<{ external_id: string; related_bvid: string | null }[]>`
+      SELECT external_id, related_bvid
+      FROM creator_publish_events
+      WHERE mid = ${MID}
+        AND event_kind = 'dynamic'
+        AND external_id IN ('900000000000000010', '900000000000000011')
+      ORDER BY external_id
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.external_id).toBe('900000000000000011');
+    expect(rows[0]?.related_bvid).toBeNull();
   });
 });

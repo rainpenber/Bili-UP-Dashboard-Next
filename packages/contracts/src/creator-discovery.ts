@@ -57,6 +57,8 @@ export type CreatorPublishEvent = {
   source: CreatorPublishEventSource;
   monitored: boolean;
   monitoredTargetId: string | null;
+  /** AV dynamics: bvid of the matching upload video (hidden from lists once video exists). */
+  relatedBvid?: string;
   /** True when the event is a monitored video and the UI may navigate to its detail. */
   navigable: boolean;
 };
@@ -407,6 +409,14 @@ export function parseCreatorPublishEvent(value: unknown): CreatorPublishEvent {
   if (navigable && (eventKind !== 'video' || !monitored || !monitoredTargetId)) {
     throw new MonitorContractError('invalid_body', 'navigable 与监控状态不一致');
   }
+  const relatedBvid = (() => {
+    if (value.relatedBvid === undefined || value.relatedBvid === null) return undefined;
+    const bvid = asString(value.relatedBvid, 'relatedBvid');
+    if (!VIDEO_EXTERNAL_ID.test(bvid)) {
+      throw new MonitorContractError('invalid_body', 'relatedBvid 必须是合法 BV 号');
+    }
+    return bvid;
+  })();
   return {
     id: asString(value.id, 'id'),
     mid: parseCreatorMid(asString(value.mid, 'mid')),
@@ -418,6 +428,7 @@ export function parseCreatorPublishEvent(value: unknown): CreatorPublishEvent {
     source: parsePublishEventSource(value.source),
     monitored,
     monitoredTargetId,
+    ...(relatedBvid ? { relatedBvid } : {}),
     navigable,
   };
 }
