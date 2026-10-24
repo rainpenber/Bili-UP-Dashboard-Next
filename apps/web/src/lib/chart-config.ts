@@ -426,12 +426,38 @@ export function buildFollowerOptionDetailed(
           timeMs != null && Number.isFinite(timeMs)
             ? shanghaiCalendarDayKey(new Date(timeMs).toISOString())
             : null;
-        const eventLines = dayKey ? (bucketsByDay.get(dayKey)?.labels ?? []) : [];
+        const axisRaw = (items[0] as { axisValue?: unknown } | undefined)?.axisValue;
+        const axisMs =
+          typeof axisRaw === 'number'
+            ? axisRaw
+            : axisRaw != null
+              ? Date.parse(String(axisRaw))
+              : Number.NaN;
+        const sampleMs = timeMs;
+        const sampleIsNear =
+          sampleMs != null &&
+          Number.isFinite(sampleMs) &&
+          Number.isFinite(axisMs) &&
+          Math.abs(sampleMs - axisMs) <= 3 * 60 * 60 * 1000;
+        const hoverMs = Number.isFinite(axisMs) ? axisMs : sampleMs;
+        const hoverTime =
+          hoverMs != null && Number.isFinite(hoverMs)
+            ? formatFullLocalTime(new Date(hoverMs).toISOString())
+            : time;
+        const effectiveDayKey =
+          hoverMs != null && Number.isFinite(hoverMs)
+            ? shanghaiCalendarDayKey(new Date(hoverMs).toISOString())
+            : dayKey;
+        const effectiveEventLines = effectiveDayKey
+          ? (bucketsByDay.get(effectiveDayKey)?.labels ?? [])
+          : [];
         const marker = primary?.marker ?? '';
         return [
-          time,
-          `${marker}${FOLLOWER_SAMPLE_SERIES_NAME}：${formatExactNumber(fans)}`,
-          ...eventLines,
+          hoverTime,
+          sampleIsNear
+            ? `${marker}${FOLLOWER_SAMPLE_SERIES_NAME}：${formatExactNumber(fans)}`
+            : `${FOLLOWER_SAMPLE_SERIES_NAME}：该时段无采集样本`,
+          ...effectiveEventLines,
         ].join('<br/>');
       },
     },
