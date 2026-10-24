@@ -26,6 +26,8 @@ export type ParsedSpaceDynamic = {
   title: string;
   /** Optional body text from list modules (for title fallback). */
   text?: string;
+  /** AV dynamics: bvid from module_dynamic.major.archive. */
+  bvid?: string;
 };
 
 export type DiscoveryItemSkip = {
@@ -102,6 +104,18 @@ function dynamicTextFromModules(modules: Record<string, unknown> | null): string
   return fromDesc ? fromDesc.slice(0, 500) : '';
 }
 
+function dynamicBvidFromModules(modules: Record<string, unknown> | null): string | null {
+  if (!modules) return null;
+  const dynamic = optionalRecord(modules.module_dynamic, 'module_dynamic');
+  if (!dynamic) return null;
+  const major = optionalRecord(dynamic.major, 'module_dynamic.major');
+  if (!major) return null;
+  const archive = optionalRecord(major.archive, 'module_dynamic.major.archive');
+  if (!archive) return null;
+  const bvid = optionalString(archive.bvid);
+  return bvid && BVID.test(bvid) ? bvid : null;
+}
+
 function dynamicTitleFromModules(modules: Record<string, unknown> | null): string {
   if (!modules) return '';
   const dynamic = optionalRecord(modules.module_dynamic, 'module_dynamic');
@@ -158,11 +172,13 @@ function parseOneSpaceDynamicItem(item: unknown): ParsedSpaceDynamic | Discovery
     const publishedAtSec = readNonNegative(author.pub_ts, 'module_author.pub_ts');
     const text = dynamicTextFromModules(modules);
     const title = dynamicTitleFromModules(modules);
+    const bvid = dynamicBvidFromModules(modules);
     return {
       dynamicId: id,
       publishedAtSec,
       title,
       ...(text ? { text } : {}),
+      ...(bvid ? { bvid } : {}),
     };
   } catch (error) {
     const reason = error instanceof Error ? error.message : '动态条目解析异常';

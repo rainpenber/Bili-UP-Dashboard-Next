@@ -189,4 +189,78 @@ describe('manual creator publish events', () => {
     expect(emptyBody.totalItems).toBe(1);
     expect(emptyBody.items).toHaveLength(1);
   }, 30_000);
+
+  test('list hides dynamic events that duplicate an existing video bvid', async () => {
+    if (!sql || !app) return;
+    const before = await app.request(
+      `/api/v1/monitor/creators/${MID}/publish-events?page=1&pageSize=200`,
+    );
+    const beforeBody = (await before.json()) as { totalItems: number };
+
+    const videoBvid = 'BV1xx411c7mD';
+    const videoId = crypto.randomUUID();
+    const relatedDynamicId = crypto.randomUUID();
+    const plainDynamicId = crypto.randomUUID();
+    await sql`
+      INSERT INTO creator_publish_events (
+        id, mid, event_kind, external_id, published_at, title_snapshot,
+        first_discovered_at, source
+      ) VALUES (
+        ${videoId}::uuid,
+        ${MID},
+        'video',
+        ${videoBvid},
+        ${new Date('2026-10-02T00:00:00.000Z')},
+        '视频标题',
+        ${new Date()},
+        'bilibili'
+      )
+    `;
+    await sql`
+      INSERT INTO creator_publish_events (
+        id, mid, event_kind, external_id, published_at, title_snapshot,
+        first_discovered_at, source, related_bvid
+      ) VALUES (
+        ${relatedDynamicId}::uuid,
+        ${MID},
+        'dynamic',
+        '900000000000000002',
+        ${new Date('2026-10-02T00:00:01.000Z')},
+        '动态正文',
+        ${new Date()},
+        'bilibili',
+        ${videoBvid}
+      )
+    `;
+    await sql`
+      INSERT INTO creator_publish_events (
+        id, mid, event_kind, external_id, published_at, title_snapshot,
+        first_discovered_at, source
+      ) VALUES (
+        ${plainDynamicId}::uuid,
+        ${MID},
+        'dynamic',
+        '900000000000000003',
+        ${new Date('2026-10-02T00:00:02.000Z')},
+        '普通图文',
+        ${new Date()},
+        'bilibili'
+      )
+    `;
+
+    const listed = await app.request(
+      `/api/v1/monitor/creators/${MID}/publish-events?page=1&pageSize=200`,
+    );
+    expect(listed.status).toBe(200);
+    const body = (await listed.json()) as {
+      totalItems: number;
+      items: { id: string; relatedBvid?: string }[];
+    };
+    expect(body.totalItems).toBe(beforeBody.totalItems + 2);
+    expect(body.totalItems).toBe(body.items.length);
+    const ids = body.items.map((item) => item.id);
+    expect(ids).toContain(videoId);
+    expect(ids).toContain(plainDynamicId);
+    expect(ids).not.toContain(relatedDynamicId);
+  }, 30_000);
 });

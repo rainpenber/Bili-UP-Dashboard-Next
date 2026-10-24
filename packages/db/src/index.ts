@@ -63,6 +63,7 @@ export {
   getCreatorMediaBackfillState,
   getCreatorUploadsSyncState,
   getVideoDenseCollectPlan,
+  hasCreatorVideoPublishEvent,
   insertCreatorPublishEvent,
   linkPublishEventTarget,
   listCreatorPublishEvents,

@@ -58,6 +58,57 @@ describe('discovery list parsers', () => {
     });
   });
 
+  test('parses AV dynamic archive bvid and leaves plain dynamics without it', () => {
+    const parsed = parseSpaceDynamicFeed({
+      code: 0,
+      data: {
+        has_more: false,
+        items: [
+          {
+            id_str: '1063487284684259333',
+            type: 'DYNAMIC_TYPE_AV',
+            modules: {
+              module_author: { pub_ts: 1700000004 },
+              module_dynamic: {
+                major: {
+                  archive: {
+                    bvid: 'BV1xx411c7mD',
+                    title: '视频标题',
+                  },
+                },
+              },
+            },
+          },
+          {
+            id_str: '1063487284684259334',
+            type: 'DYNAMIC_TYPE_DRAW',
+            modules: {
+              module_author: { pub_ts: 1700000005 },
+              module_dynamic: {
+                desc: { text: '普通图文' },
+                major: { draw: { items: [] } },
+              },
+            },
+          },
+          {
+            id_str: '1063487284684259335',
+            type: 'DYNAMIC_TYPE_AV',
+            modules: {
+              module_author: { pub_ts: 1700000006 },
+              module_dynamic: {
+                major: { archive: { bvid: 'not-a-bvid', title: '非法 bvid' } },
+              },
+            },
+          },
+        ],
+      },
+    });
+    expect(parsed.items[0]?.bvid).toBe('BV1xx411c7mD');
+    expect(parsed.items[0]?.title).toBe('视频标题');
+    expect(parsed.items[1]?.bvid).toBeUndefined();
+    expect(parsed.items[2]?.bvid).toBeUndefined();
+  });
+
   test('isolates bad / only_fans items without failing the feed', () => {
     const parsed = parseSpaceDynamicFeed({
       code: 0,

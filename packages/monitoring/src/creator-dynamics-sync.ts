@@ -1,6 +1,7 @@
 import {
   findActivePublishMonitorTargetId,
   getCreatorDynamicsSyncState,
+  hasCreatorVideoPublishEvent,
   insertCreatorPublishEvent,
   upsertCreatorDynamicsSyncState,
   type Sql,
@@ -29,6 +30,7 @@ export type CreatorDynamicsSyncResponse = CreatorDynamicsSyncStatus & {
   cached: boolean;
   pagesFetched: number;
   createdCount: number;
+  skippedDuplicates: number;
 };
 
 export type CreatorDynamicsPageProvider = {
@@ -95,12 +97,17 @@ export async function readCreatorDynamicsSyncStatus(
 async function persistDynamicEvents(
   sql: Sql,
   input: { mid: string; now: Date; dynamics: ParsedSpaceDynamic[] },
-): Promise<{ dynamicCount: number; eventsCreated: number }> {
+): Promise<{ dynamicCount: number; eventsCreated: number; skippedDuplicates: number }> {
   let eventsCreated = 0;
+  let skippedDuplicates = 0;
   const seen = new Set<string>();
   for (const dyn of input.dynamics) {
     if (seen.has(dyn.dynamicId)) continue;
     seen.add(dyn.dynamicId);
+    if (dyn.bvid && (await hasCreatorVideoPublishEvent(sql, { mid: input.mid, bvid: dyn.bvid }))) {
+      skippedDuplicates += 1;
+      continue;
+    }
     const publishedAt = new Date(Number(dyn.publishedAtSec) * 1000);
     const titleSnapshot = resolveDiscoveryDynamicTitle({
       title: dyn.title,
@@ -120,11 +127,12 @@ async function persistDynamicEvents(
       titleSnapshot: titleSnapshot || `动态 ${dyn.dynamicId.slice(-6)}`,
       firstDiscoveredAt: input.now,
       monitoredTargetId: existingTargetId,
+      relatedBvid: dyn.bvid ?? null,
       source: 'bilibili',
     });
     if (inserted.created) eventsCreated += 1;
   }
-  return { dynamicCount: seen.size, eventsCreated };
+  return { dynamicCount: seen.size, eventsCreated, skippedDuplicates };
 }
 
 /**
@@ -149,6 +157,7 @@ export async function syncCreatorDynamics(options: {
       cached: true,
       pagesFetched: 0,
       createdCount: status.eventsCreated,
+      skippedDuplicates: 0,
     };
   }
 
@@ -259,6 +268,7 @@ export async function syncCreatorDynamics(options: {
     dynamicCount: written.dynamicCount,
     eventsCreated: written.eventsCreated,
     createdCount: written.eventsCreated,
+    skippedDuplicates: written.skippedDuplicates,
     pagesFetched,
     stale: false,
     ttlMs: CREATOR_DYNAMICS_SYNC_TTL_MS,
