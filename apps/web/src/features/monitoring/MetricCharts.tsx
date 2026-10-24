@@ -221,7 +221,7 @@ function CreatorFollowerCharts({
   return (
     <div className="min-w-0 space-y-1" data-testid="follower-chart">
       <p className="text-xs text-muted-foreground" data-testid="follower-chart-legend-hint">
-        折线为粉丝数（样本）；菱形为发布（事件日期）。浅色底表示该时段无采集样本。
+        折线为粉丝数（样本）；圆点为发布（事件日期）。浅色底表示该时段无采集样本。
       </p>
       {olderEventCount > 0 ? (
         <p className="text-xs text-muted-foreground" data-testid="follower-chart-older-events">
