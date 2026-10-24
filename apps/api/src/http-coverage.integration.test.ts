@@ -759,14 +759,13 @@ describe('HTTP API coverage against isolated Postgres', () => {
       expect(mediaBackfill.faceUpdated).toBe(true);
       expect(mediaBackfill.coversUpdated).toBeGreaterThanOrEqual(1);
       expect(mediaBackfill.faceUrl).toContain('hdslb.com');
-      const proxied = await expectStatus(
-        await api(
-          `/api/v1/media/image?url=${encodeURIComponent('https://i0.hdslb.com/bfs/face/a.jpg')}`,
-        ),
-        200,
+      const proxied = await api(
+        `/api/v1/media/image?url=${encodeURIComponent('https://i0.hdslb.com/bfs/face/a.jpg')}`,
       );
+      expect(proxied.status).toBe(200);
       expect(proxied.headers.get('content-type')).toContain('image/');
       expect(proxied.headers.get('cache-control')).toContain('max-age=86400');
+      await proxied.arrayBuffer();
       await expectStatus(
         await api(`/api/v1/media/image?url=${encodeURIComponent('https://evil.example/x.jpg')}`),
         400,

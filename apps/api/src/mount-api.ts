@@ -19,7 +19,10 @@ export type MountApiOptions = MonitorRefreshOptions & {
 export function mountApiRoutes(app: Hono<ApiEnv>, db: Sql, monitor: MountApiOptions = {}): void {
   app.route('/api/v1/monitor', createMonitorRoutes(db, monitor));
   app.route('/api/v1/assets', createAssetsRoutes(db));
-  app.route('/api/v1/media', createMediaRoutes({ fetchImage: monitor.mediaImageFetch }));
+  app.route(
+    '/api/v1/media',
+    createMediaRoutes(monitor.mediaImageFetch ? { fetchImage: monitor.mediaImageFetch } : {}),
+  );
   app.route('/api/v1/imports', createImportRoutes(db));
   app.route('/api/v1/commercial', createCommercialRoutes(db));
   app.route('/api/v1/ops', createOpsRoutes(db));

@@ -3,8 +3,7 @@ import { MonitorContractError } from './monitor-targets';
 /** In-process proxy path for Bilibili CDN images (referer anti-leech). */
 export const MEDIA_IMAGE_PROXY_PATH = '/api/v1/media/image';
 
-const ALLOWED_HOST =
-  /^(?:[a-z0-9-]+\.)*(?:hdslb\.com|bilibili\.com)$/i;
+const ALLOWED_HOST = /^(?:[a-z0-9-]+\.)*(?:hdslb\.com|bilibili\.com)$/i;
 
 /**
  * Build a same-origin proxy URL for a raw Bilibili image URL.

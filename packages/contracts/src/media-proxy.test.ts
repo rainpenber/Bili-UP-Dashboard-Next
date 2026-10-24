@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { bilibiliMediaProxyUrl, isAllowedBilibiliMediaHost, MEDIA_IMAGE_PROXY_PATH } from './media-proxy';
+import {
+  bilibiliMediaProxyUrl,
+  isAllowedBilibiliMediaHost,
+  MEDIA_IMAGE_PROXY_PATH,
+} from './media-proxy';
 
 describe('bilibiliMediaProxyUrl', () => {
   test('builds proxy path with encoded url', () => {

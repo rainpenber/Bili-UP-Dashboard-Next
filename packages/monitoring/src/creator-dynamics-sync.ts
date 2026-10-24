@@ -71,8 +71,7 @@ function toStatus(
 ): CreatorDynamicsSyncStatus {
   const lastSyncedAt = state?.lastSyncedAt ?? null;
   const stale =
-    lastSyncedAt === null ||
-    now.getTime() - lastSyncedAt.getTime() >= CREATOR_DYNAMICS_SYNC_TTL_MS;
+    lastSyncedAt === null || now.getTime() - lastSyncedAt.getTime() >= CREATOR_DYNAMICS_SYNC_TTL_MS;
   return {
     mid,
     lastSyncedAt: lastSyncedAt?.toISOString() ?? null,

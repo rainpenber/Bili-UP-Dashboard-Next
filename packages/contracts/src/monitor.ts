@@ -215,10 +215,7 @@ export function parseMonitorPageSize(raw: string | undefined): number {
  * When `all` is true (query `all=1` / `true`), returns the hard cap so callers
  * can fetch the full series without server-side downsampling.
  */
-export function parseMetricsLimit(
-  raw: string | undefined,
-  options?: { all?: boolean },
-): number {
+export function parseMetricsLimit(raw: string | undefined, options?: { all?: boolean }): number {
   if (options?.all) return MONITOR_MAX_METRICS_LIMIT;
   const n = Number(raw ?? MONITOR_DEFAULT_METRICS_LIMIT);
   if (!Number.isFinite(n) || n < 1) throw new Error('invalid limit');

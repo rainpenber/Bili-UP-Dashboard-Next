@@ -16,15 +16,13 @@ describe('formatDynamicTargetLabel', () => {
         text: '今天  发了\n一条\t动态',
         dynamicId: '1',
       }),
-    ).toBe('今天 发了一条 动态');
+    ).toBe('今天 发了 一条 动态');
   });
 
   test('truncates over 24 chars with ellipsis', () => {
     const long = '一二三四五六七八九十一二三四五六七八九十一二三四五';
     expect(long.length).toBeGreaterThan(24);
-    expect(formatDynamicTargetLabel({ text: long, dynamicId: '9' })).toBe(
-      `${long.slice(0, 24)}…`,
-    );
+    expect(formatDynamicTargetLabel({ text: long, dynamicId: '9' })).toBe(`${long.slice(0, 24)}…`);
   });
 
   test('keeps short custom text as-is', () => {

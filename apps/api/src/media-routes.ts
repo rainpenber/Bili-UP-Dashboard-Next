@@ -125,7 +125,10 @@ async function fetchUpstream(url: URL, fetchImpl: MediaImageFetch): Promise<Cach
       throw new ImageReject('status', `图片响应状态 ${response.status}`);
     }
     const finalUrl = new URL(response.finalUrl);
-    if (isPrivateOrLocalHostname(finalUrl.hostname) || !isAllowedBilibiliMediaHost(finalUrl.hostname)) {
+    if (
+      isPrivateOrLocalHostname(finalUrl.hostname) ||
+      !isAllowedBilibiliMediaHost(finalUrl.hostname)
+    ) {
       throw new ImageReject('host', '重定向目标不在白名单');
     }
     if (response.body.byteLength > MAX_IMAGE_BYTES) {
@@ -133,9 +136,7 @@ async function fetchUpstream(url: URL, fetchImpl: MediaImageFetch): Promise<Cach
     }
     const contentType = response.contentType?.split(';')[0]?.trim() || 'application/octet-stream';
     if (contentType === 'image/gif') throw new ImageReject('type', '拒绝 GIF');
-    const etag = `"${Buffer.from(
-      `${url.toString()}:${response.body.byteLength}:${contentType}`,
-    )
+    const etag = `"${Buffer.from(`${url.toString()}:${response.body.byteLength}:${contentType}`)
       .toString('base64url')
       .slice(0, 32)}"`;
     return { bytes: response.body, contentType, etag };
@@ -185,7 +186,9 @@ export function createMediaRoutes(options: { fetchImage?: MediaImageFetch } = {}
       } catch (error) {
         const message = error instanceof Error ? error.message : '图片拉取失败';
         const code =
-          error instanceof ImageReject && error.reason === 'timeout' ? 'upstream_timeout' : 'upstream';
+          error instanceof ImageReject && error.reason === 'timeout'
+            ? 'upstream_timeout'
+            : 'upstream';
         return c.json({ error: message, code }, 502);
       }
     }

@@ -221,7 +221,10 @@ export function registerCreatorDiscoveryRoutes(
     try {
       const mid = parseCreatorMid(c.req.param('mid'));
       await assertCreatorTargetOwned(sql, mid);
-      if (!uploadsSync?.provider.fetchCreatorProfile || !uploadsSync.provider.fetchCreatorArchives) {
+      if (
+        !uploadsSync?.provider.fetchCreatorProfile ||
+        !uploadsSync.provider.fetchCreatorArchives
+      ) {
         return c.json({ error: '媒体回填未配置上游', code: 'unavailable' }, 503);
       }
       let body: unknown = {};
