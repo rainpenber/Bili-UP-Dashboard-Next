@@ -38,6 +38,7 @@ import {
   readCreatorUploadsSyncStatus,
   syncCreatorDynamics,
   syncCreatorUploads,
+  type BinaryTransport,
   type CreatorArchivesPageProvider,
   type CreatorDynamicsPageProvider,
   type CreatorDynamicsSyncEffects,
@@ -54,6 +55,9 @@ export type CreatorUploadsSyncRouteDeps = {
     Partial<CreatorMediaBackfillProvider>;
   effects: CreatorUploadsSyncEffects & CreatorDynamicsSyncEffects & CreatorMediaBackfillEffects;
   forcedAccountId: string | null;
+  /** Same download/store path as metadata-refresh (WP-R2-27A2). */
+  download?: BinaryTransport | null;
+  assetsRoot?: string | null;
 };
 
 function toConfigDto(
@@ -242,6 +246,8 @@ export function registerCreatorDiscoveryRoutes(
         provider: uploadsSync.provider as CreatorMediaBackfillProvider,
         effects: uploadsSync.effects,
         forcedAccountId: uploadsSync.forcedAccountId,
+        download: uploadsSync.download ?? null,
+        assetsRoot: uploadsSync.assetsRoot ?? null,
       });
       // Opportunistic one-shot rename for legacy dynamic labels (== UP uname).
       await backfillDynamicTargetLabels(sql);

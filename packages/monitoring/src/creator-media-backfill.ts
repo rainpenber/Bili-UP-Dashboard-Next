@@ -8,7 +8,7 @@ import {
 import { BilibiliFailure, type UpstreamCall } from './bilibili-failure';
 import type { ParsedArchiveVideo } from './bilibili-discovery-parse';
 import { scrubCollectorError } from './credentials';
-import { httpsUrl } from './image-asset';
+import { assetizeHdslbImage, httpsUrl, ImageReject, type BinaryTransport } from './image-asset';
 
 /** Keep in sync with packages/contracts CREATOR_MEDIA_BACKFILL_*. */
 export const CREATOR_MEDIA_BACKFILL_TTL_MS = 6 * 60 * 60 * 1000;
@@ -29,6 +29,10 @@ export type CreatorMediaBackfillResponse = CreatorMediaBackfillStatus & {
   cached: boolean;
   pagesFetched: number;
   faceUrl: string | null;
+  faceAssetId: string | null;
+  coversAssetized: number;
+  coversFailed: number;
+  assetsReused: number;
 };
 
 export type CreatorMediaBackfillProvider = {
@@ -103,9 +107,71 @@ export async function readCreatorMediaBackfillStatus(
   return toStatus(mid, state, now);
 }
 
+async function readCreatorMediaIds(
+  sql: Sql,
+  mid: string,
+): Promise<{ faceUrl: string | null; faceAssetId: string | null }> {
+  const faceRows = await sql<{ face_url: string | null; face_asset_id: string | null }[]>`
+    SELECT face_url, face_asset_id FROM creators WHERE mid = ${mid}::bigint LIMIT 1
+  `;
+  return {
+    faceUrl: faceRows[0]?.face_url ?? null,
+    faceAssetId: faceRows[0]?.face_asset_id ?? null,
+  };
+}
+
+async function markFaceAssetFailure(sql: Sql, mid: string, message: string): Promise<void> {
+  await sql`
+    UPDATE creators SET
+      metadata_error = ${message},
+      metadata_state = CASE
+        WHEN metadata_state = 'ok' THEN 'partial'
+        ELSE metadata_state
+      END,
+      updated_at = now()
+    WHERE mid = ${mid}::bigint
+  `;
+}
+
+async function markCoverAssetFailure(sql: Sql, bvid: string, message: string): Promise<void> {
+  await sql`
+    UPDATE videos SET
+      cover_state = 'failed',
+      metadata_error = ${message},
+      updated_at = now()
+    WHERE bvid = ${bvid}
+  `;
+}
+
+async function writeFaceAssetId(sql: Sql, mid: string, assetId: string): Promise<void> {
+  await sql`
+    UPDATE creators SET
+      face_asset_id = COALESCE(${assetId}, face_asset_id),
+      metadata_error = NULL,
+      metadata_state = CASE
+        WHEN metadata_state IN ('partial', 'failed', 'pending') THEN 'ok'
+        ELSE metadata_state
+      END,
+      updated_at = now()
+    WHERE mid = ${mid}::bigint
+  `;
+}
+
+async function writeCoverAssetId(sql: Sql, bvid: string, assetId: string): Promise<void> {
+  await sql`
+    UPDATE videos SET
+      cover_asset_id = COALESCE(${assetId}, cover_asset_id),
+      cover_state = 'ok',
+      metadata_error = NULL,
+      updated_at = now()
+    WHERE bvid = ${bvid}
+  `;
+}
+
 /**
- * Backfill face_url + cover_url for a creator (recent ≤100 uploads).
- * Idempotent; TTL 6h unless force. Does not download images to disk.
+ * Backfill face_url + cover_url for a creator (recent ≤100 uploads), then
+ * materialize local assets (same download/store path as metadata-refresh).
+ * Idempotent; TTL 6h unless force. Asset failures are soft (continue).
  */
 export async function backfillCreatorMedia(options: {
   sql: Sql;
@@ -114,19 +180,23 @@ export async function backfillCreatorMedia(options: {
   provider: CreatorMediaBackfillProvider;
   effects: CreatorMediaBackfillEffects;
   forcedAccountId: string | null;
+  download?: BinaryTransport | null;
+  assetsRoot?: string | null;
   now?: Date;
 }): Promise<CreatorMediaBackfillResponse> {
   const now = options.now ?? new Date();
   const status = await readCreatorMediaBackfillStatus(options.sql, options.mid, now);
   if (!options.force && !status.stale && status.lastSyncedAt) {
-    const faceRows = await options.sql<{ face_url: string | null }[]>`
-      SELECT face_url FROM creators WHERE mid = ${options.mid}::bigint LIMIT 1
-    `;
+    const ids = await readCreatorMediaIds(options.sql, options.mid);
     return {
       ...status,
       cached: true,
       pagesFetched: 0,
-      faceUrl: faceRows[0]?.face_url ?? null,
+      faceUrl: ids.faceUrl,
+      faceAssetId: ids.faceAssetId,
+      coversAssetized: 0,
+      coversFailed: 0,
+      assetsReused: 0,
     };
   }
 
@@ -161,9 +231,14 @@ export async function backfillCreatorMedia(options: {
 
   const calls: UpstreamCall[] = [];
   let faceUrl: string | null = null;
+  let faceAssetId: string | null = null;
   let faceUpdated = false;
   let coversUpdated = 0;
+  let coversAssetized = 0;
+  let coversFailed = 0;
+  let assetsReused = 0;
   let pagesFetched = 0;
+  const canAssetize = Boolean(options.download && options.assetsRoot);
 
   try {
     const profile = await options.provider.fetchCreatorProfile({
@@ -180,6 +255,34 @@ export async function backfillCreatorMedia(options: {
         uname: profile.uname,
       });
       faceUpdated = Boolean(faceUrl);
+    }
+
+    if (faceUrl && canAssetize) {
+      const existing = await options.sql<{ face_asset_id: string | null }[]>`
+        SELECT face_asset_id FROM creators WHERE mid = ${options.mid}::bigint LIMIT 1
+      `;
+      try {
+        const result = await assetizeHdslbImage({
+          sql: options.sql,
+          assetsRoot: options.assetsRoot!,
+          download: options.download!,
+          url: faceUrl,
+          kind: 'face',
+          existingAssetId: existing[0]?.face_asset_id ?? null,
+          now,
+        });
+        await writeFaceAssetId(options.sql, options.mid, result.assetId);
+        faceAssetId = result.assetId;
+        if (result.reused) assetsReused += 1;
+      } catch (error) {
+        if (!(error instanceof ImageReject)) throw error;
+        await markFaceAssetFailure(options.sql, options.mid, scrubCollectorError(error));
+      }
+    } else if (faceUrl && !canAssetize) {
+      await markFaceAssetFailure(options.sql, options.mid, '媒体资源目录或下载层未配置');
+    } else {
+      const ids = await readCreatorMediaIds(options.sql, options.mid);
+      faceAssetId = ids.faceAssetId;
     }
 
     const collected: ParsedArchiveVideo[] = [];
@@ -216,6 +319,34 @@ export async function backfillCreatorMedia(options: {
         coverUrl,
       });
       coversUpdated += 1;
+
+      if (!canAssetize) {
+        await markCoverAssetFailure(options.sql, video.bvid, '媒体资源目录或下载层未配置');
+        coversFailed += 1;
+        continue;
+      }
+
+      const existing = await options.sql<{ cover_asset_id: string | null }[]>`
+        SELECT cover_asset_id FROM videos WHERE bvid = ${video.bvid} LIMIT 1
+      `;
+      try {
+        const result = await assetizeHdslbImage({
+          sql: options.sql,
+          assetsRoot: options.assetsRoot!,
+          download: options.download!,
+          url: coverUrl,
+          kind: 'cover',
+          existingAssetId: existing[0]?.cover_asset_id ?? null,
+          now,
+        });
+        await writeCoverAssetId(options.sql, video.bvid, result.assetId);
+        coversAssetized += 1;
+        if (result.reused) assetsReused += 1;
+      } catch (error) {
+        if (!(error instanceof ImageReject)) throw error;
+        await markCoverAssetFailure(options.sql, video.bvid, scrubCollectorError(error));
+        coversFailed += 1;
+      }
     }
   } catch (error) {
     const message = scrubCollectorError(error);
@@ -246,6 +377,11 @@ export async function backfillCreatorMedia(options: {
     throw failure;
   }
 
+  if (!faceAssetId) {
+    const ids = await readCreatorMediaIds(options.sql, options.mid);
+    faceAssetId = ids.faceAssetId;
+  }
+
   await options.effects.audit({
     accountId: account?.id ?? null,
     runId: null,
@@ -270,5 +406,9 @@ export async function backfillCreatorMedia(options: {
     stale: false,
     ttlMs: CREATOR_MEDIA_BACKFILL_TTL_MS,
     faceUrl,
+    faceAssetId,
+    coversAssetized,
+    coversFailed,
+    assetsReused,
   };
 }

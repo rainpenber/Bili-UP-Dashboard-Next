@@ -149,6 +149,10 @@ export type CreatorMediaBackfillResponse = CreatorMediaBackfillStatus & {
   cached: boolean;
   pagesFetched: number;
   faceUrl: string | null;
+  faceAssetId: string | null;
+  coversAssetized: number;
+  coversFailed: number;
+  assetsReused: number;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -600,6 +604,13 @@ export function parseCreatorDynamicsSyncResponse(value: unknown): CreatorDynamic
   };
 }
 
+function asNonNegInt(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new MonitorContractError('invalid_body', `${field} 非法`);
+  }
+  return value;
+}
+
 export function parseCreatorMediaBackfillResponse(value: unknown): CreatorMediaBackfillResponse {
   if (!isRecord(value)) {
     throw new MonitorContractError('invalid_body', '媒体回填响应必须是对象');
@@ -607,31 +618,21 @@ export function parseCreatorMediaBackfillResponse(value: unknown): CreatorMediaB
   if (typeof value.ttlMs !== 'number' || !Number.isInteger(value.ttlMs) || value.ttlMs <= 0) {
     throw new MonitorContractError('invalid_body', 'ttlMs 非法');
   }
-  if (
-    typeof value.coversUpdated !== 'number' ||
-    !Number.isInteger(value.coversUpdated) ||
-    value.coversUpdated < 0
-  ) {
-    throw new MonitorContractError('invalid_body', 'coversUpdated 非法');
-  }
-  if (
-    typeof value.pagesFetched !== 'number' ||
-    !Number.isInteger(value.pagesFetched) ||
-    value.pagesFetched < 0
-  ) {
-    throw new MonitorContractError('invalid_body', 'pagesFetched 非法');
-  }
   return {
     mid: parseCreatorMid(asString(value.mid, 'mid')),
     lastSyncedAt: asNullableIso(value.lastSyncedAt, 'lastSyncedAt'),
     lastError: asNullableString(value.lastError, 'lastError'),
     faceUpdated: asBoolean(value.faceUpdated, 'faceUpdated'),
-    coversUpdated: value.coversUpdated,
+    coversUpdated: asNonNegInt(value.coversUpdated, 'coversUpdated'),
     stale: asBoolean(value.stale, 'stale'),
     ttlMs: value.ttlMs,
     cached: asBoolean(value.cached, 'cached'),
-    pagesFetched: value.pagesFetched,
+    pagesFetched: asNonNegInt(value.pagesFetched, 'pagesFetched'),
     faceUrl: asNullableString(value.faceUrl, 'faceUrl'),
+    faceAssetId: asNullableString(value.faceAssetId, 'faceAssetId'),
+    coversAssetized: asNonNegInt(value.coversAssetized, 'coversAssetized'),
+    coversFailed: asNonNegInt(value.coversFailed, 'coversFailed'),
+    assetsReused: asNonNegInt(value.assetsReused, 'assetsReused'),
   };
 }
 

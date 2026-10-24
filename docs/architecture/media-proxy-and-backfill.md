@@ -1,10 +1,14 @@
-# 媒体代理与头像/封面回填（WP-R2-27A）
+# 媒体代理与头像/封面回填（WP-R2-27A / 27A2）
 
 ## 写入路径
 
 - 投稿同步 / 发现：空间投稿列表 `pic` → `videos.cover_url`，`cover_state='ok'`。
 - UP 名片：`x/web-interface/card?mid=`（失败回退 `x/space/acc/info`）→ `creators.face_url`，`metadata_state='ok'`。
-- `POST /api/v1/monitor/creators/:mid/media/backfill`：幂等、TTL 6h、最近 ≤100 条封面；不落盘、不写 `static_assets`。
+- `POST /api/v1/monitor/creators/:mid/media/backfill`：幂等、TTL 6h、最近 ≤100 条封面；写入 URL 后**复用 metadata-refresh 同源资源化**（`downloadHdslbImage` + `storeImageBytes`），回写 `creators.face_asset_id` / `videos.cover_asset_id`。
+- 资源化失败（404 / 超时 / 过小文件等 `ImageReject`）记 `metadata_error`、封面 `cover_state='failed'`，**不**让整轮回填失败。
+- `force=1`（query 或 body）：绕过 TTL；对历史 `cover_state='ok'` 但 `cover_asset_id IS NULL` 的行重新资源化。
+- 同一 URL / 已有 `asset_id` 复用，不重复下载；再次 `force` 时 `assetsReused>0`，`static_assets` 行数不增加。
+- 响应字段：`faceAssetId`、`coversAssetized`、`coversFailed`、`assetsReused`（另有既有 `faceUrl` / `coversUpdated` / `cached` 等）。
 
 ## 图片代理
 

@@ -116,10 +116,15 @@ function buildUploadsSyncDeps(
     createSqlBilibiliEffects(db, {
       secretKey: loadCollectorSecretKey(env.COLLECTOR_SECRET_KEY),
     });
+  const download = refreshDeps.download ?? createLiveImageTransport(config.timeoutMs);
+  const assetsRoot =
+    refreshDeps.assetsRoot === undefined ? readAssetsRoot(refreshDeps.env) : refreshDeps.assetsRoot;
   return {
     provider,
     effects,
     forcedAccountId: config.forcedAccountId,
+    download,
+    assetsRoot,
   };
 }
 

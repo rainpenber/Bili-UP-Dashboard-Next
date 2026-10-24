@@ -285,6 +285,69 @@ export async function storeImageBytes(
   return { assetId, sha256, relativePath };
 }
 
+/** Same download + content-addressed store path as metadata-refresh. */
+export async function findAssetIdBySourceUrl(
+  sql: Sql,
+  sourceUrl: string,
+  kind: 'cover' | 'face',
+): Promise<string | null> {
+  const rows = await sql<{ asset_id: string }[]>`
+    SELECT asset_id FROM static_assets
+    WHERE source_url = ${sourceUrl} AND kind = ${kind}
+    ORDER BY fetched_at DESC NULLS LAST
+    LIMIT 1
+  `;
+  return rows[0]?.asset_id ?? null;
+}
+
+/**
+ * Materialize a remote hdslb image into static_assets (metadata-refresh path).
+ * Reuses an existing asset_id or source_url match without re-downloading.
+ */
+export async function assetizeHdslbImage(input: {
+  sql: Sql;
+  assetsRoot: string;
+  download: BinaryTransport;
+  url: string;
+  kind: 'cover' | 'face';
+  existingAssetId?: string | null;
+  now?: Date;
+}): Promise<{ assetId: string; reused: boolean }> {
+  if (input.existingAssetId) {
+    return { assetId: input.existingAssetId, reused: true };
+  }
+  const normalized = httpsUrl(input.url);
+  const byUrl = await findAssetIdBySourceUrl(input.sql, normalized, input.kind);
+  if (byUrl) {
+    return { assetId: byUrl, reused: true };
+  }
+  const image = await downloadHdslbImage(normalized, input.download);
+  if (image.bytes.byteLength < 32) {
+    throw new ImageReject('size', '图片过小');
+  }
+  // Index both request + final URL so later backfills keyed by cover_url/face_url hit.
+  const byFinal =
+    image.finalUrl !== normalized
+      ? await findAssetIdBySourceUrl(input.sql, image.finalUrl, input.kind)
+      : null;
+  if (byFinal) {
+    return { assetId: byFinal, reused: true };
+  }
+  const stored = await storeImageBytes(input.sql, {
+    assetsRoot: input.assetsRoot,
+    bytes: image.bytes,
+    mime: image.mime,
+    width: image.width,
+    height: image.height,
+    kind: input.kind,
+    origin: 'bilibili',
+    sourceUrl: normalized,
+    importBatchId: null,
+    fetchedAt: input.now ?? new Date(),
+  });
+  return { assetId: stored.assetId, reused: false };
+}
+
 const IMAGE_HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

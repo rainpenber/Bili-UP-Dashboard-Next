@@ -755,10 +755,21 @@ describe('HTTP API coverage against isolated Postgres', () => {
       const mediaBackfill = (await expectStatus(
         await api('/api/v1/monitor/creators/240240/media/backfill', json('POST', { force: true })),
         200,
-      )) as { faceUpdated: boolean; coversUpdated: number; faceUrl: string | null };
+      )) as {
+        faceUpdated: boolean;
+        coversUpdated: number;
+        faceUrl: string | null;
+        faceAssetId: string | null;
+        coversAssetized: number;
+        coversFailed: number;
+        assetsReused: number;
+      };
       expect(mediaBackfill.faceUpdated).toBe(true);
       expect(mediaBackfill.coversUpdated).toBeGreaterThanOrEqual(1);
       expect(mediaBackfill.faceUrl).toContain('hdslb.com');
+      expect(mediaBackfill.faceAssetId).toBeTruthy();
+      expect(mediaBackfill.coversAssetized).toBeGreaterThanOrEqual(1);
+      expect(mediaBackfill.coversFailed).toBe(0);
       const proxied = await api(
         `/api/v1/media/image?url=${encodeURIComponent('https://i0.hdslb.com/bfs/face/a.jpg')}`,
       );
