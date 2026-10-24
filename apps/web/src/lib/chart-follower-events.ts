@@ -10,6 +10,12 @@ export const FOLLOWER_EVENT_WINDOW_DAYS = FOLLOWER_VIEW_WINDOW_DAYS;
 export const FOLLOWER_EVENT_WINDOW_MS = FOLLOWER_VIEW_WINDOW_MS;
 
 const SHANGHAI = 'Asia/Shanghai';
+const SHANGHAI_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: SHANGHAI,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
 
 export type FollowerChartPublishEvent = {
   publishedAt: string;
@@ -50,12 +56,7 @@ export type FollowerEventDayBucket = {
 export function shanghaiCalendarDayKey(iso: string): string | null {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: SHANGHAI,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(d);
+  const parts = SHANGHAI_DAY_FORMATTER.formatToParts(d);
   const pick = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((part) => part.type === type)?.value ?? '';
   const year = pick('year');

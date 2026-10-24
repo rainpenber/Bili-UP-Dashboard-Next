@@ -409,8 +409,28 @@ export function buildFollowerOptionDetailed(
     ? (bounds.min + bounds.max) / 2
     : (samplePairs[samplePairs.length - 1]?.[1] ?? 0);
 
+  const samplesByDay = new Map<string, { timeMs: number; followers: number }[]>();
+  for (let i = 0; i < sampledAtList.length; i += 1) {
+    const followersAtSample = followers[i];
+    if (followersAtSample == null) continue;
+    const dayKey = shanghaiCalendarDayKey(sampledAtList[i]!);
+    const timeMs = Date.parse(sampledAtList[i]!);
+    if (!dayKey || !Number.isFinite(timeMs)) continue;
+    const rows = samplesByDay.get(dayKey) ?? [];
+    rows.push({ timeMs, followers: followersAtSample });
+    samplesByDay.set(dayKey, rows);
+  }
+
   const publishPoints = [...dayBuckets.values()].map((bucket) => {
-    const fans = followerSampleOnDay(bucket.dayKey, sampledAtList, followers, bucket.xMs);
+    let fans: number | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const sample of samplesByDay.get(bucket.dayKey) ?? []) {
+      const distance = Math.abs(sample.timeMs - bucket.xMs);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        fans = sample.followers;
+      }
+    }
     return {
       name:
         bucket.labels.length > 1 ? `${bucket.labels.length} 条发布` : (bucket.labels[0] ?? '发布'),
