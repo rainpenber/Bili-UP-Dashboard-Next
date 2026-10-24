@@ -569,11 +569,10 @@ export function buildFollowerOptionDetailed(
     backgroundColor: 'transparent',
     animation: false,
     tooltip: {
-      trigger: 'axis',
+      trigger: 'item',
       enterable: true,
       confine: true,
       extraCssText: 'max-width:300px;white-space:normal;',
-      axisPointer: { type: 'line', lineStyle: { color: semantic.series1, opacity: 0.35 } },
       backgroundColor: colors.background,
       borderColor: colors.border,
       textStyle: { color: colors.foreground, fontSize: 12 },
