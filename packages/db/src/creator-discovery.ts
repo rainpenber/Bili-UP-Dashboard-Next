@@ -11,6 +11,14 @@ function pgTextArray(values: readonly string[]): string {
 
 export type DenseCollectPhase = 'dense15' | 'dense30' | 'normal';
 
+/** Max skip rows exposed on discovery config (persisted + API). */
+export const DISCOVERY_LAST_SKIPS_LIMIT = 20;
+
+export type DiscoveryItemSkip = {
+  externalId: string;
+  reason: string;
+};
+
 export type CreatorDiscoveryConfigRow = {
   mid: string;
   enabled: boolean;
@@ -24,11 +32,14 @@ export type CreatorDiscoveryConfigRow = {
   lastError: string | null;
   lastRunAt: Date | null;
   suppressedAutoCreateTotal: number;
+  lastSkippedCount: number;
+  lastSkips: DiscoveryItemSkip[];
   createdAt: Date;
   updatedAt: Date;
 };
 
 export type CreatorPublishEventKind = 'video' | 'dynamic';
+export type CreatorPublishEventSource = 'bilibili' | 'manual';
 
 export type CreatorPublishEventRow = {
   id: string;
@@ -38,7 +49,7 @@ export type CreatorPublishEventRow = {
   publishedAt: Date;
   titleSnapshot: string;
   firstDiscoveredAt: Date;
-  source: 'bilibili';
+  source: CreatorPublishEventSource;
   monitoredTargetId: string | null;
   createdAt: Date;
 };
@@ -73,9 +84,24 @@ type ConfigSqlRow = {
   last_error: string | null;
   last_run_at: Date | null;
   suppressed_auto_create_total: number;
+  last_skipped_count: number;
+  last_skips: unknown;
   created_at: Date;
   updated_at: Date;
 };
+
+function mapDiscoverySkips(value: unknown): DiscoveryItemSkip[] {
+  if (!Array.isArray(value)) return [];
+  const out: DiscoveryItemSkip[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
+    const row = entry as Record<string, unknown>;
+    if (typeof row.externalId !== 'string' || typeof row.reason !== 'string') continue;
+    out.push({ externalId: row.externalId, reason: row.reason });
+    if (out.length >= DISCOVERY_LAST_SKIPS_LIMIT) break;
+  }
+  return out;
+}
 
 type EventSqlRow = {
   id: string;
@@ -85,7 +111,7 @@ type EventSqlRow = {
   published_at: Date;
   title_snapshot: string;
   first_discovered_at: Date;
-  source: 'bilibili';
+  source: CreatorPublishEventSource;
   monitored_target_id: string | null;
   created_at: Date;
 };
@@ -117,6 +143,8 @@ function mapConfig(row: ConfigSqlRow): CreatorDiscoveryConfigRow {
     lastError: row.last_error,
     lastRunAt: row.last_run_at,
     suppressedAutoCreateTotal: row.suppressed_auto_create_total,
+    lastSkippedCount: row.last_skipped_count,
+    lastSkips: mapDiscoverySkips(row.last_skips),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -154,6 +182,7 @@ const configColumns = `
   mid, enabled, discover_videos, discover_dynamics, monitor_new_videos,
   discovery_target_id, video_watermark_created, dynamic_watermark_pub_ts,
   last_success_at, last_error, last_run_at, suppressed_auto_create_total,
+  last_skipped_count, last_skips,
   created_at, updated_at
 `;
 
@@ -186,6 +215,8 @@ export function defaultCreatorDiscoveryConfig(mid: string): CreatorDiscoveryConf
     lastError: null,
     lastRunAt: null,
     suppressedAutoCreateTotal: 0,
+    lastSkippedCount: 0,
+    lastSkips: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -386,6 +417,13 @@ export async function upsertCreatorDiscoveryConfig(
   });
 }
 
+export function clipDiscoverySkips(skips: readonly DiscoveryItemSkip[]): DiscoveryItemSkip[] {
+  return skips.slice(0, DISCOVERY_LAST_SKIPS_LIMIT).map((skip) => ({
+    externalId: skip.externalId.slice(0, 64),
+    reason: skip.reason.slice(0, 500),
+  }));
+}
+
 export async function markDiscoveryRunResult(
   sql: Queryable,
   input: {
@@ -396,11 +434,14 @@ export async function markDiscoveryRunResult(
     videoWatermarkCreated?: bigint | null;
     dynamicWatermarkPubTs?: bigint | null;
     suppressedAutoCreateDelta?: number;
+    /** Per-item skips from this round; persisted on success (list request ok). */
+    skips?: readonly DiscoveryItemSkip[];
   },
 ): Promise<void> {
   const suppress = input.suppressedAutoCreateDelta ?? 0;
   if (!input.success) {
     // Failure: keep watermarks / last success; record error only (no fake events).
+    // Do not overwrite last_skips — those describe the last successful list round.
     await sql`
       UPDATE creator_discovery_configs
       SET last_run_at = ${input.now},
@@ -418,6 +459,9 @@ export async function markDiscoveryRunResult(
     input.dynamicWatermarkPubTs === undefined || input.dynamicWatermarkPubTs === null
       ? null
       : input.dynamicWatermarkPubTs.toString();
+  const rawSkips = input.skips ?? [];
+  const skips = clipDiscoverySkips(rawSkips);
+  const skippedCount = rawSkips.length;
   await sql`
     UPDATE creator_discovery_configs
     SET last_run_at = ${input.now},
@@ -432,6 +476,8 @@ export async function markDiscoveryRunResult(
           ELSE ${dynWm}::bigint
         END,
         suppressed_auto_create_total = suppressed_auto_create_total + ${suppress},
+        last_skipped_count = ${skippedCount},
+        last_skips = ${sql.json(JSON.parse(JSON.stringify(skips)) as postgres.JSONValue)},
         updated_at = ${input.now}
     WHERE mid = ${input.mid}
   `;
@@ -448,8 +494,10 @@ export async function insertCreatorPublishEvent(
     titleSnapshot: string;
     firstDiscoveredAt: Date;
     monitoredTargetId?: string | null;
+    source?: CreatorPublishEventSource;
   },
 ): Promise<{ event: CreatorPublishEventRow; created: boolean }> {
+  const source = input.source ?? 'bilibili';
   const inserted = await sql<EventSqlRow[]>`
     INSERT INTO creator_publish_events (
       id, mid, event_kind, external_id, published_at, title_snapshot,
@@ -462,10 +510,10 @@ export async function insertCreatorPublishEvent(
       ${input.publishedAt},
       ${input.titleSnapshot},
       ${input.firstDiscoveredAt},
-      'bilibili',
+      ${source},
       ${input.monitoredTargetId ?? null}
     )
-    ON CONFLICT (event_kind, external_id) DO NOTHING
+    ON CONFLICT (mid, event_kind, external_id) DO NOTHING
     RETURNING
       id, mid, event_kind, external_id, published_at, title_snapshot,
       first_discovered_at, source, monitored_target_id, created_at
@@ -476,7 +524,8 @@ export async function insertCreatorPublishEvent(
       id, mid, event_kind, external_id, published_at, title_snapshot,
       first_discovered_at, source, monitored_target_id, created_at
     FROM creator_publish_events
-    WHERE event_kind = ${input.eventKind}
+    WHERE mid = ${input.mid}
+      AND event_kind = ${input.eventKind}
       AND external_id = ${input.externalId}
   `;
   const row = existing[0];
@@ -486,15 +535,70 @@ export async function insertCreatorPublishEvent(
 
 export async function linkPublishEventTarget(
   sql: Queryable,
-  input: { eventKind: CreatorPublishEventKind; externalId: string; targetId: string },
+  input: {
+    mid: string;
+    eventKind: CreatorPublishEventKind;
+    externalId: string;
+    targetId: string;
+  },
 ): Promise<void> {
   await sql`
     UPDATE creator_publish_events
     SET monitored_target_id = ${input.targetId}::uuid
-    WHERE event_kind = ${input.eventKind}
+    WHERE mid = ${input.mid}
+      AND event_kind = ${input.eventKind}
       AND external_id = ${input.externalId}
       AND monitored_target_id IS NULL
   `;
+}
+
+export async function getCreatorPublishEventById(
+  sql: Queryable,
+  input: { mid: string; eventId: string },
+): Promise<CreatorPublishEventRow | null> {
+  const rows = await sql<EventSqlRow[]>`
+    SELECT
+      id, mid, event_kind, external_id, published_at, title_snapshot,
+      first_discovered_at, source, monitored_target_id, created_at
+    FROM creator_publish_events
+    WHERE mid = ${input.mid}
+      AND id = ${input.eventId}::uuid
+    LIMIT 1
+  `;
+  const row = rows[0];
+  return row ? mapEvent(row) : null;
+}
+
+export async function deleteManualCreatorPublishEvent(
+  sql: Queryable,
+  input: { mid: string; eventId: string },
+): Promise<'deleted' | 'not_found' | 'manual_only'> {
+  const existing = await getCreatorPublishEventById(sql, input);
+  if (!existing) return 'not_found';
+  if (existing.source !== 'manual') return 'manual_only';
+  await sql`
+    DELETE FROM creator_publish_events
+    WHERE mid = ${input.mid}
+      AND id = ${input.eventId}::uuid
+      AND source = 'manual'
+  `;
+  return 'deleted';
+}
+
+export async function findActivePublishMonitorTargetId(
+  sql: Queryable,
+  input: { eventKind: CreatorPublishEventKind; externalId: string },
+): Promise<string | null> {
+  const type = input.eventKind;
+  const rows = await sql<{ id: string }[]>`
+    SELECT id::text AS id
+    FROM monitor_targets
+    WHERE "type" = ${type}
+      AND external_id = ${input.externalId}
+      AND deleted_at IS NULL
+    LIMIT 1
+  `;
+  return rows[0]?.id ?? null;
 }
 
 export async function listCreatorPublishEvents(
@@ -656,4 +760,119 @@ export async function findActiveVideoTargetId(
     LIMIT 1
   `;
   return rows[0]?.id ?? null;
+}
+
+export type CreatorUploadsSyncStateRow = {
+  mid: string;
+  lastSyncedAt: Date | null;
+  lastError: string | null;
+  lastVideoCount: number;
+  lastEventsCreated: number;
+  updatedAt: Date;
+};
+
+type UploadsSyncSqlRow = {
+  mid: string;
+  last_synced_at: Date | null;
+  last_error: string | null;
+  last_video_count: number;
+  last_events_created: number;
+  updated_at: Date;
+};
+
+function mapUploadsSync(row: UploadsSyncSqlRow): CreatorUploadsSyncStateRow {
+  return {
+    mid: row.mid,
+    lastSyncedAt: row.last_synced_at,
+    lastError: row.last_error,
+    lastVideoCount: row.last_video_count,
+    lastEventsCreated: row.last_events_created,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getCreatorUploadsSyncState(
+  sql: Queryable,
+  mid: string,
+): Promise<CreatorUploadsSyncStateRow | null> {
+  const rows = await sql<UploadsSyncSqlRow[]>`
+    SELECT
+      mid, last_synced_at, last_error, last_video_count, last_events_created, updated_at
+    FROM creator_uploads_sync_state
+    WHERE mid = ${mid}
+    LIMIT 1
+  `;
+  const row = rows[0];
+  return row ? mapUploadsSync(row) : null;
+}
+
+export async function upsertCreatorUploadsSyncState(
+  sql: Queryable,
+  input: {
+    mid: string;
+    lastSyncedAt: Date | null;
+    lastError: string | null;
+    lastVideoCount: number;
+    lastEventsCreated: number;
+    now: Date;
+  },
+): Promise<CreatorUploadsSyncStateRow> {
+  const rows = await sql<UploadsSyncSqlRow[]>`
+    INSERT INTO creator_uploads_sync_state (
+      mid, last_synced_at, last_error, last_video_count, last_events_created, updated_at
+    ) VALUES (
+      ${input.mid},
+      ${input.lastSyncedAt},
+      ${input.lastError},
+      ${input.lastVideoCount},
+      ${input.lastEventsCreated},
+      ${input.now}
+    )
+    ON CONFLICT (mid) DO UPDATE SET
+      last_synced_at = EXCLUDED.last_synced_at,
+      last_error = EXCLUDED.last_error,
+      last_video_count = EXCLUDED.last_video_count,
+      last_events_created = EXCLUDED.last_events_created,
+      updated_at = EXCLUDED.updated_at
+    RETURNING
+      mid, last_synced_at, last_error, last_video_count, last_events_created, updated_at
+  `;
+  const row = rows[0];
+  if (!row) throw new Error('投稿同步状态写入后未能读回');
+  return mapUploadsSync(row);
+}
+
+/**
+ * Upsert archive-list metadata into videos without enabling monitoring.
+ * Does not invent cid (space arc search has no cid).
+ */
+export async function upsertVideoArchiveMetadata(
+  sql: Queryable,
+  input: {
+    bvid: string;
+    title: string;
+    mid: string;
+    pubdate: Date;
+  },
+): Promise<void> {
+  await sql`
+    INSERT INTO creators (mid)
+    VALUES (${input.mid}::bigint)
+    ON CONFLICT (mid) DO NOTHING
+  `;
+  await sql`
+    INSERT INTO videos (bvid, title, mid, pubdate, monitoring_enabled)
+    VALUES (
+      ${input.bvid},
+      ${input.title},
+      ${input.mid}::bigint,
+      ${input.pubdate},
+      false
+    )
+    ON CONFLICT (bvid) DO UPDATE SET
+      title = COALESCE(NULLIF(EXCLUDED.title, ''), videos.title),
+      mid = COALESCE(EXCLUDED.mid, videos.mid),
+      pubdate = COALESCE(EXCLUDED.pubdate, videos.pubdate),
+      updated_at = now()
+  `;
 }

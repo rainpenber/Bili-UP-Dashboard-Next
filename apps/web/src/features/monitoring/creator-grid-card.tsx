@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import type { MonitorCard } from '@studio/contracts';
 import { coverAssetUrl, formatCount } from '@/api/monitor-client';
 import { Button } from '@/components/ui/button';
+import { BilibiliExternalLinkButton } from '@/features/monitoring/bilibili-external-link';
 import {
   handleCardActivateKey,
   stopCardActivatePropagation,
@@ -122,10 +123,11 @@ export function CreatorGridCard({
 
         <div
           data-testid="monitor-card-actions"
-          className="flex shrink-0 items-center justify-end gap-1.5"
+          className="flex shrink-0 flex-nowrap items-center justify-end gap-1.5"
           onClick={stopCardActivatePropagation}
           onKeyDown={stopCardActivatePropagation}
         >
+          <BilibiliExternalLinkButton kind="creator" id={card.externalId} />
           {primary ? (
             <Button
               type="button"

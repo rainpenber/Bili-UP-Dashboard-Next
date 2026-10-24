@@ -180,7 +180,9 @@ describe('monitoring layout toggle', () => {
       .getAllByTestId('monitor-object-card')
       .find((node) => node.getAttribute('data-external-id') === BVID);
     expect(selected?.getAttribute('data-presentation')).toBe('list');
-    expect(within(selected!).getByTestId('monitor-card-actions').className).toContain('flex-wrap');
+    expect(within(selected!).getByTestId('monitor-card-actions').className).toContain(
+      'flex-nowrap',
+    );
     expect(within(selected!).queryByRole('button', { name: /^详情$/ })).toBeNull();
     expect(within(selected!).getByRole('button', { name: /选择视频/ })).toBeTruthy();
     expect(within(selected!).queryByRole('button', { name: '更多' })).toBeNull();

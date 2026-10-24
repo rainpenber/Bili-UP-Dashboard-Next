@@ -69,6 +69,11 @@ function dynamicItem(patch: Partial<DynamicListItem> = {}): DynamicListItem {
       lastSuccessAt: '2026-10-21T08:00:00.000Z',
       lastError: null,
     },
+    authorName: '测试作者',
+    publishedAt: '2026-08-28T05:29:00.000Z',
+    textSummary: '抽PS5和GTA6啦!',
+    targetLabel: null,
+    displayTitle: '测试作者 · 抽PS5和GTA6啦!',
     latestMetrics: {
       sampledAt: '2026-10-21T08:00:00.000Z',
       likeCount: '12',
@@ -168,7 +173,9 @@ describe('WP-R2-16F two-button cards', () => {
     );
     const listCard = screen.getByTestId('dynamic-list-item');
     expect(within(listCard).queryByRole('img')).toBeNull();
-    expect(within(listCard).getByTitle('966692349750018048').className).toContain('truncate');
+    expect(within(listCard).getByTitle('测试作者 · 抽PS5和GTA6啦!').className).toContain(
+      'truncate',
+    );
     expect(within(listCard).getByTestId('dynamic-card-metrics').textContent).toMatch(/赞/);
     const actions = within(listCard).getByTestId('dynamic-monitor-controls');
     expect(within(actions).queryByRole('link', { name: /详情/ })).toBeNull();
@@ -176,7 +183,7 @@ describe('WP-R2-16F two-button cards', () => {
     expect(within(actions).queryByRole('button', { name: '监控详情' })).toBeNull();
     expect(within(actions).queryByRole('button', { name: '更多' })).toBeNull();
     expect(within(listCard).getByTestId('monitor-pin-button')).toBeTruthy();
-    fireEvent.click(within(listCard).getByTitle('966692349750018048'));
+    fireEvent.click(within(listCard).getByTitle('测试作者 · 抽PS5和GTA6啦!'));
     expect(selected).toBe(1);
     fireEvent.click(within(actions).getByRole('button', { name: '暂停' }));
     expect(selected).toBe(1);

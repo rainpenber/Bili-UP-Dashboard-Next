@@ -4,6 +4,7 @@ import { AppShell } from '@/components/layout/app-shell';
 import { CommercialHomePage } from '@/pages/commercial-home-page';
 import { DesignSystemPage } from '@/pages/design-system-page';
 import { OpsPage } from '@/features/ops/ops-page';
+import { BiliAccountsSettingsPage } from '@/pages/bili-accounts-settings-page';
 import { IntegrationsSettingsPage } from '@/pages/integrations-settings-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { ProjectDemoPage } from '@/pages/project-demo-page';
@@ -31,6 +32,7 @@ export const appRouteConfig: RouteObject[] = [
       { path: 'monitoring/dynamics/:id', element: <MonitoringDynamicDetailPage /> },
       { path: 'content', element: <AudienceReactionPage /> },
       { path: 'integrations', element: <IntegrationsSettingsPage /> },
+      { path: 'settings/accounts', element: <BiliAccountsSettingsPage /> },
       { path: 'ops', element: <OpsPage /> },
       { path: 'design-system', element: <DesignSystemPage /> },
       { path: 'workflow-mock', element: <WorkflowMockPage /> },

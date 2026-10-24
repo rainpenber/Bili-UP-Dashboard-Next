@@ -48,6 +48,11 @@ function dynamicItem(overrides: Record<string, unknown> = {}) {
     deletedAt: null,
     pinned: false,
     target: null,
+    authorName: null,
+    publishedAt: null,
+    textSummary: null,
+    targetLabel: null,
+    displayTitle: DYNAMIC_ID,
     latestMetrics: {
       sampledAt: '2026-10-21T08:00:00.000Z',
       likeCount: '12',

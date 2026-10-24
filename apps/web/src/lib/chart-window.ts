@@ -27,6 +27,20 @@ export function defaultDataZoomRange(sampledAtList: string[]): DataZoomRange {
   return { start, end: 100 };
 }
 
+/**
+ * Follower chart domain is already sized to the 90-day event window + samples.
+ * Show the full domain; publish markers sit at real dates inside it.
+ * Signature kept for call-site compatibility with sample/event lists.
+ */
+export function defaultFollowerZoomRange(
+  sampledAtList: string[],
+  eventPublishedAtList: string[],
+): DataZoomRange {
+  void sampledAtList;
+  void eventPublishedAtList;
+  return { start: 0, end: 100 };
+}
+
 export function dataZoomRangeForIndices(length: number, startIndex: number): DataZoomRange {
   if (length <= 0) return { start: 0, end: 100 };
   const start = Math.max(0, Math.min(100, (startIndex / length) * 100));

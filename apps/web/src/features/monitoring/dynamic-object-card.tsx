@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { DynamicListItem } from '@studio/contracts';
 import { formatCount } from '@/api/monitor-client';
+import { BilibiliExternalLinkButton } from '@/features/monitoring/bilibili-external-link';
 import {
   handleCardActivateKey,
   stopCardActivatePropagation,
@@ -10,7 +11,7 @@ import { DynamicMonitorControls } from '@/features/monitoring/dynamic-monitor-co
 import { MonitorPinButton } from '@/features/monitoring/monitor-pin-button';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
 import { formatUnknownMetric } from '@/lib/format-compact-number';
-import { formatShortTime } from '@/lib/format-time';
+import { formatShanghaiDateTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
 
 function monitorStateFromItem(item: DynamicListItem): 'unmonitored' | 'active' | 'paused' {
@@ -23,13 +24,15 @@ function hasSampleMetrics(item: DynamicListItem): boolean {
   return Boolean(m.sampledAt || m.likeCount || m.commentCount || m.repostCount);
 }
 
-/** 列表用完整摘要（含时间）；网格核心互动行，时间留给 title 悬停 */
+/** 列表用完整摘要（含发布时间）；网格核心互动行 */
 function dynamicSummary(item: DynamicListItem, mode: 'full' | 'core'): string {
   if (!hasSampleMetrics(item)) return '尚无采集数据';
   const m = item.latestMetrics;
   const core = `赞 ${formatCount(m.likeCount)} · 评 ${formatUnknownMetric(m.commentCount)} · 转 ${formatUnknownMetric(m.repostCount)}`;
-  if (mode === 'core' || !m.sampledAt) return core;
-  return `${core} · ${formatShortTime(m.sampledAt)}`;
+  if (mode === 'core') return core;
+  if (item.publishedAt) return `${core} · ${formatShanghaiDateTime(item.publishedAt)}`;
+  if (m.sampledAt) return `${core} · ${formatShanghaiDateTime(m.sampledAt)}`;
+  return core;
 }
 
 /**
@@ -56,12 +59,16 @@ export function DynamicObjectCard({
   const fullSummary = dynamicSummary(item, 'full');
   const coreSummary = dynamicSummary(item, 'core');
   const summary = presentation === 'grid' ? coreSummary : fullSummary;
+  const title = item.displayTitle || item.dynamicId;
+  const subtitleParts = [
+    item.authorName?.trim() || null,
+    item.publishedAt ? formatShanghaiDateTime(item.publishedAt) : null,
+  ].filter(Boolean);
   const detailHref = `/monitoring/dynamics/${encodeURIComponent(item.dynamicId)}${
     listQuery ? `?from=${encodeURIComponent(listQuery)}` : ''
   }`;
   const activate = presentation === 'grid' ? () => navigate(detailHref) : onSelect;
-  const activateLabel =
-    presentation === 'grid' ? `打开动态 ${item.dynamicId}` : `选择动态 ${item.dynamicId}`;
+  const activateLabel = presentation === 'grid' ? `打开动态 ${title}` : `选择动态 ${title}`;
 
   return (
     <li
@@ -119,12 +126,21 @@ export function DynamicObjectCard({
               />
               <span
                 className="min-w-0 flex-1 truncate text-sm font-medium"
-                title={item.dynamicId}
+                title={title}
                 data-testid="dynamic-card-title"
               >
-                {item.dynamicId}
+                {title}
               </span>
             </span>
+            {subtitleParts.length > 0 ? (
+              <span
+                className="block truncate text-xs text-muted-foreground"
+                data-testid="dynamic-card-subtitle"
+                title={subtitleParts.join(' · ')}
+              >
+                {subtitleParts.join(' · ')}
+              </span>
+            ) : null}
             <span
               className="block truncate text-xs tabular-nums text-muted-foreground"
               data-testid="dynamic-card-metrics"
@@ -133,7 +149,12 @@ export function DynamicObjectCard({
               {summary}
             </span>
           </div>
-          <div onClick={stopCardActivatePropagation} onKeyDown={stopCardActivatePropagation}>
+          <div
+            className="flex shrink-0 flex-nowrap items-center gap-1.5"
+            onClick={stopCardActivatePropagation}
+            onKeyDown={stopCardActivatePropagation}
+          >
+            <BilibiliExternalLinkButton kind="dynamic" id={item.dynamicId} />
             <DynamicMonitorControls
               dynamicId={item.dynamicId}
               target={item.target}

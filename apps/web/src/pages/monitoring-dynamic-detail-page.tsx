@@ -1,4 +1,9 @@
-import { newestMetricPoint, type DynamicTargetRef } from '@studio/contracts';
+import {
+  dynamicTextSummaryFromMetadata,
+  formatDynamicDisplayTitle,
+  newestMetricPoint,
+  type DynamicTargetRef,
+} from '@studio/contracts';
 import { useParams, useSearchParams } from 'react-router-dom';
 import {
   useDynamicDetailQuery,
@@ -11,8 +16,9 @@ import { DynamicMonitorControls } from '@/features/monitoring/dynamic-monitor-co
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
 import { detailReturnHref } from '@/features/monitoring/monitor-url-state';
 import { MonitoringDetailLayout } from '@/features/monitoring/monitoring-detail-layout';
+import { PublishEventMarkButton } from '@/features/monitoring/publish-event-mark-button';
 import { formatUnknownMetric } from '@/lib/format-compact-number';
-import { formatFullLocalTime, formatShortTime } from '@/lib/format-time';
+import { formatFullLocalTime, formatShanghaiDateTime, formatShortTime } from '@/lib/format-time';
 
 function toTargetRef(
   target: {
@@ -33,6 +39,22 @@ function toTargetRef(
     lastSuccessAt: target.lastSuccessAt,
     lastError: target.lastError,
   };
+}
+
+function authorNameFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!metadata || typeof metadata.author_name !== 'string') return null;
+  const trimmed = metadata.author_name.trim();
+  return trimmed || null;
+}
+
+function publishedAtFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!metadata || typeof metadata.published_at !== 'string') return null;
+  const trimmed = metadata.published_at.trim();
+  return trimmed || null;
 }
 
 export function MonitoringDynamicDetailPage() {
@@ -80,10 +102,20 @@ export function MonitoringDynamicDetailPage() {
   }
 
   if (!detailQuery.data && target) {
+    const label = targetQuery.data?.label?.trim();
+    const title =
+      label && label !== id
+        ? label
+        : formatDynamicDisplayTitle({
+            authorName: null,
+            textSummary: null,
+            targetLabel: label ?? null,
+            dynamicId: id,
+          });
     return (
       <MonitoringDetailLayout
         testId="dynamic-detail-page"
-        title={id}
+        title={title}
         description="该监控目标还没有动态实体或采样"
         entityLabel={id}
         backTo={backTo}
@@ -103,15 +135,36 @@ export function MonitoringDynamicDetailPage() {
 
   const d = detailQuery.data;
   const latest = newestMetricPoint(metricsQuery.data?.items ?? []);
+  const authorName = authorNameFromMetadata(d.metadata);
+  const textSummary = dynamicTextSummaryFromMetadata(d.metadata);
+  const publishedAt = publishedAtFromMetadata(d.metadata);
+  const targetLabel = targetQuery.data?.label ?? null;
+  const title = formatDynamicDisplayTitle({
+    authorName,
+    textSummary,
+    targetLabel,
+    dynamicId: d.dynamicId,
+  });
 
   return (
     <MonitoringDetailLayout
       testId="dynamic-detail-page"
-      title={d.dynamicId}
+      title={title}
       description="动态互动指标趋势"
       entityLabel={d.dynamicId}
       backTo={backTo}
-      toolbar={monitorToolbar}
+      toolbar={
+        <div className="flex min-w-0 max-w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
+          {monitorToolbar}
+          <PublishEventMarkButton
+            mid={d.mid}
+            eventKind="dynamic"
+            externalId={d.dynamicId}
+            publishedAt={publishedAt}
+            title={textSummary}
+          />
+        </div>
+      }
       status={
         d.deletedAt ? (
           <Badge variant="destructive">已删除</Badge>
@@ -122,6 +175,11 @@ export function MonitoringDynamicDetailPage() {
       meta={[
         { label: '动态 ID', value: d.dynamicId },
         { label: 'UP MID', value: d.mid ?? '—' },
+        { label: '作者', value: authorName ?? '—' },
+        {
+          label: '发布时间',
+          value: publishedAt ? formatShanghaiDateTime(publishedAt) : '—',
+        },
         { label: '分类', value: d.category ?? '未分类' },
         {
           label: '最后采样',

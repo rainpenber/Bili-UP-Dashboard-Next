@@ -30,7 +30,7 @@ describe('monitor card pin + published sort', () => {
     if (!sql) return;
     const applied = await runMigrations(sql);
     expect(applied.includes('014_video_pinned_at') || applied.length === 0).toBe(true);
-    expect(applied.includes('018_creator_dynamic_pinned_at') || applied.length === 0).toBe(true);
+    expect(applied.includes('019_publish_event_manual_source') || applied.length === 0).toBe(true);
     expect((await runMigrations(sql)).length).toBe(0);
 
     await sql`

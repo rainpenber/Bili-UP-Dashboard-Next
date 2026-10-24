@@ -10,24 +10,37 @@ import {
   type ClaimedCollectorJob,
   type CollectorScheduleWrite,
   type CreatorDiscoveryConfigRow,
+  type DiscoveryItemSkip,
   type Sql,
 } from '@studio/db';
 import type { UpstreamCall } from './bilibili-failure';
 import { BilibiliFailure } from './bilibili-failure';
 import type { ParsedArchiveVideo, ParsedSpaceDynamic } from './bilibili-discovery-parse';
+import { resolveDiscoveryDynamicTitle } from './bilibili-discovery-parse';
 import { scrubCollectorError } from './credentials';
+import { enrichDiscoveryDynamics, type DiscoveryDynamicDetailFetcher } from './discovery-dynamics';
 
 export type DiscoveryListProvider = {
   fetchCreatorArchives(input: {
     mid: string;
     cookieHeader: string | null;
     accountKey: string;
-  }): Promise<{ videos: ParsedArchiveVideo[]; calls: UpstreamCall[] }>;
+    pn?: number;
+    ps?: number;
+  }): Promise<{
+    videos: ParsedArchiveVideo[];
+    calls: UpstreamCall[];
+    page?: { pn: number; ps: number; count: number | null };
+  }>;
   fetchCreatorDynamics(input: {
     mid: string;
     cookieHeader: string | null;
     accountKey: string;
-  }): Promise<{ dynamics: ParsedSpaceDynamic[]; calls: UpstreamCall[] }>;
+  }): Promise<{
+    dynamics: ParsedSpaceDynamic[];
+    skips?: DiscoveryItemSkip[];
+    calls: UpstreamCall[];
+  }>;
 };
 
 export type DiscoveryJobEffects = {
@@ -62,6 +75,7 @@ export type DiscoveryRoundSummary = {
   dynamicEventsCreated: number;
   targetsCreated: number;
   targetsSuppressed: number;
+  skippedCount: number;
   videoWatermarkCreated: bigint | null;
   dynamicWatermarkPubTs: bigint | null;
 };
@@ -69,6 +83,7 @@ export type DiscoveryRoundSummary = {
 /**
  * Pure-ish round processing against fixed list samples (offline/mock + unit tests).
  * Does not invent events on empty failure — caller must not invoke after upstream failure.
+ * `skips` are persisted on success; lastSuccessAt updates when the list round succeeds.
  */
 export async function applyDiscoveryRound(
   sql: Sql,
@@ -77,6 +92,7 @@ export async function applyDiscoveryRound(
     now: Date;
     videos: ParsedArchiveVideo[];
     dynamics: ParsedSpaceDynamic[];
+    skips?: readonly DiscoveryItemSkip[];
   },
 ): Promise<DiscoveryRoundSummary> {
   const { config, now } = input;
@@ -88,6 +104,7 @@ export async function applyDiscoveryRound(
   let dynamicEventsCreated = 0;
   let targetsCreated = 0;
   let targetsSuppressed = 0;
+  const skips = [...(input.skips ?? [])];
 
   if (config.discoverVideos) {
     const maxCreated =
@@ -121,6 +138,7 @@ export async function applyDiscoveryRound(
         if (config.monitorNewVideos) {
           if (existingTargetId) {
             await linkPublishEventTarget(sql, {
+              mid: config.mid,
               eventKind: 'video',
               externalId: video.bvid,
               targetId: existingTargetId,
@@ -145,6 +163,7 @@ export async function applyDiscoveryRound(
               });
             }
             await linkPublishEventTarget(sql, {
+              mid: config.mid,
               eventKind: 'video',
               externalId: video.bvid,
               targetId: created.target.id,
@@ -174,13 +193,18 @@ export async function applyDiscoveryRound(
         );
       for (const dyn of newer) {
         const publishedAt = new Date(Number(dyn.publishedAtSec) * 1000);
+        const titleSnapshot = resolveDiscoveryDynamicTitle({
+          title: dyn.title,
+          text: dyn.text ?? null,
+          dynamicId: dyn.dynamicId,
+        });
         const inserted = await insertCreatorPublishEvent(sql, {
           id: crypto.randomUUID(),
           mid: config.mid,
           eventKind: 'dynamic',
           externalId: dyn.dynamicId,
           publishedAt,
-          titleSnapshot: dyn.title || '动态',
+          titleSnapshot,
           firstDiscoveredAt: now,
           monitoredTargetId: null,
         });
@@ -200,6 +224,7 @@ export async function applyDiscoveryRound(
     videoWatermarkCreated: videoWatermark,
     dynamicWatermarkPubTs: dynamicWatermark,
     suppressedAutoCreateDelta: targetsSuppressed,
+    skips,
   });
 
   return {
@@ -209,8 +234,49 @@ export async function applyDiscoveryRound(
     dynamicEventsCreated,
     targetsCreated,
     targetsSuppressed,
+    skippedCount: skips.length,
     videoWatermarkCreated: videoWatermark,
     dynamicWatermarkPubTs: dynamicWatermark,
+  };
+}
+
+type DetailCapableProvider = DiscoveryListProvider & {
+  fetchDynamic?: (input: {
+    dynamicId: string;
+    sampledAt: Date;
+    collectedAt: Date;
+    cookieHeader: string | null;
+    accountKey: string;
+  }) => Promise<{
+    detail: { text: string | null };
+    calls: UpstreamCall[];
+  }>;
+};
+
+function detailFetcherFromProvider(
+  provider: DiscoveryListProvider,
+  input: {
+    cookieHeader: string | null;
+    accountKey: string;
+    now: Date;
+  },
+): DiscoveryDynamicDetailFetcher | null {
+  const capable = provider as DetailCapableProvider;
+  if (typeof capable.fetchDynamic !== 'function') return null;
+  const fetchDynamic = capable.fetchDynamic.bind(capable);
+  return async (dynamicId: string) => {
+    const fetched = await fetchDynamic({
+      dynamicId,
+      sampledAt: input.now,
+      collectedAt: input.now,
+      cookieHeader: input.cookieHeader,
+      accountKey: input.accountKey,
+    });
+    return {
+      title: fetched.detail.text,
+      text: fetched.detail.text,
+      calls: fetched.calls,
+    };
   };
 }
 
@@ -268,6 +334,7 @@ export async function runDiscoveryJob(options: {
   const calls: UpstreamCall[] = [];
   let videos: ParsedArchiveVideo[] = [];
   let dynamics: ParsedSpaceDynamic[] = [];
+  let listSkips: DiscoveryItemSkip[] = [];
   try {
     if (config.discoverVideos) {
       const archived = await options.provider.fetchCreatorArchives({
@@ -286,6 +353,7 @@ export async function runDiscoveryJob(options: {
       });
       calls.push(...feed.calls);
       dynamics = feed.dynamics;
+      listSkips = feed.skips ?? [];
     }
   } catch (error) {
     const message = scrubCollectorError(error);
@@ -326,11 +394,33 @@ export async function runDiscoveryJob(options: {
     return 'failed';
   }
 
+  // List succeeded. Optionally enrich newer dynamics (one detail attempt each).
+  let skips = listSkips;
+  if (config.discoverDynamics) {
+    const watermark = config.dynamicWatermarkPubTs;
+    const fetchDetail = detailFetcherFromProvider(options.provider, {
+      cookieHeader: cookie,
+      accountKey: account?.id ?? 'anonymous',
+      now: options.now,
+    });
+    const enriched = await enrichDiscoveryDynamics({
+      listItems: dynamics,
+      listSkips: skips,
+      // Seed round: no detail (avoid backlog hammer). Emitting round: enrich newer only.
+      shouldEnrich: (item) => watermark !== null && item.publishedAtSec > watermark,
+      fetchDetail,
+    });
+    dynamics = enriched.dynamics;
+    skips = enriched.skips;
+    calls.push(...enriched.calls);
+  }
+
   const summary = await applyDiscoveryRound(options.sql, {
     config,
     now: options.now,
     videos,
     dynamics,
+    skips,
   });
   const committed = await options.effects.commitDiscovery({
     jobId: options.job.id,
@@ -347,7 +437,7 @@ export async function runDiscoveryJob(options: {
     calls,
   });
   log(
-    `[collector] 发现成功 ${options.job.id} videos=${summary.videoEventsCreated} dynamics=${summary.dynamicEventsCreated} targets=${summary.targetsCreated} suppressed=${summary.targetsSuppressed}`,
+    `[collector] 发现成功 ${options.job.id} videos=${summary.videoEventsCreated} dynamics=${summary.dynamicEventsCreated} targets=${summary.targetsCreated} suppressed=${summary.targetsSuppressed} skipped=${summary.skippedCount}`,
   );
   return 'succeeded';
 }

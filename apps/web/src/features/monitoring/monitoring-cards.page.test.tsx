@@ -390,6 +390,11 @@ describe('monitoring cards', () => {
               deletedAt: null,
               pinned: false,
               target: null,
+              authorName: null,
+              publishedAt: null,
+              textSummary: null,
+              targetLabel: null,
+              displayTitle: 'dyn-1',
               latestMetrics: {
                 sampledAt: null,
                 likeCount: '1',

@@ -63,6 +63,16 @@ export type DynamicListItem = {
   pinned: boolean;
   /** Joined from monitor_targets (type=dynamic). Null when unmonitored. */
   target: DynamicTargetRef | null;
+  /** metadata.author_name when present. */
+  authorName: string | null;
+  /** metadata.published_at when present (ISO). */
+  publishedAt: string | null;
+  /** Truncated metadata.text / title summary; null when empty. */
+  textSummary: string | null;
+  /** monitor_targets.label when a dynamic target exists. */
+  targetLabel: string | null;
+  /** Prefer author+summary, then target label, never prefer bare id when alternatives exist. */
+  displayTitle: string;
   latestMetrics: {
     sampledAt: string | null;
     likeCount: BigIntString | null;
@@ -124,6 +134,8 @@ export type VideoDetail = {
   title: string | null;
   category: string | null;
   mid: BigIntString | null;
+  /** videos.pubdate when known. */
+  pubdate: string | null;
   monitoringEnabled: boolean;
   archivedAt: string | null;
   deletedAt: string | null;
@@ -247,4 +259,35 @@ export function parseIsoDateParam(raw: string | undefined, name: string): Date |
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) throw new Error(`invalid ${name}`);
   return d;
+}
+
+const DYNAMIC_SUMMARY_MAX = 80;
+
+/** Prefer metadata.text; truncate for list/detail titles. */
+export function dynamicTextSummaryFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!metadata) return null;
+  const raw = metadata.text;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return null;
+  if (trimmed.length <= DYNAMIC_SUMMARY_MAX) return trimmed;
+  return `${trimmed.slice(0, DYNAMIC_SUMMARY_MAX)}…`;
+}
+
+export function formatDynamicDisplayTitle(input: {
+  authorName: string | null | undefined;
+  textSummary: string | null | undefined;
+  targetLabel: string | null | undefined;
+  dynamicId: string;
+}): string {
+  const author = input.authorName?.trim() || null;
+  const summary = input.textSummary?.trim() || null;
+  if (author && summary) return `${author} · ${summary}`;
+  if (summary) return summary;
+  if (author) return author;
+  const label = input.targetLabel?.trim() || null;
+  if (label && label !== input.dynamicId) return label;
+  return input.dynamicId;
 }

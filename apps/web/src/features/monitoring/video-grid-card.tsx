@@ -6,6 +6,7 @@ import {
   handleCardActivateKey,
   stopCardActivatePropagation,
 } from '@/features/monitoring/card-activate';
+import { BilibiliExternalLinkButton } from '@/features/monitoring/bilibili-external-link';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
 import { MonitorPinButton } from '@/features/monitoring/monitor-pin-button';
 import {
@@ -133,10 +134,11 @@ export function VideoGridCard({
           </span>
           <div
             data-testid="monitor-card-actions"
-            className="flex shrink-0 items-center justify-end gap-1.5"
+            className="flex shrink-0 flex-nowrap items-center justify-end gap-1.5"
             onClick={stopCardActivatePropagation}
             onKeyDown={stopCardActivatePropagation}
           >
+            <BilibiliExternalLinkButton kind="video" id={card.externalId} />
             {primary ? (
               <Button
                 type="button"

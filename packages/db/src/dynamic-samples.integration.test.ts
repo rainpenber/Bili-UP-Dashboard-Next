@@ -305,6 +305,10 @@ describe('historical dynamic sample upgrade', () => {
       '016_commercial_source_ingress',
       '017_creator_content_discovery',
       '018_creator_dynamic_pinned_at',
+      '019_publish_event_manual_source',
+      '020_creator_uploads_sync',
+      '021_discovery_item_skips',
+      '022_account_revoked_at',
     ]);
     const creators = await snapshotRows(db, 'creators', 'mid');
     const dynamics = await snapshotRows(db, 'dynamics', 'dynamic_id');

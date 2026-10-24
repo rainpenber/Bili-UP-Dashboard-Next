@@ -252,7 +252,7 @@ function follows(earlier: Node, later: Node) {
 function readSeries(chart: HTMLElement) {
   return JSON.parse(chart.getAttribute('data-series') ?? '[]') as {
     name: string;
-    data: (number | string | null)[];
+    data: (number | string | null | [number, number])[];
   }[];
 }
 
@@ -547,7 +547,9 @@ describe('monitoring chart layout stays stacked by default', () => {
       </MemoryRouter>,
     );
     expect(screen.queryByTestId('metric-charts-columns')).toBeNull();
-    expect(readSeries(screen.getByTestId('mock-echart'))[0]?.name).toBe('粉丝数');
-    expect(readSeries(screen.getByTestId('mock-echart'))[0]?.data).toEqual([1000]);
+    expect(readSeries(screen.getByTestId('mock-echart'))[0]?.name).toBe('粉丝数（样本）');
+    expect(readSeries(screen.getByTestId('mock-echart'))[0]?.data).toEqual([
+      [Date.parse('2026-05-20T12:00:00.000Z'), 1000],
+    ]);
   });
 });

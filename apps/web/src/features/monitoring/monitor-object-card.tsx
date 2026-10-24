@@ -8,6 +8,7 @@ import {
 import { coverAssetUrl, formatCount } from '@/api/monitor-client';
 import { useMonitorTargetMutations } from '@/api/hooks/use-monitor-target-queries';
 import { Button } from '@/components/ui/button';
+import { BilibiliExternalLinkButton } from '@/features/monitoring/bilibili-external-link';
 import { CreatorGridCard } from '@/features/monitoring/creator-grid-card';
 import { formatVideoCardMetricsSummary } from '@/features/monitoring/video-card-metrics';
 import { MonitorSettingsDialog } from '@/features/monitoring/monitor-settings-dialog';
@@ -297,10 +298,14 @@ export function MonitorCardControls({
           </div>
           <div
             data-testid="monitor-card-actions"
-            className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2"
+            className="ml-auto flex shrink-0 flex-nowrap items-center justify-end gap-1.5"
             onClick={stopCardActivatePropagation}
             onKeyDown={stopCardActivatePropagation}
           >
+            <BilibiliExternalLinkButton
+              kind={card.type === 'video' ? 'video' : 'creator'}
+              id={card.externalId}
+            />
             {primary}
           </div>
         </div>

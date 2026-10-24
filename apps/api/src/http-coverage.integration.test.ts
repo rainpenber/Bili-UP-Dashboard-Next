@@ -25,6 +25,7 @@ import {
 import { createRetainedTestDatabase, writeVideoSample, type Sql } from '@studio/db';
 import {
   createMonitorProvider,
+  createOfflineDiscoveryProvider,
   runCollectorOnce,
   type CollectorConfig,
   type HttpTransport,
@@ -225,6 +226,35 @@ describe('HTTP API coverage against isolated Postgres', () => {
       gate: () => gatePromise ?? Promise.resolve(),
       onBackfill: (task) => {
         backfills.push(task);
+      },
+      uploadsSyncProvider: createOfflineDiscoveryProvider({
+        videosByMid: {
+          '240240': [
+            {
+              bvid: 'BV1xx411c7mD',
+              title: '覆盖投稿',
+              created: 1_720_000_000n,
+              mid: '240240',
+            },
+          ],
+        },
+      }),
+      accounts: {
+        transport: async (request) => {
+          injectedUrls.push(request.url);
+          if (request.url.includes('/x/web-interface/nav')) {
+            return {
+              status: 200,
+              headers: {},
+              durationMs: 1,
+              body: JSON.stringify({
+                code: 0,
+                data: { isLogin: true, mid: 880001, uname: '覆盖号', face: '' },
+              }),
+            };
+          }
+          return { status: 200, headers: {}, durationMs: 1, body: '{}' };
+        },
       },
     });
   }, 60_000);
@@ -601,9 +631,16 @@ describe('HTTP API coverage against isolated Postgres', () => {
       const discoveryDefault = (await expectStatus(
         await api('/api/v1/monitor/creators/240240/discovery'),
         200,
-      )) as { enabled: boolean; monitorNewVideos: boolean };
+      )) as {
+        enabled: boolean;
+        monitorNewVideos: boolean;
+        lastSkippedCount: number;
+        lastSkips: unknown[];
+      };
       expect(discoveryDefault.enabled).toBe(false);
       expect(discoveryDefault.monitorNewVideos).toBe(false);
+      expect(discoveryDefault.lastSkippedCount).toBe(0);
+      expect(discoveryDefault.lastSkips).toEqual([]);
       const discoverySaved = (await expectStatus(
         await api(
           '/api/v1/monitor/creators/240240/discovery',
@@ -621,12 +658,76 @@ describe('HTTP API coverage against isolated Postgres', () => {
         discoverVideos: true,
         monitorNewVideos: true,
       });
+      const uploadsStatus = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/uploads/sync'),
+        200,
+      )) as { mid: string; stale: boolean; videoCount: number };
+      expect(uploadsStatus.mid).toBe('240240');
+      expect(uploadsStatus.stale).toBe(true);
+      const uploadsSynced = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/uploads/sync', json('POST', {})),
+        200,
+      )) as { cached: boolean; videoCount: number; eventsCreated: number };
+      expect(uploadsSynced.cached).toBe(false);
+      expect(uploadsSynced.videoCount).toBe(1);
+      expect(uploadsSynced.eventsCreated).toBe(1);
+      const uploadsCached = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/uploads/sync', json('POST', {})),
+        200,
+      )) as { cached: boolean; pagesFetched: number };
+      expect(uploadsCached.cached).toBe(true);
+      expect(uploadsCached.pagesFetched).toBe(0);
       const publishEvents = (await expectStatus(
         await api('/api/v1/monitor/creators/240240/publish-events?page=1&pageSize=20'),
         200,
       )) as { items: unknown[]; totalItems: number };
-      expect(publishEvents.totalItems).toBe(0);
+      expect(publishEvents.totalItems).toBeGreaterThanOrEqual(1);
       expect(Array.isArray(publishEvents.items)).toBe(true);
+      const manualCreated = (await expectStatus(
+        await api(
+          '/api/v1/monitor/creators/240240/publish-events',
+          json('POST', {
+            eventKind: 'dynamic',
+            externalId: '1241488471951933462',
+            publishedAt: '2026-08-28T13:29:00+08:00',
+            title: '抽PS5和GTA6啦!',
+          }),
+        ),
+        200,
+      )) as {
+        created: boolean;
+        event: { id: string; source: string };
+        monitored: boolean;
+      };
+      expect(manualCreated.created).toBe(true);
+      expect(manualCreated.event.source).toBe('manual');
+      const manualAgain = (await expectStatus(
+        await api(
+          '/api/v1/monitor/creators/240240/publish-events',
+          json('POST', {
+            eventKind: 'dynamic',
+            externalId: '1241488471951933462',
+            publishedAt: '2026-08-28T13:29:00+08:00',
+            title: '应忽略',
+          }),
+        ),
+        200,
+      )) as { created: boolean; event: { id: string; titleSnapshot: string } };
+      expect(manualAgain.created).toBe(false);
+      expect(manualAgain.event.id).toBe(manualCreated.event.id);
+      expect(manualAgain.event.titleSnapshot).toBe('抽PS5和GTA6啦!');
+      await expectStatus(
+        await api(`/api/v1/monitor/creators/240240/publish-events/${manualCreated.event.id}`, {
+          method: 'DELETE',
+        }),
+        204,
+      );
+      await expectStatus(
+        await api(`/api/v1/monitor/creators/240240/publish-events/${manualCreated.event.id}`, {
+          method: 'DELETE',
+        }),
+        404,
+      );
       await expectStatus(
         await api(
           '/api/v1/monitor/creators/240240/discovery',
@@ -1925,6 +2026,84 @@ describe('HTTP API coverage against isolated Postgres', () => {
         await expectStatus(await api(`/api/v1/commercial/projects/${projectId}/workflow`), 200),
       );
       expect(graph.nodes.find((node) => node.name === '发布')?.status).toBe('completed');
+    },
+    60_000,
+  );
+
+  testChecked(
+    'bili accounts list/create/patch/verify-disabled/revoke without cookie leaks',
+    'accounts',
+    async () => {
+      const previousKey = process.env.COLLECTOR_SECRET_KEY;
+      process.env.COLLECTOR_SECRET_KEY = Buffer.from('0'.repeat(32)).toString('base64');
+      try {
+        const list = (await expectStatus(await api('/api/v1/accounts'), 200)) as {
+          items: unknown[];
+          realAccessEnabled: boolean;
+        };
+        expect(Array.isArray(list.items)).toBe(true);
+        expect(list.realAccessEnabled).toBe(false);
+        expect(JSON.stringify(list)).not.toMatch(/SESSDATA|ciphertext|auth_tag|authTag/);
+
+        const cookie =
+          'SESSDATA=http-cover-sess-9f3a; DedeUserID=880001; bili_jct=http-cover-jct-9f3a';
+        const created = (await expectStatus(
+          await api('/api/v1/accounts', json('POST', { cookie, note: 'http-cover' })),
+          201,
+        )) as { id: string; mid: string | null; secretPresent: boolean };
+        expect(created.mid).toBe('880001');
+        expect(created.secretPresent).toBe(true);
+        expect(JSON.stringify(created)).not.toContain('http-cover-sess-9f3a');
+
+        await expectStatus(
+          await api('/api/v1/accounts', json('POST', { cookie, note: 'dup' })),
+          409,
+        );
+        const patched = (await expectStatus(
+          await api(`/api/v1/accounts/${created.id}`, json('PATCH', { note: 'http-cover-2' })),
+          200,
+        )) as { note: string };
+        expect(patched.note).toBe('http-cover-2');
+        await expectStatus(
+          await api(`/api/v1/accounts/${created.id}/verify`, { method: 'POST' }),
+          409,
+        );
+        const previousSource = process.env.MONITOR_DATA_SOURCE;
+        const previousProvider = process.env.COLLECTOR_PROVIDER;
+        process.env.MONITOR_DATA_SOURCE = 'collector';
+        process.env.COLLECTOR_PROVIDER = 'bilibili';
+        try {
+          const verified = (await expectStatus(
+            await api(`/api/v1/accounts/${created.id}/verify`, { method: 'POST' }),
+            200,
+          )) as { verified: boolean; account: { uname: string | null } };
+          expect(verified.verified).toBe(true);
+          expect(verified.account.uname).toBe('覆盖号');
+          expect(JSON.stringify(verified)).not.toContain('http-cover-sess-9f3a');
+        } finally {
+          if (previousSource === undefined) delete process.env.MONITOR_DATA_SOURCE;
+          else process.env.MONITOR_DATA_SOURCE = previousSource;
+          if (previousProvider === undefined) delete process.env.COLLECTOR_PROVIDER;
+          else process.env.COLLECTOR_PROVIDER = previousProvider;
+        }
+        const revoked = (await expectStatus(
+          await api(`/api/v1/accounts/${created.id}`, { method: 'DELETE' }),
+          200,
+        )) as { account: { status: string; secretPresent: boolean }; message: string };
+        expect(revoked.account.status).toBe('revoked');
+        expect(revoked.account.secretPresent).toBe(false);
+        expect(JSON.stringify(revoked)).not.toContain('http-cover-sess-9f3a');
+        await expectStatus(
+          await api(
+            `/api/v1/accounts/${'00000000-0000-4000-8000-000000000088'}`,
+            json('PATCH', { note: 'missing' }),
+          ),
+          404,
+        );
+      } finally {
+        if (previousKey === undefined) delete process.env.COLLECTOR_SECRET_KEY;
+        else process.env.COLLECTOR_SECRET_KEY = previousKey;
+      }
     },
     60_000,
   );

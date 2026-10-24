@@ -3,9 +3,13 @@ import type {
   CreatorDiscoveryConfigPutRequest,
   CreatorListItem,
   CreatorPublishEvent,
+  CreatorUploadsSyncResponse,
+  CreatorUploadsSyncStatus,
   CreatorVideoList,
   DynamicListItem,
   DynamicTargetRef,
+  ManualPublishEventCreateRequest,
+  ManualPublishEventCreateResponse,
   Paginated,
   VideoDetail,
   VideoListItem,
@@ -36,6 +40,28 @@ async function putJson<T>(path: string, body: unknown): Promise<T> {
     throw new Error(payload.error ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function deleteOk(path: string): Promise<void> {
+  const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE' });
+  if (res.status === 204) return;
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? `HTTP ${res.status}`);
+  }
 }
 
 export function fetchVideos(params: {
@@ -86,6 +112,32 @@ export function fetchCreatorPublishEvents(
     pageSize: String(params.pageSize ?? 200),
   });
   return getJson(`/creators/${encodeURIComponent(mid)}/publish-events?${qs}`);
+}
+
+export function createManualPublishEvent(
+  mid: string,
+  body: ManualPublishEventCreateRequest,
+): Promise<ManualPublishEventCreateResponse> {
+  return postJson(`/creators/${encodeURIComponent(mid)}/publish-events`, body);
+}
+
+export function deleteManualPublishEvent(mid: string, eventId: string): Promise<void> {
+  return deleteOk(
+    `/creators/${encodeURIComponent(mid)}/publish-events/${encodeURIComponent(eventId)}`,
+  );
+}
+
+export function fetchCreatorUploadsSyncStatus(mid: string): Promise<CreatorUploadsSyncStatus> {
+  return getJson(`/creators/${encodeURIComponent(mid)}/uploads/sync`);
+}
+
+export function syncCreatorUploads(
+  mid: string,
+  options: { force?: boolean } = {},
+): Promise<CreatorUploadsSyncResponse> {
+  return postJson(`/creators/${encodeURIComponent(mid)}/uploads/sync`, {
+    force: options.force === true,
+  });
 }
 
 export function fetchCreatorVideos(
