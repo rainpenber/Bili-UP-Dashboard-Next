@@ -3,6 +3,7 @@ import type { ResolvedChartColors } from '@/lib/chart-colors';
 import {
   buildFollowerOption,
   buildFollowerOptionDetailed,
+  FOLLOWER_EVENT_SYMBOL_HOVER_SIZE,
   FOLLOWER_EVENT_SYMBOL_SIZE,
   FOLLOWER_PUBLISH_SERIES_NAME,
   FOLLOWER_SAMPLE_SERIES_NAME,
@@ -214,7 +215,7 @@ describe('buildFollowerOption publish scatter', () => {
     expect(series.some((item) => item.name === FOLLOWER_PUBLISH_SERIES_NAME)).toBe(false);
   });
 
-  test('events become hollow animation-free scatter with same-day aggregated labels', () => {
+  test('events become solid animation-free scatter with same-day aggregated labels', () => {
     const option = buildFollowerOption(
       SAMPLES,
       FOLLOWERS,
@@ -248,6 +249,10 @@ describe('buildFollowerOption publish scatter', () => {
       symbolSize?: number;
       markPoint?: unknown;
       itemStyle?: { color?: string; borderColor?: string; borderWidth?: number };
+      emphasis?: {
+        scale?: number;
+        itemStyle?: { color?: string; borderColor?: string; borderWidth?: number };
+      };
       data?: {
         value: [number, number];
         eventLabels: string[];
@@ -262,10 +267,17 @@ describe('buildFollowerOption publish scatter', () => {
     const publish = series.find((item) => item.name === FOLLOWER_PUBLISH_SERIES_NAME);
     expect(publish?.type).toBe('scatter');
     expect(publish?.animation).toBe(false);
+    expect(FOLLOWER_EVENT_SYMBOL_SIZE).toBe(6);
+    expect(FOLLOWER_EVENT_SYMBOL_HOVER_SIZE).toBe(10);
     expect(publish?.symbolSize).toBe(FOLLOWER_EVENT_SYMBOL_SIZE);
-    expect(publish?.itemStyle?.color).toBe('transparent');
+    expect(publish?.itemStyle?.color).toBe(COLORS.series[2]);
     expect(publish?.itemStyle?.borderColor).toBe(COLORS.series[2]);
-    expect(publish?.itemStyle?.borderWidth).toBe(2);
+    expect(publish?.itemStyle?.borderWidth).toBe(0);
+    expect(publish?.emphasis?.scale).toBe(
+      FOLLOWER_EVENT_SYMBOL_HOVER_SIZE / FOLLOWER_EVENT_SYMBOL_SIZE,
+    );
+    expect(publish?.emphasis?.itemStyle?.color).toBe(COLORS.series[2]);
+    expect(publish?.emphasis?.itemStyle?.borderWidth).toBe(0);
     expect(publish?.data).toHaveLength(1);
     expect(publish?.data?.[0]?.value[0]).toBe(Date.parse('2026-10-23T03:00:00.000Z'));
     // Closest sample to earliest same-day event (03:00): 02:00 and 04:00 tie → first wins.
