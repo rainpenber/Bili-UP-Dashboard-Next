@@ -8,6 +8,7 @@ const devPostgresExample = readFileSync(
   join(repoRoot, 'docker-compose.dev-postgres.example.yml'),
   'utf8',
 );
+const legacySyncOverlay = readFileSync(join(repoRoot, 'docker-compose.legacy-sync.yml'), 'utf8');
 
 function serviceBlock(yaml: string, service: string): string {
   const lines = yaml.split('\n');
@@ -38,8 +39,8 @@ function topLevelServices(yaml: string): string[] {
 }
 
 describe('deploy docker-compose isolation', () => {
-  test('production compose defines exactly postgres and app', () => {
-    expect(topLevelServices(deployCompose).sort()).toEqual(['app', 'postgres']);
+  test('production compose defines postgres, app, and collector', () => {
+    expect(topLevelServices(deployCompose).sort()).toEqual(['app', 'collector', 'postgres']);
     expect(deployCompose).not.toMatch(/^\s+api:/m);
     expect(deployCompose).not.toMatch(/^\s+web:/m);
     expect(deployCompose).not.toMatch(/^\s+mock-import:/m);
@@ -69,6 +70,18 @@ describe('deploy docker-compose isolation', () => {
     expect(deployCompose).not.toContain('nginx');
   });
 
+  test('collector is an internal offline worker without a host port', () => {
+    const collector = serviceBlock(deployCompose, 'collector');
+    expect(collector).toContain('POSTGRES_HOST: postgres');
+    expect(collector).toContain('MONITOR_DATA_SOURCE: collector');
+    expect(collector).toContain('MONITOR_PROVIDER: ${COLLECTOR_PROVIDER:-offline}');
+    expect(collector).toContain('apps/collector/src/index.ts');
+    expect(collector).toContain('/mock-data:ro');
+    expect(collector).not.toMatch(/^\s+ports:/m);
+    expect(collector).not.toContain('bilibili.com');
+    expect(collector).toContain('disable: true');
+  });
+
   test('app depends on healthy postgres', () => {
     expect(deployCompose).toContain('condition: service_healthy');
   });
@@ -77,6 +90,16 @@ describe('deploy docker-compose isolation', () => {
     expect(deployCompose).toMatch(/^\s+postgres_data:/m);
     const postgres = serviceBlock(deployCompose, 'postgres');
     expect(postgres).toContain('postgres_data:/var/lib/postgresql/data');
+  });
+
+  test('legacy csv sync stays out of the default compose file', () => {
+    expect(deployCompose).not.toContain('legacy-sync');
+    expect(deployCompose).not.toContain('sync-legacy');
+    expect(legacySyncOverlay).toContain('sync-legacy');
+    expect(legacySyncOverlay).toContain('/legacy-csv:ro');
+    expect(legacySyncOverlay).toContain('disable: true');
+    expect(legacySyncOverlay).not.toMatch(/ssh|SMB|SESSDATA/i);
+    expect(topLevelServices(legacySyncOverlay)).toEqual(['legacy-sync']);
   });
 
   test('dev postgres example binds loopback only', () => {

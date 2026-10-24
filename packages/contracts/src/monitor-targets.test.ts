@@ -1,0 +1,236 @@
+import { describe, expect, test } from 'bun:test';
+import {
+  MonitorContractError,
+  parseCreateMonitorTargetRequest,
+  parseFirstAccessInterventionList,
+  parseMonitorStartAtInput,
+  parsePatchMonitorTargetRequest,
+  splitTagInput,
+} from './monitor-targets';
+
+describe('monitor target contracts', () => {
+  test('accepts a BV and a UID with defaults', () => {
+    const video = parseCreateMonitorTargetRequest({
+      type: 'video',
+      externalId: ' BV1xx411c7mD ',
+      tags: ['春季', 'spring'],
+    });
+    expect(video.externalId).toBe('BV1xx411c7mD');
+    expect(video.label).toBe('BV1xx411c7mD');
+    expect(video.intervalMinutes).toBe(60);
+    expect(video.intervalMode).toBe('auto');
+    expect(video.tags).toEqual(['春季', 'spring']);
+
+    const creator = parseCreateMonitorTargetRequest({
+      type: 'creator',
+      externalId: '12345',
+      label: '测试 UP',
+      intervalMinutes: 15,
+    });
+    expect(creator.externalId).toBe('12345');
+    expect(creator.intervalMinutes).toBe(15);
+    expect(creator.intervalMode).toBe('auto');
+
+    const defaultCreator = parseCreateMonitorTargetRequest({
+      type: 'creator',
+      externalId: '240',
+    });
+    expect(defaultCreator.intervalMinutes as number).toBe(240);
+    expect(defaultCreator.intervalMode).toBe('auto');
+
+    const fixed = parseCreateMonitorTargetRequest({
+      type: 'video',
+      externalId: 'BV1xx411c7mD',
+      intervalMinutes: 120,
+      intervalMode: 'fixed',
+    });
+    expect(fixed.intervalMinutes as number).toBe(120);
+    expect(fixed.intervalMode).toBe('fixed');
+    expect(
+      parseCreateMonitorTargetRequest({
+        type: 'creator',
+        externalId: '7',
+        intervalMinutes: 7,
+        intervalMode: 'fixed',
+      }).intervalMinutes as number,
+    ).toBe(7);
+  });
+
+  test('rejects illegal BV, UID, interval, and unknown fields', () => {
+    expect(() =>
+      parseCreateMonitorTargetRequest({ type: 'video', externalId: 'BVTEST001' }),
+    ).toThrow(MonitorContractError);
+    try {
+      parseCreateMonitorTargetRequest({ type: 'video', externalId: 'BVTEST001' });
+    } catch (err) {
+      expect(err).toBeInstanceOf(MonitorContractError);
+      expect((err as MonitorContractError).code).toBe('invalid_external_id');
+      expect((err as MonitorContractError).message).toContain('BV');
+    }
+    expect(() => parseCreateMonitorTargetRequest({ type: 'creator', externalId: '0123' })).toThrow(
+      /UID/,
+    );
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'video',
+        externalId: 'BV1xx411c7mD',
+        intervalMinutes: 4,
+      }),
+    ).toThrow(/频率/);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'video',
+        externalId: 'BV1xx411c7mD',
+        intervalMinutes: 10081,
+      }),
+    ).toThrow(/频率/);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'creator',
+        externalId: '12345',
+        intervalMode: 'weekly',
+      }),
+    ).toThrow(/自动或固定/);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'video',
+        externalId: 'BV1xx411c7mD',
+        note: 'nope',
+      }),
+    ).toThrow(/不能识别/);
+  });
+
+  test('patch requires a known field', () => {
+    expect(parsePatchMonitorTargetRequest({ enabled: false }).enabled).toBe(false);
+    expect(parsePatchMonitorTargetRequest({ intervalMinutes: 240, intervalMode: 'fixed' })).toEqual(
+      { intervalMinutes: 240, intervalMode: 'fixed' },
+    );
+    expect(() => parsePatchMonitorTargetRequest({})).toThrow(/没有可更新/);
+    expect(() => parsePatchMonitorTargetRequest({ intervalMinutes: 3 })).toThrow(/频率/);
+  });
+
+  test('dynamic ids stay strings on a fixed 60 minute default and reject auto', () => {
+    const created = parseCreateMonitorTargetRequest({
+      type: 'dynamic',
+      externalId: ' 966692349750018048 ',
+    });
+    expect(created).toMatchObject({
+      type: 'dynamic',
+      externalId: '966692349750018048',
+      intervalMode: 'fixed',
+      intervalMinutes: 60,
+    });
+    expect(typeof created.externalId).toBe('string');
+    const longId = '9'.repeat(25);
+    expect(
+      parseCreateMonitorTargetRequest({ type: 'dynamic', externalId: longId }).externalId,
+    ).toBe(longId);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'dynamic',
+        externalId: longId,
+        intervalMode: 'auto',
+      }),
+    ).toThrow(/固定间隔/);
+    for (const externalId of ['0', '01', 'BV1xx411c7mD', '12.5', '']) {
+      expect(() => parseCreateMonitorTargetRequest({ type: 'dynamic', externalId })).toThrow(
+        /十进制/,
+      );
+    }
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'dynamic',
+        externalId: '12345',
+        intervalMinutes: 4,
+        intervalMode: 'fixed',
+      }),
+    ).toThrow(/频率/);
+    expect(
+      parseCreateMonitorTargetRequest({ type: 'video', externalId: 'BV1xx411c7mD' }).intervalMode,
+    ).toBe('auto');
+    expect(
+      parseCreateMonitorTargetRequest({ type: 'creator', externalId: '240' })
+        .intervalMinutes as number,
+    ).toBe(240);
+  });
+
+  test('splits tag input on commas and spaces', () => {
+    expect(splitTagInput(' 春季， 活动  beta ')).toEqual(['春季', '活动', 'beta']);
+  });
+
+  test('startAt requires an explicit timezone and is video-only on create', () => {
+    const scheduled = parseCreateMonitorTargetRequest({
+      type: 'video',
+      externalId: 'BV1xx411c7mD',
+      startAt: '2026-10-21T20:00:00+08:00',
+    });
+    expect(scheduled.startAt).toBe('2026-10-21T12:00:00.000Z');
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'video',
+        externalId: 'BV1xx411c7mD',
+        startAt: '2026-10-21T20:00:00',
+      }),
+    ).toThrow(/时区/);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'creator',
+        externalId: '12345',
+        startAt: '2026-10-21T20:00:00+08:00',
+      }),
+    ).toThrow(/视频/);
+    expect(() =>
+      parseCreateMonitorTargetRequest({
+        type: 'dynamic',
+        externalId: '12345',
+        startAt: '2026-10-21T20:00:00Z',
+      }),
+    ).toThrow(/视频/);
+    expect(parsePatchMonitorTargetRequest({ startAt: null }).startAt).toBeNull();
+    expect(parsePatchMonitorTargetRequest({ startAt: '2026-12-01T08:00:00.000Z' }).startAt).toBe(
+      '2026-12-01T08:00:00.000Z',
+    );
+  });
+
+  test('startAt rejects non-calendar days and keeps leap-day boundaries', () => {
+    expect(() => parseMonitorStartAtInput('2027-02-30T18:00:00+08:00')).toThrow(/日历日期/);
+    expect(() => parseMonitorStartAtInput('2027-02-29T18:00:00+08:00')).toThrow(/日历日期/);
+    expect(() => parseMonitorStartAtInput('2027-04-31T12:00:00Z')).toThrow(/日历日期/);
+    expect(() => parseMonitorStartAtInput('2027-02-30T18:00:00+08:00')).toThrow(
+      MonitorContractError,
+    );
+    expect(parseMonitorStartAtInput('2028-02-29T18:00:00+08:00')).toBe('2028-02-29T10:00:00.000Z');
+    expect(parseMonitorStartAtInput('2027-02-28T18:00:00+08:00')).toBe('2027-02-28T10:00:00.000Z');
+  });
+
+  test('parses first-access intervention list for Hermes handoff', () => {
+    const listed = parseFirstAccessInterventionList({
+      items: [
+        {
+          id: '00000000-0000-4000-8000-000000000001',
+          targetId: '00000000-0000-4000-8000-000000000002',
+          bvid: 'BV1xx411c7mD',
+          status: 'awaiting_manual',
+          failureCount: 3,
+          reason: 'view 业务码 -404；达到上限待人工介入 [first_access_awaiting_manual]',
+          failedAt: '2026-10-22T00:00:00.000Z',
+        },
+        {
+          id: '00000000-0000-4000-8000-000000000003',
+          targetId: '00000000-0000-4000-8000-000000000004',
+          bvid: 'BV1xx411c7mE',
+          status: 'waiting_confirmation',
+          failureCount: 1,
+          reason: '暂不可访问 [first_access_waiting]',
+          failedAt: '2026-10-22T00:05:00.000Z',
+        },
+      ],
+    });
+    expect(listed.items).toHaveLength(2);
+    expect(listed.items[0]?.status).toBe('awaiting_manual');
+    expect(listed.items[1]?.failureCount).toBe(1);
+    expect(() => parseFirstAccessInterventionList({ items: [{ id: 'x' }] })).toThrow(
+      MonitorContractError,
+    );
+  });
+});

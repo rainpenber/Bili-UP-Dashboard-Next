@@ -1,223 +1,43 @@
-import { ChevronDown } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { isUuidString } from '@studio/contracts';
 import { Link, useParams } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/page-header';
-import { ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  PublishPanel,
-  readPublishOverride,
-  type PublishOverride,
-} from '@/features/commercial/components/publish-panel';
-import {
-  useProjectWorkflowEditor,
-  WorkflowGraphEditor,
-} from '@/features/commercial/components/workflow-graph-editor';
-import { WorkflowGraphReadonly } from '@/features/commercial/components/workflow-graph-readonly';
-import { deriveWorkflowSummary } from '@/features/commercial/workflow-edit-logic';
-import { formatYuan } from '@/features/commercial/commercial-selectors';
-import { useCommercialProjectQuery } from '@/features/commercial/use-commercial-queries';
-import { cn } from '@/lib/utils';
-
-function ScheduleLine({ name, dateLabel }: { name: string; dateLabel: string }) {
-  return (
-    <span>
-      {name} {dateLabel}
-    </span>
-  );
-}
+import { LiveProjectWorkflow } from '@/features/commercial/components/live-project-workflow';
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const query = useCommercialProjectQuery(projectId);
-  const [publishOverride, setPublishOverride] = useState<PublishOverride | null>(() =>
-    projectId ? readPublishOverride(projectId) : null,
-  );
-  const [finishedOpen, setFinishedOpen] = useState(false);
-
-  const projectForEditor = query.data;
-  const workflowEditor = useProjectWorkflowEditor(projectForEditor?.workflow ?? { steps: [] });
-  const workflowSummary = useMemo(
-    () => deriveWorkflowSummary(workflowEditor.graph),
-    [workflowEditor.graph],
-  );
-
-  const statusText = useMemo(() => {
-    if (!projectForEditor) return '';
-    if (workflowSummary.blockingReason) {
-      return `当前状态：${workflowSummary.statusHeadline}，阻塞原因：${workflowSummary.blockingReason}`;
-    }
-    return `当前状态：${workflowSummary.statusHeadline}`;
-  }, [projectForEditor, workflowSummary]);
-
-  if (query.isLoading) {
-    return <LoadingListSkeleton rows={4} />;
+  if (projectId && isUuidString(projectId)) {
+    return <LiveProjectWorkflow projectId={projectId} />;
   }
+  return <LegacyDemoBookmark projectId={projectId} />;
+}
 
-  if (query.isError) {
-    return (
-      <ErrorState
-        message={query.error instanceof Error ? query.error.message : '加载失败'}
-        onRetry={() => query.refetch()}
-      />
-    );
-  }
-
-  if (!query.data) {
-    return <ErrorState title="找不到这个项目" message="可能链接有误，或演示数据里已移除。" />;
-  }
-
-  const project = query.data;
-
+function LegacyDemoBookmark({ projectId }: { projectId: string | undefined }) {
   return (
     <>
       <PageHeader
-        title={project.name}
-        description={project.archived ? '该项目已结案归档，仅供回看。' : project.overallStage}
+        title="这不是数据库项目"
+        description="地址里的编号属于演示书签。这里不会按名称改去别的商单，也不会打开数据库时间轴。"
         crumbs={[
           { label: '工作室', to: '/' },
           { label: '项目', to: '/projects' },
-          { label: project.name },
+          { label: '演示书签' },
         ]}
-        actions={project.archived ? <Badge variant="secondary">已归档</Badge> : null}
       />
-
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
-          <Card className="lg:col-span-1">
-            <CardHeader>
-              <CardTitle className="text-base">概要</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm">
-              <div>
-                <p className="mb-1 text-muted-foreground">未完成节点的计划时间</p>
-                {project.upcomingNodeSchedule.length > 0 ? (
-                  <p className="flex flex-wrap gap-x-3 gap-y-1">
-                    {project.upcomingNodeSchedule.map((s) => (
-                      <ScheduleLine key={s.name} name={s.name} dateLabel={s.dateLabel} />
-                    ))}
-                  </p>
-                ) : (
-                  <p className="text-muted-foreground">暂无排期。</p>
-                )}
-              </div>
-
-              {project.finishedNodeSchedule.length > 0 ? (
-                <div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-auto px-0 text-muted-foreground"
-                    aria-expanded={finishedOpen}
-                    onClick={() => setFinishedOpen((v) => !v)}
-                  >
-                    {finishedOpen ? '收起已完成节点时间' : '展开已完成节点时间'}
-                    <ChevronDown
-                      className={cn('size-4', finishedOpen && 'rotate-180')}
-                      aria-hidden
-                    />
-                  </Button>
-                  {finishedOpen ? (
-                    <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
-                      {project.finishedNodeSchedule.map((s) => (
-                        <ScheduleLine key={s.name} name={s.name} dateLabel={s.dateLabel} />
-                      ))}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <p>
-                <span className="text-muted-foreground">整体阶段：</span>
-                {project.overallStage}
-              </p>
-              {workflowSummary.inProgressNodeNames.length > 0 ? (
-                <p data-testid="summary-in-progress">
-                  <span className="text-muted-foreground">进行中的节点：</span>
-                  {workflowSummary.inProgressNodeNames.join('、')}
-                </p>
-              ) : null}
-              {workflowSummary.mainBlockingItem ? (
-                <p data-testid="summary-blocking-item">
-                  <span className="text-muted-foreground">主要阻塞项：</span>
-                  {workflowSummary.mainBlockingItem}
-                </p>
-              ) : null}
-              <div className="flex flex-wrap gap-6">
-                <p>
-                  <span className="text-muted-foreground">到手金额：</span>
-                  {formatYuan(project.netAmountYuan)}
-                </p>
-                <p>
-                  <span className="text-muted-foreground">返点金额：</span>
-                  {formatYuan(project.rebateAmountYuan)}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="lg:col-span-1">
-            <CardHeader>
-              <CardTitle className="text-base">当前状态</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm" data-testid="summary-status-text">
-                {statusText}
-              </p>
-              <PublishPanel
-                project={project}
-                override={publishOverride}
-                onPublished={setPublishOverride}
-              />
-            </CardContent>
-          </Card>
-
-          <Card className="lg:col-span-1">
-            <CardHeader>
-              <CardTitle className="text-base">开放事项</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {project.openItems.length > 0 ? (
-                <ul className="space-y-2 text-sm">
-                  {project.openItems.map((item) => (
-                    <li key={item.id} className="rounded-md border px-3 py-2">
-                      <p className="font-medium">{item.title}</p>
-                      <p className="text-muted-foreground">下一步：{item.nextAction}</p>
-                      {item.plannedTime ? (
-                        <p className="text-muted-foreground">{item.plannedTime}</p>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">暂无开放事项。</p>
-              )}
-            </CardContent>
-          </Card>
+      <div className="space-y-4" data-testid="demo-bookmark">
+        <p className="text-sm text-muted-foreground">
+          {projectId ? `编号 ${projectId} 不是已保存商单的 ID。` : '缺少项目编号。'}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild>
+            <Link to="/projects">返回项目列表</Link>
+          </Button>
+          {projectId ? (
+            <Button variant="secondary" asChild>
+              <Link to={`/projects/demo/${projectId}`}>打开这个编号的演示页</Link>
+            </Button>
+          ) : null}
         </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">完整工作流图</CardTitle>
-            <p className="text-sm font-normal text-muted-foreground">
-              在此推进或回退节点、标记阻塞、增删节点与连接（演示数据，刷新后恢复）。
-            </p>
-          </CardHeader>
-          <CardContent>
-            {project.archived ? (
-              <WorkflowGraphReadonly graph={project.workflow} />
-            ) : (
-              <WorkflowGraphEditor editor={workflowEditor} />
-            )}
-          </CardContent>
-        </Card>
-
-        <Button variant="outline" asChild>
-          <Link to="/projects">返回项目列表</Link>
-        </Button>
       </div>
     </>
   );

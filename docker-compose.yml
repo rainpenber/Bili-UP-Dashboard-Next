@@ -27,16 +27,26 @@ services:
       MONITOR_DATA_SOURCE: mock
       SOURCE_TIMEZONE: ${SOURCE_TIMEZONE:-Asia/Shanghai}
       MOCK_DATA_ROOT: /mock-data
-      MONITOR_ASSETS_ROOT: /mock-data/assets
+      MONITOR_ASSETS_ROOT: /assets
+      COLLECTOR_SECRET_KEY: ${COLLECTOR_SECRET_KEY:-}
       API_PORT: 3000
       WEB_STATIC_ROOT: /app/web-dist
+      LOG_QUEUE_MAX_RECORDS: ${LOG_QUEUE_MAX_RECORDS:-1000}
+      LOG_QUEUE_MAX_BYTES: ${LOG_QUEUE_MAX_BYTES:-4194304}
+      LOG_FLUSH_DEADLINE_MS: ${LOG_FLUSH_DEADLINE_MS:-10000}
+      PROCESS_EXIT_BUDGET_MS: ${PROCESS_EXIT_BUDGET_MS:-20000}
     volumes:
       - ${MOCK_DATA_ROOT:-./packages/monitoring/fixtures/mock-data}:/mock-data:ro
+      - assets:/assets
     ports:
       - '${APP_PORT:-8080}:3000'
     depends_on:
       postgres:
         condition: service_healthy
+    logging:
+      options:
+        max-size: 20m
+        max-file: '5'
     healthcheck:
       test:
         [
@@ -49,6 +59,50 @@ services:
       timeout: 5s
       retries: 5
       start_period: 25s
+    stop_grace_period: 30s
+
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      MONITOR_DATA_SOURCE: collector
+      MONITOR_PROVIDER: ${COLLECTOR_PROVIDER:-offline}
+      COLLECTOR_PROVIDER: ${COLLECTOR_PROVIDER:-offline}
+      COLLECTOR_MIN_INTERVAL_MS: ${COLLECTOR_MIN_INTERVAL_MS:-30000}
+      COLLECTOR_MAX_JITTER_MS: ${COLLECTOR_MAX_JITTER_MS:-5000}
+      COLLECTOR_MAX_REQUESTS_PER_MINUTE: ${COLLECTOR_MAX_REQUESTS_PER_MINUTE:-2}
+      COLLECTOR_RATE_LIMIT_MS: ${COLLECTOR_RATE_LIMIT_MS:-30000}
+      SOURCE_TIMEZONE: ${SOURCE_TIMEZONE:-Asia/Shanghai}
+      MOCK_DATA_ROOT: /mock-data
+      MONITOR_ASSETS_ROOT: /assets
+      COLLECTOR_SECRET_KEY: ${COLLECTOR_SECRET_KEY:-}
+      COLLECTOR_INSTANCE_ID: collector-1
+      LOG_QUEUE_MAX_RECORDS: ${LOG_QUEUE_MAX_RECORDS:-1000}
+      LOG_QUEUE_MAX_BYTES: ${LOG_QUEUE_MAX_BYTES:-4194304}
+      LOG_FLUSH_DEADLINE_MS: ${LOG_FLUSH_DEADLINE_MS:-10000}
+      PROCESS_EXIT_BUDGET_MS: ${PROCESS_EXIT_BUDGET_MS:-20000}
+    volumes:
+      - ${MOCK_DATA_ROOT:-./packages/monitoring/fixtures/mock-data}:/mock-data:ro
+      - assets:/assets
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ['bun', 'run', 'apps/collector/src/index.ts']
+    stop_grace_period: 30s
+    logging:
+      options:
+        max-size: 20m
+        max-file: '5'
+    restart: unless-stopped
+    healthcheck:
+      disable: true
 
 volumes:
   postgres_data:
+  assets:

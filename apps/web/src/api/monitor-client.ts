@@ -1,7 +1,18 @@
 import type {
+  CreatorDiscoveryConfig,
+  CreatorDiscoveryConfigPutRequest,
+  CreatorDynamicsSyncResponse,
   CreatorListItem,
+  CreatorPublishEvent,
+  CreatorUploadsSyncResponse,
+  CreatorUploadsSyncStatus,
+  CreatorVideoList,
   DynamicListItem,
+  DynamicTargetRef,
+  ManualPublishEventCreateRequest,
+  ManualPublishEventCreateResponse,
   Paginated,
+  VideoDetail,
   VideoListItem,
   VideoMetricPoint,
   CreatorMetricPoint,
@@ -17,6 +28,41 @@ async function getJson<T>(path: string): Promise<T> {
     throw new Error(body.error ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
+}
+
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function deleteOk(path: string): Promise<void> {
+  const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE' });
+  if (res.status === 204) return;
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? `HTTP ${res.status}`);
+  }
 }
 
 export function fetchVideos(params: {
@@ -44,11 +90,96 @@ export function fetchCreators(params: {
 }
 
 export function fetchCreatorMetrics(mid: string): Promise<{ items: CreatorMetricPoint[] }> {
-  return getJson(`/creators/${encodeURIComponent(mid)}/metrics?limit=500`);
+  // WP-R2-27B: full history for the follower chart; API caps at 20000 (all=1).
+  return getJson(`/creators/${encodeURIComponent(mid)}/metrics?all=1`);
 }
 
-export function fetchDynamics(params: { page: number }): Promise<Paginated<DynamicListItem>> {
+export function fetchCreatorDiscovery(mid: string): Promise<CreatorDiscoveryConfig> {
+  return getJson(`/creators/${encodeURIComponent(mid)}/discovery`);
+}
+
+export function putCreatorDiscovery(
+  mid: string,
+  body: CreatorDiscoveryConfigPutRequest,
+): Promise<CreatorDiscoveryConfig> {
+  return putJson(`/creators/${encodeURIComponent(mid)}/discovery`, body);
+}
+
+export function fetchCreatorPublishEvents(
+  mid: string,
+  params: { pageSize?: number } = {},
+): Promise<Paginated<CreatorPublishEvent>> {
+  const qs = new URLSearchParams({
+    page: '1',
+    pageSize: String(params.pageSize ?? 200),
+  });
+  return getJson(`/creators/${encodeURIComponent(mid)}/publish-events?${qs}`);
+}
+
+export function createManualPublishEvent(
+  mid: string,
+  body: ManualPublishEventCreateRequest,
+): Promise<ManualPublishEventCreateResponse> {
+  return postJson(`/creators/${encodeURIComponent(mid)}/publish-events`, body);
+}
+
+export function deleteManualPublishEvent(mid: string, eventId: string): Promise<void> {
+  return deleteOk(
+    `/creators/${encodeURIComponent(mid)}/publish-events/${encodeURIComponent(eventId)}`,
+  );
+}
+
+export function fetchCreatorUploadsSyncStatus(mid: string): Promise<CreatorUploadsSyncStatus> {
+  return getJson(`/creators/${encodeURIComponent(mid)}/uploads/sync`);
+}
+
+export function syncCreatorUploads(
+  mid: string,
+  options: { force?: boolean } = {},
+): Promise<CreatorUploadsSyncResponse> {
+  return postJson(`/creators/${encodeURIComponent(mid)}/uploads/sync`, {
+    force: options.force === true,
+  });
+}
+
+/**
+ * Background dynamics sync (6h TTL). Returns null when the route is missing
+ * so callers can degrade silently without toasting.
+ */
+export async function syncCreatorDynamics(
+  mid: string,
+  options: { force?: boolean } = {},
+): Promise<CreatorDynamicsSyncResponse | null> {
+  const res = await fetch(`${API_BASE}/creators/${encodeURIComponent(mid)}/dynamics/sync`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ force: options.force === true }),
+  });
+  if (res.status === 404 || res.status === 405 || res.status === 501) return null;
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<CreatorDynamicsSyncResponse>;
+}
+
+export function fetchCreatorVideos(
+  mid: string,
+  params: { limit?: number; offset?: number } = {},
+): Promise<CreatorVideoList> {
+  const qs = new URLSearchParams();
+  if (params.limit != null) qs.set('limit', String(params.limit));
+  if (params.offset != null) qs.set('offset', String(params.offset));
+  const query = qs.toString();
+  return getJson(`/creators/${encodeURIComponent(mid)}/videos${query ? `?${query}` : ''}`);
+}
+
+export function fetchDynamics(params: {
+  page: number;
+  sort?: string;
+}): Promise<Paginated<DynamicListItem>> {
   const qs = new URLSearchParams({ page: String(params.page), pageSize: '8' });
+  if (params.sort) qs.set('sort', params.sort);
   return getJson(`/dynamics?${qs}`);
 }
 
@@ -56,17 +187,7 @@ export function fetchDynamicMetrics(id: string): Promise<{ items: DynamicMetricP
   return getJson(`/dynamics/${encodeURIComponent(id)}/metrics?limit=500`);
 }
 
-export type VideoDetail = {
-  bvid: string;
-  title: string | null;
-  category: string | null;
-  mid: string | null;
-  monitoringEnabled: boolean;
-  archivedAt: string | null;
-  deletedAt: string | null;
-  coverAssetId: string | null;
-  metadata: Record<string, unknown>;
-};
+export type { VideoDetail };
 
 export type CreatorDetail = {
   mid: string;
@@ -87,6 +208,7 @@ export type DynamicDetail = {
   archivedAt: string | null;
   deletedAt: string | null;
   metadata: Record<string, unknown>;
+  target: DynamicTargetRef | null;
 };
 
 export function fetchVideo(bvid: string): Promise<VideoDetail> {

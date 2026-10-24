@@ -1,7 +1,15 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ManualPublishEventCreateRequest } from '@studio/contracts';
 import {
+  coverAssetUrl,
+  createManualPublishEvent,
+  deleteManualPublishEvent,
   fetchCreator,
   fetchCreatorMetrics,
+  fetchCreatorPublishEvents,
+  fetchCreatorUploadsSyncStatus,
+  fetchCreatorVideos,
   fetchCreators,
   fetchDynamic,
   fetchDynamicMetrics,
@@ -9,6 +17,8 @@ import {
   fetchVideo,
   fetchVideoMetrics,
   fetchVideos,
+  syncCreatorDynamics,
+  syncCreatorUploads,
 } from '@/api/monitor-client';
 import type { MonitorTab } from '@/features/monitoring/monitor-url-state';
 
@@ -16,7 +26,7 @@ export const monitorQueryKeys = {
   videos: (page: number, category: string, q: string) =>
     ['monitor', 'videos', page, category, q] as const,
   creators: (page: number, q: string) => ['monitor', 'creators', page, q] as const,
-  dynamics: (page: number) => ['monitor', 'dynamics', page] as const,
+  dynamics: (page: number, sort: string) => ['monitor', 'dynamics', page, sort] as const,
   metrics: (tab: MonitorTab, id: string | null) => ['monitor', 'metrics', tab, id] as const,
 };
 
@@ -36,10 +46,10 @@ export function useCreatorsQuery(page: number, q: string, enabled: boolean) {
   });
 }
 
-export function useDynamicsQuery(page: number, enabled: boolean) {
+export function useDynamicsQuery(page: number, enabled: boolean, sort: string = 'sampled_desc') {
   return useQuery({
-    queryKey: monitorQueryKeys.dynamics(page),
-    queryFn: () => fetchDynamics({ page }),
+    queryKey: monitorQueryKeys.dynamics(page, sort),
+    queryFn: () => fetchDynamics({ page, sort }),
     enabled,
   });
 }
@@ -80,11 +90,11 @@ export function useDynamicDetailQuery(dynamicId: string) {
   });
 }
 
-export function useVideoMetricsDetailQuery(bvid: string) {
+export function useVideoMetricsDetailQuery(bvid: string, enabled = true) {
   return useQuery({
     queryKey: ['monitor', 'video-metrics', bvid] as const,
     queryFn: () => fetchVideoMetrics(bvid),
-    enabled: Boolean(bvid),
+    enabled: Boolean(bvid) && enabled,
   });
 }
 
@@ -96,6 +106,115 @@ export function useCreatorMetricsDetailQuery(mid: string) {
   });
 }
 
+export function useCreatorPublishEventsQuery(mid: string) {
+  return useQuery({
+    queryKey: ['monitor', 'creator-publish-events', mid] as const,
+    queryFn: () => fetchCreatorPublishEvents(mid),
+    enabled: Boolean(mid),
+  });
+}
+
+export function useManualPublishEventMutations(mid: string) {
+  const client = useQueryClient();
+  const invalidate = async () => {
+    await client.invalidateQueries({ queryKey: ['monitor', 'creator-publish-events', mid] });
+  };
+  return {
+    create: useMutation({
+      mutationFn: (body: ManualPublishEventCreateRequest) => createManualPublishEvent(mid, body),
+      onSuccess: invalidate,
+    }),
+    remove: useMutation({
+      mutationFn: (eventId: string) => deleteManualPublishEvent(mid, eventId),
+      onSuccess: invalidate,
+    }),
+  };
+}
+
+export function useCreatorUploadsSyncStatusQuery(mid: string) {
+  return useQuery({
+    queryKey: ['monitor', 'creator-uploads-sync', mid] as const,
+    queryFn: () => fetchCreatorUploadsSyncStatus(mid),
+    enabled: Boolean(mid),
+  });
+}
+
+/**
+ * Background upload-list sync when opening the follower chart: POST without force.
+ * Backend returns cached:true within TTL and skips upstream.
+ */
+export function useCreatorUploadsAutoSync(mid: string) {
+  const client = useQueryClient();
+  const started = useRef<string | null>(null);
+  const mutation = useMutation({
+    mutationFn: (force: boolean) => syncCreatorUploads(mid, { force }),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['monitor', 'creator-uploads-sync', mid] }),
+        client.invalidateQueries({ queryKey: ['monitor', 'creator-publish-events', mid] }),
+        client.invalidateQueries({ queryKey: ['monitor', 'creator', mid] }),
+        client.invalidateQueries({ queryKey: ['monitor', 'creator-videos', mid] }),
+      ]);
+    },
+  });
+
+  const trigger = mutation.mutate;
+  useEffect(() => {
+    if (!mid) return;
+    if (started.current === mid) return;
+    started.current = mid;
+    // Once per mid mount; manual retry uses mutation.mutate(true).
+    trigger(false);
+  }, [mid, trigger]);
+
+  return mutation;
+}
+
+/**
+ * Silent dynamics sync on UP detail open (6h TTL). Failures are swallowed so the
+ * page never blocks; missing route (404) degrades to a no-op.
+ */
+export function useCreatorDynamicsAutoSync(mid: string) {
+  const client = useQueryClient();
+  const started = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!mid) return;
+    if (started.current === mid) return;
+    started.current = mid;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await syncCreatorDynamics(mid, { force: false });
+        if (cancelled || result == null) return;
+        await client.invalidateQueries({ queryKey: ['monitor', 'creator-publish-events', mid] });
+      } catch {
+        // Silent: chart still works with whatever events we already have.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mid, client]);
+}
+
+/** bvid → same-origin cover URL for follower-chart tooltips (best-effort). */
+export function useCreatorVideoCoverMap(mid: string, enabled = true) {
+  return useQuery({
+    queryKey: ['monitor', 'creator-video-covers', mid] as const,
+    queryFn: async () => {
+      const list = await fetchCreatorVideos(mid, { limit: 100, offset: 0 });
+      const map = new Map<string, string>();
+      for (const item of list.items) {
+        if (item.coverAssetId) map.set(item.bvid, coverAssetUrl(item.coverAssetId));
+      }
+      return map;
+    },
+    enabled: Boolean(mid) && enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useDynamicMetricsDetailQuery(dynamicId: string) {
   return useQuery({
     queryKey: ['monitor', 'dynamic-metrics', dynamicId] as const,
@@ -104,9 +223,10 @@ export function useDynamicMetricsDetailQuery(dynamicId: string) {
   });
 }
 
-export function useEntityMetricsQuery(tab: MonitorTab, selected: string | null) {
+export function useEntityMetricsQuery(tab: MonitorTab, selected: string | null, enabled = true) {
   return useQuery({
     queryKey: monitorQueryKeys.metrics(tab, selected),
+    enabled: enabled && Boolean(selected),
     queryFn: async () => {
       if (!selected) return null;
       if (tab === 'videos') {
@@ -120,6 +240,5 @@ export function useEntityMetricsQuery(tab: MonitorTab, selected: string | null) 
       const data = await fetchDynamicMetrics(selected);
       return { kind: 'dynamic' as const, points: data.items };
     },
-    enabled: Boolean(selected),
   });
 }

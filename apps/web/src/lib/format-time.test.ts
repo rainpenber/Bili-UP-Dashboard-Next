@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { defaultDataZoomRange } from '@/lib/chart-window';
+import { defaultDataZoomRange, defaultFollowerZoomRange } from '@/lib/chart-window';
 import { formatShortTime, formatFullLocalTime } from '@/lib/format-time';
 
 describe('formatShortTime', () => {
@@ -32,5 +32,22 @@ describe('defaultDataZoomRange', () => {
   test('empty and single point', () => {
     expect(defaultDataZoomRange([])).toEqual({ start: 0, end: 100 });
     expect(defaultDataZoomRange(['2025-01-01T00:00:00.000Z'])).toEqual({ start: 0, end: 100 });
+  });
+});
+
+describe('defaultFollowerZoomRange', () => {
+  test('shows full domain when shorter than 90 days', () => {
+    const start = Date.parse('2024-01-01T00:00:00.000Z');
+    const end = start + 45 * 86_400_000;
+    const zoom = defaultFollowerZoomRange(start, end, end);
+    expect(zoom).toEqual({ start: 0, end: 100 });
+  });
+
+  test('defaults to last 90 days inside a longer domain', () => {
+    const start = Date.parse('2023-01-01T00:00:00.000Z');
+    const end = Date.parse('2026-10-23T00:00:00.000Z');
+    const zoom = defaultFollowerZoomRange(start, end, end);
+    expect(zoom.end).toBe(100);
+    expect(zoom.start).toBeGreaterThan(0);
   });
 });

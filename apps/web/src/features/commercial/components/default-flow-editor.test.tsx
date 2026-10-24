@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { resetDefaultFlowWorkspaceForTests } from '../default-flow-store';
 import { DefaultFlowEditor } from './default-flow-editor';
@@ -29,18 +29,29 @@ describe('DefaultFlowEditor', () => {
     );
     await waitForGraphReady(container);
 
+    const canvases = () => container.querySelectorAll('[data-testid="workflow-live-canvas"]');
+    expect(canvases()).toHaveLength(1);
+    expect(canvases()[0]?.getAttribute('data-live-node-count')).toBe('15');
+    expect(canvases()[0]?.getAttribute('data-live-stage-count')).toBe('13');
+    expect(canvases()[0]?.getAttribute('data-live-merge-count')).toBe('2');
+    expect(canvases()[0]?.getAttribute('data-live-edge-count')).toBe('17');
+
     expect(screen.getByTestId('default-flow-demo-notice').textContent).toContain('演示数据');
     expect(screen.getByTestId('default-flow-demo-notice').textContent).toContain('不会静默改写');
     expect(screen.getByTestId('default-flow-version-1')).toBeTruthy();
 
-    fireEvent.change(screen.getByTestId('workflow-add-node-name'), {
-      target: { value: '发布后回访' },
-    });
-    fireEvent.click(screen.getByTestId('workflow-add-node'));
+    const inquiry = container.querySelector('[data-workflow-node="inq"]');
+    const shell = container.querySelector('[data-testid="workflow-live-canvas"]');
+    if (!inquiry || !(shell instanceof HTMLElement)) throw new Error('missing inquiry canvas');
+    fireEvent.click(inquiry);
+    fireEvent.keyDown(shell, { key: 'Enter' });
+    const input = await within(container).findByTestId('workflow-node-name');
+    fireEvent.change(input, { target: { value: '询单回访' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() => {
       expect(
         [...container.querySelectorAll('[data-workflow-node]')].some((el) =>
-          el.textContent?.includes('发布后回访'),
+          el.textContent?.includes('询单回访'),
         ),
       ).toBe(true);
     });
@@ -56,9 +67,10 @@ describe('DefaultFlowEditor', () => {
       expect(screen.getByTestId('default-flow-version-view')).toBeTruthy();
     });
     await waitForGraphReady(container);
+    expect(canvases()).toHaveLength(1);
     expect(
       [...container.querySelectorAll('[data-workflow-node]')].some((el) =>
-        el.textContent?.includes('发布后回访'),
+        el.textContent?.includes('询单回访'),
       ),
     ).toBe(false);
 
@@ -67,9 +79,11 @@ describe('DefaultFlowEditor', () => {
       expect(screen.getByTestId('default-flow-version-view').textContent).toContain('v2');
     });
     await waitForGraphReady(container);
+    expect(canvases()).toHaveLength(1);
+    expect(canvases()[0]?.getAttribute('data-live-node-count')).toBe('15');
     expect(
       [...container.querySelectorAll('[data-workflow-node]')].some((el) =>
-        el.textContent?.includes('发布后回访'),
+        el.textContent?.includes('询单回访'),
       ),
     ).toBe(true);
   });

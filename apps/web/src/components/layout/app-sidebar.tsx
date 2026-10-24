@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { primaryNav } from '@/config/navigation';
+import { primaryNav, settingsNav } from '@/config/navigation';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 
@@ -42,6 +42,33 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           );
         })}
       </nav>
+      <div className="border-t border-sidebar-border p-3">
+        <p className="px-3 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          设置
+        </p>
+        {settingsNav.map((item) => {
+          const Icon = item.icon;
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              onClick={onNavigate}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors duration-200',
+                  'hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  isActive
+                    ? 'bg-sidebar-accent font-medium text-foreground'
+                    : 'text-sidebar-foreground',
+                )
+              }
+            >
+              <Icon className="size-4 shrink-0 opacity-80" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            </NavLink>
+          );
+        })}
+      </div>
     </aside>
   );
 }

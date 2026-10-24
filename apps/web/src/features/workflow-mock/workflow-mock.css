@@ -1,0 +1,241 @@
+.workflow-mock-flow {
+  background: #1b1b1b;
+}
+
+.workflow-stage[data-status='idle'] {
+  --status: #6b7280;
+  --status-fg: #ffffff;
+}
+
+.workflow-stage[data-status='active'] {
+  --status: #1d4ed8;
+  --status-fg: #ffffff;
+}
+
+.workflow-stage[data-status='blocked'] {
+  --status: #c2410c;
+  --status-fg: #ffffff;
+}
+
+.workflow-stage[data-status='done'] {
+  --status: #15803d;
+  --status-fg: #ffffff;
+}
+
+html.dark .workflow-stage[data-status='idle'] {
+  --status: #b0b0b0;
+  --status-fg: #1a1a1a;
+}
+
+html.dark .workflow-stage[data-status='active'] {
+  --status: #7eb6ff;
+  --status-fg: #0b1b33;
+}
+
+html.dark .workflow-stage[data-status='blocked'] {
+  --status: #ff9b7a;
+  --status-fg: #2a1008;
+}
+
+html.dark .workflow-stage[data-status='done'] {
+  --status: #6ee7a8;
+  --status-fg: #062216;
+}
+
+.workflow-stage {
+  border-color: var(--status, #6b7280);
+}
+
+.workflow-status-choice[aria-checked='true'] {
+  background: var(--status);
+  color: var(--status-fg);
+}
+
+.workflow-mock-flow .react-flow__node-stage {
+  width: max-content !important;
+  height: max-content !important;
+  overflow: visible;
+}
+
+.workflow-mock-flow .react-flow__node-stage .react-flow__handle {
+  z-index: 1;
+}
+
+.workflow-mock-flow .workflow-node-hover {
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workflow-mock-flow .react-flow__node:hover .workflow-node-hover,
+.workflow-mock-flow .workflow-node-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.workflow-mock-flow .react-flow__handle {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #1b1b1b;
+  background: #f2f2f2;
+}
+
+.workflow-mock-flow .react-flow__node-stage .react-flow__handle::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+}
+
+.workflow-mock-flow .react-flow__handle-left {
+  left: -6px;
+}
+
+.workflow-mock-flow .react-flow__handle-right {
+  right: -6px;
+}
+
+.workflow-mock-flow.is-vertical .react-flow__node-stage .react-flow__handle-top {
+  top: -6px;
+}
+
+.workflow-mock-flow.is-vertical .react-flow__node-stage .react-flow__handle-bottom {
+  bottom: -6px;
+}
+
+/* The gold dot must not use the pop animation: that keyframe starts at opacity 0 and
+   also sets transform, which on this 10px root stays at the transparent frame. */
+.workflow-mock-flow [data-workflow-junction='anchor'] {
+  opacity: 1 !important;
+  animation: none !important;
+}
+
+.workflow-mock-flow .react-flow__node-junction .junction-port {
+  width: 6px !important;
+  height: 6px !important;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid #1b1b1b !important;
+  background: #f4f4f4 !important;
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workflow-mock-flow .react-flow__node-junction .junction-port.target {
+  top: 2px !important;
+  left: -14px !important;
+  transform: none !important;
+}
+
+.workflow-mock-flow .react-flow__node-junction .junction-port.source {
+  top: 2px !important;
+  left: auto !important;
+  right: -14px !important;
+  transform: none !important;
+}
+
+.workflow-mock-flow .react-flow__node-junction:hover .junction-port,
+.workflow-mock-flow.is-connecting .react-flow__node-junction .junction-port {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.workflow-mock-flow .react-flow__node-junction .junction-port::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.workflow-mock-flow .junction-label {
+  position: absolute;
+  top: -11px;
+  font-size: 9px;
+  line-height: 1;
+  color: #f4f4f4;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workflow-mock-flow .junction-label-in {
+  left: -14px;
+}
+
+.workflow-mock-flow .junction-label-out {
+  right: -16px;
+}
+
+.workflow-mock-flow.is-vertical .react-flow__node-junction .junction-port.target {
+  top: -14px !important;
+  left: 2px !important;
+  right: auto !important;
+  bottom: auto !important;
+}
+
+.workflow-mock-flow.is-vertical .react-flow__node-junction .junction-port.source {
+  top: auto !important;
+  bottom: -14px !important;
+  left: 2px !important;
+  right: auto !important;
+}
+
+.workflow-mock-flow.is-vertical .junction-label-in {
+  top: -22px;
+  left: 0;
+  right: auto;
+}
+
+.workflow-mock-flow.is-vertical .junction-label-out {
+  top: auto;
+  bottom: -16px;
+  left: 0;
+  right: auto;
+}
+
+.workflow-mock-flow .react-flow__node-junction:hover .junction-label,
+.workflow-mock-flow.is-connecting .junction-label {
+  opacity: 1;
+}
+
+.workflow-mock-flow .react-flow__edge {
+  animation: workflow-fade 120ms ease;
+}
+
+.workflow-mock-flow .react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+.workflow-pop {
+  animation: workflow-pop 120ms ease;
+}
+
+.workflow-edit-in {
+  animation: workflow-fade 120ms ease;
+}
+
+.workflow-menu-in {
+  animation: workflow-pop 120ms ease;
+}
+
+@keyframes workflow-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes workflow-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.workflow-mock-flow .react-flow__attribution {
+  display: none;
+}

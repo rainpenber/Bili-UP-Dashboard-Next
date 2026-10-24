@@ -1,0 +1,653 @@
+import {
+  MonitorContractError,
+  externalIdError,
+  type MonitorIntervalMode,
+  type MonitorTargetType,
+} from './monitor-targets';
+import {
+  bigintToJson,
+  DEFAULT_MONITOR_DYNAMIC_SORT,
+  MONITOR_DYNAMIC_SORTS,
+  parseMonitorPage,
+  parseMonitorPageSize,
+  type BigIntString,
+  type DynamicListQuery,
+  type MonitorDynamicSort,
+  type Paginated,
+} from './monitor';
+import { parseOnlyMineFlag } from './studio-owner-account';
+
+export const MONITOR_CARD_FILTERS = ['all', 'active', 'paused', 'unmonitored'] as const;
+export type MonitorCardFilter = (typeof MONITOR_CARD_FILTERS)[number];
+
+export const MONITOR_CARD_STATES = ['unmonitored', 'active', 'paused'] as const;
+export type MonitorCardState = (typeof MONITOR_CARD_STATES)[number];
+
+export const MONITOR_EXECUTION_STATES = ['waiting', 'running', 'failed', 'none'] as const;
+export type MonitorExecutionState = (typeof MONITOR_EXECUTION_STATES)[number];
+
+/** Video card list sort. */
+export const MONITOR_VIDEO_CARD_SORTS = ['published_desc', 'published_asc'] as const;
+export type MonitorVideoCardSort = (typeof MONITOR_VIDEO_CARD_SORTS)[number];
+export const DEFAULT_MONITOR_VIDEO_CARD_SORT: MonitorVideoCardSort = 'published_desc';
+
+/** Creator card list sort. */
+export const MONITOR_CREATOR_CARD_SORTS = ['sampled_desc', 'followers_desc', 'name_asc'] as const;
+export type MonitorCreatorCardSort = (typeof MONITOR_CREATOR_CARD_SORTS)[number];
+export const DEFAULT_MONITOR_CREATOR_CARD_SORT: MonitorCreatorCardSort = 'sampled_desc';
+
+/** @deprecated Prefer MONITOR_VIDEO_CARD_SORTS; kept for existing video-only imports. */
+export const MONITOR_CARD_SORTS = MONITOR_VIDEO_CARD_SORTS;
+export type MonitorCardSort = MonitorVideoCardSort | MonitorCreatorCardSort;
+export const DEFAULT_MONITOR_CARD_SORT: MonitorVideoCardSort = DEFAULT_MONITOR_VIDEO_CARD_SORT;
+
+const MAX_QUERY_LENGTH = 120;
+const MAX_CATEGORY_LENGTH = 80;
+
+export type MonitorCardProject = {
+  id: string;
+  name: string;
+};
+
+export type MonitorCardTarget = {
+  id: string;
+  label: string;
+  tags: string[];
+  enabled: boolean;
+  intervalMinutes: number;
+  intervalMode: MonitorIntervalMode;
+  /** User-planned first collect instant. Null when absent or not applicable. */
+  startAt: string | null;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+};
+
+export type MonitorCardLatest = {
+  sampledAt: string | null;
+  viewCount: BigIntString | null;
+  onlineViewers: BigIntString | null;
+  onlineViewersRaw: string | null;
+  likeCount: BigIntString | null;
+  followerCount: BigIntString | null;
+};
+
+export type MonitorCardKind = 'video' | 'creator';
+
+export type MonitorCard = {
+  type: MonitorCardKind;
+  externalId: string;
+  title: string | null;
+  category: string | null;
+  imageAssetId: string | null;
+  /**
+   * Raw remote image URL from DB (`videos.cover_url` or `creators.face_url`).
+   * Prefer `imageProxyUrl` / `bilibiliMediaProxyUrl` in the browser (referer anti-leech).
+   */
+  imageUrl: string | null;
+  /** Same-origin proxy for `imageUrl` when present; null otherwise. */
+  imageProxyUrl: string | null;
+  mid: string | null;
+  displayName: string;
+  hasEntity: boolean;
+  hasSamples: boolean;
+  /** True when videos.pinned_at / creators.pinned_at is set. */
+  pinned: boolean;
+  monitorState: MonitorCardState;
+  execution: MonitorExecutionState;
+  target: MonitorCardTarget | null;
+  projects: MonitorCardProject[];
+  latest: MonitorCardLatest;
+};
+
+export type MonitorCardListQuery = {
+  type: MonitorCardKind;
+  monitor: MonitorCardFilter;
+  page: number;
+  pageSize: number;
+  q: string | null;
+  category: string | null;
+  /** type=video → published_*; type=creator → sampled_desc|followers_desc|name_asc. */
+  sort: MonitorCardSort;
+  /**
+   * Video-only. When true the server filters by the configured studio owner mid
+   * (本人账号), not the login user. Creators ignore this flag.
+   */
+  onlyMine: boolean;
+  /**
+   * Video-only. Default false: only videos with a non-deleted monitor target
+   * or a commercial project reference. Pass true (`includeUnmonitored=1`) to
+   * list every videos row (ops / backfill debugging).
+   */
+  includeUnmonitored: boolean;
+};
+
+export type PinVideoRequest = {
+  pinned: boolean;
+};
+
+export type PinVideoResponse = {
+  bvid: string;
+  pinned: boolean;
+  pinnedAt: string | null;
+};
+
+/** Shared pin body for video / creator / dynamic pin routes. */
+export type PinEntityRequest = PinVideoRequest;
+
+/** Creator/dynamic pin response (no identity echo; path already identifies the row). */
+export type PinEntityResponse = {
+  pinned: boolean;
+  pinnedAt: string | null;
+};
+
+export type MonitorExternalInput =
+  { ok: true; externalId: string } | { ok: false; message: string };
+
+const VIDEO_BV = /BV[1-9A-HJ-NP-Za-km-z]{10}/;
+const SHORT_HOST = /(^|\.)b23\.tv$/i;
+const SPACE_HOST = /^space\.bilibili\.com$/i;
+const VIDEO_HOST = /^(?:www\.|m\.)?bilibili\.com$/i;
+const DYNAMIC_HOST = /^t\.bilibili\.com$/i;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function monitorCardDisplayName(
+  title: string | null,
+  label: string | null,
+  externalId: string,
+): string {
+  const titleText = title?.trim() ?? '';
+  if (titleText) return titleText;
+  const labelText = label?.trim() ?? '';
+  if (labelText) return labelText;
+  return externalId;
+}
+
+export function deriveMonitorCardState(input: {
+  hasTarget: boolean;
+  enabled: boolean | null;
+  hasRunning: boolean;
+  hasPending: boolean;
+  lastError: string | null;
+}): { monitorState: MonitorCardState; execution: MonitorExecutionState } {
+  const monitorState: MonitorCardState = !input.hasTarget
+    ? 'unmonitored'
+    : input.enabled
+      ? 'active'
+      : 'paused';
+  let execution: MonitorExecutionState = 'none';
+  if (input.hasTarget) {
+    if (input.hasRunning) execution = 'running';
+    else if (input.hasPending) execution = 'waiting';
+    else if (input.lastError) execution = 'failed';
+  }
+  return { monitorState, execution };
+}
+
+function emptyMessage(type: MonitorTargetType): string {
+  if (type === 'video') return '请输入 BV 号或视频长链接';
+  if (type === 'creator' || type === 'discovery') return '请输入 UID 或空间长链接';
+  return '请输入动态 id 或 t.bilibili.com 链接';
+}
+
+function unsupportedMessage(type: MonitorTargetType): string {
+  if (type === 'video') {
+    return '无法识别。请粘贴完整 BV 号，或 www.bilibili.com/video/BV… 长链接。短链不会发起请求。';
+  }
+  if (type === 'creator' || type === 'discovery') {
+    return '无法识别。请粘贴完整 UID，或 space.bilibili.com/UID 长链接。短链不会发起请求。';
+  }
+  return '无法识别。请粘贴十进制动态 id，或 https://t.bilibili.com/<id> 长链接。短链不会发起请求。';
+}
+
+function mismatchMessage(type: MonitorTargetType): string {
+  if (type === 'video') return '这是 UP 主身份，请到 UP 主页添加';
+  if (type === 'creator' || type === 'discovery') return '这是视频身份，请到视频页添加';
+  return '这不是动态身份，请粘贴动态 id 或 t.bilibili.com 链接';
+}
+
+function withProtocol(raw: string): string {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return raw;
+  if (/^(?:www\.|m\.|space\.|t\.)?bilibili\.com\//i.test(raw)) return `https://${raw}`;
+  return raw;
+}
+
+function rejectShortLink(hostname: string): boolean {
+  return SHORT_HOST.test(hostname) || hostname.toLowerCase() === 'bilibili.tv';
+}
+
+/**
+ * Local extraction only. Standard long links are parsed with the URL parser.
+ * Short hosts are rejected and never fetched.
+ */
+export function parseMonitorExternalInput(
+  type: MonitorTargetType,
+  raw: string,
+): MonitorExternalInput {
+  const text = raw.trim();
+  if (!text) return { ok: false, message: emptyMessage(type) };
+  const candidate = withProtocol(text);
+  const looksLikeUrl = /^[a-z][a-z0-9+.-]*:/i.test(candidate);
+  if (!looksLikeUrl) {
+    const idError = externalIdError(type, text);
+    if (!idError) return { ok: true, externalId: text };
+    if (type === 'dynamic') return { ok: false, message: idError };
+    const other = type === 'video' ? 'creator' : 'video';
+    if (!externalIdError(other, text)) return { ok: false, message: mismatchMessage(type) };
+    return { ok: false, message: idError };
+  }
+  if (!/^https?:\/\//i.test(candidate)) {
+    return { ok: false, message: unsupportedMessage(type) };
+  }
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return { ok: false, message: unsupportedMessage(type) };
+  }
+  if (url.username || url.password) return { ok: false, message: unsupportedMessage(type) };
+  const host = url.hostname.toLowerCase();
+  if (rejectShortLink(host)) {
+    return {
+      ok: false,
+      message:
+        type === 'dynamic'
+          ? '暂不支持短链，也不会为识别它访问网络。请粘贴十进制动态 id 或 t.bilibili.com 长链接。'
+          : '暂不支持短链，也不会为识别它访问网络。请粘贴完整 BV/UID 或标准长链接。',
+    };
+  }
+  if (DYNAMIC_HOST.test(host)) {
+    const match = url.pathname.match(/^\/([1-9]\d*)(?:\/|$)/);
+    if (!match?.[1]) return { ok: false, message: unsupportedMessage(type) };
+    if (type !== 'dynamic') {
+      return { ok: false, message: '这是动态身份，请到动态页添加' };
+    }
+    const idError = externalIdError('dynamic', match[1]);
+    if (idError) return { ok: false, message: idError };
+    return { ok: true, externalId: match[1] };
+  }
+  if (SPACE_HOST.test(host)) {
+    const match = url.pathname.match(/^\/(\d+)(?:\/|$)/);
+    if (!match?.[1]) return { ok: false, message: unsupportedMessage(type) };
+    if (type !== 'creator') {
+      return {
+        ok: false,
+        message: type === 'dynamic' ? '这是 UP 主身份，请到 UP 主页添加' : mismatchMessage(type),
+      };
+    }
+    const idError = externalIdError('creator', match[1]);
+    if (idError) return { ok: false, message: idError };
+    return { ok: true, externalId: match[1] };
+  }
+  if (VIDEO_HOST.test(host)) {
+    const match = url.pathname.match(/^\/video\/(BV[1-9A-HJ-NP-Za-km-z]{10})(?:\/|$)/);
+    if (!match?.[1]) return { ok: false, message: unsupportedMessage(type) };
+    if (type !== 'video') {
+      return {
+        ok: false,
+        message: type === 'dynamic' ? '这是视频身份，请到视频页添加' : mismatchMessage(type),
+      };
+    }
+    if (!VIDEO_BV.test(match[1]) || externalIdError('video', match[1])) {
+      return { ok: false, message: 'BV 号格式不正确' };
+    }
+    return { ok: true, externalId: match[1] };
+  }
+  return { ok: false, message: unsupportedMessage(type) };
+}
+
+function boundedText(
+  raw: string | undefined,
+  max: number,
+  code: string,
+  message: string,
+): string | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const text = raw.trim();
+  if (text.length > max) throw new MonitorContractError(code, message);
+  return text;
+}
+
+function parseIncludeUnmonitoredFlag(raw: string | undefined): boolean {
+  if (raw === undefined || raw === null || raw.trim() === '') return false;
+  const value = raw.trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes';
+}
+
+export function parseMonitorCardListQuery(input: {
+  type?: string | undefined;
+  monitor?: string | undefined;
+  page?: string | undefined;
+  pageSize?: string | undefined;
+  q?: string | undefined;
+  category?: string | undefined;
+  sort?: string | undefined;
+  onlyMine?: string | undefined;
+  includeUnmonitored?: string | undefined;
+}): MonitorCardListQuery {
+  if (input.type !== 'video' && input.type !== 'creator') {
+    throw new MonitorContractError('invalid_target_type', '卡片类型只能是视频或 UP 主');
+  }
+  const monitor = input.monitor ?? 'all';
+  if (!(MONITOR_CARD_FILTERS as readonly string[]).includes(monitor)) {
+    throw new MonitorContractError('invalid_monitor_filter', '监控筛选不正确');
+  }
+  let page: number;
+  let pageSize: number;
+  try {
+    page = parseMonitorPage(input.page);
+    pageSize = parseMonitorPageSize(input.pageSize);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'invalid page';
+    throw new MonitorContractError(
+      'invalid_page',
+      message.includes('pageSize') ? '每页条数不正确' : '页码不正确',
+    );
+  }
+  const allowedSorts =
+    input.type === 'video' ? MONITOR_VIDEO_CARD_SORTS : MONITOR_CREATOR_CARD_SORTS;
+  const defaultSort =
+    input.type === 'video' ? DEFAULT_MONITOR_VIDEO_CARD_SORT : DEFAULT_MONITOR_CREATOR_CARD_SORT;
+  const sortRaw = input.sort ?? defaultSort;
+  if (!(allowedSorts as readonly string[]).includes(sortRaw)) {
+    throw new MonitorContractError('invalid_sort', '排序参数不正确');
+  }
+  return {
+    type: input.type,
+    monitor: monitor as MonitorCardFilter,
+    page,
+    pageSize,
+    q: boundedText(input.q, MAX_QUERY_LENGTH, 'invalid_query', '搜索词过长'),
+    category: boundedText(input.category, MAX_CATEGORY_LENGTH, 'invalid_category', '分类筛选过长'),
+    sort: sortRaw as MonitorCardSort,
+    onlyMine: parseOnlyMineFlag(input.onlyMine),
+    includeUnmonitored:
+      input.type === 'video' ? parseIncludeUnmonitoredFlag(input.includeUnmonitored) : false,
+  };
+}
+
+export function parseDynamicListQuery(input: {
+  page?: string | undefined;
+  pageSize?: string | undefined;
+  status?: string | undefined;
+  sort?: string | undefined;
+}): DynamicListQuery {
+  const statusRaw = input.status ?? 'all';
+  if (
+    statusRaw !== 'all' &&
+    statusRaw !== 'active' &&
+    statusRaw !== 'archived' &&
+    statusRaw !== 'deleted'
+  ) {
+    throw new MonitorContractError('invalid_status', '状态筛选不正确');
+  }
+  let page: number;
+  let pageSize: number;
+  try {
+    page = parseMonitorPage(input.page);
+    pageSize = parseMonitorPageSize(input.pageSize);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'invalid page';
+    throw new MonitorContractError(
+      'invalid_page',
+      message.includes('pageSize') ? '每页条数不正确' : '页码不正确',
+    );
+  }
+  const sortRaw = input.sort ?? DEFAULT_MONITOR_DYNAMIC_SORT;
+  if (!(MONITOR_DYNAMIC_SORTS as readonly string[]).includes(sortRaw)) {
+    throw new MonitorContractError('invalid_sort', '排序参数不正确');
+  }
+  return {
+    page,
+    pageSize,
+    status: statusRaw,
+    sort: sortRaw as MonitorDynamicSort,
+  };
+}
+
+export function parsePinVideoRequest(value: unknown): PinVideoRequest {
+  if (!isRecord(value) || typeof value.pinned !== 'boolean') {
+    throw new MonitorContractError('invalid_body', '请提供 pinned 布尔值');
+  }
+  return { pinned: value.pinned };
+}
+
+export const parsePinEntityRequest = parsePinVideoRequest;
+
+export function parsePinVideoResponse(value: unknown): PinVideoResponse {
+  if (!isRecord(value) || typeof value.bvid !== 'string' || typeof value.pinned !== 'boolean') {
+    throw new MonitorContractError('invalid_body', '置顶响应不完整');
+  }
+  const pinnedAt = value.pinnedAt;
+  if (pinnedAt !== null && typeof pinnedAt !== 'string') {
+    throw new MonitorContractError('invalid_body', '置顶响应不完整');
+  }
+  const idError = externalIdError('video', value.bvid);
+  if (idError) throw new MonitorContractError('invalid_external_id', idError);
+  return { bvid: value.bvid, pinned: value.pinned, pinnedAt };
+}
+
+export function parsePinEntityResponse(value: unknown): PinEntityResponse {
+  if (!isRecord(value) || typeof value.pinned !== 'boolean') {
+    throw new MonitorContractError('invalid_body', '置顶响应不完整');
+  }
+  const pinnedAt = value.pinnedAt;
+  if (pinnedAt !== null && typeof pinnedAt !== 'string') {
+    throw new MonitorContractError('invalid_body', '置顶响应不完整');
+  }
+  return { pinned: value.pinned, pinnedAt };
+}
+
+/** Reuses video external-id rules for /videos/:bvid/pin. */
+export function parseVideoBvidParam(raw: string): string {
+  const bvid = raw.trim();
+  const idError = externalIdError('video', bvid);
+  if (idError) throw new MonitorContractError('invalid_external_id', idError);
+  return bvid;
+}
+
+/** Reuses creator external-id rules for /creators/:mid/pin. */
+export function parseCreatorMidParam(raw: string): string {
+  const mid = raw.trim();
+  const idError = externalIdError('creator', mid);
+  if (idError) throw new MonitorContractError('invalid_external_id', idError);
+  return mid;
+}
+
+/** Reuses dynamic external-id rules for /dynamics/:dynamicId/pin. */
+export function parseDynamicIdParam(raw: string): string {
+  const dynamicId = raw.trim();
+  const idError = externalIdError('dynamic', dynamicId);
+  if (idError) throw new MonitorContractError('invalid_external_id', idError);
+  return dynamicId;
+}
+
+export function parseMonitorCardIdentity(
+  type: string,
+  externalId: string,
+): {
+  type: 'video' | 'creator';
+  externalId: string;
+} {
+  if (type !== 'video' && type !== 'creator') {
+    throw new MonitorContractError('invalid_target_type', '卡片类型只能是视频或 UP 主');
+  }
+  const kind = type;
+  const id = externalId.trim();
+  const idError = externalIdError(kind, id);
+  if (idError) throw new MonitorContractError('invalid_external_id', idError);
+  return { type: kind, externalId: id };
+}
+
+function parseLatest(value: unknown): MonitorCardLatest {
+  if (!isRecord(value)) throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  const sampledAt = value.sampledAt;
+  if (sampledAt !== null && typeof sampledAt !== 'string') {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  const text = (field: string): string | null => {
+    const item = value[field];
+    if (item === null) return null;
+    if (typeof item !== 'string')
+      throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+    return item;
+  };
+  return {
+    sampledAt,
+    viewCount: text('viewCount'),
+    onlineViewers: text('onlineViewers'),
+    onlineViewersRaw: text('onlineViewersRaw'),
+    likeCount: text('likeCount'),
+    followerCount: text('followerCount'),
+  };
+}
+
+function parseTarget(value: unknown): MonitorCardTarget | null {
+  if (value === null) return null;
+  if (!isRecord(value)) throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  if (typeof value.id !== 'string' || typeof value.label !== 'string') {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  if (typeof value.enabled !== 'boolean') {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  if (value.intervalMode !== 'auto' && value.intervalMode !== 'fixed') {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  if (typeof value.intervalMinutes !== 'number') {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  if (!Array.isArray(value.tags) || value.tags.some((tag) => typeof tag !== 'string')) {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  const optionalTime = (field: string): string | null => {
+    const item = value[field];
+    if (item === null) return null;
+    if (typeof item !== 'string')
+      throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+    return item;
+  };
+  const lastError = value.lastError;
+  if (lastError !== null && typeof lastError !== 'string') {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  const startAtRaw = value.startAt;
+  const startAt =
+    startAtRaw === undefined || startAtRaw === null
+      ? null
+      : typeof startAtRaw === 'string'
+        ? startAtRaw
+        : (() => {
+            throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+          })();
+  return {
+    id: value.id,
+    label: value.label,
+    tags: value.tags,
+    enabled: value.enabled,
+    intervalMinutes: value.intervalMinutes,
+    intervalMode: value.intervalMode,
+    startAt,
+    nextRunAt: optionalTime('nextRunAt'),
+    lastRunAt: optionalTime('lastRunAt'),
+    lastSuccessAt: optionalTime('lastSuccessAt'),
+    lastError,
+  };
+}
+
+function parseProjects(value: unknown): MonitorCardProject[] {
+  if (!Array.isArray(value)) throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  return value.map((item) => {
+    if (!isRecord(item) || typeof item.id !== 'string' || typeof item.name !== 'string') {
+      throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+    }
+    return { id: item.id, name: item.name };
+  });
+}
+
+export function parseMonitorCard(value: unknown): MonitorCard {
+  if (!isRecord(value)) throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  if (value.type !== 'video' && value.type !== 'creator') {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  if (typeof value.externalId !== 'string' || typeof value.displayName !== 'string') {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  if (typeof value.hasEntity !== 'boolean' || typeof value.hasSamples !== 'boolean') {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  if (!(MONITOR_CARD_STATES as readonly string[]).includes(String(value.monitorState))) {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  if (!(MONITOR_EXECUTION_STATES as readonly string[]).includes(String(value.execution))) {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  const optionalString = (field: string): string | null => {
+    const item = value[field];
+    if (item === null) return null;
+    if (typeof item !== 'string')
+      throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+    return item;
+  };
+  if ('monitoringEnabled' in value) {
+    throw new MonitorContractError('invalid_body', '监控卡片不能携带旧的 monitoringEnabled');
+  }
+  if (typeof value.pinned !== 'boolean') {
+    throw new MonitorContractError('invalid_body', '监控卡片响应不完整');
+  }
+  return {
+    type: value.type,
+    externalId: value.externalId,
+    title: optionalString('title'),
+    category: optionalString('category'),
+    imageAssetId: optionalString('imageAssetId'),
+    imageUrl: optionalString('imageUrl'),
+    imageProxyUrl: optionalString('imageProxyUrl'),
+    mid: optionalString('mid'),
+    displayName: value.displayName,
+    hasEntity: value.hasEntity,
+    hasSamples: value.hasSamples,
+    pinned: value.pinned,
+    monitorState: value.monitorState as MonitorCardState,
+    execution: value.execution as MonitorExecutionState,
+    target: parseTarget(value.target),
+    projects: parseProjects(value.projects),
+    latest: parseLatest(value.latest),
+  };
+}
+
+export function parseMonitorCardList(value: unknown): Paginated<MonitorCard> {
+  if (!isRecord(value) || !Array.isArray(value.items)) {
+    throw new MonitorContractError('invalid_body', '监控卡片列表不完整');
+  }
+  if (
+    typeof value.page !== 'number' ||
+    typeof value.pageSize !== 'number' ||
+    typeof value.totalItems !== 'number' ||
+    typeof value.totalPages !== 'number'
+  ) {
+    throw new MonitorContractError('invalid_body', '监控卡片列表不完整');
+  }
+  return {
+    page: value.page,
+    pageSize: value.pageSize,
+    totalItems: value.totalItems,
+    totalPages: value.totalPages,
+    items: value.items.map(parseMonitorCard),
+  };
+}
+
+export function jsonBigint(value: bigint | string | number | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'bigint') return bigintToJson(value);
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return Math.trunc(value).toString();
+  }
+  if (!/^-?\d+$/.test(value)) return null;
+  return BigInt(value).toString();
+}

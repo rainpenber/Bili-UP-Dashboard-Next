@@ -81,8 +81,9 @@ export function parseBoundedCount(raw: string): {
   const trimmed = raw.trim();
   if (trimmed.endsWith('+')) {
     const num = trimmed.slice(0, -1).replace(/,/g, '');
-    const n = BigInt(num || '0');
-    return { value: n, raw: trimmed, note: 'lower_bound' };
+    if (num === '') return { value: 0n, raw: trimmed, note: 'lower_bound' };
+    if (!/^-?\d+$/.test(num)) return { value: null, raw: trimmed, note: 'unparseable' };
+    return { value: BigInt(num), raw: trimmed, note: 'lower_bound' };
   }
   if (trimmed === '') {
     return { value: null, raw: trimmed };

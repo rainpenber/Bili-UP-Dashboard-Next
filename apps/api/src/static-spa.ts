@@ -3,6 +3,15 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Hono } from 'hono';
 
+/**
+ * Hashed Vite assets never change under the same name, so they can be cached
+ * forever. index.html must not be cached: it is the only pointer to the
+ * current asset hashes, and a stale copy keeps loading an old bundle long
+ * after a deploy.
+ */
+const ASSET_CACHE = 'public, max-age=31536000, immutable';
+const SHELL_CACHE = 'no-store, must-revalidate';
+
 /** Serves Vite build output; API and /health must be registered before this. */
 export function registerWebSpa(app: Hono, root: string): void {
   if (!existsSync(join(root, 'index.html'))) {
@@ -10,14 +19,24 @@ export function registerWebSpa(app: Hono, root: string): void {
     return;
   }
 
-  app.use('/assets/*', serveStatic({ root }));
-  app.get('/', (c, next) => serveStatic({ root, path: 'index.html' })(c, next));
+  app.use(
+    '/assets/*',
+    serveStatic({ root, onFound: (_path, c) => c.header('Cache-Control', ASSET_CACHE) }),
+  );
+
+  const shell = serveStatic({
+    root,
+    path: 'index.html',
+    onFound: (_path, c) => c.header('Cache-Control', SHELL_CACHE),
+  });
+
+  app.get('/', shell);
   app.get('*', (c, next) => {
     const path = c.req.path;
     if (path.startsWith('/api') || path === '/health') {
       return next();
     }
-    return serveStatic({ root, path: 'index.html' })(c, next);
+    return shell(c, next);
   });
 }
 

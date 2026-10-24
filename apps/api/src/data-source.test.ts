@@ -6,9 +6,13 @@ describe('MONITOR_DATA_SOURCE', () => {
     expect(readMonitorDataSource({ MONITOR_DATA_SOURCE: undefined })).toBe('mock');
   });
 
-  test('collector fails fast', () => {
-    expect(() => readMonitorDataSource({ MONITOR_DATA_SOURCE: 'collector' })).toThrow(
-      /not implemented/,
+  test('collector selects the offline provider and does not open a network client', () => {
+    expect(readMonitorDataSource({ MONITOR_DATA_SOURCE: 'collector' })).toBe('collector');
+  });
+
+  test('unknown source fails closed', () => {
+    expect(() => readMonitorDataSource({ MONITOR_DATA_SOURCE: 'bilibili' })).toThrow(
+      /Invalid MONITOR_DATA_SOURCE/,
     );
   });
 });

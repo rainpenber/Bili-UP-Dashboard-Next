@@ -1,21 +1,37 @@
 import {
+  isOverallStage,
   isWfNodeKind,
   isWfNodeStatus,
   parseCommercialCancelItemRequest,
   parseCommercialBlockRequest,
   parseCommercialCloseItemRequest,
+  parseCommercialNodeStepRequest,
   parseCommercialNodeTokenRequest,
   parseCommercialNodeWriteResponse,
   parseCommercialOpenItemWriteResponse,
+  parseCommercialPlanRequest,
   parseCommercialPublishRequest,
   parseCommercialPublishResponse,
+  parseCommercialStageStepRequest,
+  parseCommercialStepResponse,
+  parseCommercialWorkflowLayoutRequest,
+  parseCommercialWorkflowLayoutResponse,
   parseCommercialWriteError,
+  type OverallStage,
   type CommercialNodeSnapshot,
   type CommercialNodeWriteResponse,
   type CommercialOpenItemSnapshot,
   type CommercialOpenItemWriteResponse,
   type CommercialPinnedBlockItem,
   type CommercialPublishResponse,
+  type CommercialStepBlock,
+  type CommercialStepEffect,
+  type CommercialStepPublish,
+  type CommercialStepResponse,
+  type CommercialStepSuccessor,
+  type CommercialWorkflowLayoutRequest,
+  type CommercialWorkflowLayoutResponse,
+  type CommercialWorkflowNode,
   type CommercialWriteErrorBody,
   type CommercialWriteErrorCode,
   type MonitorJobType,
@@ -33,10 +49,16 @@ import {
   notApplicableBlockRefusal,
   predecessorRefusalMessage,
   resolvePublishBvid,
+  planNodeStep,
+  planStageStep,
   rollbackTargetStatus,
   successorRefusalMessage,
+  PROGRESS_STAGE_SLUGS,
+  isProgressStageId,
   type EngineEdge,
   type EngineNode,
+  type PlanNode,
+  type StepPlan,
 } from '@studio/workflow';
 import type { Context } from 'hono';
 import type { Hono } from 'hono';
@@ -44,6 +66,12 @@ import postgres from 'postgres';
 import { COMMERCIAL_UPDATED_AT_FORMAT } from './commercial-timestamp';
 
 const CONSTRAINT_CODES = new Set(['23514', '23505', '23503', '23502', 'P0001']);
+
+type RefusalExtra = {
+  blocks?: CommercialStepBlock[];
+  effects?: CommercialStepEffect[];
+  successors?: CommercialStepSuccessor[];
+};
 
 class CommercialWriteRefusal extends Error {
   readonly status: 400 | 404 | 409;
@@ -54,10 +82,16 @@ class CommercialWriteRefusal extends Error {
     code: CommercialWriteErrorCode,
     error: string,
     names?: readonly string[],
+    extra?: RefusalExtra,
   ) {
     super(error);
     this.status = status;
-    this.body = names ? { error, code, names: [...names] } : { error, code };
+    const body: CommercialWriteErrorBody = { error, code };
+    if (names && names.length > 0) body.names = [...names];
+    if (extra?.blocks && extra.blocks.length > 0) body.blocks = extra.blocks;
+    if (extra?.effects && extra.effects.length > 0) body.effects = extra.effects;
+    if (extra?.successors && extra.successors.length > 0) body.successors = extra.successors;
+    this.body = body;
   }
 }
 
@@ -66,8 +100,9 @@ function refuse(
   code: CommercialWriteErrorCode,
   error: string,
   names?: readonly string[],
+  extra?: RefusalExtra,
 ): never {
-  throw new CommercialWriteRefusal(status, code, error, names);
+  throw new CommercialWriteRefusal(status, code, error, names, extra);
 }
 
 type Tx = postgres.TransactionSql;
@@ -81,7 +116,10 @@ type DbNode = {
   updated_at: string;
   status_before_block: string | null;
   primary_block_pinned_item_id: string | null;
+  planned_at: string | null;
   completed_at: string | null;
+  pos_x: number;
+  pos_y: number;
   template_slug: string | null;
   workflow_id: string;
 };
@@ -184,7 +222,10 @@ async function loadGraph(tx: Tx, projectId: string): Promise<Graph> {
       to_char(n.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at,
       n.status_before_block,
       n.primary_block_pinned_item_id,
+      to_char(n.planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       to_char(n.completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
+      n.pos_x,
+      n.pos_y,
       t.slug AS template_slug,
       n.workflow_id
     FROM wf_nodes n
@@ -245,6 +286,7 @@ function toSnapshot(node: DbNode): CommercialNodeSnapshot {
     statusBeforeBlock:
       node.status_before_block === null ? null : asStatus(node.status_before_block),
     primaryBlockItemId: node.primary_block_pinned_item_id,
+    plannedAt: node.planned_at,
     completedAt: node.completed_at,
   };
 }
@@ -281,7 +323,10 @@ async function updateNode(
       to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at,
       status_before_block,
       primary_block_pinned_item_id,
+      to_char(planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       to_char(completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
+      pos_x,
+      pos_y,
       workflow_id
   `;
   const row = rows[0];
@@ -546,6 +591,227 @@ async function unblockNode(
   return nodeResponse(tx, projectId, updated);
 }
 
+function shanghaiDateInstant(plannedOn: string): Date {
+  return new Date(`${plannedOn}T00:00:00+08:00`);
+}
+
+/** Writes planned_at only. Status, completed_at, and edges stay as they are. */
+async function planNode(
+  tx: Tx,
+  projectId: string,
+  nodeId: string,
+  input: { expectedUpdatedAt: string; plannedAt: string | null },
+): Promise<CommercialNodeWriteResponse> {
+  await requireProject(tx, projectId);
+  const graph = await loadGraph(tx, projectId);
+  const node = requireNode(graph, nodeId);
+  assertToken(node.updated_at, input.expectedUpdatedAt);
+  const plannedAt = input.plannedAt === null ? null : shanghaiDateInstant(input.plannedAt);
+  const rows = await tx<Omit<DbNode, 'template_slug'>[]>`
+    UPDATE wf_nodes SET
+      planned_at = ${plannedAt},
+      updated_at = now()
+    WHERE id = ${node.id} AND project_id = ${projectId}
+    RETURNING
+      id,
+      name,
+      status,
+      kind,
+      is_optional,
+      to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at,
+      status_before_block,
+      primary_block_pinned_item_id,
+      to_char(planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
+      to_char(completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
+      pos_x,
+      pos_y,
+      workflow_id
+  `;
+  const row = rows[0];
+  if (!row) refuse(404, 'not_found', '节点不存在');
+  const updated: DbNode = { ...row, template_slug: node.template_slug };
+  if (updated.status !== node.status) {
+    refuse(409, 'constraint_violation', '计划日期不能改变节点状态');
+  }
+  await audit(tx, projectId, 'wf_node', nodeId, 'plan', { plannedAt: input.plannedAt });
+  return nodeResponse(tx, projectId, updated);
+}
+
+type LayoutChangeDetail = {
+  nodeId: string;
+  nameBefore?: string;
+  nameAfter?: string;
+  posBefore?: { x: number; y: number };
+  posAfter?: { x: number; y: number };
+};
+
+async function readWorkflowNodes(
+  tx: Tx,
+  projectId: string,
+  workflowId: string,
+): Promise<CommercialWorkflowNode[]> {
+  const nodes = await tx<
+    {
+      id: string;
+      name: string;
+      status: string;
+      kind: string;
+      template_slug: string | null;
+      blocking_reason: string | null;
+      planned_at: string | null;
+      completed_at: string | null;
+      pos_x: number;
+      pos_y: number;
+      updated_at: string;
+    }[]
+  >`
+    SELECT
+      n.id,
+      n.name,
+      n.status,
+      n.kind,
+      t.slug AS template_slug,
+      (
+        SELECT oi.title
+        FROM open_items oi
+        WHERE n.status = 'blocked'
+          AND oi.project_id = n.project_id
+          AND oi.lifecycle = 'open'
+          AND oi.impact = 'blocking'
+          AND (
+            oi.id = n.primary_block_pinned_item_id
+            OR oi.blocks_node_id = n.id
+          )
+        ORDER BY
+          (oi.id = n.primary_block_pinned_item_id) DESC,
+          oi.sort_rank ASC,
+          oi.created_at ASC,
+          oi.id ASC
+        LIMIT 1
+      ) AS blocking_reason,
+      to_char(n.planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
+      to_char(n.completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
+      n.pos_x,
+      n.pos_y,
+      to_char(n.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
+    FROM wf_nodes n
+    LEFT JOIN wf_template_nodes t
+      ON t.id = n.template_node_id
+     AND t.template_version_id = n.template_version_id
+    WHERE n.project_id = ${projectId} AND n.workflow_id = ${workflowId}
+    ORDER BY n.pos_y, n.pos_x, n.id
+  `;
+  return nodes.map((node) => ({
+    id: node.id,
+    name: node.name,
+    status: asStatus(node.status),
+    kind: asKind(node.kind),
+    templateSlug: node.template_slug,
+    blockingReason: node.blocking_reason,
+    plannedAt: node.planned_at,
+    completedAt: node.completed_at,
+    posX: node.pos_x,
+    posY: node.pos_y,
+    updatedAt: node.updated_at,
+  }));
+}
+
+/** Renames and/or moves nodes. Never inserts, deletes, or rewires edges. */
+async function applyWorkflowLayout(
+  tx: Tx,
+  projectId: string,
+  input: CommercialWorkflowLayoutRequest,
+): Promise<CommercialWorkflowLayoutResponse> {
+  await assertProjectWritable(tx, projectId);
+  const graph = await loadGraph(tx, projectId);
+  const workflowId = graph.nodes[0]?.workflow_id;
+  if (!workflowId) refuse(404, 'not_found', '流程不存在');
+
+  const submittedIds = new Set(input.nodes.map((node) => node.nodeId));
+  if (
+    submittedIds.size !== graph.nodes.length ||
+    graph.nodes.some((node) => !submittedIds.has(node.id))
+  ) {
+    refuse(409, 'constraint_violation', '提交的节点集合与流程不一致，布局接口不能增删节点');
+  }
+
+  for (const patch of input.nodes) {
+    const current = graph.byId.get(patch.nodeId);
+    if (!current) refuse(404, 'not_found', '节点不存在');
+    assertToken(current.updated_at, patch.expectedUpdatedAt);
+  }
+
+  const nextNames = new Map(graph.nodes.map((node) => [node.id, node.name]));
+  for (const patch of input.nodes) {
+    if (patch.name !== undefined) nextNames.set(patch.nodeId, patch.name);
+  }
+  const seenNames = new Set<string>();
+  for (const [nodeId, name] of nextNames) {
+    if (seenNames.has(name)) {
+      refuse(409, 'constraint_violation', `节点名称「${name}」已存在，同一流程内名称必须唯一`, [
+        name,
+      ]);
+    }
+    seenNames.add(name);
+    void nodeId;
+  }
+
+  const changes: LayoutChangeDetail[] = [];
+  for (const patch of input.nodes) {
+    const current = graph.byId.get(patch.nodeId);
+    if (!current) refuse(404, 'not_found', '节点不存在');
+    const nextName = patch.name ?? current.name;
+    const nextPosX = patch.posX ?? current.pos_x;
+    const nextPosY = patch.posY ?? current.pos_y;
+    const nameChanged = nextName !== current.name;
+    const posChanged = nextPosX !== current.pos_x || nextPosY !== current.pos_y;
+    if (!nameChanged && !posChanged) continue;
+
+    const detail: LayoutChangeDetail = { nodeId: current.id };
+    if (nameChanged) {
+      detail.nameBefore = current.name;
+      detail.nameAfter = nextName;
+    }
+    if (posChanged) {
+      detail.posBefore = { x: current.pos_x, y: current.pos_y };
+      detail.posAfter = { x: nextPosX, y: nextPosY };
+    }
+    changes.push(detail);
+
+    await tx`
+      UPDATE wf_nodes SET
+        name = ${nextName},
+        pos_x = ${nextPosX},
+        pos_y = ${nextPosY},
+        updated_at = now()
+      WHERE id = ${current.id} AND project_id = ${projectId}
+    `;
+  }
+
+  if (changes.length === 0) {
+    refuse(400, 'invalid_body', '没有可保存的名称或坐标变更');
+  }
+
+  const edgeCountBefore = graph.edges.length;
+  const edgeCountAfter = await tx<{ count: string }[]>`
+    SELECT count(*)::text AS count FROM wf_edges WHERE workflow_id = ${workflowId}
+  `;
+  if (Number(edgeCountAfter[0]?.count ?? -1) !== edgeCountBefore) {
+    refuse(409, 'constraint_violation', '布局保存不得改写连线');
+  }
+
+  await audit(tx, projectId, 'project_workflow', workflowId, 'layout', {
+    changes,
+  });
+
+  const nodes = await readWorkflowNodes(tx, projectId, workflowId);
+  const updatedAt = nodes.reduce(
+    (latest, node) => (node.updatedAt > latest ? node.updatedAt : latest),
+    nodes[0]?.updatedAt ?? '',
+  );
+  return { projectId, updatedAt, nodes };
+}
+
 async function liftPinnedBlocks(
   tx: Tx,
   projectId: string,
@@ -561,6 +827,7 @@ async function liftPinnedBlocks(
       to_char(n.updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at,
       n.status_before_block,
       n.primary_block_pinned_item_id,
+      to_char(n.planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       to_char(n.completed_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS completed_at,
       t.slug AS template_slug,
       n.workflow_id
@@ -777,7 +1044,33 @@ async function publishNode(
   const node = requireNode(graph, nodeId);
   if (!isPublishNode(node)) refuse(409, 'invalid_transition', '只有发布节点可以记录发布');
   if (byProject) {
-    const bundle = await loadPublishBundle(tx, projectId, node);
+    if (asStatus(node.status) === 'completed') {
+      // Legacy publish endpoint must still heal overall_stage on replay.
+      await syncOverallStage(tx, projectId, graph);
+      const bundle = await loadPublishBundle(tx, projectId, node);
+      return { ...bundle, idempotentReplay: true };
+    }
+    assertToken(node.updated_at, input.expectedUpdatedAt);
+    const status = asStatus(node.status);
+    if (status === 'blocked') refuse(409, 'invalid_transition', '阻塞中的节点要先解除阻塞');
+    if (status !== 'in_progress') {
+      refuse(409, 'invalid_transition', '只能在发布节点进行中时沿用已有发布记录');
+    }
+    const updated = await updateNode(tx, projectId, node, {
+      status: 'completed',
+      statusBeforeBlock: null,
+      primaryBlockItemId: node.primary_block_pinned_item_id,
+      clearCompletedAt: false,
+    });
+    rememberNode(graph, updated);
+    await audit(tx, projectId, 'wf_node', nodeId, 'complete', {
+      from: status,
+      to: 'completed',
+      bvid: input.bvid,
+      idempotentReplay: true,
+    });
+    await syncOverallStage(tx, projectId, graph);
+    const bundle = await loadPublishBundle(tx, projectId, updated);
     return { ...bundle, idempotentReplay: true };
   }
   if (input.platform !== 'bilibili') {
@@ -795,6 +1088,7 @@ async function publishNode(
     primaryBlockItemId: node.primary_block_pinned_item_id,
     clearCompletedAt: false,
   });
+  rememberNode(graph, updated);
   const publishedAt = input.publishedAt ?? new Date().toISOString();
   await tx`
     INSERT INTO project_publish_records (
@@ -840,8 +1134,339 @@ async function publishNode(
       status: 'pending',
     });
   }
+  // Same transaction as the publish record: keep overall_stage aligned with /step.
+  await syncOverallStage(tx, projectId, graph);
   const bundle = await loadPublishBundle(tx, projectId, updated);
   return { ...bundle, idempotentReplay: false };
+}
+
+type StepToken = { nodeId: string; expectedUpdatedAt: string };
+
+function assertTokens(graph: Graph, tokens: readonly StepToken[]): void {
+  for (const token of tokens) {
+    const node = graph.byId.get(token.nodeId);
+    if (!node) refuse(404, 'not_found', '节点不存在');
+    assertToken(node.updated_at, token.expectedUpdatedAt);
+  }
+}
+
+async function assertProjectWritable(tx: Tx, projectId: string): Promise<void> {
+  const rows = await tx<{ overall_stage: string; archived: boolean; closed: boolean }[]>`
+    SELECT
+      overall_stage,
+      archived_at IS NOT NULL AS archived,
+      business_closed_at IS NOT NULL AS closed
+    FROM commercial_projects
+    WHERE id = ${projectId}
+    FOR UPDATE
+  `;
+  const project = rows[0];
+  if (!project) refuse(404, 'not_found', '项目不存在');
+  if (project.archived || project.overall_stage === 'archived') {
+    refuse(409, 'invalid_transition', '归档项目不能改流程');
+  }
+  if (project.closed || project.overall_stage === 'closed') {
+    refuse(409, 'invalid_transition', '已结案项目不能改流程');
+  }
+}
+
+async function openBlocksByNode(
+  tx: Tx,
+  projectId: string,
+  graph: Graph,
+): Promise<Map<string, { id: string; title: string }>> {
+  const rows = await tx<
+    { id: string; title: string; blocks_node_id: string | null; workflow_node_id: string | null }[]
+  >`
+    SELECT id, title, blocks_node_id, workflow_node_id
+    FROM open_items
+    WHERE project_id = ${projectId} AND lifecycle = 'open' AND impact = 'blocking'
+    ORDER BY sort_rank, created_at, id
+    FOR UPDATE
+  `;
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const byNode = new Map<string, { id: string; title: string }>();
+  for (const row of rows) {
+    const nodeId = row.blocks_node_id ?? row.workflow_node_id;
+    if (!nodeId || byNode.has(nodeId)) continue;
+    byNode.set(nodeId, { id: row.id, title: row.title });
+  }
+  for (const node of graph.nodes) {
+    const pinned = node.primary_block_pinned_item_id;
+    const item = pinned ? byId.get(pinned) : undefined;
+    if (item) byNode.set(node.id, { id: item.id, title: item.title });
+  }
+  return byNode;
+}
+
+function toPlanNodes(graph: Graph, blocks: Map<string, { id: string; title: string }>): PlanNode[] {
+  return graph.nodes.map((node) => {
+    const block = blocks.get(node.id) ?? null;
+    const reason = block?.title.trim() ?? '';
+    const previous = node.status_before_block;
+    return {
+      id: node.id,
+      name: node.name,
+      status: asStatus(node.status),
+      kind: asKind(node.kind) === 'merge' ? 'merge' : 'stage',
+      templateSlug: node.template_slug,
+      statusBeforeBlock: previous && isWfNodeStatus(previous) ? asStatus(previous) : null,
+      blockItemId: block?.id ?? null,
+      blockingReason: reason.length > 0 ? reason : null,
+    };
+  });
+}
+
+function stageMemberIds(graph: Graph, stageId: string): string[] {
+  if (!isProgressStageId(stageId)) return [];
+  const slugs = new Set<string>(PROGRESS_STAGE_SLUGS[stageId]);
+  return graph.nodes
+    .filter((node) => node.kind !== 'merge' && node.template_slug && slugs.has(node.template_slug))
+    .map((node) => node.id);
+}
+
+function asStepEffects(plan: Extract<StepPlan, { ok: true }>): CommercialStepEffect[] {
+  return plan.effects.map((item) => ({
+    nodeId: item.nodeId,
+    nodeName: item.nodeName,
+    from: item.from,
+    to: item.to,
+  }));
+}
+
+function throwIfRefused(plan: StepPlan): asserts plan is Extract<StepPlan, { ok: true }> {
+  if (plan.ok) return;
+  refuse(plan.code === 'not_found' ? 404 : 409, plan.code, plan.error, plan.names, {
+    successors: plan.successors,
+  });
+}
+
+async function closeConfirmedBlocks(
+  tx: Tx,
+  projectId: string,
+  blocks: readonly CommercialStepBlock[],
+): Promise<void> {
+  const nodeIds = new Set(blocks.map((block) => block.nodeId));
+  const itemIds = new Set(blocks.flatMap((block) => (block.itemId ? [block.itemId] : [])));
+  const linked = await tx<
+    { id: string; title: string; blocks_node_id: string | null; workflow_node_id: string | null }[]
+  >`
+    SELECT id, title, blocks_node_id, workflow_node_id
+    FROM open_items
+    WHERE project_id = ${projectId} AND lifecycle = 'open' AND impact = 'blocking'
+    ORDER BY sort_rank, created_at, id
+    FOR UPDATE
+  `;
+  const chosen = new Map<string, { id: string; title: string }>();
+  for (const row of linked) {
+    const nodeId = row.blocks_node_id ?? row.workflow_node_id;
+    if (itemIds.has(row.id) || (nodeId !== null && nodeIds.has(nodeId))) {
+      chosen.set(row.id, { id: row.id, title: row.title });
+    }
+  }
+  const conclusion = '强制推进并标记前置完成';
+  for (const item of chosen.values()) {
+    await tx`
+      UPDATE open_items
+      SET lifecycle = 'closed',
+          closed_at = now(),
+          updated_at = now(),
+          close_conclusion = ${conclusion}
+      WHERE id = ${item.id} AND project_id = ${projectId}
+    `;
+    await liftPinnedBlocks(tx, projectId, item.id);
+    await audit(tx, projectId, 'open_item', item.id, 'close', { closeConclusion: conclusion });
+  }
+}
+
+function rememberNode(graph: Graph, node: DbNode): void {
+  graph.byId.set(node.id, node);
+  const index = graph.nodes.findIndex((item) => item.id === node.id);
+  if (index >= 0) graph.nodes[index] = node;
+}
+
+async function applyEffect(
+  tx: Tx,
+  projectId: string,
+  graph: Graph,
+  item: CommercialStepEffect,
+): Promise<void> {
+  const current = graph.byId.get(item.nodeId);
+  if (!current) refuse(404, 'not_found', '节点不存在');
+  if (current.status === item.to) return;
+  const clearPin = item.from === 'blocked' || item.to === 'completed';
+  const updated = await updateNode(tx, projectId, current, {
+    status: item.to,
+    statusBeforeBlock: null,
+    primaryBlockItemId: clearPin ? null : current.primary_block_pinned_item_id,
+    clearCompletedAt:
+      item.to !== 'completed' && (item.from === 'completed' || item.to === 'not_reached'),
+  });
+  rememberNode(graph, updated);
+  const action =
+    item.to === 'completed'
+      ? 'complete'
+      : item.from === 'blocked'
+        ? 'unblock'
+        : item.from === 'not_reached' && item.to === 'in_progress'
+          ? 'advance'
+          : 'rollback';
+  await audit(tx, projectId, 'wf_node', item.nodeId, action, {
+    from: item.from,
+    to: item.to,
+    step: true,
+  });
+}
+
+async function syncOverallStage(tx: Tx, projectId: string, graph: Graph): Promise<OverallStage> {
+  const rows = await tx<{ overall_stage: string; archived: boolean; closed: boolean }[]>`
+    SELECT
+      overall_stage,
+      archived_at IS NOT NULL AS archived,
+      business_closed_at IS NOT NULL AS closed
+    FROM commercial_projects
+    WHERE id = ${projectId}
+  `;
+  const project = rows[0];
+  if (!project) refuse(404, 'not_found', '项目不存在');
+  if (project.archived || project.overall_stage === 'archived') return 'archived';
+  if (project.closed || project.overall_stage === 'closed') return 'closed';
+  const records = await tx<{ project_id: string }[]>`
+    SELECT project_id FROM project_publish_records WHERE project_id = ${projectId}
+  `;
+  const publishDone = graph.nodes.some(
+    (node) => isPublishNode(node) && node.status === 'completed',
+  );
+  const next = records[0] || publishDone ? 'published_winding_down' : 'pre_publish';
+  if (next !== project.overall_stage) {
+    await tx`
+      UPDATE commercial_projects
+      SET overall_stage = ${next}, stage_entered_at = now(), updated_at = now()
+      WHERE id = ${projectId}
+    `;
+    await audit(tx, projectId, 'commercial_project', projectId, 'overall_stage', {
+      from: project.overall_stage,
+      to: next,
+    });
+  }
+  if (!isOverallStage(next)) throw new Error(`unexpected overall stage ${next}`);
+  return next;
+}
+
+async function applyStep(
+  tx: Tx,
+  projectId: string,
+  target: { kind: 'node'; nodeId: string } | { kind: 'stage'; stageId: string },
+  direction: 'forward' | 'rollback',
+  tokens: readonly StepToken[],
+  force: boolean,
+  publish: CommercialStepPublish | null,
+): Promise<CommercialStepResponse> {
+  await requireProject(tx, projectId);
+  await assertProjectWritable(tx, projectId);
+  let graph = await loadGraph(tx, projectId);
+  if (target.kind === 'stage') {
+    const members = stageMemberIds(graph, target.stageId);
+    const provided = new Set(tokens.map((token) => token.nodeId));
+    if (members.some((id) => !provided.has(id))) {
+      refuse(400, 'invalid_body', '缺少阶段节点的并发令牌');
+    }
+  }
+  assertTokens(graph, tokens);
+  const planNodes = toPlanNodes(graph, await openBlocksByNode(tx, projectId, graph));
+  const edges = graph.edges.map((edge) => ({
+    fromNodeId: edge.from_node_id,
+    toNodeId: edge.to_node_id,
+  }));
+  const plan =
+    target.kind === 'node'
+      ? planNodeStep(planNodes, edges, target.nodeId, direction)
+      : planStageStep(planNodes, edges, target.stageId, direction);
+  throwIfRefused(plan);
+  const effects = asStepEffects(plan);
+  if (plan.blocks.length > 0 && !force) {
+    refuse(
+      409,
+      'confirmation_required',
+      '有开放阻塞，确认后才会强制推进并标记前置完成',
+      plan.blocks.map((block) => block.nodeName),
+      { blocks: plan.blocks, effects },
+    );
+  }
+  if (plan.publishNodeId) {
+    if (!publish) {
+      refuse(409, 'publish_required', '完成发布节点必须在同一事务中记录发布信息', undefined, {
+        effects,
+      });
+    }
+    const resolved = resolvePublishBvid({
+      bvid: publish.bvid ?? null,
+      videoUrl: publish.videoUrl ?? null,
+    });
+    if (!resolved.ok) {
+      refuse(
+        400,
+        'invalid_body',
+        resolved.reason === 'mismatch' ? 'bvid 与链接中的标识不一致' : '链接里没有可用的 bvid',
+      );
+    }
+    if (publish.platform !== 'bilibili') {
+      refuse(400, 'unsupported_platform', '发布记录只保存 bvid，目前只接受平台 bilibili');
+    }
+  }
+  if (plan.blocks.length > 0) {
+    await closeConfirmedBlocks(tx, projectId, plan.blocks);
+    graph = await loadGraph(tx, projectId);
+  }
+  for (const item of effects) {
+    if (plan.publishNodeId === item.nodeId && item.to === 'completed') continue;
+    await applyEffect(tx, projectId, graph, item);
+  }
+  if (plan.publishNodeId && publish) {
+    let publishNodeRow = graph.byId.get(plan.publishNodeId);
+    if (!publishNodeRow) refuse(404, 'not_found', '节点不存在');
+    if (publishNodeRow.status !== 'in_progress') {
+      const from = publishNodeRow.status;
+      publishNodeRow = await updateNode(tx, projectId, publishNodeRow, {
+        status: 'in_progress',
+        statusBeforeBlock: null,
+        primaryBlockItemId: null,
+        clearCompletedAt: false,
+      });
+      rememberNode(graph, publishNodeRow);
+      await audit(tx, projectId, 'wf_node', publishNodeRow.id, 'advance', {
+        from,
+        to: 'in_progress',
+        step: true,
+      });
+    }
+    const resolved = resolvePublishBvid({
+      bvid: publish.bvid ?? null,
+      videoUrl: publish.videoUrl ?? null,
+    });
+    if (!resolved.ok) refuse(400, 'invalid_body', '链接里没有可用的 bvid');
+    await publishNode(tx, projectId, plan.publishNodeId, {
+      expectedUpdatedAt: publishNodeRow.updated_at,
+      idempotencyKey: publish.idempotencyKey,
+      platform: publish.platform,
+      bvid: resolved.bvid,
+      videoUrl: publish.videoUrl ?? null,
+      publishedAt: publish.publishedAt ?? null,
+      publishSource: publish.publishSource ?? 'web',
+    });
+    graph = await loadGraph(tx, projectId);
+    const published = graph.byId.get(plan.publishNodeId);
+    if (!published || published.status !== 'completed') {
+      refuse(409, 'publish_conflict', '发布节点没有完成');
+    }
+  }
+  const overallStage = await syncOverallStage(tx, projectId, graph);
+  const changed = new Set(effects.map((item) => item.nodeId));
+  return {
+    projectId,
+    overallStage,
+    nodes: graph.nodes.filter((node) => changed.has(node.id)).map((node) => toSnapshot(node)),
+  };
 }
 
 function invalidBody(c: Context, message: string): Response {
@@ -963,6 +1588,20 @@ export function registerCommercialWriteRoutes(app: Hono, db: Sql): void {
     );
   });
 
+  app.post('/projects/:projectId/nodes/:nodeId/plan', async (c) => {
+    const ids = pathIds(c);
+    if (ids instanceof Response) return ids;
+    const raw = await readBody(c);
+    if (isResponse(raw)) return raw;
+    const body = parseRequest(c, raw, parseCommercialPlanRequest);
+    if (body instanceof Response) return body;
+    return runWrite(c, () =>
+      db
+        .begin((tx) => planNode(tx, ids.projectId, ids.nodeId, body))
+        .then((result) => c.json(parseCommercialNodeWriteResponse(result))),
+    );
+  });
+
   app.post('/projects/:projectId/nodes/:nodeId/publish', async (c) => {
     const ids = pathIds(c);
     if (ids instanceof Response) return ids;
@@ -997,6 +1636,56 @@ export function registerCommercialWriteRoutes(app: Hono, db: Sql): void {
     );
   });
 
+  app.post('/projects/:projectId/nodes/:nodeId/step', async (c) => {
+    const ids = pathIds(c);
+    if (ids instanceof Response) return ids;
+    const raw = await readBody(c);
+    if (isResponse(raw)) return raw;
+    const body = parseRequest(c, raw, parseCommercialNodeStepRequest);
+    if (body instanceof Response) return body;
+    return runWrite(c, () =>
+      db
+        .begin((tx) =>
+          applyStep(
+            tx,
+            ids.projectId,
+            { kind: 'node', nodeId: ids.nodeId },
+            body.direction,
+            [{ nodeId: ids.nodeId, expectedUpdatedAt: body.expectedUpdatedAt }],
+            body.force,
+            body.publish,
+          ),
+        )
+        .then((result) => c.json(parseCommercialStepResponse(result))),
+    );
+  });
+
+  app.post('/projects/:projectId/stages/:stageId/step', async (c) => {
+    const projectId = c.req.param('projectId');
+    const stageId = c.req.param('stageId');
+    if (!isUuid(projectId)) return invalidBody(c, '项目 id 不是 uuid');
+    if (!stageId || !isProgressStageId(stageId)) return invalidBody(c, '阶段不存在');
+    const raw = await readBody(c);
+    if (isResponse(raw)) return raw;
+    const body = parseRequest(c, raw, parseCommercialStageStepRequest);
+    if (body instanceof Response) return body;
+    return runWrite(c, () =>
+      db
+        .begin((tx) =>
+          applyStep(
+            tx,
+            projectId,
+            { kind: 'stage', stageId },
+            body.direction,
+            body.tokens,
+            body.force,
+            body.publish,
+          ),
+        )
+        .then((result) => c.json(parseCommercialStepResponse(result))),
+    );
+  });
+
   app.post('/projects/:projectId/open-items/:itemId/close', async (c) => {
     const ids = itemPathIds(c);
     if (ids instanceof Response) return ids;
@@ -1022,6 +1711,20 @@ export function registerCommercialWriteRoutes(app: Hono, db: Sql): void {
       db
         .begin((tx) => cancelItem(tx, ids.projectId, ids.itemId, body))
         .then((result) => c.json(parseCommercialOpenItemWriteResponse(result))),
+    );
+  });
+
+  app.patch('/projects/:projectId/workflow/layout', async (c) => {
+    const projectId = c.req.param('projectId');
+    if (!isUuid(projectId)) return invalidBody(c, '项目 id 不是 uuid');
+    const raw = await readBody(c);
+    if (isResponse(raw)) return raw;
+    const body = parseRequest(c, raw, parseCommercialWorkflowLayoutRequest);
+    if (body instanceof Response) return body;
+    return runWrite(c, () =>
+      db
+        .begin((tx) => applyWorkflowLayout(tx, projectId, body))
+        .then((result) => c.json(parseCommercialWorkflowLayoutResponse(result))),
     );
   });
 }

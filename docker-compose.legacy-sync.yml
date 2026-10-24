@@ -1,0 +1,46 @@
+# Opt-in legacy CSV sync. Not part of docker-compose.yml.
+# The host publishes a finished snapshot into LEGACY_CSV_DIR (write temp, then rename).
+# This service only reads that directory. It does not open a remote shell or store Windows credentials.
+#
+#   LEGACY_CSV_DIR=/var/lib/legacy-csv-snapshot \
+#     docker compose -f docker-compose.yml -f docker-compose.legacy-sync.yml up -d legacy-sync
+#   docker compose -f docker-compose.yml -f docker-compose.legacy-sync.yml stop legacy-sync
+
+services:
+  legacy-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      COLLECTOR_INSTANCE_ID: legacy-sync
+    volumes:
+      - ${LEGACY_CSV_DIR:?LEGACY_CSV_DIR is required}:/legacy-csv:ro
+    command:
+      [
+        'bun',
+        'run',
+        'apps/collector/src/cli.ts',
+        'sync-legacy',
+        '--dir',
+        '/legacy-csv',
+        '--execute',
+        '--interval',
+        '${LEGACY_SYNC_INTERVAL_MS:-900000}',
+      ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    logging:
+      options:
+        max-size: 20m
+        max-file: '5'
+    restart: unless-stopped
+    healthcheck:
+      disable: true

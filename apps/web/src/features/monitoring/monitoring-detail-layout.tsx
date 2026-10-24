@@ -13,6 +13,13 @@ type Props = {
   meta: { label: string; value: ReactNode }[];
   charts: ReactNode;
   status?: ReactNode;
+  /** Compact monitor bar directly under the title, above metadata. */
+  toolbar?: ReactNode;
+  /** Right column on wide screens, stacked under the metadata card on narrow screens. */
+  aside?: ReactNode;
+  /** Full-width block under the metadata / charts grid. */
+  footer?: ReactNode;
+  testId?: string;
 };
 
 export function MonitoringDetailLayout({
@@ -23,9 +30,13 @@ export function MonitoringDetailLayout({
   meta,
   charts,
   status,
+  toolbar,
+  aside,
+  footer,
+  testId,
 }: Props) {
   return (
-    <>
+    <div data-testid={testId} className="min-w-0 max-w-full overflow-x-hidden">
       <PageHeader
         title={title}
         {...(description ? { description } : {})}
@@ -43,8 +54,16 @@ export function MonitoringDetailLayout({
           </Button>
         }
       />
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-        <Card>
+      {toolbar ? (
+        <div data-testid="monitor-detail-toolbar" className="mb-6 min-w-0 max-w-full">
+          {toolbar}
+        </div>
+      ) : null}
+      <div
+        data-testid="monitor-detail-grid"
+        className="grid min-w-0 max-w-full gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]"
+      >
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle className="text-base">元数据</CardTitle>
           </CardHeader>
@@ -60,13 +79,17 @@ export function MonitoringDetailLayout({
             </dl>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">指标趋势</CardTitle>
-          </CardHeader>
-          <CardContent>{charts}</CardContent>
-        </Card>
+        <div className="flex min-w-0 flex-col gap-6" data-testid="monitor-detail-aside">
+          {aside}
+          <Card className="min-w-0">
+            <CardHeader>
+              <CardTitle className="text-base">指标趋势</CardTitle>
+            </CardHeader>
+            <CardContent className="min-w-0">{charts}</CardContent>
+          </Card>
+        </div>
       </div>
-    </>
+      {footer ? <div className="mt-6 min-w-0 max-w-full">{footer}</div> : null}
+    </div>
   );
 }

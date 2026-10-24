@@ -1,6 +1,6 @@
 # 部署 Runbook（个人 Debian 家服 · 离线 Mock）
 
-生产稳态：**仅两个 Compose 服务** — `postgres` + `app`（单 Bun 进程同时提供 `/api/*` 与 SPA）。未来 `collector` 为**独立 Compose 服务**，与本 runbook 分开部署；本阶段不启用采集器。
+生产稳态：**三个 Compose 服务** — `postgres`、`app`（单 Bun 进程同时提供 `/api/*` 与 SPA）、`collector`（独立进程，只消费 `collector_jobs`，默认 `COLLECTOR_PROVIDER=offline`，不访问 B 站，不发布宿主机端口）。切到真实采集时见 `docs/architecture/real-collector.md`。商单域的 `monitor_jobs` 仍不执行。
 
 **固定项目名（复用，勿按 WP/验收临时起名）：**
 
@@ -27,6 +27,19 @@ docker compose -p bili-prod up -d --build
 
 - PostgreSQL：**无**宿主机端口，数据在卷 `bili-prod_postgres_data`（Compose 项目名前缀 + `postgres_data`）。
 - 应用：单端口 `${APP_PORT:-8080}` → 容器内 `3000`。
+- 采集器：无宿主机端口。日志用 `docker compose -p bili-prod logs -f collector`。
+
+只启动或停止采集器：
+
+```bash
+docker compose -p bili-prod up -d --build collector
+docker compose -p bili-prod stop collector
+docker compose -p bili-prod start collector
+```
+
+`collector` 收到 SIGTERM 后停止领取新任务，并在退出预算内写完当前任务。`collector` 和 `app` 的 `stop_grace_period` 都是 30 秒。进程自己的退出预算默认 20 秒，其中日志 flush 默认最多 10 秒；超时、尾批未写入或主循环失败不会伪装成正常退出。
+
+`app` 收到 SIGTERM 或 SIGINT 后不再接受新请求，新请求得到 503。已经接受的 HTTP 要等响应真正发送完，它们登记的进程内后台工作也在退出预算内收尾，然后写入 `service.stopped` 并限时 flush。响应发不完、后台工作没有在预算内完成，或停止事件没有写入时，退出码不是 0。这不会替独立的 collector 进程清空队列里的任务。镜像上的 30 秒 grace 需要在部署环境里用 `docker stop` 另验。
 
 ## 3. 健康检查
 
@@ -73,10 +86,11 @@ git pull
 docker compose -p bili-prod up -d --build
 ```
 
-仅重建 `app` 时：
+仅重建 `app` 或 `collector` 时：
 
 ```bash
 docker compose -p bili-prod up -d --build app
+docker compose -p bili-prod up -d --build collector
 ```
 
 ## 7. 回滚
@@ -86,7 +100,7 @@ git checkout <previous-tag-or-sha>
 docker compose -p bili-prod up -d --build
 ```
 
-数据库 schema 由应用内迁移向前兼容；回滚代码前请确认迁移兼容性。
+数据库 schema 由应用内迁移向前兼容；回滚代码前请确认迁移兼容性。`005_monitor_targets_collector` 只新增监控项、采集任务、运行记录和心跳表。回滚到没有 Collector 的版本时，先 `docker compose -p bili-prod stop collector`，已写入的视频/粉丝样本保留，商单表不变。不要手动删除这些表，除非明确要丢弃监控项。
 
 ## 8. 项目级 teardown（**保留** PostgreSQL 卷）
 
@@ -121,3 +135,7 @@ docker compose -p bili-test -f docker-compose.dev.yml up -d
 ```
 
 Vite `5173` + API `3000`；导入同样用 `docker compose -p bili-test ... run --rm api bun packages/monitoring/...`（服务名为 `api`）。
+
+## 13. 2026-10-18 测试环境只读观察
+
+脱敏运行时证据的基线是 `9d9370e0b2c0d3b5b5e6cb92f68d5416f48b641b`。当时 Compose 项目名 `bili-test` 上实际在跑的是服务 `app`（合并镜像），容器 `3000` 映射到宿主机 `18492`，PostgreSQL `5432` 未向宿主机发布。随后的只读环境允许名单确认该进程为 `MONITOR_DATA_SOURCE=mock`、`API_PORT=3000`、`WEB_STATIC_ROOT=/app/web-dist`、`MOCK_DATA_ROOT=/mock-data`，且 `/mock-data` 挂载 `RW=false`。这与本节第 12 条的热重载拆分不是同一拓扑，也不能据此推断生产项目 `bili-prod`。端口和路由对照见 [ui-backend-contract-audit.md](../architecture/ui-backend-contract-audit.md)。

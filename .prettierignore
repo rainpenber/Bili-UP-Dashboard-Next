@@ -1,3 +1,6 @@
 node_modules
 dist
 bun.lock
+
+# 只读参考资料（旧采集器 / 旧前端 / B 站接口文档）
+reference/

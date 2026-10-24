@@ -1,8 +1,29 @@
 const MS_DAY = 86_400_000;
+const SHANGHAI = 'Asia/Shanghai';
 
 function parseInstant(iso: string): Date | null {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Asia/Shanghai wall clock for list/detail publish times. */
+export function formatShanghaiDateTime(iso: string): string {
+  const d = parseInstant(iso);
+  if (!d) return iso;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: SHANGHAI,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+  const pick = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? '';
+  const hour = pick('hour') === '24' ? '00' : pick('hour');
+  return `${pick('year')}-${pick('month')}-${pick('day')} ${hour}:${pick('minute')}:${pick('second')}`;
 }
 
 /** 完整本地时间（tooltip / 详情） */

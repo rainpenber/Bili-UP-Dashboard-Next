@@ -6,7 +6,9 @@
 
 模板节点 `wf_template_nodes.kind` 与实例节点 `wf_nodes.kind` 只有两个值：`stage`（默认）和 `merge`。未知值由 CHECK 拒绝。已有行靠默认值落到 `stage`，不需要数据迁移。
 
-汇合节点是普通步骤，不是制作包，也不按入度/出度推断。它有自己的状态（含进行中）、可以阻塞、可选节点可以标成不适用，并可以写入 `domain_audit_events`。阻塞原因不是节点列：原因来自开放事项；没有对应事项时，阻塞可以没有原因。
+汇合节点存在 `wf_nodes` 上，不是制作包，也不按入度/出度推断。表允许它带状态，阻塞原因仍然来自开放事项；没有对应事项时，阻塞可以没有原因。
+
+已接受的逐步路径不把汇合节点当作操作目标。`packages/workflow/src/step-plan.ts` 对 `kind === 'merge'` 返回 `invalid_transition`，时间线跳过汇合行，画布只把它画成金色圆点。`packages/workflow/src/engine.ts` 仍不按种类分叉，对应的是已注册但当前页面不调用的 `advance` / `complete` 等旧路由。对照见 [ui-backend-contract-audit.md](./ui-backend-contract-audit.md)。
 
 ## 制作包删除
 
@@ -37,16 +39,22 @@
 
 页面 Mock 上曾经画过 17 条边。本包的种子是数据层的依据，计数以 14 / 16 为准。
 
+`seedCommercialFixtures` 可以重复执行。样例节点的 `status`，以及样例开放事项的生命周期、影响和 `blocks_node_id`，会按样例写回，不会停在 `ON CONFLICT DO NOTHING` 留下的旧行上。样例项目里，节点 `status = 'blocked'` 当且仅当存在一条 `lifecycle = 'open'`、`impact = 'blocking'`、并且通过 `primary_block_pinned_item_id` 或 `blocks_node_id` 关联到该节点的开放事项。阻塞节点会钉住这条主阻塞事项，并把 `status_before_block` 记为 `in_progress`（写入接口只从进行中进入阻塞）。引擎仍然允许一次没有原因的阻塞；这条不变式约束的是样例数据，不是表上的 CHECK。
+
+## 来源接入（WP-R2-19A）
+
+外部身份与快照见 [commercial-ingress.md](./commercial-ingress.md)。迁移 `016_commercial_source_ingress` 增加 `origin_kind` 与 `commercial_project_sources`；不推断节点/资金状态。
+
 ## 只读 API
 
-响应形状在 `@studio/contracts`。流程图节点带 `updatedAt`，这是写入时要原样交回的并发令牌。
+响应形状在 `@studio/contracts`。流程图节点带 `updatedAt`，这是写入时要原样交回的并发令牌。项目列表/详情另带项目级 `updatedAt`（接入更新令牌）、`originKind` 与可选 `source` 摘要。
 
-| 方法 | 路径                                              | 内容                                               |
-| ---- | ------------------------------------------------- | -------------------------------------------------- |
-| GET  | `/api/v1/commercial/projects`                     | 名称、到手金额、返点金额、当前阶段、是否有节点阻塞 |
-| GET  | `/api/v1/commercial/projects/:projectId`          | 金额、当前阶段、阻塞原因、发布状态                 |
-| GET  | `/api/v1/commercial/projects/:projectId/workflow` | 节点（状态、种类、updatedAt）与边                  |
-| GET  | `/api/v1/commercial/templates/default`            | 已发布的默认流程模板及其图                         |
+| 方法 | 路径                                              | 内容                                                                                                 |
+| ---- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| GET  | `/api/v1/commercial/projects`                     | 名称、到手金额、返点金额、当前阶段、是否有节点阻塞；可选 `originKind`/`limit`/`offset`，返回 `total` |
+| GET  | `/api/v1/commercial/projects/:projectId`          | 金额、当前阶段、阻塞原因、发布状态、来源摘要                                                         |
+| GET  | `/api/v1/commercial/projects/:projectId/workflow` | 节点（状态、种类、updatedAt）与边                                                                    |
+| GET  | `/api/v1/commercial/templates/default`            | 已发布的默认流程模板及其图                                                                           |
 
 金额是 `numeric(14,2)` 的十进制字符串。`overallStage` 是项目上存储的阶段。`currentStageNames` 是状态为 `in_progress` 或 `blocked` 的节点名，按 `pos_y`、`pos_x`、`id` 排序；没有进行中或阻塞节点时为空数组。`blockingReason` 取仍开放且 `impact = blocking`、并且钉在阻塞节点上或 `blocks_node_id` 指向阻塞节点的事项标题；优先被钉住的事项，其次 `sort_rank`、创建时间、`id`。没有这样的事项时为 `null`。
 
@@ -61,6 +69,8 @@
 完成「发布」节点必须在同一事务写入 `project_publish_records`、`project_monitor_contracts`，以及该项目各一条 `metadata` / `metrics` 的 `monitor_jobs`（`pending`，不执行）。幂等靠 `idempotency_key` 和 `UNIQUE (project_id, job_type)`。监控标识是已有的 `bvid`。请求可以带视频链接，链接里的 BV 号写入 `bvid`；平台只接受 `bilibili`，因为表上没有平台列。
 
 每次写入一个事务，和 `domain_audit_events` 一起提交。并发令牌是 `updated_at`。违反数据库约束时返回 409，消息来自约束本身。路径见 [WP-004R2-3A](../../work-packages/WP-004R2-3A-commercial-workflow-engine.md)。
+
+`POST .../nodes/:nodeId/step` 和 `POST .../stages/:stageId/step` 在同一个事务里完成上游闭包或阶段前沿、阻塞事项关闭和项目 `overall_stage` 重算。有开放阻塞时返回 409 `confirmation_required` 且不写入，节点即使还不是 `blocked` 也一样；带 `force: true` 才关闭阻塞事项并继续。完成发布节点仍要在这一次请求里带上发布信息，缺了就整单拒绝。项目详情的 `publish.idempotencyKey` 是已有发布记录的幂等键；发布节点回退到进行中后，用同一个键和原来的 BV 号可以再完成，不新增发布记录或监控任务。换一把新键会被拒绝。阶段 id 是 `write_outline`、`copy_prep`、`production`、`client_review`、`distribution_settlement`。归档或已结案项目拒绝这些写入。见 [WP-004R2-9](../../work-packages/WP-004R2-9-commercial-step-actions.md)。
 
 ## 本地核对
 

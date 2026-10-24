@@ -1,10 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
+  isOpenItemActor,
+  isOpenItemImpact,
+  isOpenItemLifecycle,
   isOverallStage,
   isPublishSource,
   isWfNodeKind,
   isWfNodeStatus,
   parseCommercialDefaultTemplate,
+  parseCommercialProjectArchiveResponse,
   parseCommercialProjectDetail,
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
@@ -41,11 +45,20 @@ type ItemRow = {
   id: string;
   project_id: string;
   title: string;
+  description: string | null;
+  close_criteria: string | null;
+  next_action: string | null;
+  next_actor: string;
   lifecycle: string;
   impact: string;
+  planned_at: string | null;
   sort_rank: number;
-  created_at: Date;
+  blocks_required_for_close: boolean;
+  workflow_node_id: string | null;
   blocks_node_id: string | null;
+  created_at: Date;
+  updated_at: string;
+  created_at_text: string;
 };
 
 function asOverallStage(value: string): OverallStage {
@@ -79,6 +92,27 @@ function stageNames(nodes: NodeRow[]): string[] {
     )
     .map((node) => node.name);
 }
+
+function blockedNames(nodes: NodeRow[]): string[] {
+  return stageNames(nodes.filter((node) => node.status === 'blocked'));
+}
+
+function asActor(value: string) {
+  if (!isOpenItemActor(value)) throw new Error(`unexpected next_actor ${value}`);
+  return value;
+}
+
+function asLifecycle(value: string) {
+  if (!isOpenItemLifecycle(value)) throw new Error(`unexpected lifecycle ${value}`);
+  return value;
+}
+
+function asImpact(value: string) {
+  if (!isOpenItemImpact(value)) throw new Error(`unexpected impact ${value}`);
+  return value;
+}
+
+const STAMP = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"';
 
 function blockingReason(items: ItemRow[], nodes: NodeRow[]): string | null {
   const blocked = nodes.filter((node) => node.status === 'blocked');
@@ -144,9 +178,30 @@ describe('commercial read API', () => {
         net_amount: string | null;
         rebate_amount: string | null;
         overall_stage: string;
+        created_at: string;
+        updated_at: string;
+        user_deadline_at: string | null;
+        blocked_since_at: string | null;
+        archived_at: string | null;
+        stage_entered_at: string;
+        business_closed_at: string | null;
+        origin_kind: string | null;
       }[]
     >`
-      SELECT id, name, net_amount::text AS net_amount, rebate_amount::text AS rebate_amount, overall_stage
+      SELECT
+        id,
+        name,
+        net_amount::text AS net_amount,
+        rebate_amount::text AS rebate_amount,
+        overall_stage,
+        to_char(created_at AT TIME ZONE 'UTC', ${STAMP}) AS created_at,
+        to_char(updated_at AT TIME ZONE 'UTC', ${STAMP}) AS updated_at,
+        to_char(user_deadline_at AT TIME ZONE 'UTC', ${STAMP}) AS user_deadline_at,
+        to_char(blocked_since_at AT TIME ZONE 'UTC', ${STAMP}) AS blocked_since_at,
+        to_char(archived_at AT TIME ZONE 'UTC', ${STAMP}) AS archived_at,
+        to_char(stage_entered_at AT TIME ZONE 'UTC', ${STAMP}) AS stage_entered_at,
+        to_char(business_closed_at AT TIME ZONE 'UTC', ${STAMP}) AS business_closed_at,
+        origin_kind
       FROM commercial_projects
       ORDER BY created_at ASC, id ASC
     `;
@@ -154,17 +209,51 @@ describe('commercial read API', () => {
       SELECT id, project_id, name, status, kind, pos_y, pos_x, primary_block_pinned_item_id
       FROM wf_nodes
     `;
+    const items = await sql<ItemRow[]>`
+      SELECT
+        id,
+        project_id,
+        title,
+        description,
+        close_criteria,
+        next_action,
+        next_actor,
+        lifecycle,
+        impact,
+        to_char(planned_at AT TIME ZONE 'UTC', ${STAMP}) AS planned_at,
+        sort_rank,
+        blocks_required_for_close,
+        workflow_node_id,
+        blocks_node_id,
+        created_at,
+        to_char(created_at AT TIME ZONE 'UTC', ${STAMP}) AS created_at_text,
+        to_char(updated_at AT TIME ZONE 'UTC', ${STAMP}) AS updated_at
+      FROM open_items
+      ORDER BY project_id ASC, sort_rank ASC, created_at ASC, id ASC
+    `;
     const nodesByProject = new Map<string, NodeRow[]>();
     for (const node of nodes) {
       const list = nodesByProject.get(node.project_id) ?? [];
       list.push(node);
       nodesByProject.set(node.project_id, list);
     }
+    const itemsByProject = new Map<string, ItemRow[]>();
+    for (const item of items) {
+      const list = itemsByProject.get(item.project_id) ?? [];
+      list.push(item);
+      itemsByProject.set(item.project_id, list);
+    }
 
-    expect(body.items.map((item) => item.id)).toEqual(projects.map((project) => project.id));
-    for (const [index, project] of projects.entries()) {
+    const activeProjects = projects.filter((project) => project.archived_at === null);
+    expect(body.total).toBe(activeProjects.length);
+    expect(body.limit).toBeNull();
+    expect(body.offset).toBe(0);
+    expect(body.items.map((item) => item.id)).toEqual(activeProjects.map((project) => project.id));
+    expect(body.items.some((item) => item.id === FIXTURE_PROJECT_IDS.archived)).toBe(false);
+    for (const [index, project] of activeProjects.entries()) {
       const item = body.items[index];
       const projectNodes = nodesByProject.get(project.id) ?? [];
+      const projectItems = itemsByProject.get(project.id) ?? [];
       expect(item).toEqual({
         id: project.id,
         name: project.name,
@@ -173,7 +262,46 @@ describe('commercial read API', () => {
         overallStage: asOverallStage(project.overall_stage),
         currentStageNames: stageNames(projectNodes),
         anyNodeBlocked: projectNodes.some((node) => node.status === 'blocked'),
+        blockingReason: blockingReason(projectItems, projectNodes),
+        createdAt: project.created_at,
+        updatedAt: project.updated_at,
+        userDeadlineAt: project.user_deadline_at,
+        blockedSinceAt: project.blocked_since_at,
+        archivedAt: project.archived_at,
+        stageEnteredAt: project.stage_entered_at,
+        businessClosedAt: project.business_closed_at,
+        originKind:
+          project.origin_kind === 'real' ||
+          project.origin_kind === 'fixture' ||
+          project.origin_kind === 'manual'
+            ? project.origin_kind
+            : null,
+        source: null,
+        businessState: null,
+        originStatusLabel: null,
+        sourceWindow: null,
+        blockedNodeNames: blockedNames(projectNodes),
+        openItems: projectItems.map((row) => ({
+          id: row.id,
+          title: row.title,
+          description: row.description,
+          closeCriteria: row.close_criteria,
+          nextAction: row.next_action,
+          nextActor: asActor(row.next_actor),
+          lifecycle: asLifecycle(row.lifecycle),
+          impact: asImpact(row.impact),
+          plannedAt: row.planned_at,
+          sortRank: row.sort_rank,
+          blocksRequiredForClose: row.blocks_required_for_close,
+          workflowNodeId: row.workflow_node_id,
+          blocksNodeId: row.blocks_node_id,
+          createdAt: row.created_at_text,
+          updatedAt: row.updated_at,
+        })),
       });
+      for (const openItem of item?.openItems ?? []) {
+        expect(projectItems.some((row) => row.id === openItem.id)).toBe(true);
+      }
     }
 
     const client = body.items.find((item) => item.id === FIXTURE_PROJECT_IDS.clientBlocking);
@@ -197,9 +325,15 @@ describe('commercial read API', () => {
       FROM open_items
     `;
     const publishes = await sql<
-      { project_id: string; bvid: string; published_at: Date; publish_source: string }[]
+      {
+        project_id: string;
+        bvid: string;
+        published_at: Date;
+        publish_source: string;
+        idempotency_key: string;
+      }[]
     >`
-      SELECT project_id, bvid, published_at, publish_source FROM project_publish_records
+      SELECT project_id, bvid, published_at, publish_source, idempotency_key FROM project_publish_records
     `;
     const publishByProject = new Map(publishes.map((row) => [row.project_id, row]));
 
@@ -213,12 +347,24 @@ describe('commercial read API', () => {
       expect(detail.currentStageNames).toEqual(stageNames(projectNodes));
       expect(detail.blockingReason).toBe(blockingReason(projectItems, projectNodes));
       expect(detail.anyNodeBlocked).toBe(projectNodes.some((node) => node.status === 'blocked'));
+      expect(detail.blockedNodeNames).toEqual(blockedNames(projectNodes));
+      const orderedItems = [...projectItems].sort((a, b) => {
+        if (a.sort_rank !== b.sort_rank) return a.sort_rank - b.sort_rank;
+        const timeDelta = a.created_at.getTime() - b.created_at.getTime();
+        if (timeDelta !== 0) return timeDelta;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+      expect(detail.openItems.map((item) => item.id)).toEqual(orderedItems.map((item) => item.id));
+      expect(detail.openItems.every((item) => orderedItems.some((row) => row.id === item.id))).toBe(
+        true,
+      );
       if (publish) {
         expect(detail.publish).toEqual({
           published: true,
           bvid: publish.bvid,
           publishedAt: publish.published_at.toISOString(),
           publishSource: asPublishSource(publish.publish_source),
+          idempotencyKey: publish.idempotency_key,
         });
       } else {
         expect(detail.publish).toEqual({
@@ -226,6 +372,7 @@ describe('commercial read API', () => {
           bvid: null,
           publishedAt: null,
           publishSource: null,
+          idempotencyKey: null,
         });
       }
     }
@@ -244,6 +391,30 @@ describe('commercial read API', () => {
     expect(multiDetail.blockingReason).toBe('B-roll 甲方素材缺失');
     expect(multiDetail.currentStageNames).toEqual(['A-roll 拍摄', 'B-roll 素材', 'AI 后期']);
 
+    const multiWorkflow = await app.request(
+      `/api/v1/commercial/projects/${FIXTURE_PROJECT_IDS.multiBlock}/workflow`,
+    );
+    const multiGraph = parseCommercialProjectWorkflow(await multiWorkflow.json());
+    expect(multiGraph.nodes.find((node) => node.templateSlug === 'b_roll')).toMatchObject({
+      name: 'B-roll 素材',
+      status: 'blocked',
+      blockingReason: 'B-roll 甲方素材缺失',
+    });
+    expect(multiGraph.nodes.find((node) => node.templateSlug === 'a_roll')).toMatchObject({
+      name: 'A-roll 拍摄',
+      status: 'blocked',
+      blockingReason: 'A-roll 素材版权待补',
+    });
+    const clientWorkflow = await app.request(
+      `/api/v1/commercial/projects/${FIXTURE_PROJECT_IDS.clientBlocking}/workflow`,
+    );
+    const clientGraph = parseCommercialProjectWorkflow(await clientWorkflow.json());
+    expect(clientGraph.nodes.find((node) => node.templateSlug === 'copy')).toMatchObject({
+      name: '文案',
+      status: 'blocked',
+      blockingReason: '甲方文案批注未清',
+    });
+
     const published = await app.request(
       `/api/v1/commercial/projects/${FIXTURE_PROJECT_IDS.publishedOpen}`,
     );
@@ -252,6 +423,7 @@ describe('commercial read API', () => {
       bvid: 'BVWP004R01',
       publishedAt: '2026-05-20T12:00:00.000Z',
       publishSource: 'web',
+      idempotencyKey: 'fixture-publish-once',
     });
   }, 30_000);
 
@@ -267,7 +439,13 @@ describe('commercial read API', () => {
           name: string;
           status: string;
           kind: string;
+          template_slug: string | null;
+          blocking_reason: string | null;
           workflow_id: string;
+          planned_at: string | null;
+          completed_at: string | null;
+          pos_x: number;
+          pos_y: number;
           updated_at: string;
         }[]
       >`
@@ -276,9 +454,33 @@ describe('commercial read API', () => {
           n.name,
           n.status,
           n.kind,
+          t.slug AS template_slug,
+          (
+            SELECT oi.title
+            FROM open_items oi
+            WHERE n.status = 'blocked'
+              AND oi.project_id = n.project_id
+              AND oi.lifecycle = 'open'
+              AND oi.impact = 'blocking'
+              AND (
+                oi.id = n.primary_block_pinned_item_id
+                OR oi.blocks_node_id = n.id
+              )
+            ORDER BY
+              (oi.id = n.primary_block_pinned_item_id) DESC,
+              oi.sort_rank ASC,
+              oi.created_at ASC,
+              oi.id ASC
+            LIMIT 1
+          ) AS blocking_reason,
           n.workflow_id,
+          to_char(n.planned_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS planned_at,
+          to_char(n.completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS completed_at,
+          n.pos_x,
+          n.pos_y,
           to_char(n.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at
         FROM wf_nodes n
+        LEFT JOIN wf_template_nodes t ON t.id = n.template_node_id
         WHERE n.project_id = ${projectId}
         ORDER BY n.pos_y, n.pos_x, n.id
       `;
@@ -293,6 +495,12 @@ describe('commercial read API', () => {
           name: row.name,
           status: asNodeStatus(row.status),
           kind: asNodeKind(row.kind),
+          templateSlug: row.template_slug,
+          blockingReason: row.blocking_reason,
+          plannedAt: row.planned_at,
+          completedAt: row.completed_at,
+          posX: row.pos_x,
+          posY: row.pos_y,
           updatedAt: row.updated_at,
         })),
       );
@@ -420,12 +628,19 @@ describe('commercial read API', () => {
     expect(detail.anyNodeBlocked).toBe(true);
     expect(detail.blockingReason).toBeNull();
     expect(detail.currentStageNames).toEqual(['汇合节点']);
+    expect(detail.blockedNodeNames).toEqual(['汇合节点']);
+    expect(detail.openItems).toEqual([]);
+    expect(detail.userDeadlineAt).toBeNull();
+    expect(detail.blockedSinceAt).toBeNull();
     expect(detail.netAmount).toBe('100.00');
 
     const graphRes = await app.request(`/api/v1/commercial/projects/${projectId}/workflow`);
     const graph = parseCommercialProjectWorkflow(await graphRes.json());
-    const [stamp] = await sql<{ updated_at: string }[]>`
-      SELECT to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at
+    const [stamp] = await sql<{ updated_at: string; pos_x: number; pos_y: number }[]>`
+      SELECT
+        to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at,
+        pos_x,
+        pos_y
       FROM wf_nodes WHERE id = ${nodeId}
     `;
     if (!stamp) throw new Error('blocked node timestamp missing');
@@ -435,6 +650,12 @@ describe('commercial read API', () => {
         name: '汇合节点',
         status: 'blocked',
         kind: 'merge',
+        templateSlug: null,
+        blockingReason: null,
+        plannedAt: null,
+        completedAt: null,
+        posX: stamp.pos_x,
+        posY: stamp.pos_y,
         updatedAt: stamp.updated_at,
       },
     ]);
@@ -444,5 +665,400 @@ describe('commercial read API', () => {
     const bareWorkflow = await app.request(`/api/v1/commercial/projects/${bareId}/workflow`);
     expect(bareWorkflow.status).toBe(404);
     expect(await bareWorkflow.json()).toEqual({ error: 'workflow not found' });
+
+    const bareDetail = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${bareId}`)).json(),
+    );
+    expect(bareDetail.netAmount).toBeNull();
+    expect(bareDetail.rebateAmount).toBeNull();
+    expect(bareDetail.currentStageNames).toEqual([]);
+    expect(bareDetail.blockedNodeNames).toEqual([]);
+    expect(bareDetail.anyNodeBlocked).toBe(false);
+    expect(bareDetail.userDeadlineAt).toBeNull();
+    expect(bareDetail.openItems).toEqual([]);
+  });
+
+  test('open items stay on their project when dates and lifecycle are missing or closed', async () => {
+    if (!sql || !app) return;
+    const archivedId = 'bb100005-0001-4001-8001-000000000005';
+    const otherId = 'bb100006-0001-4001-8001-000000000006';
+    const closedId = 'bb100007-0001-4001-8001-000000000007';
+    const openId = 'bb100008-0001-4001-8001-000000000008';
+    await sql`
+      INSERT INTO commercial_projects (id, name, net_amount, rebate_amount, overall_stage, user_deadline_at, archived_at)
+      VALUES
+        (${archivedId}, '缺日期归档样例', NULL, NULL, 'archived', NULL, ${'2026-02-02T00:00:00.000Z'}),
+        (${otherId}, '另一项目样例', NULL, '12.50', 'pre_publish', NULL, NULL)
+    `;
+    await sql`
+      INSERT INTO open_items (
+        id, project_id, title, description, close_criteria, next_action, next_actor, lifecycle, impact, planned_at, sort_rank
+      )
+      VALUES
+        (
+          ${closedId}, ${archivedId}, '已关闭事项', NULL, NULL, NULL, 'us', 'closed', 'normal', NULL, 0
+        ),
+        (
+          ${openId}, ${otherId}, '对方开放事项', '只属于另一项目', NULL, '催回复', 'client', 'open', 'blocking', NULL, 3
+        )
+    `;
+
+    const archivedRes = await app.request(`/api/v1/commercial/projects/${archivedId}`);
+    const archived = parseCommercialProjectDetail(await archivedRes.json());
+    const [archivedRow] = await sql<
+      {
+        created_at: string;
+        archived_at: string;
+        stage_entered_at: string;
+        item_created_at: string;
+        item_updated_at: string;
+      }[]
+    >`
+      SELECT
+        to_char(p.created_at AT TIME ZONE 'UTC', ${STAMP}) AS created_at,
+        to_char(p.archived_at AT TIME ZONE 'UTC', ${STAMP}) AS archived_at,
+        to_char(p.stage_entered_at AT TIME ZONE 'UTC', ${STAMP}) AS stage_entered_at,
+        to_char(oi.created_at AT TIME ZONE 'UTC', ${STAMP}) AS item_created_at,
+        to_char(oi.updated_at AT TIME ZONE 'UTC', ${STAMP}) AS item_updated_at
+      FROM commercial_projects p
+      JOIN open_items oi ON oi.project_id = p.id AND oi.id = ${closedId}
+      WHERE p.id = ${archivedId}
+    `;
+    if (!archivedRow) throw new Error('archived fixture row missing');
+    expect(archived.netAmount).toBeNull();
+    expect(archived.rebateAmount).toBeNull();
+    expect(archived.overallStage).toBe('archived');
+    expect(archived.userDeadlineAt).toBeNull();
+    expect(archived.blockedSinceAt).toBeNull();
+    expect(archived.archivedAt).toBe(archivedRow.archived_at);
+    expect(archived.createdAt).toBe(archivedRow.created_at);
+    expect(archived.businessClosedAt).toBeNull();
+    expect(archived.currentStageNames).toEqual([]);
+    expect(archived.openItems).toEqual([
+      {
+        id: closedId,
+        title: '已关闭事项',
+        description: null,
+        closeCriteria: null,
+        nextAction: null,
+        nextActor: 'us',
+        lifecycle: 'closed',
+        impact: 'normal',
+        plannedAt: null,
+        sortRank: 0,
+        blocksRequiredForClose: false,
+        workflowNodeId: null,
+        blocksNodeId: null,
+        createdAt: archivedRow.item_created_at,
+        updatedAt: archivedRow.item_updated_at,
+      },
+    ]);
+    expect(archived.openItems.some((item) => item.title === '对方开放事项')).toBe(false);
+
+    const other = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${otherId}`)).json(),
+    );
+    expect(other.rebateAmount).toBe('12.50');
+    expect(other.netAmount).toBeNull();
+    expect(other.openItems.map((item) => item.id)).toEqual([openId]);
+    expect(other.openItems[0]).toMatchObject({
+      title: '对方开放事项',
+      nextAction: '催回复',
+      nextActor: 'client',
+      lifecycle: 'open',
+      impact: 'blocking',
+      plannedAt: null,
+      sortRank: 3,
+    });
+    expect(other.openItems.some((item) => item.id === closedId)).toBe(false);
+
+    const listDefault = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects')).json(),
+    );
+    expect(listDefault.items.find((item) => item.id === archivedId)).toBeUndefined();
+    const listedOther = listDefault.items.find((item) => item.id === otherId);
+    expect(listedOther?.openItems.map((item) => item.id)).toEqual([openId]);
+
+    const listWithArchived = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects?includeArchived=1')).json(),
+    );
+    const listedArchived = listWithArchived.items.find((item) => item.id === archivedId);
+    expect(listedArchived?.openItems.map((item) => item.id)).toEqual([closedId]);
+  });
+
+  test('archive soft-deletes without cascade; unarchive restores; list total matches', async () => {
+    if (!sql || !app) return;
+    const projectId = FIXTURE_PROJECT_IDS.freshInquiryOnly;
+
+    const beforeDefault = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects')).json(),
+    );
+    const beforeAll = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects?includeArchived=1')).json(),
+    );
+    expect(beforeDefault.items.some((item) => item.id === projectId)).toBe(true);
+    expect(beforeAll.total).toBeGreaterThan(beforeDefault.total);
+
+    const [snapshot] = await sql<
+      {
+        name: string;
+        net_amount: string | null;
+        rebate_amount: string | null;
+        overall_stage: string;
+        origin_kind: string | null;
+        node_count: string;
+        source_count: string;
+      }[]
+    >`
+      SELECT
+        p.name,
+        p.net_amount::text AS net_amount,
+        p.rebate_amount::text AS rebate_amount,
+        p.overall_stage,
+        p.origin_kind,
+        (SELECT count(*)::text FROM wf_nodes n WHERE n.project_id = p.id) AS node_count,
+        (SELECT count(*)::text FROM commercial_project_sources s WHERE s.project_id = p.id) AS source_count
+      FROM commercial_projects p
+      WHERE p.id = ${projectId}
+    `;
+    if (!snapshot) throw new Error('fixture project missing');
+
+    const archiveRes = await app.request(`/api/v1/commercial/projects/${projectId}/archive`, {
+      method: 'POST',
+    });
+    expect(archiveRes.status).toBe(200);
+    const archived = parseCommercialProjectArchiveResponse(await archiveRes.json());
+    expect(archived.id).toBe(projectId);
+    expect(archived.archivedAt).not.toBeNull();
+
+    const archiveAgain = parseCommercialProjectArchiveResponse(
+      await (
+        await app.request(`/api/v1/commercial/projects/${projectId}/archive`, { method: 'POST' })
+      ).json(),
+    );
+    expect(archiveAgain.archivedAt).toBe(archived.archivedAt);
+
+    const missing = await app.request(
+      '/api/v1/commercial/projects/00000000-0000-4000-8000-000000000099/archive',
+      { method: 'POST' },
+    );
+    expect(missing.status).toBe(404);
+
+    const afterDefault = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects')).json(),
+    );
+    expect(afterDefault.items.some((item) => item.id === projectId)).toBe(false);
+    expect(afterDefault.total).toBe(beforeDefault.total - 1);
+
+    const afterAll = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects?includeArchived=1')).json(),
+    );
+    expect(afterAll.total).toBe(beforeAll.total);
+    expect(afterAll.items.find((item) => item.id === projectId)?.archivedAt).toBe(
+      archived.archivedAt,
+    );
+
+    const detail = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${projectId}`)).json(),
+    );
+    expect(detail.archivedAt).toBe(archived.archivedAt);
+    expect(detail.name).toBe(snapshot.name);
+    expect(detail.netAmount).toBe(snapshot.net_amount);
+    expect(detail.rebateAmount).toBe(snapshot.rebate_amount);
+    expect(detail.overallStage).toBe(asOverallStage(snapshot.overall_stage));
+
+    const workflow = parseCommercialProjectWorkflow(
+      await (await app.request(`/api/v1/commercial/projects/${projectId}/workflow`)).json(),
+    );
+    expect(String(workflow.nodes.length)).toBe(snapshot.node_count);
+
+    const [afterArchiveRow] = await sql<
+      {
+        overall_stage: string;
+        net_amount: string | null;
+        rebate_amount: string | null;
+        origin_kind: string | null;
+        node_count: string;
+        source_count: string;
+      }[]
+    >`
+      SELECT
+        p.overall_stage,
+        p.net_amount::text AS net_amount,
+        p.rebate_amount::text AS rebate_amount,
+        p.origin_kind,
+        (SELECT count(*)::text FROM wf_nodes n WHERE n.project_id = p.id) AS node_count,
+        (SELECT count(*)::text FROM commercial_project_sources s WHERE s.project_id = p.id) AS source_count
+      FROM commercial_projects p
+      WHERE p.id = ${projectId}
+    `;
+    expect(afterArchiveRow).toMatchObject({
+      overall_stage: snapshot.overall_stage,
+      net_amount: snapshot.net_amount,
+      rebate_amount: snapshot.rebate_amount,
+      origin_kind: snapshot.origin_kind,
+      node_count: snapshot.node_count,
+      source_count: snapshot.source_count,
+    });
+
+    const unarchiveRes = await app.request(`/api/v1/commercial/projects/${projectId}/unarchive`, {
+      method: 'POST',
+    });
+    expect(unarchiveRes.status).toBe(200);
+    const restored = parseCommercialProjectArchiveResponse(await unarchiveRes.json());
+    expect(restored.archivedAt).toBeNull();
+
+    const unarchiveAgain = parseCommercialProjectArchiveResponse(
+      await (
+        await app.request(`/api/v1/commercial/projects/${projectId}/unarchive`, { method: 'POST' })
+      ).json(),
+    );
+    expect(unarchiveAgain.archivedAt).toBeNull();
+
+    const restoredDefault = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects')).json(),
+    );
+    expect(restoredDefault.total).toBe(beforeDefault.total);
+    expect(restoredDefault.items.some((item) => item.id === projectId)).toBe(true);
+
+    const missingUnarchive = await app.request(
+      '/api/v1/commercial/projects/00000000-0000-4000-8000-000000000099/unarchive',
+      { method: 'POST' },
+    );
+    expect(missingUnarchive.status).toBe(404);
+
+    const badQuery = await app.request('/api/v1/commercial/projects?includeArchived=yes');
+    expect(badQuery.status).toBe(400);
+
+    // Real-origin row: same soft-archive path, no cascade.
+    const realId = 'bb100019-0001-4001-8001-000000000019';
+    await sql`
+      INSERT INTO commercial_projects (id, name, net_amount, rebate_amount, overall_stage, origin_kind)
+      VALUES (${realId}, '真实接入软删样例', 9900, 100, 'pre_publish', 'real')
+    `;
+    await sql`
+      INSERT INTO commercial_project_sources (
+        id, project_id, namespace, source_id, origin_kind,
+        source_updated_at, imported_at, payload, content_hash, source_status
+      )
+      VALUES (
+        ${'bb10001a-0001-4001-8001-00000000001a'}, ${realId}, 'hermes.test', 'real-soft-archive-1', 'real',
+        ${'2026-10-01T00:00:00.000Z'}, ${'2026-10-01T00:00:00.000Z'}, '{}'::jsonb, 'hash-real-soft', '2.进行中'
+      )
+    `;
+    const realArchive = parseCommercialProjectArchiveResponse(
+      await (
+        await app.request(`/api/v1/commercial/projects/${realId}/archive`, { method: 'POST' })
+      ).json(),
+    );
+    expect(realArchive.archivedAt).not.toBeNull();
+    const [realRow] = await sql<
+      { origin_kind: string; source_id: string | null; net_amount: string | null }[]
+    >`
+      SELECT p.origin_kind, s.source_id, p.net_amount::text AS net_amount
+      FROM commercial_projects p
+      LEFT JOIN commercial_project_sources s ON s.project_id = p.id
+      WHERE p.id = ${realId}
+    `;
+    expect(realRow).toEqual({
+      origin_kind: 'real',
+      source_id: 'real-soft-archive-1',
+      net_amount: '9900.00',
+    });
+    const realDetail = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${realId}`)).json(),
+    );
+    expect(realDetail.originKind).toBe('real');
+    expect(realDetail.source?.sourceId).toBe('real-soft-archive-1');
+    expect(realDetail.businessState).toBe('active');
+    expect(realDetail.sourceWindow).toEqual({
+      startAt: null,
+      endAt: null,
+      reminderAt: null,
+    });
+  });
+
+  test('list and detail expose sourceWindow dates without payload chat text (WP-R2-22A)', async () => {
+    if (!sql || !app) return;
+    const hisenseId = 'bb100022-0001-4001-8001-000000000022';
+    const djiId = 'bb100023-0001-4001-8001-000000000023';
+    const emptyId = 'bb100024-0001-4001-8001-000000000024';
+    await sql`
+      INSERT INTO commercial_projects (id, name, net_amount, rebate_amount, overall_stage, origin_kind)
+      VALUES
+        (${hisenseId}, '海信E8S', NULL, NULL, 'pre_publish', 'real'),
+        (${djiId}, '大疆 Pocket4', NULL, NULL, 'pre_publish', 'real'),
+        (${emptyId}, '无档期真实单', NULL, NULL, 'pre_publish', 'real')
+    `;
+    await sql`
+      INSERT INTO commercial_project_sources (
+        id, project_id, namespace, source_id, origin_kind,
+        source_updated_at, imported_at, payload, content_hash, source_status
+      )
+      VALUES
+        (
+          ${'bb100022-a001-4001-8001-000000000022'}, ${hisenseId}, 'hermes.wechat', 'hisense-e8s', 'real',
+          ${'2026-10-01T00:00:00.000Z'}, ${'2026-10-01T00:00:00.000Z'},
+          ${sql.json({
+            startAt: '2025-09-18',
+            endAt: '2025-10-21',
+            title: '海信E8S',
+            chatSnippet: '客户聊天原文不得出现在详情响应',
+          })},
+          'hash-hisense', '2.进行中'
+        ),
+        (
+          ${'bb100023-a001-4001-8001-000000000023'}, ${djiId}, 'hermes.wechat', 'dji-pocket4', 'real',
+          ${'2026-10-01T00:00:00.000Z'}, ${'2026-10-01T00:00:00.000Z'},
+          ${sql.json({
+            startAt: '2025-09-01',
+            endAt: '2025-10-19',
+            reminderAt: '2025-08-28T09:00:00+08:00',
+          })},
+          'hash-dji', '2.进行中'
+        ),
+        (
+          ${'bb100024-a001-4001-8001-000000000024'}, ${emptyId}, 'hermes.wechat', 'no-window', 'real',
+          ${'2026-10-01T00:00:00.000Z'}, ${'2026-10-01T00:00:00.000Z'},
+          ${sql.json({ title: '无档期' })},
+          'hash-empty-window', '2.进行中'
+        )
+    `;
+
+    const hisense = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${hisenseId}`)).json(),
+    );
+    expect(hisense.sourceWindow).toEqual({
+      startAt: '2025-09-17T16:00:00.000Z',
+      endAt: '2025-10-20T16:00:00.000Z',
+      reminderAt: null,
+    });
+    expect(JSON.stringify(hisense)).not.toContain('客户聊天');
+    expect(JSON.stringify(hisense)).not.toContain('chatSnippet');
+
+    const dji = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${djiId}`)).json(),
+    );
+    expect(dji.sourceWindow).toEqual({
+      startAt: '2025-08-31T16:00:00.000Z',
+      endAt: '2025-10-18T16:00:00.000Z',
+      reminderAt: '2025-08-28T01:00:00.000Z',
+    });
+
+    const empty = parseCommercialProjectDetail(
+      await (await app.request(`/api/v1/commercial/projects/${emptyId}`)).json(),
+    );
+    expect(empty.sourceWindow).toEqual({
+      startAt: null,
+      endAt: null,
+      reminderAt: null,
+    });
+
+    const list = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects?originKind=real')).json(),
+    );
+    const listed = list.items.find((item) => item.id === hisenseId);
+    expect(listed?.sourceWindow?.startAt).toBe('2025-09-17T16:00:00.000Z');
+    expect(JSON.stringify(list)).not.toContain('客户聊天');
   });
 });

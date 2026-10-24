@@ -8,8 +8,16 @@ describe('app routes', () => {
     expect(paths).toContain('monitoring/videos/:bvid');
     expect(paths).toContain('design-system');
     expect(paths).toContain('projects');
+    expect(paths).toContain('projects/demo/:projectId');
     expect(paths).toContain('projects/:projectId');
+    const demoIndex = paths.indexOf('projects/demo/:projectId');
+    const detailIndex = paths.indexOf('projects/:projectId');
+    expect(demoIndex).toBeGreaterThanOrEqual(0);
+    expect(detailIndex).toBeGreaterThan(demoIndex);
     expect(paths).toContain('integrations');
+    expect(paths).toContain('ops');
+    expect(paths).toContain('workflow-mock');
+    expect(paths).toContain('content');
   });
 
   test('redirects legacy /monitor to monitoring', () => {

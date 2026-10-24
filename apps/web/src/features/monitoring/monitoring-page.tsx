@@ -1,13 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { Columns2, LayoutGrid } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
-import {
-  useCreatorsQuery,
-  useDynamicsQuery,
-  useEntityMetricsQuery,
-  useVideosQuery,
-} from '@/api/hooks/use-monitor-queries';
-import { coverAssetUrl, formatCount } from '@/api/monitor-client';
+import { useDynamicsQuery, useEntityMetricsQuery } from '@/api/hooks/use-monitor-queries';
+import { useMonitorCardsQuery } from '@/api/hooks/use-monitor-card-queries';
 import {
   EmptyState,
   ErrorState,
@@ -15,23 +11,43 @@ import {
   NoSelectionHint,
 } from '@/components/states/async-states';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { DynamicObjectCard } from '@/features/monitoring/dynamic-object-card';
 import { MetricCharts } from '@/features/monitoring/MetricCharts';
+import { MonitorAddDialog } from '@/features/monitoring/monitor-add-dialog';
+import { MonitorCardControls, MonitorObjectCard } from '@/features/monitoring/monitor-object-card';
 import {
+  defaultSortForTab,
   parseMonitorSearchParams,
+  parseSortForTab,
   writeMonitorSearchParams,
+  type MonitorCreatorSort,
+  type MonitorDynamicListSort,
+  type MonitorListSort,
+  type MonitorPresenceFilter,
   type MonitorTab,
+  type MonitorVideoSort,
+  type MonitorView,
 } from '@/features/monitoring/monitor-url-state';
-import { formatVideoCardMetricsSummary } from '@/features/monitoring/video-card-metrics';
-import { cn } from '@/lib/utils';
 import { OfflineEnvironmentBadge } from '@/features/monitoring/offline-environment-badge';
-import { formatShortTime } from '@/lib/format-time';
 import { formatUnknownMetric } from '@/lib/format-compact-number';
-import { Button } from '@/components/ui/button';
+import { formatFullLocalTime, formatShortTime } from '@/lib/format-time';
+import { cn } from '@/lib/utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { useStudioOwnerAccountQuery } from '@/api/hooks/use-studio-owner-queries';
+import { MonitorSearchField } from '@/features/monitoring/monitor-search-field';
 
 const TAB_LABEL: Record<MonitorTab, string> = {
   videos: '视频',
@@ -39,9 +55,75 @@ const TAB_LABEL: Record<MonitorTab, string> = {
   dynamics: '动态',
 };
 
+const MONITOR_FILTER_LABEL: Record<MonitorPresenceFilter, string> = {
+  all: '全部',
+  active: '监控中',
+  paused: '已暂停',
+  unmonitored: '未监控',
+};
+
+const VIDEO_SORT_LABEL: Record<MonitorVideoSort, string> = {
+  published_desc: '最新发布',
+  published_asc: '最早发布',
+};
+
+const CREATOR_SORT_LABEL: Record<MonitorCreatorSort, string> = {
+  sampled_desc: '最近采样',
+  followers_desc: '粉丝最多',
+  name_asc: '名称 A→Z',
+};
+
+const DYNAMIC_SORT_LABEL: Record<MonitorDynamicListSort, string> = {
+  sampled_desc: '最近采样',
+  likes_desc: '点赞最多',
+  comments_desc: '评论最多',
+};
+
+function MonitorLayoutToggle({
+  value,
+  onValueChange,
+  className,
+}: {
+  value: MonitorView;
+  onValueChange: (value: MonitorView) => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn('grid w-auto shrink-0 gap-1', className)}>
+      <Label
+        id="monitor-view-label"
+        className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+      >
+        布局
+      </Label>
+      <ToggleGroup
+        type="single"
+        size="sm"
+        value={value}
+        aria-labelledby="monitor-view-label"
+        onValueChange={(next) => {
+          if (next === 'split' || next === 'grid') onValueChange(next);
+        }}
+      >
+        <ToggleGroupItem value="split" aria-label="分栏">
+          <Columns2 aria-hidden />
+          分栏
+        </ToggleGroupItem>
+        <ToggleGroupItem value="grid" aria-label="网格">
+          <LayoutGrid aria-hidden />
+          网格
+        </ToggleGroupItem>
+      </ToggleGroup>
+    </div>
+  );
+}
+
 export function MonitoringPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const state = useMemo(() => parseMonitorSearchParams(searchParams), [searchParams]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const listQuery = searchParams.toString();
 
   const patchUrl = (patch: Parameters<typeof writeMonitorSearchParams>[1]) => {
     setSearchParams(writeMonitorSearchParams(searchParams, patch), { replace: true });
@@ -52,30 +134,72 @@ export function MonitoringPage() {
       tab,
       page: 1,
       selected: null,
+      sort: defaultSortForTab(tab),
       ...(tab === 'dynamics' ? { category: '', q: '' } : {}),
     });
   };
 
-  const videosQuery = useVideosQuery(state.page, state.category, state.q, state.tab === 'videos');
-  const creatorsQuery = useCreatorsQuery(state.page, state.q, state.tab === 'creators');
-  const dynamicsQuery = useDynamicsQuery(state.page, state.tab === 'dynamics');
-  const metricsQuery = useEntityMetricsQuery(state.tab, state.selected);
+  const cardType = state.tab === 'creators' ? 'creator' : 'video';
+  const addType =
+    state.tab === 'creators' ? 'creator' : state.tab === 'dynamics' ? 'dynamic' : 'video';
+  const ownerQuery = useStudioOwnerAccountQuery(state.tab === 'videos');
+  const cardsQuery = useMonitorCardsQuery({
+    type: cardType,
+    page: state.page,
+    monitor: state.monitor,
+    q: state.q,
+    category: state.category,
+    sort: state.sort as MonitorVideoSort | MonitorCreatorSort,
+    ...(state.tab === 'videos' ? { onlyMine: state.onlyMine } : {}),
+    enabled: state.tab === 'videos' || state.tab === 'creators',
+  });
+  const dynamicsQuery = useDynamicsQuery(
+    state.page,
+    state.tab === 'dynamics',
+    state.sort as MonitorDynamicListSort,
+  );
+  const selectedCard =
+    cardsQuery.data?.items.find((item) => item.externalId === state.selected) ?? null;
+  const selectedDynamic =
+    dynamicsQuery.data?.items.find((item) => item.dynamicId === state.selected) ?? null;
+  const metricsQuery = useEntityMetricsQuery(
+    state.tab,
+    state.tab === 'dynamics' ? state.selected : selectedCard?.hasEntity ? state.selected : null,
+    state.tab === 'dynamics' || selectedCard?.hasEntity === true,
+  );
 
-  const listQuery =
-    state.tab === 'videos' ? videosQuery : state.tab === 'creators' ? creatorsQuery : dynamicsQuery;
-
-  const totalPages = listQuery.data?.totalPages ?? (listQuery.isSuccess ? 1 : 1);
+  const listQueryState = state.tab === 'dynamics' ? dynamicsQuery : cardsQuery;
+  const totalPages = listQueryState.data?.totalPages ?? 1;
+  const layoutView = state.view;
+  const gridLayout = layoutView === 'grid';
 
   return (
-    <>
+    <div data-testid="monitoring-page" className="min-w-0 max-w-full overflow-x-hidden">
       <PageHeader
         title="监控中心"
-        description="查看已导入的视频、UP 主与动态数据，支持筛选、分页与趋势对比。"
+        description="按视频、UP 主和动态查看对象。可在此新增、暂停和恢复监控。"
         crumbs={[{ label: '工作室', to: '/' }, { label: '监控' }]}
-        actions={<OfflineEnvironmentBadge />}
+        actions={
+          <>
+            <OfflineEnvironmentBadge />
+            <Button type="button" onClick={() => setAddOpen(true)}>
+              新增监控
+            </Button>
+          </>
+        }
       />
 
-      <Tabs value={state.tab} onValueChange={(v) => onTabChange(v as MonitorTab)} className="gap-4">
+      {notice ? (
+        <p role="status" className="mb-4 text-sm text-muted-foreground">
+          {notice}
+        </p>
+      ) : null}
+
+      <Tabs
+        value={state.tab}
+        onValueChange={(value) => onTabChange(value as MonitorTab)}
+        className="gap-4"
+      >
         <TabsList aria-label="监控实体类型">
           {(Object.keys(TAB_LABEL) as MonitorTab[]).map((tab) => (
             <TabsTrigger key={tab} value={tab}>
@@ -84,224 +208,261 @@ export function MonitoringPage() {
           ))}
         </TabsList>
 
-        <div className="flex flex-wrap gap-4 rounded-lg border bg-muted/20 p-4">
-          {state.tab === 'videos' ? (
-            <div className="grid w-full min-w-[10rem] max-w-xs gap-1.5">
-              <Label htmlFor="monitor-category">分类</Label>
-              <Input
-                id="monitor-category"
-                value={state.category}
-                placeholder="可选"
-                onChange={(e) => patchUrl({ category: e.target.value, page: 1, selected: null })}
-              />
+        {state.tab === 'dynamics' ? (
+          <div
+            data-testid="monitor-filter-bar"
+            className="flex min-w-0 flex-nowrap items-end justify-start gap-3 overflow-x-auto rounded-lg border bg-muted/20 p-4"
+          >
+            <p className="min-w-[12rem] shrink-0 text-sm text-muted-foreground">
+              动态可新增监控、暂停与恢复。无监控目标时仍可浏览已有互动指标。
+            </p>
+            <div className="grid w-auto shrink-0 gap-1">
+              <Label
+                htmlFor="monitor-dynamic-sort"
+                className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+              >
+                排序
+              </Label>
+              <Select
+                value={state.sort}
+                onValueChange={(value) => {
+                  const next = parseSortForTab('dynamics', value);
+                  if (next !== value) return;
+                  patchUrl({ sort: next, page: 1, selected: null });
+                }}
+              >
+                <SelectTrigger
+                  id="monitor-dynamic-sort"
+                  aria-label="排序"
+                  className="w-auto min-w-[7.5rem]"
+                >
+                  <SelectValue placeholder="排序" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(DYNAMIC_SORT_LABEL) as MonitorDynamicListSort[]).map((sort) => (
+                    <SelectItem key={sort} value={sort}>
+                      {DYNAMIC_SORT_LABEL[sort]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          ) : null}
-          {(state.tab === 'videos' || state.tab === 'creators') && (
-            <div className="grid w-full min-w-[10rem] max-w-sm flex-1 gap-1.5">
-              <Label htmlFor="monitor-q">关键词</Label>
-              <Input
-                id="monitor-q"
-                value={state.q}
-                placeholder="标题 / ID"
-                onChange={(e) => patchUrl({ q: e.target.value, page: 1, selected: null })}
-              />
+            <MonitorLayoutToggle value={state.view} onValueChange={(view) => patchUrl({ view })} />
+          </div>
+        ) : (
+          <div
+            data-testid="monitor-filter-bar"
+            className="flex min-w-0 flex-nowrap items-end justify-start gap-3 overflow-x-auto rounded-lg border bg-muted/20 p-4"
+          >
+            <MonitorSearchField
+              type={cardType}
+              q={state.q}
+              category={state.tab === 'videos' ? state.category : ''}
+              onApply={(next) => patchUrl(next)}
+            />
+            <div className="grid w-auto shrink-0 gap-1">
+              <Label
+                htmlFor="monitor-presence"
+                className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+              >
+                监控状态
+              </Label>
+              <select
+                id="monitor-presence"
+                className="flex h-9 w-auto min-w-[7rem] rounded-md border border-input bg-background px-3 text-sm"
+                value={state.monitor}
+                onChange={(event) =>
+                  patchUrl({
+                    monitor: event.target.value as MonitorPresenceFilter,
+                    page: 1,
+                    selected: null,
+                  })
+                }
+              >
+                {(Object.keys(MONITOR_FILTER_LABEL) as MonitorPresenceFilter[]).map((filter) => (
+                  <option key={filter} value={filter}>
+                    {MONITOR_FILTER_LABEL[filter]}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
-        </div>
+            <div className="grid w-auto shrink-0 gap-1">
+              <Label
+                htmlFor="monitor-list-sort"
+                className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+              >
+                排序
+              </Label>
+              <Select
+                value={state.sort}
+                onValueChange={(value) => {
+                  const next = parseSortForTab(state.tab, value);
+                  if (next !== value) return;
+                  patchUrl({ sort: next as MonitorListSort, page: 1, selected: null });
+                }}
+              >
+                <SelectTrigger
+                  id="monitor-list-sort"
+                  aria-label="排序"
+                  className="w-auto min-w-[7.5rem]"
+                >
+                  <SelectValue placeholder="排序" />
+                </SelectTrigger>
+                <SelectContent>
+                  {state.tab === 'videos'
+                    ? (Object.keys(VIDEO_SORT_LABEL) as MonitorVideoSort[]).map((sort) => (
+                        <SelectItem key={sort} value={sort}>
+                          {VIDEO_SORT_LABEL[sort]}
+                        </SelectItem>
+                      ))
+                    : (Object.keys(CREATOR_SORT_LABEL) as MonitorCreatorSort[]).map((sort) => (
+                        <SelectItem key={sort} value={sort}>
+                          {CREATOR_SORT_LABEL[sort]}
+                        </SelectItem>
+                      ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {state.tab === 'videos' ? (
+              <div className="grid w-auto shrink-0 gap-1">
+                <Label
+                  htmlFor="monitor-only-mine"
+                  className="whitespace-nowrap text-xs font-medium text-muted-foreground"
+                >
+                  只看我的
+                </Label>
+                <div className="flex h-9 w-auto items-center gap-2">
+                  <Switch
+                    id="monitor-only-mine"
+                    checked={state.onlyMine}
+                    aria-label="只看我的"
+                    title={
+                      ownerQuery.isSuccess
+                        ? `只显示 ${ownerQuery.data.displayName} 的视频`
+                        : '只显示本人配置账号的视频'
+                    }
+                    aria-description={
+                      ownerQuery.isSuccess
+                        ? `只显示 ${ownerQuery.data.displayName} 的视频`
+                        : '只显示本人配置账号的视频'
+                    }
+                    data-testid="monitor-only-mine"
+                    onCheckedChange={(checked) =>
+                      patchUrl({ onlyMine: checked, page: 1, selected: null })
+                    }
+                  />
+                  <span className="text-sm text-muted-foreground" aria-hidden>
+                    {state.onlyMine ? '开' : '关'}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+            <MonitorLayoutToggle value={state.view} onValueChange={(view) => patchUrl({ view })} />
+          </div>
+        )}
 
-        <TabsContent value={state.tab} className="mt-0">
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
+        <TabsContent value={state.tab} className="mt-0 min-w-0">
+          <div
+            data-testid="monitor-layout"
+            data-view={layoutView}
+            className={cn(
+              'grid min-w-0 gap-6',
+              gridLayout
+                ? 'grid-cols-1'
+                : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start',
+            )}
+          >
             <section aria-label="实体列表" className="min-w-0 space-y-4">
-              {listQuery.isLoading ? <LoadingListSkeleton rows={3} /> : null}
-              {listQuery.isError ? (
+              {listQueryState.isLoading ? <LoadingListSkeleton rows={3} /> : null}
+              {listQueryState.isError ? (
                 <ErrorState
-                  message={listQuery.error instanceof Error ? listQuery.error.message : '加载失败'}
-                  onRetry={() => void listQuery.refetch()}
+                  message={
+                    listQueryState.error instanceof Error
+                      ? listQueryState.error.message
+                      : '加载失败'
+                  }
+                  onRetry={() => void listQueryState.refetch()}
                 />
               ) : null}
-              {listQuery.isSuccess && listQuery.data.items.length === 0 ? (
+              {listQueryState.isSuccess && listQueryState.data.items.length === 0 ? (
                 <EmptyState
                   title="没有匹配的条目"
-                  description="尝试调整筛选条件或确认离线 CSV 是否已成功导入。"
+                  description={
+                    state.tab === 'dynamics'
+                      ? '还没有动态样本。可先新增一条动态监控，或等待采集写入后再回来查看。'
+                      : '调整筛选，或新增一个视频 / UP 主监控。历史对象和尚未采样的目标也会出现在这里。'
+                  }
                 />
               ) : null}
 
-              {listQuery.isSuccess && listQuery.data.items.length > 0 ? (
-                <ul className="space-y-2" role="list">
-                  {state.tab === 'videos' &&
-                    videosQuery.data?.items.map((v) => {
-                      const id = 'bvid' in v ? v.bvid : '';
-                      const selected = state.selected === id;
-                      return (
-                        <li key={id}>
-                          <div
-                            className={cn(
-                              'flex w-full gap-2 rounded-lg border p-3 transition-colors duration-200',
-                              selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
-                            )}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => patchUrl({ selected: id })}
-                              className={cn(
-                                'flex min-w-0 flex-1 gap-3 text-left',
-                                'hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md',
-                              )}
-                              aria-pressed={selected}
-                            >
-                              <img
-                                src={coverAssetUrl('coverAssetId' in v ? v.coverAssetId : null)}
-                                alt=""
-                                width={96}
-                                height={54}
-                                className="size-16 shrink-0 rounded object-cover"
-                              />
-                              <div className="min-w-0 flex-1 space-y-1">
-                                <p className="line-clamp-2 font-medium leading-snug">
-                                  {'title' in v ? (v.title ?? v.bvid) : id}
-                                </p>
-                                <p className="truncate text-xs text-muted-foreground">
-                                  {'category' in v ? (v.category ?? '未分类') : ''}
-                                </p>
-                                <p className="truncate text-xs tabular-nums text-muted-foreground">
-                                  更新{' '}
-                                  {'latestMetrics' in v && v.latestMetrics.sampledAt
-                                    ? formatShortTime(v.latestMetrics.sampledAt)
-                                    : '—'}{' '}
-                                  ·{' '}
-                                  {'latestMetrics' in v
-                                    ? formatVideoCardMetricsSummary(v.latestMetrics)
-                                    : '—'}
-                                </p>
-                              </div>
-                            </button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="shrink-0 self-center"
-                              asChild
-                            >
-                              <Link to={`/monitoring/videos/${encodeURIComponent(id)}`}>
-                                查看详情
-                              </Link>
-                            </Button>
-                          </div>
-                        </li>
-                      );
-                    })}
+              {state.tab !== 'dynamics' &&
+              cardsQuery.isSuccess &&
+              cardsQuery.data.items.length > 0 ? (
+                <ul
+                  className={cn(
+                    'min-w-0',
+                    gridLayout
+                      ? 'grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+                      : 'space-y-2',
+                  )}
+                  role="list"
+                  data-testid="monitor-card-list"
+                >
+                  {cardsQuery.data.items.map((card) => (
+                    <MonitorObjectCard
+                      key={`${card.type}:${card.externalId}`}
+                      card={card}
+                      presentation={gridLayout ? 'grid' : 'list'}
+                      selected={state.selected === card.externalId}
+                      listQuery={listQuery}
+                      onSelect={() => patchUrl({ selected: card.externalId })}
+                    />
+                  ))}
+                </ul>
+              ) : null}
 
-                  {state.tab === 'creators' &&
-                    creatorsQuery.data?.items.map((c) => {
-                      const id = 'mid' in c ? c.mid : '';
-                      const selected = state.selected === id;
-                      return (
-                        <li key={id}>
-                          <div
-                            className={cn(
-                              'flex w-full gap-2 rounded-lg border p-3',
-                              selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
-                            )}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => patchUrl({ selected: id })}
-                              className="flex min-w-0 flex-1 gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
-                              aria-pressed={selected}
-                            >
-                              <img
-                                src={coverAssetUrl('faceAssetId' in c ? c.faceAssetId : null)}
-                                alt=""
-                                width={64}
-                                height={64}
-                                className="size-14 shrink-0 rounded-full object-cover"
-                              />
-                              <div className="min-w-0 flex-1 space-y-1">
-                                <p className="truncate font-medium">
-                                  {'uname' in c ? (c.uname ?? c.mid) : id}
-                                </p>
-                                <p className="text-xs tabular-nums text-muted-foreground">
-                                  粉丝{' '}
-                                  {'latestMetrics' in c
-                                    ? formatCount(c.latestMetrics.followerCount)
-                                    : '—'}
-                                </p>
-                              </div>
-                            </button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="shrink-0 self-center"
-                              asChild
-                            >
-                              <Link to={`/monitoring/creators/${encodeURIComponent(id)}`}>
-                                查看详情
-                              </Link>
-                            </Button>
-                          </div>
-                        </li>
-                      );
-                    })}
-
-                  {state.tab === 'dynamics' &&
-                    dynamicsQuery.data?.items.map((d) => {
-                      const id = 'dynamicId' in d ? d.dynamicId : '';
-                      const selected = state.selected === id;
-                      return (
-                        <li key={id}>
-                          <div
-                            className={cn(
-                              'flex w-full gap-2 rounded-lg border p-3',
-                              selected && 'border-primary/40 bg-accent/40 ring-1 ring-primary/20',
-                            )}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => patchUrl({ selected: id })}
-                              className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
-                              aria-pressed={selected}
-                            >
-                              <div className="min-w-0 space-y-1">
-                                <p className="break-all font-medium">{id}</p>
-                                <p className="text-xs tabular-nums text-muted-foreground">
-                                  赞{' '}
-                                  {'latestMetrics' in d
-                                    ? formatCount(d.latestMetrics.likeCount)
-                                    : '—'}{' '}
-                                  · 评{' '}
-                                  {'latestMetrics' in d
-                                    ? formatUnknownMetric(d.latestMetrics.commentCount)
-                                    : '暂无数据'}
-                                </p>
-                              </div>
-                            </button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="shrink-0 self-center"
-                              asChild
-                            >
-                              <Link to={`/monitoring/dynamics/${encodeURIComponent(id)}`}>
-                                查看详情
-                              </Link>
-                            </Button>
-                          </div>
-                        </li>
-                      );
-                    })}
+              {state.tab === 'dynamics' &&
+              dynamicsQuery.isSuccess &&
+              dynamicsQuery.data.items.length > 0 ? (
+                <ul
+                  className={cn(
+                    'min-w-0',
+                    gridLayout
+                      ? 'grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+                      : 'space-y-2',
+                  )}
+                  role="list"
+                  data-testid="dynamic-card-list"
+                >
+                  {dynamicsQuery.data.items.map((item) => (
+                    <DynamicObjectCard
+                      key={item.dynamicId}
+                      item={item}
+                      presentation={gridLayout ? 'grid' : 'list'}
+                      selected={state.selected === item.dynamicId}
+                      listQuery={listQuery}
+                      onSelect={() => patchUrl({ selected: item.dynamicId })}
+                    />
+                  ))}
                 </ul>
               ) : null}
 
               <Pagination
                 page={state.page}
                 totalPages={totalPages}
-                disabled={listQuery.isFetching}
+                disabled={listQueryState.isFetching}
                 onPageChange={(page) => patchUrl({ page })}
               />
             </section>
 
-            <Card className="min-w-0 lg:sticky lg:top-20">
+            <Card
+              data-testid="monitor-trend-card"
+              className={cn('min-w-0', gridLayout ? 'w-full' : 'lg:sticky lg:top-20')}
+            >
               <CardHeader className="flex-row items-center justify-between space-y-0">
-                <CardTitle className="text-base">播放与互动趋势</CardTitle>
+                <CardTitle className="text-base">
+                  {state.tab === 'dynamics' ? '互动趋势' : '播放与互动趋势'}
+                </CardTitle>
                 {state.selected ? (
                   <Badge
                     variant="outline"
@@ -311,9 +472,65 @@ export function MonitoringPage() {
                   </Badge>
                 ) : null}
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="min-w-0 space-y-4">
                 {!state.selected ? (
-                  <NoSelectionHint message="从左侧列表选择一条记录以查看趋势图。" />
+                  <NoSelectionHint
+                    message={
+                      gridLayout
+                        ? '从上方卡片选择一条记录以查看趋势图。'
+                        : '从左侧列表选择一条记录以查看趋势图。'
+                    }
+                  />
+                ) : null}
+                {!gridLayout && selectedCard ? (
+                  <div data-testid="monitor-split-detail-panel">
+                    <MonitorCardControls
+                      card={selectedCard}
+                      listQuery={listQuery}
+                      layout="detail"
+                      includeDetailLink
+                    />
+                  </div>
+                ) : null}
+                {state.selected && selectedCard && !selectedCard.hasEntity ? (
+                  <NoSelectionHint message="尚无采集数据" />
+                ) : null}
+                {state.selected && selectedCard?.hasEntity && !selectedCard.hasSamples ? (
+                  <p className="text-sm text-muted-foreground">尚无采集数据</p>
+                ) : null}
+                {state.selected && state.tab === 'dynamics' && selectedDynamic ? (
+                  <dl className="grid gap-1 text-sm text-muted-foreground">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      <span>
+                        点赞{' '}
+                        <span className="font-medium text-foreground tabular-nums">
+                          {formatUnknownMetric(selectedDynamic.latestMetrics.likeCount)}
+                        </span>
+                      </span>
+                      <span>
+                        评论{' '}
+                        <span className="font-medium text-foreground tabular-nums">
+                          {formatUnknownMetric(selectedDynamic.latestMetrics.commentCount)}
+                        </span>
+                      </span>
+                      <span>
+                        转发{' '}
+                        <span className="font-medium text-foreground tabular-nums">
+                          {formatUnknownMetric(selectedDynamic.latestMetrics.repostCount)}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="tabular-nums">
+                      最近采集：
+                      {selectedDynamic.latestMetrics.sampledAt ? (
+                        <span title={formatFullLocalTime(selectedDynamic.latestMetrics.sampledAt)}>
+                          {formatShortTime(selectedDynamic.latestMetrics.sampledAt)}
+                        </span>
+                      ) : (
+                        '暂无'
+                      )}
+                    </div>
+                  </dl>
                 ) : null}
                 {state.selected && metricsQuery.isLoading ? <LoadingListSkeleton rows={2} /> : null}
                 {state.selected && metricsQuery.isError ? (
@@ -348,6 +565,44 @@ export function MonitoringPage() {
           </div>
         </TabsContent>
       </Tabs>
-    </>
+
+      <div className="mt-6">
+        <Button type="button" size="sm" variant="outline" asChild>
+          <Link to="/ops">查看采集记录</Link>
+        </Button>
+      </div>
+
+      <MonitorAddDialog
+        open={addOpen}
+        type={addType}
+        onOpenChange={setAddOpen}
+        onCreated={({ externalId, message, enabled }) => {
+          setNotice(message);
+          if (state.tab === 'dynamics') {
+            patchUrl({
+              page: 1,
+              selected: externalId,
+              tab: 'dynamics',
+              category: '',
+              q: '',
+              monitor: enabled ? 'active' : 'paused',
+              onlyMine: false,
+            });
+            void dynamicsQuery.refetch();
+            return;
+          }
+          // onlyMine can hide a newly added/upserted non-owner video; clear it like category.
+          patchUrl({
+            q: externalId,
+            page: 1,
+            selected: externalId,
+            tab: state.tab,
+            category: '',
+            monitor: enabled ? 'active' : 'paused',
+            onlyMine: false,
+          });
+        }}
+      />
+    </div>
   );
 }

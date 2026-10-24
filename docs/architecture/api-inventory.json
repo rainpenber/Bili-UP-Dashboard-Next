@@ -1,0 +1,1765 @@
+{
+  "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
+  "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
+  "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
+  "apiRouteCount": 86,
+  "wiredRouteCount": 59,
+  "unwiredImplementedRouteCount": 27,
+  "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
+  "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes and registerCommercialIngressRoutes add fixed POST/GET lists.",
+  "processRegistration": {
+    "productionEntry": "apps/api/src/index.ts uses createApp({ skipDb: true }) and then mountApiRoutes once.",
+    "libraryEntry": "apps/api/src/app.ts calls the same mountApiRoutes when skipDb is false. The coverage suite uses skipDb true plus mountApiRoutes, matching the process entry. One process does not mount both copies.",
+    "health": "GET /health and GET /api/health are always registered inside createApp."
+  },
+  "mounts": [
+    {
+      "prefix": "/api/v1/monitor",
+      "factory": "createMonitorRoutes",
+      "mountFile": "apps/api/src/mount-api.ts",
+      "mountLine": 17
+    },
+    {
+      "prefix": "/api/v1/assets",
+      "factory": "createAssetsRoutes",
+      "mountFile": "apps/api/src/mount-api.ts",
+      "mountLine": 18
+    },
+    {
+      "prefix": "/api/v1/imports",
+      "factory": "createImportRoutes",
+      "mountFile": "apps/api/src/mount-api.ts",
+      "mountLine": 19
+    },
+    {
+      "prefix": "/api/v1/commercial",
+      "factory": "createCommercialRoutes",
+      "mountFile": "apps/api/src/mount-api.ts",
+      "mountLine": 20
+    },
+    {
+      "prefix": "/api/v1/ops",
+      "factory": "createOpsRoutes",
+      "mountFile": "apps/api/src/mount-api.ts",
+      "mountLine": 21
+    },
+    {
+      "prefix": "/api/v1/accounts",
+      "factory": "createAccountsRoutes",
+      "mountFile": "apps/api/src/mount-api.ts",
+      "mountLine": 22
+    }
+  ],
+  "routes": [
+    {
+      "method": "DELETE",
+      "path": "/api/v1/accounts/:id",
+      "mountPrefix": "/api/v1/accounts",
+      "sourceFile": "apps/api/src/accounts-routes.ts",
+      "sourceLine": 1,
+      "registration": "createAccountsRoutes",
+      "readWrite": "write",
+      "area": "accounts",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/bili-accounts.ts#parseRevokeBiliAccountResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/accounts-client.ts",
+          "symbol": "revokeBiliAccount",
+          "evidence": "DELETE"
+        }
+      ],
+      "wired": true,
+      "notes": "Soft revoke: delete secret row, status=revoked, revoked_at=now. Keeps account row. Allows no default.",
+      "storedEntity": "bili_accounts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/monitor/creators/:mid/publish-events/:eventId",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/creator-discovery-routes.ts",
+      "sourceLine": 236,
+      "registration": "registerCreatorDiscoveryRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": null,
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "deleteManualPublishEvent",
+          "evidence": "/creators/${encodeURIComponent(mid)}/publish-events/${encodeURIComponent(eventId)}"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-R2-26A. Only source=manual (409 manual_only otherwise). 404 when missing. Audit publish_event.manual.delete. 204 on success.",
+      "storedEntity": "creator_publish_events"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/monitor/targets/:id",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 158,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseMonitorTarget",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "deleteMonitorTarget",
+          "evidence": "method: 'DELETE'"
+        }
+      ],
+      "wired": true,
+      "notes": "Soft delete. Historical metric samples stay.",
+      "storedEntity": "monitor_targets.deleted_at"
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "mountPrefix": "",
+      "sourceFile": "apps/api/src/app.ts",
+      "sourceLine": 31,
+      "registration": "createApp",
+      "readWrite": "read",
+      "area": "health",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/health.ts#parseHealthResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/monitoring/offline-environment-badge.tsx",
+          "symbol": "fetchHealth",
+          "evidence": "/api/health"
+        }
+      ],
+      "wired": true,
+      "notes": "Default health URL. VITE_API_HEALTH_URL can replace it."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/accounts",
+      "mountPrefix": "/api/v1/accounts",
+      "sourceFile": "apps/api/src/accounts-routes.ts",
+      "sourceLine": 1,
+      "registration": "createAccountsRoutes",
+      "readWrite": "read",
+      "area": "accounts",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/bili-accounts.ts#parseBiliAccountListResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/accounts-client.ts",
+          "symbol": "fetchBiliAccounts",
+          "evidence": "/api/v1/accounts"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-R2-25A list bili_accounts with derivedExpiryState and secretPresent. Never returns cookie plaintext or ciphertext. realAccessEnabled reflects mock/provider gates.",
+      "storedEntity": "bili_accounts"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/assets/:assetId",
+      "mountPrefix": "/api/v1/assets",
+      "sourceFile": "apps/api/src/assets-routes.ts",
+      "sourceLine": 18,
+      "registration": "createAssetsRoutes",
+      "readWrite": "read",
+      "area": "assets",
+      "requestContract": null,
+      "responseContract": "image or SVG bytes; header X-Asset-Status",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "coverAssetUrl",
+          "evidence": "/api/v1/assets/"
+        }
+      ],
+      "wired": true,
+      "notes": "Unknown asset id still returns HTTP 200 and a placeholder SVG. A stored file is served with an immutable cache, ETag and Content-Length.",
+      "storedEntity": "static_assets plus file under the assets root"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/ingress/by-source/:namespace/:sourceId",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-ingress.ts",
+      "sourceLine": 556,
+      "registration": "registerCommercialIngressRoutes",
+      "readWrite": "read",
+      "area": "commercial",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial-ingress.ts#parseCommercialSourceLookupResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "WP-R2-19A source lookup by exact namespace+sourceId. Returns payload/evidence JSONB objects and projectUpdatedAt for optimistic lock.",
+      "storedEntity": "commercial_project_sources, commercial_projects.updated_at"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/projects",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-routes.ts",
+      "sourceLine": 334,
+      "registration": "createCommercialRoutes",
+      "readWrite": "read",
+      "area": "commercial",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialProjectList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "fetchLiveProjectList",
+          "evidence": "'/api/v1/commercial/projects'"
+        }
+      ],
+      "wired": true,
+      "notes": "Home and project list read this route. Supports originKind (real|fixture|manual|unclassified), limit, offset. Response adds total/limit/offset plus originKind/source/updatedAt. There is no separate open-items collection route.",
+      "storedEntity": "commercial_projects (amounts, overall_stage, origin_kind, created_at, updated_at, user_deadline_at, blocked_since_at, archived_at, stage_entered_at, business_closed_at), optional commercial_project_sources summary, wf_nodes names for current and blocked status, open_items rows, and the same blocking-title projection as project detail"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/projects/:projectId",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-routes.ts",
+      "sourceLine": 444,
+      "registration": "createCommercialRoutes",
+      "readWrite": "read",
+      "area": "commercial",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialProjectDetail",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "fetchLiveProjectDetail",
+          "evidence": "parseCommercialProjectDetail"
+        }
+      ],
+      "wired": true,
+      "notes": "Normal /projects/:projectId calls this only for a UUID. Non-UUID bookmarks do not call it.",
+      "storedEntity": "Same project core and open_items rows as the list, plus project_publish_records"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/projects/:projectId/workflow",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-routes.ts",
+      "sourceLine": 349,
+      "registration": "createCommercialRoutes",
+      "readWrite": "read",
+      "area": "commercial",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialProjectWorkflow",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "fetchLiveProjectWorkflow",
+          "evidence": "/workflow"
+        }
+      ],
+      "wired": true,
+      "notes": "Registered before the project detail route. Includes posX/posY from wf_nodes for canvas reload.",
+      "storedEntity": "project_workflows, wf_nodes, wf_edges, wf_template_nodes.slug, open_items title as blockingReason"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/templates/default",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-routes.ts",
+      "sourceLine": 491,
+      "registration": "createCommercialRoutes",
+      "readWrite": "read",
+      "area": "commercial",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialDefaultTemplate",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "fetchLiveDefaultTemplate",
+          "evidence": "/api/v1/commercial/templates/default"
+        }
+      ],
+      "wired": true,
+      "notes": "slug default_sponsorship, is_default and not draft.",
+      "storedEntity": "wf_template_versions, wf_template_nodes, wf_template_edges"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/imports/:batchId",
+      "mountPrefix": "/api/v1/imports",
+      "sourceFile": "apps/api/src/import-routes.ts",
+      "sourceLine": 71,
+      "registration": "createImportRoutes",
+      "readWrite": "read",
+      "area": "import",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/imports.ts#ImportBatchResponse plus evidence counts",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "No web caller.",
+      "storedEntity": "import_batches, source_metric_rows, import_conflicts_or_rejects"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/media/image",
+      "wired": false,
+      "frontendCallers": [],
+      "requestContract": null,
+      "responseContract": null,
+      "notes": "WP-R2-27A controlled Bilibili image proxy (whitelist + Referer + LRU)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/cards",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-card-routes.ts",
+      "sourceLine": 77,
+      "registration": "registerMonitorCardRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-cards.ts#parseMonitorCardListQuery",
+      "responseContract": "packages/contracts/src/monitor-cards.ts#parseMonitorCardList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-cards-client.ts",
+          "symbol": "fetchMonitorCards",
+          "evidence": "/cards?"
+        }
+      ],
+      "wired": true,
+      "notes": "Video and creator cards. Active monitor_targets are joined to entities; targets may exist first. Status is not taken from monitoring_enabled. onlyMine=1 filters video cards by studio_owner_account.mid before count/sort/page; missing owner config returns 400. Unified q also matches video category and creator uname (via videos.mid → creators). sort is type-scoped: video published_desc|published_asc; creator sampled_desc|followers_desc|name_asc; all sorts are pinned-first. Invalid sort → 400.",
+      "query": "type, monitor, page, pageSize, q, category, sort, onlyMine",
+      "storedEntity": "monitor_targets"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/cards/:type/:externalId",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-card-routes.ts",
+      "sourceLine": 104,
+      "registration": "registerMonitorCardRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-cards.ts#parseMonitorCardIdentity",
+      "responseContract": "packages/contracts/src/monitor-cards.ts#parseMonitorCard",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-cards-client.ts",
+          "symbol": "fetchMonitorCard",
+          "evidence": "/cards/"
+        }
+      ],
+      "wired": true,
+      "notes": "One card for detail. Same read model as the list, including a target that has no entity yet.",
+      "storedEntity": "monitor_targets"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 205,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchCreators",
+          "evidence": "/creators?"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "query": "page, pageSize, category, q, status",
+      "storedEntity": "creators + latest creator_follower_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 276,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchCreator",
+          "evidence": "/creators/${encodeURIComponent(mid)}"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "storedEntity": "creators"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/discovery",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/creator-discovery-routes.ts",
+      "sourceLine": 48,
+      "registration": "registerCreatorDiscoveryRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/creator-discovery.ts#parseCreatorDiscoveryConfig",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchCreatorDiscovery",
+          "evidence": "/creators/${encodeURIComponent(mid)}/discovery"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-R2-05A discovery config + WP-R2-26D lastSkippedCount/lastSkips. Requires an active creator monitor target.",
+      "storedEntity": "creator_discovery_configs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/dynamics/sync",
+      "wired": false,
+      "frontendCallers": [],
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/creator-discovery.ts#parseCreatorDynamicsSyncStatus",
+      "notes": "WP-R2-27A dynamics sync TTL status."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/media/backfill",
+      "wired": false,
+      "frontendCallers": [],
+      "requestContract": null,
+      "responseContract": null,
+      "notes": "WP-R2-27A media backfill TTL status."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/metrics",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 307,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchCreatorMetrics",
+          "evidence": "/creators/${encodeURIComponent(mid)}/metrics"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "query": "from, to, limit",
+      "storedEntity": "creator_follower_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/publish-events",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/creator-discovery-routes.ts",
+      "sourceLine": 134,
+      "registration": "registerCreatorDiscoveryRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/creator-discovery.ts#parseCreatorPublishEventList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchCreatorPublishEvents",
+          "evidence": "/creators/${encodeURIComponent(mid)}/publish-events"
+        }
+      ],
+      "wired": true,
+      "notes": "Fan-chart event markers. Ascending published_at. UTC storage, Beijing display on client. source is bilibili|manual.",
+      "query": "from, to, page, pageSize",
+      "storedEntity": "creator_publish_events"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/uploads/sync",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/creator-discovery-routes.ts",
+      "sourceLine": 0,
+      "registration": "registerCreatorDiscoveryRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/creator-discovery.ts#parseCreatorUploadsSyncStatus",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchCreatorUploadsSyncStatus",
+          "evidence": "/creators/${encodeURIComponent(mid)}/uploads/sync"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-R2-26B. Read upload-list sync cache status (TTL 6h). Requires owned creator target.",
+      "storedEntity": "creator_uploads_sync_state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/videos",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 403,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor.ts#parseCreatorVideosLimit",
+      "responseContract": "packages/contracts/src/monitor.ts#CreatorVideoList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchCreatorVideos",
+          "evidence": "/creators/${encodeURIComponent(mid)}/videos"
+        }
+      ],
+      "wired": true,
+      "notes": "Unsoft-deleted videos for one creator, pubdate DESC NULLS LAST, bvid. latest is one LATERAL sample per video. Unknown mid is 404. A creator with no videos is 200 and items [].",
+      "query": "limit, offset",
+      "storedEntity": "creators, videos, video_metric_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/dynamics",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 346,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-cards.ts#parseDynamicListQuery",
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchDynamics",
+          "evidence": "/dynamics?"
+        }
+      ],
+      "wired": true,
+      "notes": "List shape is DynamicListItem (includes pinned). sort=sampled_desc|likes_desc|comments_desc (default sampled_desc); always pinned-first. Invalid sort → 400.",
+      "query": "page, pageSize, status, sort",
+      "storedEntity": "dynamics + latest dynamic_metric_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/dynamics/:id",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 414,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchDynamic",
+          "evidence": "/dynamics/${encodeURIComponent(dynamicId)}"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "storedEntity": "dynamics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/dynamics/:id/metrics",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 443,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchDynamicMetrics",
+          "evidence": "/dynamics/${encodeURIComponent(id)}/metrics"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "query": "from, to, limit",
+      "storedEntity": "dynamic_metric_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/first-access-interventions",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 534,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseFirstAccessInterventionList",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "WP-R2-17A2 Hermes handoff. Lists waiting_confirmation and awaiting_manual first-collect inaccessible facts. Stable id is collector_jobs.id. Pure read; repeat does not invent facts. No web UI caller yet.",
+      "storedEntity": "monitor_targets, collector_jobs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/jobs",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 198,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseCollectorJobList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "fetchMonitorJobs",
+          "evidence": "/jobs?"
+        }
+      ],
+      "wired": true,
+      "notes": "Collector jobs with the latest run summary. Does not read commercial monitor_jobs.",
+      "query": "page, pageSize",
+      "storedEntity": "collector_jobs, collector_runs, monitor_targets"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/metadata/runs/:id",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 606,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/metadata-refresh.ts#parseMetadataRunResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Backfill progress. The same payload is also served from /api/v1/ops/metadata/runs/:id."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/settings/owner-account",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/studio-owner-routes.ts",
+      "sourceLine": 21,
+      "registration": "registerStudioOwnerRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/studio-owner-account.ts#parseStudioOwnerAccount",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/studio-owner-client.ts",
+          "symbol": "fetchStudioOwnerAccount",
+          "evidence": "/settings/owner-account"
+        }
+      ],
+      "wired": true,
+      "notes": "Singleton studio owner Bilibili UID + display name for「只看我的」. Not auth. 404 when row missing.",
+      "storedEntity": "studio_owner_account"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/targets",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 90,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseMonitorTargetList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "fetchMonitorTargets",
+          "evidence": "/targets?"
+        }
+      ],
+      "wired": true,
+      "notes": "Active monitor targets. Deleted rows stay out unless includeDeleted=1.",
+      "query": "page, pageSize, includeDeleted",
+      "storedEntity": "monitor_targets"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/targets/of/:type/:externalId",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 301,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseMonitorTarget",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "fetchMonitorTargetByIdentity",
+          "evidence": "/targets/of/"
+        }
+      ],
+      "wired": true,
+      "notes": "Active target by type plus external id. Used by the dynamic detail page when cards do not cover dynamics.",
+      "storedEntity": "monitor_targets"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/videos",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 30,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchVideos",
+          "evidence": "/videos?"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "query": "page, pageSize, category, q, status",
+      "storedEntity": "videos + latest video_metric_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/videos/:bvid",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 114,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchVideo",
+          "evidence": "/videos/${encodeURIComponent(bvid)}"
+        }
+      ],
+      "wired": true,
+      "notes": "Includes creator from one LEFT JOIN to creators plus a LATERAL latest follower sample. creator is null when videos.mid is null. Counts are decimal strings.",
+      "storedEntity": "videos, creators, creator_follower_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/videos/:bvid/metrics",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 147,
+      "registration": "createMonitorRoutes",
+      "readWrite": "read",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor.ts",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "fetchVideoMetrics",
+          "evidence": "/metrics?limit=500"
+        }
+      ],
+      "wired": true,
+      "notes": "List and series shapes are contract types. Detail JSON is returned without a shared parser. The web client casts JSON.",
+      "query": "from, to, limit",
+      "storedEntity": "video_metric_samples"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/collector-jobs",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-record-routes.ts",
+      "sourceLine": 1,
+      "registration": "registerOpsRecordRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": "packages/contracts/src/ops-records.ts#parseOpsCollectorJobQuery",
+      "responseContract": "packages/contracts/src/ops-records.ts#parseOpsCollectorJobList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsCollectorJobs",
+          "evidence": "/api/v1/ops/collector-jobs?"
+        }
+      ],
+      "wired": true,
+      "notes": "One row per collector job. Filters use Asia/Shanghai calendar days. group=target pages targets, then returns a bounded number of newest matching jobs per target."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/collector-jobs/:id",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-record-routes.ts",
+      "sourceLine": 1,
+      "registration": "registerOpsRecordRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": "attemptPage, attemptPageSize",
+      "responseContract": "packages/contracts/src/ops-records.ts#parseOpsCollectorJobDetail",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsCollectorJob",
+          "evidence": "/api/v1/ops/collector-jobs/${jobId}"
+        }
+      ],
+      "wired": true,
+      "notes": "Attempts, request audit, and logs are limited to runs of this job. Missing logs do not change the run status."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/collector-targets",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-record-routes.ts",
+      "sourceLine": 1,
+      "registration": "registerOpsRecordRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": "q, type, limit",
+      "responseContract": "packages/contracts/src/ops-records.ts#parseOpsCollectorTargetSearch",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsCollectorTargets",
+          "evidence": "/api/v1/ops/collector-targets?"
+        }
+      ],
+      "wired": true,
+      "notes": "Bounded target search. An empty q returns no rows."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/debug/bundle",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": "runId",
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsDebugBundle",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsDebugBundle",
+          "evidence": "/api/v1/ops/debug/bundle?runId="
+        }
+      ],
+      "wired": true,
+      "notes": "Read-only debug bundle. Secrets are scrubbed before the response is returned."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/health",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsHealth",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsHealth",
+          "evidence": "/api/v1/ops/health"
+        }
+      ],
+      "wired": true,
+      "notes": "Collector liveness. stale is true when the newest heartbeat is missing or older than 30 seconds."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/logs",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsLog",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsLogs",
+          "evidence": "/api/v1/ops/logs"
+        }
+      ],
+      "wired": true,
+      "notes": "Cursor page of app_logs. Query: level, service, runId, requestId, q, since, limit."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/metadata/runs/:id",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 676,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/metadata-refresh.ts#parseMetadataRunResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Read-only alias of the monitor metadata run. Reaps batches with no progress for 10 minutes."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/operations",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-record-routes.ts",
+      "sourceLine": 1,
+      "registration": "registerOpsRecordRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": "action, targetId, requestId, since, until, page, pageSize",
+      "responseContract": "packages/contracts/src/ops-records.ts#parseOpsOperationList",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsOperations",
+          "evidence": "/api/v1/ops/operations?"
+        }
+      ],
+      "wired": true,
+      "notes": "Structured monitor.target.* events already stored in app_logs. Historical actions are not backfilled. Actor is null when it was not recorded."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/projects",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-record-routes.ts",
+      "sourceLine": 1,
+      "registration": "registerOpsRecordRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": "q, limit",
+      "responseContract": "packages/contracts/src/ops-records.ts#parseOpsProjectSearch",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsProjects",
+          "evidence": "/api/v1/ops/projects?"
+        }
+      ],
+      "wired": true,
+      "notes": "Bounded commercial project name search for the collection-record filter."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/requests",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsRequest",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Request audit. Query: endpoint, since, limit, cursor. No web caller; run detail includes the same rows."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/runs",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsRun",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsRuns",
+          "evidence": "/api/v1/ops/runs?"
+        }
+      ],
+      "wired": true,
+      "notes": "Run list. Query: status, targetId, since, until, limit, cursor."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/runs/:id",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsRunDetail",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsRun",
+          "evidence": "/api/v1/ops/runs/${runId}"
+        }
+      ],
+      "wired": true,
+      "notes": "One run, its collector_requests, and up to 200 app_logs rows."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ops/summary",
+      "mountPrefix": "/api/v1/ops",
+      "sourceFile": "apps/api/src/ops-routes.ts",
+      "sourceLine": 1,
+      "registration": "createOpsRoutes",
+      "readWrite": "read",
+      "area": "ops",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/ops.ts#parseOpsSummary",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/ops/ops-client.ts",
+          "symbol": "fetchOpsSummary",
+          "evidence": "/api/v1/ops/summary"
+        }
+      ],
+      "wired": true,
+      "notes": "Heartbeats, queue, active circuits, target status, today's samples, and the last hour of error logs."
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "mountPrefix": "",
+      "sourceFile": "apps/api/src/app.ts",
+      "sourceLine": 23,
+      "registration": "createApp",
+      "readWrite": "read",
+      "area": "health",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/health.ts#HealthResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Same JSON as /api/health. No database."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/accounts/:id",
+      "mountPrefix": "/api/v1/accounts",
+      "sourceFile": "apps/api/src/accounts-routes.ts",
+      "sourceLine": 1,
+      "registration": "createAccountsRoutes",
+      "readWrite": "write",
+      "area": "accounts",
+      "requestContract": "packages/contracts/src/bili-accounts.ts#parsePatchBiliAccountRequest",
+      "responseContract": "packages/contracts/src/bili-accounts.ts#parseBiliAccountListItem",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/accounts-client.ts",
+          "symbol": "patchBiliAccount",
+          "evidence": "/api/v1/accounts"
+        }
+      ],
+      "wired": true,
+      "notes": "Update note and/or isDefault. Setting default clears other defaults in one transaction.",
+      "storedEntity": "bili_accounts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/commercial/projects/:projectId/workflow/layout",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1717,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialWorkflowLayoutRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialWorkflowLayoutResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "saveLiveWorkflowLayout",
+          "evidence": "/workflow/layout"
+        }
+      ],
+      "wired": true,
+      "notes": "Batch rename and position save. Node id set must match the workflow. Does not touch wf_edges. Archived/closed return 409.",
+      "storedEntity": "wf_nodes.name, wf_nodes.pos_x, wf_nodes.pos_y, domain_audit_events"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/monitor/creators/:mid/pin",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 0,
+      "registration": "createMonitorRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-cards.ts#parsePinEntityRequest",
+      "responseContract": "packages/contracts/src/monitor-cards.ts#parsePinEntityResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-cards-client.ts",
+          "symbol": "pinMonitorCreator",
+          "evidence": "/creators/${encodeURIComponent(mid)}/pin"
+        }
+      ],
+      "wired": true,
+      "notes": "Sets creators.pinned_at to now() or NULL. Idempotent. Invalid mid 400; missing creator 404. Returns { pinned, pinnedAt }."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/monitor/dynamics/:dynamicId/pin",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 0,
+      "registration": "createMonitorRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-cards.ts#parsePinEntityRequest",
+      "responseContract": "packages/contracts/src/monitor-cards.ts#parsePinEntityResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-cards-client.ts",
+          "symbol": "pinMonitorDynamic",
+          "evidence": "/dynamics/${encodeURIComponent(dynamicId)}/pin"
+        }
+      ],
+      "wired": true,
+      "notes": "Sets dynamics.pinned_at to now() or NULL. Idempotent. Invalid id 400; missing dynamic 404. Returns { pinned, pinnedAt }."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/monitor/targets/:id",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 137,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-targets.ts#parsePatchMonitorTargetRequest",
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseMonitorTarget",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "patchMonitorTarget",
+          "evidence": "method: 'PATCH'"
+        }
+      ],
+      "wired": true,
+      "notes": "Pause, resume, interval, tags, and label. Deleted targets return 409.",
+      "storedEntity": "monitor_targets, collector_jobs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/monitor/videos/:bvid/pin",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 780,
+      "registration": "createMonitorRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-cards.ts#parsePinVideoRequest",
+      "responseContract": "packages/contracts/src/monitor-cards.ts#parsePinVideoResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-cards-client.ts",
+          "symbol": "pinMonitorVideo",
+          "evidence": "/videos/${encodeURIComponent(bvid)}/pin"
+        }
+      ],
+      "wired": true,
+      "notes": "Sets videos.pinned_at to now() or NULL. Idempotent. Invalid bvid 400; missing video 404."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/accounts",
+      "mountPrefix": "/api/v1/accounts",
+      "sourceFile": "apps/api/src/accounts-routes.ts",
+      "sourceLine": 1,
+      "registration": "createAccountsRoutes",
+      "readWrite": "write",
+      "area": "accounts",
+      "requestContract": "packages/contracts/src/bili-accounts.ts#parseCreateBiliAccountRequest",
+      "responseContract": "packages/contracts/src/bili-accounts.ts#parseBiliAccountListItem",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/accounts-client.ts",
+          "symbol": "createBiliAccount",
+          "evidence": "/api/v1/accounts"
+        }
+      ],
+      "wired": true,
+      "notes": "Parse Cookie string offline; encrypt SESSDATA jar with COLLECTOR_SECRET_KEY. Duplicate mid → 409 unless replace:true. No Bilibili network.",
+      "storedEntity": "bili_accounts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/accounts/:id/verify",
+      "mountPrefix": "/api/v1/accounts",
+      "sourceFile": "apps/api/src/accounts-routes.ts",
+      "sourceLine": 1,
+      "registration": "createAccountsRoutes",
+      "readWrite": "write",
+      "area": "accounts",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/bili-accounts.ts#parseVerifyBiliAccountResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/accounts-client.ts",
+          "symbol": "verifyBiliAccount",
+          "evidence": "/verify"
+        }
+      ],
+      "wired": true,
+      "notes": "Explicit nav verify only. MONITOR_DATA_SOURCE=mock or non-bilibili provider → 409 real_access_disabled. Classifies -101/-352/network.",
+      "storedEntity": "bili_accounts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/ingress/batch",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-ingress.ts",
+      "sourceLine": 523,
+      "registration": "registerCommercialIngressRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-ingress.ts#parseCommercialIngressBatchRequest",
+      "responseContract": "packages/contracts/src/commercial-ingress.ts#parseCommercialIngressBatchResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "WP-R2-19A batch upsert (max 100). Same service as single upsert. Duplicate sourceKey rejected. Full batch one transaction with stable namespace/sourceId lock order.",
+      "storedEntity": "Same as single ingress upsert"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/ingress/upsert",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-ingress.ts",
+      "sourceLine": 491,
+      "registration": "registerCommercialIngressRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-ingress.ts#parseCommercialIngressUpsertRequest",
+      "responseContract": "packages/contracts/src/commercial-ingress.ts#parseCommercialIngressUpsertResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "WP-R2-19A single upsert. dryRun true leaves no project/source/audit rows. Creates copy published default template with not_reached nodes. Updates require expectedUpdatedAt. No force bypass. Does not infer workflow status from sourceStatus.",
+      "storedEntity": "commercial_projects, project_workflows, wf_nodes/edges/packages, commercial_project_sources, domain_audit_events"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/archive",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-routes.ts",
+      "sourceLine": 728,
+      "registration": "createCommercialRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialProjectArchiveResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "archiveLiveProject",
+          "evidence": "postArchiveAction(projectId, 'archive')"
+        }
+      ],
+      "wired": true,
+      "notes": "Soft-delete via COALESCE(archived_at, now()). Idempotent; does not cascade or change workflow rows.",
+      "storedEntity": "commercial_projects.archived_at"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/advance",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1312,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialNodeTokenRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Older per-node engine. No web caller.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/block",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1368,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialBlockRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Older per-node engine. No web caller.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/complete",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1326,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialNodeTokenRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Older per-node engine. No web caller.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/plan",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1396,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialPlanRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "saveLiveNodePlan",
+          "evidence": "/plan"
+        }
+      ],
+      "wired": true,
+      "notes": "Accepted timeline sends YYYY-MM-DD or null. Server stores Asia/Shanghai midnight.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/publish",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1410,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialPublishRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialPublishResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Registered. The accepted timeline completes publish through the step route.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/rollback",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1354,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialNodeTokenRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Older per-node engine. No web caller.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/skip",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1340,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialNodeTokenRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Older per-node engine. No web caller.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/step",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1444,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialNodeStepRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialStepResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "postLiveNodeStep",
+          "evidence": "/step"
+        }
+      ],
+      "wired": true,
+      "notes": "Accepted forward, rollback, block confirmation and publish reuse.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/nodes/:nodeId/unblock",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1382,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialNodeTokenRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialNodeWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Older per-node engine. No web caller.",
+      "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId/cancel",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1508,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialCancelItemRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialOpenItemWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "No web caller. Timeline confirmation uses force on the step route.",
+      "storedEntity": "open_items"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId/close",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1494,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialCloseItemRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialOpenItemWriteResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "No list/detail route for open items, and no web caller.",
+      "storedEntity": "open_items"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/stages/:stageId/step",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1468,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#CommercialStageStepRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialStepResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "postLiveStageStep",
+          "evidence": "/stages/${"
+        }
+      ],
+      "wired": true,
+      "notes": "stageId is write_outline, copy_prep, production, client_review, or distribution_settlement. Not a stored row.",
+      "storedEntity": "same step transaction as the node step route"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/unarchive",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-routes.ts",
+      "sourceLine": 753,
+      "registration": "createCommercialRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialProjectArchiveResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "unarchiveLiveProject",
+          "evidence": "postArchiveAction(projectId, 'unarchive')"
+        }
+      ],
+      "wired": true,
+      "notes": "Clears archived_at. Idempotent restore; detail remains readable while archived.",
+      "storedEntity": "commercial_projects.archived_at"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/imports/csv",
+      "mountPrefix": "/api/v1/imports",
+      "sourceFile": "apps/api/src/import-routes.ts",
+      "sourceLine": 14,
+      "registration": "createImportRoutes",
+      "readWrite": "write",
+      "area": "import",
+      "requestContract": "packages/contracts/src/imports.ts#parseImportCsvRequest",
+      "responseContract": "batchId, status, report or error",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "One-shot CSV import from the mounted mock tree. No web caller.",
+      "storedEntity": "import_batches and monitoring import tables"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/creators/:mid/dynamics/sync",
+      "wired": false,
+      "frontendCallers": [],
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/creator-discovery.ts#parseCreatorDynamicsSyncResponse",
+      "notes": "WP-R2-27A pull recent dynamics into creator_publish_events."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/creators/:mid/media/backfill",
+      "wired": false,
+      "frontendCallers": [],
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/creator-discovery.ts#parseCreatorMediaBackfillResponse",
+      "notes": "WP-R2-27A face_url + cover_url backfill (≤100)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/creators/:mid/publish-events",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/creator-discovery-routes.ts",
+      "sourceLine": 178,
+      "registration": "registerCreatorDiscoveryRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/creator-discovery.ts#parseManualPublishEventCreateRequest",
+      "responseContract": "packages/contracts/src/creator-discovery.ts#parseManualPublishEventCreateResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "createManualPublishEvent",
+          "evidence": "/creators/${encodeURIComponent(mid)}/publish-events"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-R2-26A manual fan-chart marker. Dedup (mid, event_kind, external_id). source=manual. Requires owned creator target. Audit publish_event.manual.create.",
+      "storedEntity": "creator_publish_events"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/creators/:mid/refresh",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 566,
+      "registration": "createMonitorRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": null,
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "relation/stat plus Card from one of the creator's videos when a video row exists."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/creators/:mid/uploads/sync",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/creator-discovery-routes.ts",
+      "sourceLine": 0,
+      "registration": "registerCreatorDiscoveryRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/creator-discovery.ts#parseUploadsSyncForce",
+      "responseContract": "packages/contracts/src/creator-discovery.ts#parseCreatorUploadsSyncResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "syncCreatorUploads",
+          "evidence": "/creators/${encodeURIComponent(mid)}/uploads/sync"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-R2-26B. Sync recent uploads (max 100 / 3 pages) into videos + creator_publish_events (source=bilibili). cached:true within TTL unless force. Does not create monitor targets.",
+      "storedEntity": "creator_uploads_sync_state"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/metadata/refresh",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 581,
+      "registration": "createMonitorRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": null,
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "202 plus backfillRunId. A second call while one batch is running returns 409."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/targets",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 109,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/monitor-targets.ts#parseCreateMonitorTargetRequest",
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseMonitorTargetCreateResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "createMonitorTarget",
+          "evidence": "method: 'POST'"
+        }
+      ],
+      "wired": true,
+      "notes": "Duplicate active (type, external id) returns the existing row with code target_exists.",
+      "storedEntity": "monitor_targets, collector_jobs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/targets/:id/run",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-target-routes.ts",
+      "sourceLine": 175,
+      "registration": "registerMonitorTargetRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/monitor-targets.ts#parseMonitorTargetRunResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-targets-client.ts",
+          "symbol": "runMonitorTarget",
+          "evidence": "/run"
+        }
+      ],
+      "wired": true,
+      "notes": "Queue one immediate offline collection. Deleted targets return 409. First-access awaiting-manual re-enables the target so a new bounded round can be claimed.",
+      "storedEntity": "collector_jobs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/videos/:bvid/refresh",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/monitor-routes.ts",
+      "sourceLine": 551,
+      "registration": "createMonitorRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/metadata-refresh.ts",
+      "responseContract": "packages/contracts/src/metadata-refresh.ts#parseVideoRefreshResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Synchronous view/detail refresh. force=false and metadata_state=ok does not call upstream."
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/monitor/creators/:mid/discovery",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/creator-discovery-routes.ts",
+      "sourceLine": 66,
+      "registration": "registerCreatorDiscoveryRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/creator-discovery.ts#parseCreatorDiscoveryConfigPutRequest",
+      "responseContract": "packages/contracts/src/creator-discovery.ts#parseCreatorDiscoveryConfig",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/monitor-client.ts",
+          "symbol": "putCreatorDiscovery",
+          "evidence": "/creators/${encodeURIComponent(mid)}/discovery"
+        }
+      ],
+      "wired": true,
+      "notes": "Idempotent upsert. Disabling stops polling and keeps historical publish events. Response includes WP-R2-26D lastSkippedCount/lastSkips.",
+      "storedEntity": "creator_discovery_configs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/monitor/settings/owner-account",
+      "mountPrefix": "/api/v1/monitor",
+      "sourceFile": "apps/api/src/studio-owner-routes.ts",
+      "sourceLine": 46,
+      "registration": "registerStudioOwnerRoutes",
+      "readWrite": "write",
+      "area": "monitor",
+      "requestContract": "packages/contracts/src/studio-owner-account.ts#parseUpdateStudioOwnerAccountRequest",
+      "responseContract": "packages/contracts/src/studio-owner-account.ts#parseStudioOwnerAccount",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/api/studio-owner-client.ts",
+          "symbol": "updateStudioOwnerAccount",
+          "evidence": "/settings/owner-account"
+        }
+      ],
+      "wired": true,
+      "notes": "Persists mid as decimal string (bigint). Invalid UID/empty display name 400. Does not create creators or call Bilibili.",
+      "storedEntity": "studio_owner_account"
+    }
+  ],
+  "excludedFromApiCount": [
+    {
+      "method": "USE",
+      "path": "/assets/*",
+      "sourceFile": "apps/api/src/static-spa.ts",
+      "sourceLine": 13,
+      "classification": "static files, not an API route",
+      "conditional": "WEB_STATIC_ROOT contains index.html"
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "sourceFile": "apps/api/src/static-spa.ts",
+      "sourceLine": 14,
+      "classification": "SPA index.html",
+      "conditional": "WEB_STATIC_ROOT contains index.html"
+    },
+    {
+      "method": "GET",
+      "path": "*",
+      "sourceFile": "apps/api/src/static-spa.ts",
+      "sourceLine": 15,
+      "classification": "SPA HTML catch-all. It skips paths starting with /api and the path /health.",
+      "conditional": "WEB_STATIC_ROOT contains index.html"
+    }
+  ]
+}

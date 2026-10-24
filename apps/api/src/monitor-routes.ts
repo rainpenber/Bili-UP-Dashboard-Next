@@ -1,20 +1,74 @@
 import {
   bigintToJson,
+  dynamicTextSummaryFromMetadata,
+  formatDynamicDisplayTitle,
+  MonitorContractError,
+  parseCreatorMid,
+  parseCreatorMidParam,
+  parseCreatorVideosLimit,
+  parseCreatorVideosOffset,
+  parseDynamicIdParam,
+  parseDynamicListQuery,
   parseIsoDateParam,
+  parseMetricsAllFlag,
   parseMetricsLimit,
   parseMonitorPage,
   parseMonitorPageSize,
+  parsePinEntityRequest,
+  parsePinEntityResponse,
+  parsePinVideoRequest,
+  parsePinVideoResponse,
+  parseVideoBvidParam,
   MONITOR_MAX_METRICS_LIMIT,
   type Paginated,
   type CreatorListItem,
+  type CreatorVideoItem,
+  type CreatorVideoList,
   type DynamicListItem,
+  type DynamicTargetRef,
+  type VideoDetail,
   type VideoListItem,
   type VideoMetricPoint,
   type CreatorMetricPoint,
   type DynamicMetricPoint,
+  type VideoCreatorSummary,
 } from '@studio/contracts';
-import type { Sql } from '@studio/db';
+import {
+  setCreatorPinned,
+  setDynamicPinned,
+  setVideoPinned,
+  VIDEO_PARTITION_JOINS,
+  VIDEO_PARTITION_NAME_SQL,
+  type Sql,
+} from '@studio/db';
+import {
+  BackfillConflict,
+  MetadataRequestError,
+  createBilibiliProvider,
+  createLiveBilibiliTransport,
+  createLiveImageTransport,
+  createSqlBilibiliEffects,
+  loadCollectorSecretKey,
+  readBilibiliRuntimeConfig,
+  readMetadataRun,
+  refreshCreator,
+  refreshVideo,
+  startMetadataBackfill,
+  type CreatorArchivesPageProvider,
+  type CreatorUploadsSyncEffects,
+  type MetadataKind,
+  type MetadataRefreshDeps,
+} from '@studio/monitoring';
+import type { StudioLogger } from '@studio/observability';
 import { Hono } from 'hono';
+import { readAssetsRoot } from './assets-config';
+import {
+  registerCreatorDiscoveryRoutes,
+  type CreatorUploadsSyncRouteDeps,
+} from './creator-discovery-routes';
+import { registerMonitorCardRoutes } from './monitor-card-routes';
+import { registerMonitorTargetRoutes } from './monitor-target-routes';
+import { registerStudioOwnerRoutes } from './studio-owner-routes';
 
 type MonitorStatusFilter = 'all' | 'active' | 'archived' | 'deleted';
 
@@ -24,8 +78,119 @@ function parseStatus(raw: string | undefined): MonitorStatusFilter {
   throw new Error('invalid status');
 }
 
-export function createMonitorRoutes(db: Sql) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
+  const text = await request.text();
+  if (!text.trim()) return {};
+  const parsed = JSON.parse(text) as unknown;
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('invalid body');
+  }
+  return parsed as Record<string, unknown>;
+}
+
+export type MonitorRefreshOptions = Partial<MetadataRefreshDeps> & {
+  onBackfill?: (task: Promise<void>) => void;
+  /** Test / offline override for creator uploads sync (space arc/search). */
+  uploadsSyncProvider?: CreatorArchivesPageProvider;
+  uploadsSyncEffects?: CreatorUploadsSyncEffects;
+};
+
+function buildUploadsSyncDeps(
+  db: Sql,
+  refreshDeps: MonitorRefreshOptions,
+): CreatorUploadsSyncRouteDeps {
+  const env = refreshDeps.env ?? process.env;
+  const config = readBilibiliRuntimeConfig(env);
+  const provider =
+    refreshDeps.uploadsSyncProvider ??
+    createBilibiliProvider(config, {
+      ...(refreshDeps.transport ? { transport: refreshDeps.transport } : {}),
+      sql: db,
+      ...(refreshDeps.clock ? { clock: refreshDeps.clock } : {}),
+      ...(refreshDeps.random ? { random: refreshDeps.random } : {}),
+    });
+  const effects =
+    refreshDeps.uploadsSyncEffects ??
+    createSqlBilibiliEffects(db, {
+      secretKey: loadCollectorSecretKey(env.COLLECTOR_SECRET_KEY),
+    });
+  const download = refreshDeps.download ?? createLiveImageTransport(config.timeoutMs);
+  const assetsRoot =
+    refreshDeps.assetsRoot === undefined ? readAssetsRoot(refreshDeps.env) : refreshDeps.assetsRoot;
+  return {
+    provider,
+    effects,
+    forcedAccountId: config.forcedAccountId,
+    download,
+    assetsRoot,
+  };
+}
+
+function buildRefreshDeps(db: Sql, refreshDeps: MonitorRefreshOptions): MetadataRefreshDeps {
+  const config = readBilibiliRuntimeConfig(refreshDeps.env);
+  return {
+    ...refreshDeps,
+    sql: db,
+    transport: refreshDeps.transport ?? createLiveBilibiliTransport(config.timeoutMs),
+    download: refreshDeps.download ?? createLiveImageTransport(config.timeoutMs),
+    assetsRoot:
+      refreshDeps.assetsRoot === undefined
+        ? readAssetsRoot(refreshDeps.env)
+        : refreshDeps.assetsRoot,
+  };
+}
+
+function refreshDepsFor(
+  c: { get: (key: string) => unknown },
+  base: MetadataRefreshDeps,
+): MetadataRefreshDeps {
+  const candidate = c.get('log');
+  if (
+    candidate &&
+    typeof candidate === 'object' &&
+    'info' in candidate &&
+    'warn' in candidate &&
+    'flush' in candidate
+  ) {
+    return { ...base, logger: candidate as StudioLogger };
+  }
+  return base;
+}
+
+function toDynamicTargetRef(row: {
+  target_id: string | null;
+  target_enabled: boolean | null;
+  target_interval_minutes: number | null;
+  target_interval_mode: 'auto' | 'fixed' | null;
+  target_last_success_at: Date | null;
+  target_last_error: string | null;
+}): DynamicTargetRef | null {
+  if (!row.target_id || row.target_enabled == null || row.target_interval_minutes == null) {
+    return null;
+  }
+  const intervalMode = row.target_interval_mode ?? 'fixed';
+  return {
+    id: row.target_id,
+    enabled: row.target_enabled,
+    intervalMinutes: row.target_interval_minutes,
+    intervalMode,
+    lastSuccessAt: row.target_last_success_at?.toISOString() ?? null,
+    lastError: row.target_last_error,
+  };
+}
+
+export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions = {}) {
   const app = new Hono();
+  registerMonitorTargetRoutes(app, db);
+  registerMonitorCardRoutes(app, db);
+  registerCreatorDiscoveryRoutes(app, db, buildUploadsSyncDeps(db, refreshDeps));
+  registerStudioOwnerRoutes(app, db);
+  const deps = (c?: { get: (key: string) => unknown }) => {
+    const base = buildRefreshDeps(db, refreshDeps);
+    return c ? refreshDepsFor(c, base) : base;
+  };
 
   app.get('/videos', async (c) => {
     try {
@@ -56,6 +221,9 @@ export function createMonitorRoutes(db: Sql) {
           archived_at: Date | null;
           deleted_at: Date | null;
           cover_asset_id: string | null;
+          tid: number | null;
+          tid_v2: number | null;
+          partition_name: string | null;
           sampled_at: Date | null;
           view_count: bigint | null;
           online_viewers: bigint | null;
@@ -64,8 +232,10 @@ export function createMonitorRoutes(db: Sql) {
         }[]
       >`
         SELECT v.bvid, v.title, v.category, v.mid, v.monitoring_enabled, v.archived_at, v.deleted_at, v.cover_asset_id,
+          v.tid, v.tid_v2, ${db.unsafe(VIDEO_PARTITION_NAME_SQL)} AS partition_name,
           m.sampled_at, m.view_count, m.online_viewers, m.online_viewers_raw, m.like_count
         FROM videos v
+        ${db.unsafe(VIDEO_PARTITION_JOINS)}
         LEFT JOIN LATERAL (
           SELECT sampled_at, view_count, online_viewers, online_viewers_raw, like_count
           FROM video_metric_samples s WHERE s.bvid = v.bvid ORDER BY sampled_at DESC LIMIT 1
@@ -89,6 +259,9 @@ export function createMonitorRoutes(db: Sql) {
         archivedAt: r.archived_at?.toISOString() ?? null,
         deletedAt: r.deleted_at?.toISOString() ?? null,
         coverAssetId: r.cover_asset_id,
+        tid: r.tid,
+        tidV2: r.tid_v2,
+        partitionName: r.partition_name,
         latestMetrics: {
           sampledAt: r.sampled_at?.toISOString() ?? null,
           viewCount: bigintToJson(r.view_count),
@@ -119,29 +292,75 @@ export function createMonitorRoutes(db: Sql) {
         title: string | null;
         category: string | null;
         mid: bigint | null;
+        pubdate: Date | null;
         monitoring_enabled: boolean;
         archived_at: Date | null;
         deleted_at: Date | null;
         cover_asset_id: string | null;
+        tid: number | null;
+        tid_v2: number | null;
+        partition_name: string | null;
         metadata: Record<string, unknown>;
+        creator_mid: bigint | null;
+        creator_uname: string | null;
+        creator_face_asset_id: string | null;
+        creator_monitoring_enabled: boolean | null;
+        follower_latest: bigint | null;
+        follower_sampled_at: Date | null;
       }[]
     >`
-      SELECT bvid, title, category, mid, monitoring_enabled, archived_at, deleted_at, cover_asset_id, metadata
-      FROM videos WHERE bvid = ${bvid}
+      SELECT v.bvid, v.title, v.category, v.mid, v.pubdate, v.monitoring_enabled, v.archived_at, v.deleted_at,
+        v.cover_asset_id, v.tid, v.tid_v2,
+        ${db.unsafe(VIDEO_PARTITION_NAME_SQL)} AS partition_name,
+        v.metadata,
+        c.mid AS creator_mid,
+        c.uname AS creator_uname,
+        c.face_asset_id AS creator_face_asset_id,
+        c.monitoring_enabled AS creator_monitoring_enabled,
+        f.follower_count AS follower_latest,
+        f.sampled_at AS follower_sampled_at
+      FROM videos v
+      ${db.unsafe(VIDEO_PARTITION_JOINS)}
+      LEFT JOIN creators c ON c.mid = v.mid
+      LEFT JOIN LATERAL (
+        SELECT s.follower_count, s.sampled_at
+        FROM creator_follower_samples s
+        WHERE s.mid = v.mid
+        ORDER BY s.sampled_at DESC
+        LIMIT 1
+      ) f ON TRUE
+      WHERE v.bvid = ${bvid}
     `;
     const row = rows[0];
     if (!row) return c.json({ error: 'not found' }, 404);
-    return c.json({
+    const creator: VideoCreatorSummary | null =
+      row.mid == null || row.creator_mid == null
+        ? null
+        : {
+            mid: bigintToJson(row.creator_mid)!,
+            uname: row.creator_uname,
+            faceAssetId: row.creator_face_asset_id,
+            followerLatest: bigintToJson(row.follower_latest),
+            followerSampledAt: row.follower_sampled_at?.toISOString() ?? null,
+            monitoringEnabled: row.creator_monitoring_enabled ?? false,
+          };
+    const body: VideoDetail = {
       bvid: row.bvid,
       title: row.title,
       category: row.category,
       mid: row.mid != null ? bigintToJson(row.mid) : null,
+      pubdate: row.pubdate?.toISOString() ?? null,
       monitoringEnabled: row.monitoring_enabled,
       archivedAt: row.archived_at?.toISOString() ?? null,
       deletedAt: row.deleted_at?.toISOString() ?? null,
       coverAssetId: row.cover_asset_id,
+      tid: row.tid,
+      tidV2: row.tid_v2,
+      partitionName: row.partition_name,
       metadata: row.metadata,
-    });
+      creator,
+    };
+    return c.json(body);
   });
 
   app.get('/videos/:bvid/metrics', async (c) => {
@@ -169,12 +388,17 @@ export function createMonitorRoutes(db: Sql) {
       >`
         SELECT sampled_at, raw_time, source_timezone, timestamp_precision,
           view_count, online_viewers, online_viewers_raw, like_count, coin_count, favorite_count, share_count, danmaku_count, comment_count
-        FROM video_metric_samples
-        WHERE bvid = ${bvid}
-        AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
-        AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+        FROM (
+          SELECT sampled_at, raw_time, source_timezone, timestamp_precision,
+            view_count, online_viewers, online_viewers_raw, like_count, coin_count, favorite_count, share_count, danmaku_count, comment_count
+          FROM video_metric_samples
+          WHERE bvid = ${bvid}
+          AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
+          AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+          ORDER BY sampled_at DESC
+          LIMIT ${limit}
+        ) recent
         ORDER BY sampled_at ASC
-        LIMIT ${limit}
       `;
       const items: VideoMetricPoint[] = rows.map((r) => ({
         sampledAt: r.sampled_at.toISOString(),
@@ -268,6 +492,113 @@ export function createMonitorRoutes(db: Sql) {
     }
   });
 
+  app.get('/creators/:mid/videos', async (c) => {
+    try {
+      const mid = parseCreatorMid(c.req.param('mid'));
+      const limit = parseCreatorVideosLimit(c.req.query('limit'));
+      const offset = parseCreatorVideosOffset(c.req.query('offset'));
+      const rows = await db<
+        {
+          mid: bigint;
+          total: string;
+          bvid: string | null;
+          title: string | null;
+          cover_asset_id: string | null;
+          pubdate: Date | null;
+          archived_at: Date | null;
+          partition_name: string | null;
+          sampled_at: Date | null;
+          view_count: bigint | null;
+          like_count: bigint | null;
+          comment_count: bigint | null;
+          online_viewers: bigint | null;
+        }[]
+      >`
+        SELECT
+          c.mid,
+          (
+            SELECT count(*)::text
+            FROM videos counted
+            WHERE counted.mid = c.mid
+              AND counted.deleted_at IS NULL
+          ) AS total,
+          v.bvid,
+          v.title,
+          v.cover_asset_id,
+          v.pubdate,
+          v.archived_at,
+          ${db.unsafe(VIDEO_PARTITION_NAME_SQL)} AS partition_name,
+          m.sampled_at,
+          m.view_count,
+          m.like_count,
+          m.comment_count,
+          m.online_viewers
+        FROM creators c
+        LEFT JOIN LATERAL (
+          SELECT
+            vid.bvid,
+            vid.title,
+            vid.cover_asset_id,
+            vid.pubdate,
+            vid.archived_at,
+            vid.tid,
+            vid.tid_v2,
+            vid.partition_name
+          FROM videos vid
+          WHERE vid.mid = c.mid
+            AND vid.deleted_at IS NULL
+          ORDER BY vid.pubdate DESC NULLS LAST, vid.bvid
+          LIMIT ${limit} OFFSET ${offset}
+        ) v ON TRUE
+        ${db.unsafe(VIDEO_PARTITION_JOINS)}
+        LEFT JOIN LATERAL (
+          SELECT
+            s.sampled_at,
+            s.view_count,
+            s.like_count,
+            s.comment_count,
+            s.online_viewers
+          FROM video_metric_samples s
+          WHERE s.bvid = v.bvid
+          ORDER BY s.sampled_at DESC
+          LIMIT 1
+        ) m ON TRUE
+        WHERE c.mid = ${mid}
+      `;
+      const first = rows[0];
+      if (!first) return c.json({ error: 'not found' }, 404);
+      const items: CreatorVideoItem[] = [];
+      for (const row of rows) {
+        if (!row.bvid) continue;
+        items.push({
+          bvid: row.bvid,
+          title: row.title,
+          coverAssetId: row.cover_asset_id,
+          pubdate: row.pubdate?.toISOString() ?? null,
+          partitionName: row.partition_name,
+          archivedAt: row.archived_at?.toISOString() ?? null,
+          latest: row.sampled_at
+            ? {
+                sampledAt: row.sampled_at.toISOString(),
+                viewCount: bigintToJson(row.view_count),
+                likeCount: bigintToJson(row.like_count),
+                commentCount: bigintToJson(row.comment_count),
+                onlineViewers: bigintToJson(row.online_viewers),
+              }
+            : null,
+        });
+      }
+      const body: CreatorVideoList = {
+        mid: bigintToJson(first.mid)!,
+        total: Number(first.total),
+        items,
+      };
+      return c.json(body);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
+    }
+  });
+
   app.get('/creators/:mid', async (c) => {
     const mid = c.req.param('mid');
     const rows = await db`
@@ -304,15 +635,28 @@ export function createMonitorRoutes(db: Sql) {
       const mid = c.req.param('mid');
       const from = parseIsoDateParam(c.req.query('from'), 'from');
       const to = parseIsoDateParam(c.req.query('to'), 'to');
-      const limit = parseMetricsLimit(c.req.query('limit'));
-      const rows = await db`
-        SELECT sampled_at, raw_time, source_timezone, timestamp_precision, follower_count
+      const all = parseMetricsAllFlag(c.req.query('all'));
+      const limit = parseMetricsLimit(c.req.query('limit'), { all });
+      const countRows = await db<{ count: string }[]>`
+        SELECT count(*)::text AS count
         FROM creator_follower_samples
         WHERE mid = ${mid}
-        AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
-        AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+          AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
+          AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+      `;
+      const totalItems = Number(countRows[0]?.count ?? '0');
+      const rows = await db`
+        SELECT sampled_at, raw_time, source_timezone, timestamp_precision, follower_count
+        FROM (
+          SELECT sampled_at, raw_time, source_timezone, timestamp_precision, follower_count
+          FROM creator_follower_samples
+          WHERE mid = ${mid}
+          AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
+          AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+          ORDER BY sampled_at DESC
+          LIMIT ${limit}
+        ) recent
         ORDER BY sampled_at ASC
-        LIMIT ${limit}
       `;
       const typedRows = rows as unknown as {
         sampled_at: Date;
@@ -328,7 +672,7 @@ export function createMonitorRoutes(db: Sql) {
         timestampPrecision: r.timestamp_precision,
         followerCount: bigintToJson(r.follower_count)!,
       }));
-      return c.json({ mid: mid.toString(), limit, items });
+      return c.json({ mid: mid.toString(), limit, totalItems, items });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
     }
@@ -336,10 +680,20 @@ export function createMonitorRoutes(db: Sql) {
 
   app.get('/dynamics', async (c) => {
     try {
-      const page = parseMonitorPage(c.req.query('page'));
-      const pageSize = parseMonitorPageSize(c.req.query('pageSize'));
-      const status = parseStatus(c.req.query('status'));
+      const query = parseDynamicListQuery({
+        page: c.req.query('page'),
+        pageSize: c.req.query('pageSize'),
+        status: c.req.query('status'),
+        sort: c.req.query('sort'),
+      });
+      const { page, pageSize, status, sort } = query;
       const offset = (page - 1) * pageSize;
+      const orderBy =
+        sort === 'likes_desc'
+          ? db`ORDER BY (d.pinned_at IS NOT NULL) DESC, m.like_count DESC NULLS LAST, d.dynamic_id ASC`
+          : sort === 'comments_desc'
+            ? db`ORDER BY (d.pinned_at IS NOT NULL) DESC, m.comment_count DESC NULLS LAST, d.dynamic_id ASC`
+            : db`ORDER BY (d.pinned_at IS NOT NULL) DESC, m.sampled_at DESC NULLS LAST, d.dynamic_id ASC`;
       const countRows = await db<{ count: string }[]>`
         SELECT count(*)::text AS count FROM dynamics d
         WHERE
@@ -356,40 +710,80 @@ export function createMonitorRoutes(db: Sql) {
           monitoring_enabled: boolean;
           archived_at: Date | null;
           deleted_at: Date | null;
+          pinned_at: Date | null;
+          author_name: string | null;
+          published_at: string | null;
+          text_raw: string | null;
+          target_label: string | null;
           sampled_at: Date | null;
           like_count: bigint | null;
           repost_count: bigint | null;
           comment_count: bigint | null;
+          target_id: string | null;
+          target_enabled: boolean | null;
+          target_interval_minutes: number | null;
+          target_interval_mode: 'auto' | 'fixed' | null;
+          target_last_success_at: Date | null;
+          target_last_error: string | null;
         }[]
       >`
         SELECT d.dynamic_id, d.mid, d.category, d.monitoring_enabled, d.archived_at, d.deleted_at,
-          m.sampled_at, m.like_count, m.repost_count, m.comment_count
+          d.pinned_at,
+          NULLIF(BTRIM(d.metadata->>'author_name'), '') AS author_name,
+          NULLIF(BTRIM(d.metadata->>'published_at'), '') AS published_at,
+          NULLIF(BTRIM(d.metadata->>'text'), '') AS text_raw,
+          NULLIF(BTRIM(t.label), '') AS target_label,
+          m.sampled_at, m.like_count, m.repost_count, m.comment_count,
+          t.id::text AS target_id, t.enabled AS target_enabled,
+          t.interval_minutes AS target_interval_minutes, t.interval_mode AS target_interval_mode,
+          t.last_success_at AS target_last_success_at, t.last_error AS target_last_error
         FROM dynamics d
         LEFT JOIN LATERAL (
           SELECT sampled_at, like_count, repost_count, comment_count
           FROM dynamic_metric_samples s WHERE s.dynamic_id = d.dynamic_id ORDER BY sampled_at DESC LIMIT 1
         ) m ON TRUE
+        LEFT JOIN monitor_targets t
+          ON t.type = 'dynamic' AND t.external_id = d.dynamic_id AND t.deleted_at IS NULL
         WHERE
           (${status} = 'all' OR (${status} = 'active' AND d.deleted_at IS NULL AND d.archived_at IS NULL)
             OR (${status} = 'archived' AND d.archived_at IS NOT NULL AND d.deleted_at IS NULL)
             OR (${status} = 'deleted' AND d.deleted_at IS NOT NULL))
-        ORDER BY m.sampled_at DESC NULLS LAST, d.dynamic_id
+        ${orderBy}
         LIMIT ${pageSize} OFFSET ${offset}
       `;
-      const items: DynamicListItem[] = rows.map((r) => ({
-        dynamicId: r.dynamic_id,
-        mid: r.mid != null ? bigintToJson(r.mid) : null,
-        category: r.category,
-        monitoringEnabled: r.monitoring_enabled,
-        archivedAt: r.archived_at?.toISOString() ?? null,
-        deletedAt: r.deleted_at?.toISOString() ?? null,
-        latestMetrics: {
-          sampledAt: r.sampled_at?.toISOString() ?? null,
-          likeCount: bigintToJson(r.like_count),
-          repostCount: bigintToJson(r.repost_count),
-          commentCount: bigintToJson(r.comment_count),
-        },
-      }));
+      const items: DynamicListItem[] = rows.map((r) => {
+        const textSummary = dynamicTextSummaryFromMetadata(
+          r.text_raw ? { text: r.text_raw } : null,
+        );
+        const authorName = r.author_name;
+        const targetLabel = r.target_label;
+        return {
+          dynamicId: r.dynamic_id,
+          mid: r.mid != null ? bigintToJson(r.mid) : null,
+          category: r.category,
+          monitoringEnabled: r.monitoring_enabled,
+          archivedAt: r.archived_at?.toISOString() ?? null,
+          deletedAt: r.deleted_at?.toISOString() ?? null,
+          pinned: r.pinned_at != null,
+          target: toDynamicTargetRef(r),
+          authorName,
+          publishedAt: r.published_at,
+          textSummary,
+          targetLabel,
+          displayTitle: formatDynamicDisplayTitle({
+            authorName,
+            textSummary,
+            targetLabel,
+            dynamicId: r.dynamic_id,
+          }),
+          latestMetrics: {
+            sampledAt: r.sampled_at?.toISOString() ?? null,
+            likeCount: bigintToJson(r.like_count),
+            repostCount: bigintToJson(r.repost_count),
+            commentCount: bigintToJson(r.comment_count),
+          },
+        };
+      });
       return c.json({
         page,
         pageSize,
@@ -398,6 +792,9 @@ export function createMonitorRoutes(db: Sql) {
         items,
       } satisfies Paginated<DynamicListItem>);
     } catch (err) {
+      if (err instanceof MonitorContractError) {
+        return c.json({ error: err.message, code: err.code }, 400);
+      }
       return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
     }
   });
@@ -413,10 +810,22 @@ export function createMonitorRoutes(db: Sql) {
         archived_at: Date | null;
         deleted_at: Date | null;
         metadata: Record<string, unknown>;
+        target_id: string | null;
+        target_enabled: boolean | null;
+        target_interval_minutes: number | null;
+        target_interval_mode: 'auto' | 'fixed' | null;
+        target_last_success_at: Date | null;
+        target_last_error: string | null;
       }[]
     >`
-      SELECT dynamic_id, mid, category, monitoring_enabled, archived_at, deleted_at, metadata
-      FROM dynamics WHERE dynamic_id = ${dynamicId}
+      SELECT d.dynamic_id, d.mid, d.category, d.monitoring_enabled, d.archived_at, d.deleted_at, d.metadata,
+        t.id::text AS target_id, t.enabled AS target_enabled,
+        t.interval_minutes AS target_interval_minutes, t.interval_mode AS target_interval_mode,
+        t.last_success_at AS target_last_success_at, t.last_error AS target_last_error
+      FROM dynamics d
+      LEFT JOIN monitor_targets t
+        ON t.type = 'dynamic' AND t.external_id = d.dynamic_id AND t.deleted_at IS NULL
+      WHERE d.dynamic_id = ${dynamicId}
     `;
     const row = rows[0];
     if (!row) return c.json({ error: 'not found' }, 404);
@@ -428,6 +837,7 @@ export function createMonitorRoutes(db: Sql) {
       archivedAt: row.archived_at?.toISOString() ?? null,
       deletedAt: row.deleted_at?.toISOString() ?? null,
       metadata: row.metadata,
+      target: toDynamicTargetRef(row),
     });
   });
 
@@ -449,12 +859,16 @@ export function createMonitorRoutes(db: Sql) {
         }[]
       >`
         SELECT sampled_at, raw_time, source_timezone, timestamp_precision, like_count, repost_count, comment_count
-        FROM dynamic_metric_samples
-        WHERE dynamic_id = ${dynamicId}
-        AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
-        AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+        FROM (
+          SELECT sampled_at, raw_time, source_timezone, timestamp_precision, like_count, repost_count, comment_count
+          FROM dynamic_metric_samples
+          WHERE dynamic_id = ${dynamicId}
+          AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
+          AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+          ORDER BY sampled_at DESC
+          LIMIT ${limit}
+        ) recent
         ORDER BY sampled_at ASC
-        LIMIT ${limit}
       `;
       const items: DynamicMetricPoint[] = rows.map((r) => ({
         sampledAt: r.sampled_at.toISOString(),
@@ -469,6 +883,165 @@ export function createMonitorRoutes(db: Sql) {
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
     }
+  });
+
+  app.patch('/videos/:bvid/pin', async (c) => {
+    try {
+      const bvid = parseVideoBvidParam(c.req.param('bvid'));
+      const body = parsePinVideoRequest(await readJsonBody(c.req.raw));
+      const updated = await setVideoPinned(db, bvid, body.pinned);
+      if (!updated) {
+        return c.json({ error: '未找到该视频', code: 'not_found' }, 404);
+      }
+      return c.json(
+        parsePinVideoResponse({
+          bvid: updated.bvid,
+          pinned: updated.pinnedAt != null,
+          pinnedAt: updated.pinnedAt ? updated.pinnedAt.toISOString() : null,
+        }),
+      );
+    } catch (err) {
+      if (err instanceof MonitorContractError) {
+        return c.json({ error: err.message, code: err.code }, 400);
+      }
+      if (err instanceof SyntaxError) {
+        return c.json({ error: '请求体不是合法 JSON', code: 'invalid_body' }, 400);
+      }
+      return c.json(
+        { error: err instanceof Error ? err.message : '请求无法处理', code: 'internal' },
+        500,
+      );
+    }
+  });
+
+  app.patch('/creators/:mid/pin', async (c) => {
+    try {
+      const mid = parseCreatorMidParam(c.req.param('mid'));
+      const body = parsePinEntityRequest(await readJsonBody(c.req.raw));
+      const updated = await setCreatorPinned(db, mid, body.pinned);
+      if (!updated) {
+        return c.json({ error: '未找到该 UP 主', code: 'not_found' }, 404);
+      }
+      return c.json(
+        parsePinEntityResponse({
+          pinned: updated.pinnedAt != null,
+          pinnedAt: updated.pinnedAt ? updated.pinnedAt.toISOString() : null,
+        }),
+      );
+    } catch (err) {
+      if (err instanceof MonitorContractError) {
+        return c.json({ error: err.message, code: err.code }, 400);
+      }
+      if (err instanceof SyntaxError) {
+        return c.json({ error: '请求体不是合法 JSON', code: 'invalid_body' }, 400);
+      }
+      return c.json(
+        { error: err instanceof Error ? err.message : '请求无法处理', code: 'internal' },
+        500,
+      );
+    }
+  });
+
+  app.patch('/dynamics/:dynamicId/pin', async (c) => {
+    try {
+      const dynamicId = parseDynamicIdParam(c.req.param('dynamicId'));
+      const body = parsePinEntityRequest(await readJsonBody(c.req.raw));
+      const updated = await setDynamicPinned(db, dynamicId, body.pinned);
+      if (!updated) {
+        return c.json({ error: '未找到该动态', code: 'not_found' }, 404);
+      }
+      return c.json(
+        parsePinEntityResponse({
+          pinned: updated.pinnedAt != null,
+          pinnedAt: updated.pinnedAt ? updated.pinnedAt.toISOString() : null,
+        }),
+      );
+    } catch (err) {
+      if (err instanceof MonitorContractError) {
+        return c.json({ error: err.message, code: err.code }, 400);
+      }
+      if (err instanceof SyntaxError) {
+        return c.json({ error: '请求体不是合法 JSON', code: 'invalid_body' }, 400);
+      }
+      return c.json(
+        { error: err instanceof Error ? err.message : '请求无法处理', code: 'internal' },
+        500,
+      );
+    }
+  });
+
+  app.post('/videos/:bvid/refresh', async (c) => {
+    try {
+      const body = await readJsonBody(c.req.raw);
+      const force = body.force === true || c.req.query('force') === 'true';
+      const result = await refreshVideo(deps(c), c.req.param('bvid'), force);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof MetadataRequestError) {
+        const status =
+          error.bizCode === -404 || error.message.includes('404') ? 404 : error.abort ? 503 : 502;
+        return c.json({ error: error.message, bizCode: error.bizCode }, status);
+      }
+      return c.json({ error: error instanceof Error ? error.message : 'bad request' }, 400);
+    }
+  });
+
+  app.post('/creators/:mid/refresh', async (c) => {
+    try {
+      const body = await readJsonBody(c.req.raw);
+      const force = body.force === true || c.req.query('force') === 'true';
+      const result = await refreshCreator(deps(c), c.req.param('mid'), force);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof MetadataRequestError) {
+        const status = error.bizCode === -404 ? 404 : error.abort ? 503 : 502;
+        return c.json({ error: error.message, bizCode: error.bizCode }, status);
+      }
+      return c.json({ error: error instanceof Error ? error.message : 'bad request' }, 400);
+    }
+  });
+
+  app.post('/metadata/refresh', async (c) => {
+    try {
+      const body = await readJsonBody(c.req.raw);
+      const kind = body.kind;
+      if (kind !== 'video' && kind !== 'creator') throw new Error('invalid kind');
+      const ids = Array.isArray(body.ids)
+        ? body.ids.filter((id): id is string => typeof id === 'string')
+        : undefined;
+      const allMissing = body.allMissing === true;
+      const force = body.force === true;
+      const started = await startMetadataBackfill(deps(c), {
+        kind: kind as MetadataKind,
+        ...(ids && ids.length > 0 ? { ids } : {}),
+        ...(allMissing ? { allMissing: true } : {}),
+        force,
+      });
+      refreshDeps.onBackfill?.(started.done);
+      void started.done.catch(() => undefined);
+      return c.json({ backfillRunId: started.backfillRunId, requested: started.requested }, 202);
+    } catch (error) {
+      if (error instanceof BackfillConflict) {
+        return c.json({ error: error.message, backfillRunId: error.backfillRunId }, 409);
+      }
+      return c.json({ error: error instanceof Error ? error.message : 'bad request' }, 400);
+    }
+  });
+
+  app.get('/metadata/runs/:id', async (c) => {
+    const id = c.req.param('id');
+    if (!UUID.test(id)) return c.json({ error: 'invalid id' }, 400);
+    const run = await readMetadataRun(db, id);
+    if (!run) return c.json({ error: 'not found' }, 404);
+    return c.json({
+      id: run.id,
+      status: run.status,
+      requested: run.requested,
+      succeeded: run.succeeded,
+      failed: run.failed,
+      skipped: run.skipped,
+      report: run.report,
+    });
   });
 
   return app;

@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Palette,
   Plug,
+  ScrollText,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -40,10 +41,10 @@ export const primaryNav: NavItem[] = [
   },
   {
     to: '/content',
-    label: '内容与工具',
-    description: '素材与辅助工具（后续里程碑）',
+    label: '观众反应模拟',
+    description: '本地字幕解析与提示词组合（内部模拟，非真实观众数据）',
     icon: Wrench,
-    implemented: false,
+    implemented: true,
   },
   {
     to: '/integrations',
@@ -61,7 +62,28 @@ export const primaryNav: NavItem[] = [
   },
 ];
 
+export const settingsNav: NavItem[] = [
+  {
+    to: '/ops',
+    label: '运维诊断',
+    description: '采集记录、操作记录和系统日志',
+    icon: ScrollText,
+    implemented: true,
+  },
+];
+
+const workflowMockNav: NavItem = {
+  to: '/workflow-mock',
+  label: '流程',
+  description: '节点工作流原型',
+  icon: Blocks,
+  implemented: true,
+};
+
 export function navItemForPath(pathname: string): NavItem | undefined {
+  if (pathname === '/ops' || pathname.startsWith('/ops/')) return settingsNav[0];
+  if (pathname === '/workflow-mock' || pathname.startsWith('/workflow-mock/'))
+    return workflowMockNav;
   if (pathname === '/') return primaryNav[0];
   return primaryNav.find((item) => item.to !== '/' && pathname.startsWith(item.to));
 }

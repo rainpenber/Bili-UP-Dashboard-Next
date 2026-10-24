@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
   parseCommercialOpenItemWriteResponse,
+  parseCommercialProjectDetail,
   parseCommercialProjectWorkflow,
   parseCommercialPublishResponse,
   parseCommercialNodeWriteResponse,
@@ -420,6 +421,81 @@ describe('commercial workflow write API', () => {
     await expectRefusal(conflict, 409, 'publish_conflict');
   }, 30_000);
 
+  test('legacy publish endpoint syncs overall_stage to published_winding_down', async () => {
+    const ctx = await ready();
+    if (!ctx) return;
+    const { projectId, tokens, app, sql } = ctx;
+    await completeThrough(ctx, [
+      '询单',
+      '大纲',
+      '文案',
+      '预拍摄',
+      '汇合节点',
+      'A-roll 拍摄',
+      'B-roll 素材',
+      'AI 后期',
+      '审核',
+    ]);
+    const publishNode = await mustNode(await postNode(app, projectId, tokens, '发布', 'advance'));
+    remember(tokens, publishNode);
+
+    const [before] = await sql<{ overall_stage: string }[]>`
+      SELECT overall_stage FROM commercial_projects WHERE id = ${projectId}
+    `;
+    expect(before?.overall_stage).toBe('pre_publish');
+
+    const firstRes = await app.request(
+      `/api/v1/commercial/projects/${projectId}/nodes/${publishNode.node.id}/publish`,
+      json({
+        expectedUpdatedAt: publishNode.node.updatedAt,
+        idempotencyKey: `stage-sync-${projectId}`,
+        platform: 'bilibili',
+        bvid: 'BV1stagesync01',
+        publishSource: 'web',
+      }),
+    );
+    expect(firstRes.status).toBe(200);
+    const first = parseCommercialPublishResponse(await firstRes.json());
+    expect(first.idempotentReplay).toBe(false);
+    expect(first.node.status).toBe('completed');
+
+    const detailRes = await app.request(`/api/v1/commercial/projects/${projectId}`);
+    expect(detailRes.status).toBe(200);
+    const detail = parseCommercialProjectDetail(await detailRes.json());
+    expect(detail.publish.published).toBe(true);
+    expect(detail.publish.bvid).toBe('BV1stagesync01');
+    expect(detail.overallStage).toBe('published_winding_down');
+
+    await sql`
+      UPDATE commercial_projects
+      SET overall_stage = 'pre_publish', updated_at = now()
+      WHERE id = ${projectId}
+    `;
+    const [drifted] = await sql<{ overall_stage: string }[]>`
+      SELECT overall_stage FROM commercial_projects WHERE id = ${projectId}
+    `;
+    expect(drifted?.overall_stage).toBe('pre_publish');
+
+    const replayRes = await app.request(
+      `/api/v1/commercial/projects/${projectId}/nodes/${publishNode.node.id}/publish`,
+      json({
+        expectedUpdatedAt: first.node.updatedAt,
+        idempotencyKey: `stage-sync-${projectId}`,
+        platform: 'bilibili',
+        bvid: 'BV1stagesync01',
+      }),
+    );
+    expect(replayRes.status).toBe(200);
+    const replay = parseCommercialPublishResponse(await replayRes.json());
+    expect(replay.idempotentReplay).toBe(true);
+
+    const healedRes = await app.request(`/api/v1/commercial/projects/${projectId}`);
+    expect(healedRes.status).toBe(200);
+    const healed = parseCommercialProjectDetail(await healedRes.json());
+    expect(healed.publish.published).toBe(true);
+    expect(healed.overallStage).toBe('published_winding_down');
+  }, 30_000);
+
   test('a video URL is stored as bvid and a non-bilibili platform writes nothing', async () => {
     const ctx = await ready();
     if (!ctx) return;
@@ -500,6 +576,118 @@ describe('commercial workflow write API', () => {
     expect(tokens.size).toBe(14);
     return { app, sql, projectId, tokens };
   }
+
+  test('plan date writes, changes, and clears without touching status or completed_at', async () => {
+    const ctx = await ready();
+    if (!ctx) return;
+    const { projectId, tokens, sql: db, app: api } = ctx;
+    const before = tokens.get('大纲');
+    if (!before) throw new Error('missing 大纲');
+    const edgesBefore = await edgePairs(db, projectId);
+    const [stampBefore] = await db<
+      { status: string; completed_at: Date | null; planned_at: Date | null }[]
+    >`
+      SELECT status, completed_at, planned_at
+      FROM wf_nodes
+      WHERE project_id = ${projectId} AND id = ${before.id}
+    `;
+    expect(stampBefore?.status).toBe('not_reached');
+    expect(stampBefore?.completed_at).toBeNull();
+    expect(stampBefore?.planned_at).toBeNull();
+
+    const saved = await mustNode(
+      await postNode(api, projectId, tokens, '大纲', 'plan', { plannedAt: '2026-04-02' }),
+    );
+    expect(saved.node.status).toBe('not_reached');
+    expect(saved.node.completedAt).toBeNull();
+    expect(Date.parse(saved.node.plannedAt ?? '')).toBe(Date.parse('2026-04-02T00:00:00+08:00'));
+    expect(saved.node.updatedAt).not.toBe(before.updatedAt);
+    remember(tokens, saved);
+
+    const changed = await mustNode(
+      await postNode(api, projectId, tokens, '大纲', 'plan', { plannedAt: '2026-04-09' }),
+    );
+    expect(changed.node.status).toBe('not_reached');
+    expect(changed.node.completedAt).toBeNull();
+    expect(Date.parse(changed.node.plannedAt ?? '')).toBe(Date.parse('2026-04-09T00:00:00+08:00'));
+    remember(tokens, changed);
+
+    const cleared = await mustNode(
+      await postNode(api, projectId, tokens, '大纲', 'plan', { plannedAt: null }),
+    );
+    expect(cleared.node.status).toBe('not_reached');
+    expect(cleared.node.plannedAt).toBeNull();
+    expect(cleared.node.completedAt).toBeNull();
+    remember(tokens, cleared);
+
+    const [afterClear] = await db<
+      { status: string; completed_at: Date | null; planned_at: Date | null }[]
+    >`
+      SELECT status, completed_at, planned_at
+      FROM wf_nodes
+      WHERE project_id = ${projectId} AND id = ${before.id}
+    `;
+    expect(afterClear?.status).toBe('not_reached');
+    expect(afterClear?.completed_at).toBeNull();
+    expect(afterClear?.planned_at).toBeNull();
+    expect(await edgePairs(db, projectId)).toEqual(edgesBefore);
+    expect(await auditCount(db, projectId, 'plan')).toBe(3);
+
+    const stale = await postNode(api, projectId, tokens, '大纲', 'plan', {
+      expectedUpdatedAt: before.updatedAt,
+      plannedAt: '2026-05-01',
+    });
+    await expectRefusal(stale, 409, 'stale_write');
+    const [untouched] = await db<{ planned_at: Date | null; status: string }[]>`
+      SELECT planned_at, status FROM wf_nodes WHERE id = ${before.id}
+    `;
+    expect(untouched?.planned_at).toBeNull();
+    expect(untouched?.status).toBe('not_reached');
+
+    const invalid = await postNode(api, projectId, tokens, '大纲', 'plan', {
+      plannedAt: '2026-04-02T00:00:00.000Z',
+    });
+    expect(invalid.status).toBe(400);
+
+    const planned = await mustNode(
+      await postNode(api, projectId, tokens, '询单', 'plan', { plannedAt: '2026-03-18' }),
+    );
+    expect(planned.node.status).toBe('not_reached');
+    expect(planned.node.completedAt).toBeNull();
+    remember(tokens, planned);
+    const advanced = await mustNode(await postNode(api, projectId, tokens, '询单', 'advance'));
+    expect(advanced.node.status).toBe('in_progress');
+    expect(advanced.node.completedAt).toBeNull();
+    expect(Date.parse(advanced.node.plannedAt ?? '')).toBe(Date.parse('2026-03-18T00:00:00+08:00'));
+    remember(tokens, advanced);
+    const completed = await mustNode(await postNode(api, projectId, tokens, '询单', 'complete'));
+    expect(completed.node.status).toBe('completed');
+    expect(completed.node.completedAt).not.toBeNull();
+    expect(Date.parse(completed.node.plannedAt ?? '')).toBe(
+      Date.parse('2026-03-18T00:00:00+08:00'),
+    );
+    const completedAt = completed.node.completedAt;
+    remember(tokens, completed);
+
+    const retimed = await mustNode(
+      await postNode(api, projectId, tokens, '询单', 'plan', { plannedAt: '2026-03-20' }),
+    );
+    expect(retimed.node.status).toBe('completed');
+    expect(retimed.node.completedAt).toBe(completedAt);
+    expect(Date.parse(retimed.node.plannedAt ?? '')).toBe(Date.parse('2026-03-20T00:00:00+08:00'));
+
+    const graph = parseCommercialProjectWorkflow(
+      await (await api.request(`/api/v1/commercial/projects/${projectId}/workflow`)).json(),
+    );
+    const inquiry = graph.nodes.find((node) => node.name === '询单');
+    const outline = graph.nodes.find((node) => node.name === '大纲');
+    expect(inquiry?.status).toBe('completed');
+    expect(inquiry?.completedAt).toBe(completedAt);
+    expect(Date.parse(inquiry?.plannedAt ?? '')).toBe(Date.parse('2026-03-20T00:00:00+08:00'));
+    expect(outline?.plannedAt).toBeNull();
+    expect(outline?.completedAt).toBeNull();
+    expect(outline?.status).toBe('not_reached');
+  }, 30_000);
 });
 
 async function createProject(sql: Sql, name: string): Promise<string> {
@@ -599,7 +787,7 @@ async function postNode(
   projectId: string,
   tokens: Tokens,
   name: string,
-  action: 'advance' | 'complete' | 'skip' | 'rollback' | 'block' | 'unblock' | 'publish',
+  action: 'advance' | 'complete' | 'skip' | 'rollback' | 'block' | 'unblock' | 'publish' | 'plan',
   extra: Record<string, unknown> = {},
 ): Promise<Response> {
   const node = tokens.get(name);
@@ -654,6 +842,17 @@ async function completeThrough(
       remember(ctx.tokens, completed);
     }
   }
+}
+
+async function edgePairs(sql: Sql, projectId: string): Promise<string[]> {
+  const rows = await sql<{ pair: string }[]>`
+    SELECT e.from_node_id || '>' || e.to_node_id AS pair
+    FROM wf_edges e
+    JOIN project_workflows w ON w.id = e.workflow_id
+    WHERE w.project_id = ${projectId}
+    ORDER BY pair
+  `;
+  return rows.map((row) => row.pair);
 }
 
 async function statusOf(sql: Sql, projectId: string, name: string): Promise<string> {

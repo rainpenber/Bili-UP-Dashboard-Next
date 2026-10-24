@@ -29,6 +29,7 @@ jobs:
       POSTGRES_PASSWORD: studio_ci_password
       POSTGRES_DB: studio_ci
       CI: true
+      REQUIRE_POSTGRES: '1'
       MONITOR_DATA_SOURCE: mock
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +49,9 @@ jobs:
 
       - name: Typecheck
         run: bun run typecheck
+
+      - name: Fail closed without PostgreSQL
+        run: bun -e "import { postgresAvailable } from './packages/db/src/postgres-available.ts'; if (!(await postgresAvailable())) { console.error('PostgreSQL required but unavailable'); process.exit(1); } console.log('postgres ok');"
 
       - name: Test
         run: bun run test

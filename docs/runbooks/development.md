@@ -78,7 +78,7 @@ bun run dev
 
 ## Compose 与部署
 
-- **生产稳态**：`docker-compose.yml` — 仅 `postgres` + `app`（单镜像、单端口）。详见 [deploy.md](./deploy.md)。
+- **生产稳态**：`docker-compose.yml` — `postgres` + `app` + `collector`（采集器不发布端口，只跑离线适配器）。详见 [deploy.md](./deploy.md)。
 - **开发热重载**：`docker compose -p bili-test -f docker-compose.dev.yml`（可选，与生产分离）。
 - **固定项目名**：生产 `bili-prod`，测试/开发 `bili-test`；不要为每个 WP 或验收创建新项目名。
 
@@ -88,11 +88,13 @@ CSV 导入为**显式一次性命令**（无自动 `mock-import` 服务），见
 
 导入在**单连接事务**内使用 `pg_advisory_xact_lock`；101+101 规模 dry-run/apply 应在数分钟内完成。
 
+旧 CSV 增量同步默认关闭。宿主先把快照原子发布到本地目录，再执行 `sync-legacy`。命令、检查点和冲突规则见 [旧 CSV 增量同步](../architecture/legacy-csv-sync.md)。
+
 ## 故障排查
 
-| 现象                                     | 处理                                                      |
-| ---------------------------------------- | --------------------------------------------------------- |
-| Web 显示无法连接 API                     | 确认 `apps/api` 在 3000 端口运行                          |
-| `MONITOR_DATA_SOURCE=collector` 启动失败 | 预期行为；WP-001 仅实现 mock                              |
-| `docker compose` 报缺少变量              | 确保 `.env` 含 `POSTGRES_USER/PASSWORD/DB`                |
-| `bun install --frozen-lockfile` 失败     | 勿手改 lockfile；在根目录 `bun install` 后提交 `bun.lock` |
+| 现象                                     | 处理                                                                                                                                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Web 显示无法连接 API                     | 确认 `apps/api` 在 3000 端口运行                                                                                                                       |
+| `MONITOR_DATA_SOURCE=collector` 启动失败 | 只接受 `mock` 或 `collector`。默认 `COLLECTOR_PROVIDER=offline` 不访问 B 站。`bilibili` 缺少 `COLLECTOR_SECRET_KEY` 会拒绝启动。未知采集源 fail closed |
+| `docker compose` 报缺少变量              | 确保 `.env` 含 `POSTGRES_USER/PASSWORD/DB`                                                                                                             |
+| `bun install --frozen-lockfile` 失败     | 勿手改 lockfile；在根目录 `bun install` 后提交 `bun.lock`                                                                                              |

@@ -1,10 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  COMMERCIAL_WORKFLOW_NODE_NAME_MAX,
   parseCommercialBlockRequest,
+  parseCommercialNodeStepRequest,
+  parseCommercialStageStepRequest,
   parseCommercialCancelItemRequest,
   parseCommercialNodeWriteResponse,
+  parseCommercialPlanRequest,
   parseCommercialPublishRequest,
   parseCommercialPublishResponse,
+  parseCommercialWorkflowLayoutRequest,
+  parseCommercialWorkflowLayoutResponse,
   parseCommercialWriteError,
 } from './commercial-write';
 
@@ -22,6 +28,7 @@ function snapshot() {
     updatedAt: STAMP,
     statusBeforeBlock: 'in_progress',
     primaryBlockItemId: ITEM_ID,
+    plannedAt: null,
     completedAt: null,
   };
 }
@@ -62,6 +69,22 @@ describe('commercial write contracts', () => {
     ).toThrow(/blockingReason/);
   });
 
+  test('plan request accepts a calendar date or null and rejects a timestamp', () => {
+    expect(
+      parseCommercialPlanRequest({ expectedUpdatedAt: STAMP, plannedAt: '2026-04-02' }),
+    ).toEqual({ expectedUpdatedAt: STAMP, plannedAt: '2026-04-02' });
+    expect(parseCommercialPlanRequest({ expectedUpdatedAt: STAMP, plannedAt: null })).toEqual({
+      expectedUpdatedAt: STAMP,
+      plannedAt: null,
+    });
+    expect(() =>
+      parseCommercialPlanRequest({ expectedUpdatedAt: STAMP, plannedAt: '2026-04-02T00:00:00Z' }),
+    ).toThrow(/plannedAt/);
+    expect(() =>
+      parseCommercialPlanRequest({ expectedUpdatedAt: STAMP, plannedAt: '2026-02-31' }),
+    ).toThrow(/calendar date/);
+  });
+
   test('block request keeps an empty reason so the handler can drop it', () => {
     expect(parseCommercialBlockRequest({ expectedUpdatedAt: STAMP, reason: ' \n ' })).toEqual({
       expectedUpdatedAt: STAMP,
@@ -94,6 +117,34 @@ describe('commercial write contracts', () => {
         platform: 'bilibili',
       }),
     ).toThrow(/bvid or videoUrl/);
+  });
+
+  test('a step request keeps force and publish optional', () => {
+    const node = parseCommercialNodeStepRequest({
+      expectedUpdatedAt: STAMP,
+      direction: 'forward',
+    });
+    expect(node.force).toBe(false);
+    expect(node.publish).toBeNull();
+    const stage = parseCommercialStageStepRequest({
+      direction: 'rollback',
+      tokens: [{ nodeId: NODE_ID, expectedUpdatedAt: STAMP }],
+      force: true,
+    });
+    expect(stage.force).toBe(true);
+    expect(stage.tokens).toEqual([{ nodeId: NODE_ID, expectedUpdatedAt: STAMP }]);
+  });
+
+  test('confirmation errors keep the blocks and the planned effects', () => {
+    const parsed = parseCommercialWriteError({
+      error: '有开放阻塞，确认后才会强制推进并标记前置完成',
+      code: 'confirmation_required',
+      names: ['文案'],
+      blocks: [{ nodeId: NODE_ID, nodeName: '文案', reason: '等甲方', itemId: ITEM_ID }],
+      effects: [{ nodeId: NODE_ID, nodeName: '文案', from: 'blocked', to: 'in_progress' }],
+    });
+    expect(parsed.blocks?.[0]?.reason).toBe('等甲方');
+    expect(parsed.effects?.[0]?.to).toBe('in_progress');
   });
 
   test('error body carries the code and the offending names', () => {
@@ -139,5 +190,81 @@ describe('commercial write contracts', () => {
     });
     expect(parsed.monitor.jobs.map((job) => job.jobType)).toEqual(['metadata', 'metrics']);
     expect(parsed.idempotentReplay).toBe(false);
+  });
+
+  test('layout request trims names, caps length, and requires a real change', () => {
+    expect(
+      parseCommercialWorkflowLayoutRequest({
+        nodes: [
+          { nodeId: NODE_ID, expectedUpdatedAt: STAMP, name: '  大纲定稿  ' },
+          {
+            nodeId: 'dddddddd-dddd-4ddd-8ddd-ddddddddd014',
+            expectedUpdatedAt: STAMP,
+          },
+        ],
+      }),
+    ).toEqual({
+      nodes: [
+        { nodeId: NODE_ID, expectedUpdatedAt: STAMP, name: '大纲定稿' },
+        {
+          nodeId: 'dddddddd-dddd-4ddd-8ddd-ddddddddd014',
+          expectedUpdatedAt: STAMP,
+        },
+      ],
+    });
+
+    expect(() =>
+      parseCommercialWorkflowLayoutRequest({
+        nodes: [{ nodeId: NODE_ID, expectedUpdatedAt: STAMP, name: '   ' }],
+      }),
+    ).toThrow(/name/);
+    expect(() =>
+      parseCommercialWorkflowLayoutRequest({
+        nodes: [
+          {
+            nodeId: NODE_ID,
+            expectedUpdatedAt: STAMP,
+            name: 'x'.repeat(COMMERCIAL_WORKFLOW_NODE_NAME_MAX + 1),
+          },
+        ],
+      }),
+    ).toThrow(/at most/);
+    expect(() =>
+      parseCommercialWorkflowLayoutRequest({
+        nodes: [{ nodeId: NODE_ID, expectedUpdatedAt: STAMP }],
+      }),
+    ).toThrow(/at least one/);
+    expect(() =>
+      parseCommercialWorkflowLayoutRequest({
+        nodes: [
+          { nodeId: NODE_ID, expectedUpdatedAt: STAMP, posX: 1 },
+          { nodeId: NODE_ID, expectedUpdatedAt: STAMP, posY: 2 },
+        ],
+      }),
+    ).toThrow(/same nodeId/);
+  });
+
+  test('layout response keeps workflow node fields including coordinates', () => {
+    const parsed = parseCommercialWorkflowLayoutResponse({
+      projectId: PROJECT_ID,
+      updatedAt: STAMP,
+      nodes: [
+        {
+          id: NODE_ID,
+          name: '文案',
+          status: 'blocked',
+          kind: 'stage',
+          templateSlug: 'copy',
+          blockingReason: '等甲方',
+          plannedAt: null,
+          completedAt: null,
+          posX: 120,
+          posY: 40,
+          updatedAt: STAMP,
+        },
+      ],
+    });
+    expect(parsed.nodes[0]?.posX).toBe(120);
+    expect(parsed.nodes[0]?.blockingReason).toBe('等甲方');
   });
 });
