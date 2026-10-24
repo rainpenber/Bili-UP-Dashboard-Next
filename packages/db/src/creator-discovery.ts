@@ -627,6 +627,39 @@ export async function findActivePublishMonitorTargetId(
   return rows[0]?.id ?? null;
 }
 
+/**
+ * Hides a dynamic that duplicates a same-day video for the same creator.
+ * First layer: related_bvid points at an existing video event.
+ * Second layer: normalized title matches a video published on the same UTC day.
+ */
+const PUBLISH_EVENT_DEDUPE_EXCLUSION = `
+  NOT (
+    e.event_kind = 'dynamic'
+    AND (
+      (
+        e.related_bvid IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM creator_publish_events v
+          WHERE v.mid = e.mid
+            AND v.event_kind = 'video'
+            AND v.external_id = e.related_bvid
+        )
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM creator_publish_events v
+        WHERE v.mid = e.mid
+          AND v.event_kind = 'video'
+          AND (v.published_at AT TIME ZONE 'UTC')::date
+            = (e.published_at AT TIME ZONE 'UTC')::date
+          AND lower(regexp_replace(v.title_snapshot, '[^[:alnum:]一-龥]', '', 'g'))
+            = lower(regexp_replace(e.title_snapshot, '[^[:alnum:]一-龥]', '', 'g'))
+      )
+    )
+  )
+`;
+
 export async function listCreatorPublishEvents(
   sql: Queryable,
   input: {
@@ -646,17 +679,7 @@ export async function listCreatorPublishEvents(
     WHERE e.mid = ${input.mid}
       AND (${from}::timestamptz IS NULL OR e.published_at >= ${from})
       AND (${to}::timestamptz IS NULL OR e.published_at <= ${to})
-      AND NOT (
-        e.event_kind = 'dynamic'
-        AND e.related_bvid IS NOT NULL
-        AND EXISTS (
-          SELECT 1
-          FROM creator_publish_events v
-          WHERE v.mid = e.mid
-            AND v.event_kind = 'video'
-            AND v.external_id = e.related_bvid
-        )
-      )
+      AND ${sql.unsafe(PUBLISH_EVENT_DEDUPE_EXCLUSION)}
   `;
   const rows = await sql<EventSqlRow[]>`
     SELECT
@@ -666,17 +689,7 @@ export async function listCreatorPublishEvents(
     WHERE e.mid = ${input.mid}
       AND (${from}::timestamptz IS NULL OR e.published_at >= ${from})
       AND (${to}::timestamptz IS NULL OR e.published_at <= ${to})
-      AND NOT (
-        e.event_kind = 'dynamic'
-        AND e.related_bvid IS NOT NULL
-        AND EXISTS (
-          SELECT 1
-          FROM creator_publish_events v
-          WHERE v.mid = e.mid
-            AND v.event_kind = 'video'
-            AND v.external_id = e.related_bvid
-        )
-      )
+      AND ${sql.unsafe(PUBLISH_EVENT_DEDUPE_EXCLUSION)}
     ORDER BY e.published_at DESC, e.id DESC
     LIMIT ${input.limit} OFFSET ${offset}
   `;

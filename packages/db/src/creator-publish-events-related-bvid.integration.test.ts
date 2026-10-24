@@ -92,7 +92,7 @@ describe('creator publish event related bvid', () => {
     const listed = await listCreatorPublishEvents(sql, { mid: MID, limit: 50 });
     expect(listed.totalItems).toBe(2);
     expect(listed.items).toHaveLength(2);
-    expect(listed.items.map((e) => e.externalId)).toEqual([VIDEO_BVID, '900000000000000002']);
+    expect(listed.items.map((e) => e.externalId)).toEqual(['900000000000000002', VIDEO_BVID]);
     expect(listed.items[0]?.relatedBvid).toBeNull();
   });
 
@@ -168,6 +168,98 @@ describe('creator publish event related bvid', () => {
     });
     expect(again.created).toBe(false);
     expect(again.event.relatedBvid).toBe('BV1original');
+  });
+
+  test('hides a same-day dynamic whose normalized title matches a video', async () => {
+    if (!sql) return;
+    const mid = '496445444';
+    const now = new Date('2026-10-24T00:00:00.000Z');
+    await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid,
+      eventKind: 'video',
+      externalId: 'BV1aa411c7m1',
+      publishedAt: new Date('2026-10-11T10:00:00.000Z'),
+      titleSnapshot: 'Hello, World! 测试',
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+    await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid,
+      eventKind: 'dynamic',
+      externalId: '900000000000000201',
+      publishedAt: new Date('2026-10-11T11:00:00.000Z'),
+      titleSnapshot: 'hello，world   测试',
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+
+    const listed = await listCreatorPublishEvents(sql, { mid, limit: 50 });
+    expect(listed.totalItems).toBe(1);
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0]?.eventKind).toBe('video');
+    expect(listed.items[0]?.externalId).toBe('BV1aa411c7m1');
+  });
+
+  test('keeps a same-day dynamic with a different title', async () => {
+    if (!sql) return;
+    const mid = '496445555';
+    const now = new Date('2026-10-24T00:00:00.000Z');
+    await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid,
+      eventKind: 'video',
+      externalId: 'BV1bb411c7m2',
+      publishedAt: new Date('2026-10-11T10:00:00.000Z'),
+      titleSnapshot: '视频：A',
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+    await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid,
+      eventKind: 'dynamic',
+      externalId: '900000000000000202',
+      publishedAt: new Date('2026-10-11T11:00:00.000Z'),
+      titleSnapshot: '动态：B',
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+
+    const listed = await listCreatorPublishEvents(sql, { mid, limit: 50 });
+    expect(listed.totalItems).toBe(2);
+    expect(listed.items).toHaveLength(2);
+  });
+
+  test('keeps same-title video and dynamic on different UTC days', async () => {
+    if (!sql) return;
+    const mid = '496445666';
+    const now = new Date('2026-10-24T00:00:00.000Z');
+    await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid,
+      eventKind: 'video',
+      externalId: 'BV1cc411c7m3',
+      publishedAt: new Date('2026-10-12T23:30:00.000Z'),
+      titleSnapshot: '同名标题',
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+    await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid,
+      eventKind: 'dynamic',
+      externalId: '900000000000000203',
+      publishedAt: new Date('2026-10-13T00:30:00.000Z'),
+      titleSnapshot: '同名标题',
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+
+    const listed = await listCreatorPublishEvents(sql, { mid, limit: 50 });
+    expect(listed.totalItems).toBe(2);
+    expect(listed.items).toHaveLength(2);
   });
 
   test('new insert with related bvid reports created and stores the bvid', async () => {

@@ -8,6 +8,8 @@
  */
 
 const BVID = /^BV[1-9A-HJ-NP-Za-km-z]{10}$/;
+const BVID_IN_TEXT = /BV[1-9A-HJ-NP-Za-km-z]{10}/;
+const MAX_MAJOR_DEPTH = 6;
 const DYNAMIC_ID = /^[1-9]\d*$/;
 const NON_NEGATIVE_INTEGER = /^(0|[1-9]\d*)$/;
 
@@ -104,16 +106,92 @@ function dynamicTextFromModules(modules: Record<string, unknown> | null): string
   return fromDesc ? fromDesc.slice(0, 500) : '';
 }
 
+type MajorBvidCandidates = {
+  keyed: string[];
+  text: string[];
+};
+
+function collectMajorBvidCandidates(major: Record<string, unknown>): MajorBvidCandidates {
+  const keyed: string[] = [];
+  const text: string[] = [];
+  const seen = new Set<unknown>();
+
+  const walk = (node: unknown, depth: number): void => {
+    if (node === null || typeof node !== 'object') return;
+    if (seen.has(node)) return;
+    seen.add(node);
+    if (depth > MAX_MAJOR_DEPTH) return;
+    if (Array.isArray(node)) {
+      for (const entry of node) walk(entry, depth + 1);
+      return;
+    }
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      if (typeof value === 'string') {
+        if (key.toLowerCase() === 'bvid') keyed.push(value);
+        text.push(value);
+      } else {
+        walk(value, depth + 1);
+      }
+    }
+  };
+
+  walk(major, 0);
+  return { keyed, text };
+}
+
+function firstValidBvid(values: string[]): string | null {
+  for (const value of values) {
+    const bvid = value.trim();
+    if (BVID.test(bvid)) return bvid;
+  }
+  return null;
+}
+
+function firstBvidInText(values: string[]): string | null {
+  for (const value of values) {
+    const match = BVID_IN_TEXT.exec(value);
+    if (match && BVID.test(match[0])) return match[0];
+  }
+  return null;
+}
+
+function dynamicBvidFromMajor(dynamic: Record<string, unknown>): string | null {
+  const major = optionalRecord(dynamic.major, 'module_dynamic.major');
+  if (!major) return null;
+  const archive = optionalRecord(major.archive, 'module_dynamic.major.archive');
+  const archiveBvid = archive ? optionalString(archive.bvid) : null;
+  if (archiveBvid && BVID.test(archiveBvid)) return archiveBvid;
+  const opus = optionalRecord(major.opus, 'module_dynamic.major.opus');
+  const opusBvid = opus ? optionalString(opus.bvid) : null;
+  if (opusBvid && BVID.test(opusBvid)) return opusBvid;
+  const candidates = collectMajorBvidCandidates(major);
+  return firstValidBvid(candidates.keyed) ?? firstBvidInText(candidates.text);
+}
+
+function collectDescJumpUrls(desc: Record<string, unknown>): string[] {
+  const urls: string[] = [];
+  const direct = optionalString(desc.jump_url);
+  if (direct) urls.push(direct);
+  const nodes = desc.rich_text_nodes;
+  if (Array.isArray(nodes)) {
+    for (const node of nodes) {
+      if (typeof node !== 'object' || node === null || Array.isArray(node)) continue;
+      const url = optionalString((node as Record<string, unknown>).jump_url);
+      if (url) urls.push(url);
+    }
+  }
+  return urls;
+}
+
 function dynamicBvidFromModules(modules: Record<string, unknown> | null): string | null {
   if (!modules) return null;
   const dynamic = optionalRecord(modules.module_dynamic, 'module_dynamic');
   if (!dynamic) return null;
-  const major = optionalRecord(dynamic.major, 'module_dynamic.major');
-  if (!major) return null;
-  const archive = optionalRecord(major.archive, 'module_dynamic.major.archive');
-  if (!archive) return null;
-  const bvid = optionalString(archive.bvid);
-  return bvid && BVID.test(bvid) ? bvid : null;
+  const majorBvid = dynamicBvidFromMajor(dynamic);
+  if (majorBvid) return majorBvid;
+  const desc = optionalRecord(dynamic.desc, 'module_dynamic.desc');
+  if (!desc) return null;
+  return firstBvidInText(collectDescJumpUrls(desc));
 }
 
 function dynamicTitleFromModules(modules: Record<string, unknown> | null): string {
