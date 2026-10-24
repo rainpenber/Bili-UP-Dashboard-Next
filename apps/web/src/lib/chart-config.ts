@@ -37,9 +37,9 @@ export const FOLLOWER_SAMPLE_SERIES_NAME = '粉丝数';
 /** Independent scatter series for publish markers (not markPoint — avoids stuck scale/opacity=0). */
 export const FOLLOWER_PUBLISH_SERIES_NAME = '事件';
 
-/** Hollow event marker size (idle / hover). */
-export const FOLLOWER_EVENT_SYMBOL_SIZE = 11;
-export const FOLLOWER_EVENT_SYMBOL_HOVER_SIZE = 14;
+/** Solid event marker size (idle / hover). */
+export const FOLLOWER_EVENT_SYMBOL_SIZE = 6;
+export const FOLLOWER_EVENT_SYMBOL_HOVER_SIZE = 10;
 
 function lineSeries(
   name: string,
@@ -520,19 +520,19 @@ export function buildFollowerOptionDetailed(
           clip: true,
           cursor: 'pointer',
           itemStyle: {
-            color: 'transparent',
+            color: eventColor,
             opacity: 1,
             borderColor: eventColor,
-            borderWidth: 2,
+            borderWidth: 0,
           },
           emphasis: {
             focus: 'self',
             scale: FOLLOWER_EVENT_SYMBOL_HOVER_SIZE / FOLLOWER_EVENT_SYMBOL_SIZE,
             itemStyle: {
-              color: 'transparent',
+              color: eventColor,
               opacity: 1,
               borderColor: eventColor,
-              borderWidth: 2,
+              borderWidth: 0,
             },
           },
           blur: { itemStyle: { opacity: 1 } },
