@@ -9,10 +9,12 @@ import { formatFullLocalTime } from '@/lib/format-time';
 
 mock.module('echarts-for-react', () => ({
   default: React.forwardRef(function MockECharts(
-    _props: { option?: unknown },
+    props: { option?: unknown },
     ref: React.Ref<HTMLDivElement>,
   ) {
-    return <div ref={ref} data-testid="mock-echart" />;
+    return (
+      <div ref={ref} data-testid="mock-echart" data-option={JSON.stringify(props.option ?? null)} />
+    );
   }),
 }));
 
@@ -309,12 +311,180 @@ describe('video detail author card', () => {
   });
 });
 
+function syncOkBody(kind: 'uploads' | 'dynamics') {
+  if (kind === 'uploads') {
+    return {
+      mid: MID,
+      cached: true,
+      lastSyncedAt: SAMPLED_AT,
+      lastError: null,
+      videoCount: 0,
+      eventsCreated: 0,
+      pagesFetched: 0,
+      stale: false,
+      ttlMs: 21_600_000,
+    };
+  }
+  return {
+    mid: MID,
+    cached: true,
+    lastSyncedAt: SAMPLED_AT,
+    lastError: null,
+    dynamicCount: 3,
+    eventsCreated: 3,
+    createdCount: 0,
+    pagesFetched: 1,
+    stale: false,
+    ttlMs: 21_600_000,
+  };
+}
+
+describe('creator detail follower chart (WP-R2-27B)', () => {
+  test('loads all metrics, syncs dynamics, hollow events, and allEvents URL toggle', async () => {
+    const urls: string[] = [];
+    const methods: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      urls.push(url);
+      methods.push((init?.method ?? 'GET').toUpperCase());
+      if (url.includes('/dynamics/sync')) return jsonResponse(syncOkBody('dynamics'));
+      if (url.includes('/uploads/sync')) return jsonResponse(syncOkBody('uploads'));
+      if (url.includes('/publish-events')) {
+        return jsonResponse({
+          page: 1,
+          pageSize: 200,
+          totalItems: 2,
+          totalPages: 1,
+          items: [
+            {
+              id: 'e-early',
+              mid: MID,
+              eventKind: 'video',
+              externalId: 'BV1earlyxxxxxx',
+              publishedAt: '2022-09-15T04:00:00.000Z',
+              titleSnapshot: '很早的视频',
+              firstDiscoveredAt: SAMPLED_AT,
+              source: 'bilibili',
+              monitored: true,
+              monitoredTargetId: '11111111-1111-4111-8111-111111111111',
+              navigable: true,
+            },
+            {
+              id: 'e-near',
+              mid: MID,
+              eventKind: 'dynamic',
+              externalId: '1241488471951933462',
+              publishedAt: SAMPLED_AT,
+              titleSnapshot: '抽PS5和GTA6啦!',
+              firstDiscoveredAt: SAMPLED_AT,
+              source: 'bilibili',
+              monitored: false,
+              monitoredTargetId: null,
+              navigable: false,
+            },
+          ],
+        });
+      }
+      if (url.includes('/videos')) return jsonResponse({ mid: MID, total: 0, items: [] });
+      if (url.includes('/metrics')) {
+        return jsonResponse({ mid: MID, totalItems: 1, items: [followerPoint()] });
+      }
+      if (url.includes('/cards/')) return jsonResponse({ error: 'not found' }, 404);
+      return jsonResponse(creatorDetail());
+    }) as typeof fetch;
+
+    renderAt(
+      <MemoryRouter initialEntries={[`/monitoring/creators/${MID}`]}>
+        <Routes>
+          <Route path="/monitoring/creators/:mid" element={<MonitoringCreatorDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const chart = await screen.findByTestId('follower-chart');
+    expect(urls.some((url) => url.includes(`/creators/${MID}/metrics?all=1`))).toBe(true);
+    await waitFor(() =>
+      expect(
+        urls.some((url) => url.includes(`/creators/${MID}/dynamics/sync`)) &&
+          methods.some((m, i) => m === 'POST' && urls[i]?.includes('/dynamics/sync')),
+      ).toBe(true),
+    );
+
+    expect(within(chart).queryByTestId('follower-chart-legend-hint')).toBeNull();
+    expect(within(chart).queryByTestId('follower-chart-older-events')).toBeNull();
+    const toggle = within(chart).getByTestId('follower-all-events-switch');
+    expect(toggle.getAttribute('data-state')).toBe('unchecked');
+
+    const option = JSON.parse(
+      within(chart).getByTestId('mock-echart').getAttribute('data-option') ?? 'null',
+    ) as {
+      toolbox?: unknown;
+      series?: {
+        name?: string;
+        type?: string;
+        itemStyle?: { color?: string; borderWidth?: number };
+        data?: unknown[];
+      }[];
+    };
+    expect(option.toolbox).toBeUndefined();
+    const publish = option.series?.find((s) => s.name === '事件');
+    expect(publish?.type).toBe('scatter');
+    expect(publish?.itemStyle?.color).toBe('transparent');
+    expect(publish?.itemStyle?.borderWidth).toBe(2);
+    // Default: early 2022 event is outside the sample span → only same-day dynamic.
+    expect(publish?.data).toHaveLength(1);
+
+    fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(toggle.getAttribute('data-state')).toBe('checked');
+    });
+    await waitFor(() => {
+      const next = JSON.parse(
+        within(chart).getByTestId('mock-echart').getAttribute('data-option') ?? 'null',
+      ) as { series?: { name?: string; data?: unknown[] }[] };
+      const allPublish = next.series?.find((s) => s.name === '事件');
+      expect(allPublish?.data).toHaveLength(2);
+    });
+  });
+
+  test('restores 显示全部事件 from ?allEvents=1', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/dynamics/sync')) return jsonResponse(syncOkBody('dynamics'));
+      if (url.includes('/uploads/sync')) return jsonResponse(syncOkBody('uploads'));
+      if (url.includes('/publish-events')) {
+        return jsonResponse({ page: 1, pageSize: 200, totalItems: 0, totalPages: 0, items: [] });
+      }
+      if (url.includes('/videos')) return jsonResponse({ mid: MID, total: 0, items: [] });
+      if (url.includes('/metrics')) {
+        return jsonResponse({ mid: MID, totalItems: 1, items: [followerPoint()] });
+      }
+      if (url.includes('/cards/')) return jsonResponse({ error: 'not found' }, 404);
+      return jsonResponse(creatorDetail());
+    }) as typeof fetch;
+
+    renderAt(
+      <MemoryRouter initialEntries={[`/monitoring/creators/${MID}?allEvents=1`]}>
+        <Routes>
+          <Route path="/monitoring/creators/:mid" element={<MonitoringCreatorDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const chart = await screen.findByTestId('follower-chart');
+    expect(within(chart).getByTestId('follower-all-events-switch').getAttribute('data-state')).toBe(
+      'checked',
+    );
+  });
+});
+
 describe('creator detail video list', () => {
   test('renders covers, titles, publish time, latest counts, total, and the next page', async () => {
     const urls: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
       urls.push(url);
+      if (url.includes('/dynamics/sync')) return jsonResponse(syncOkBody('dynamics'));
       if (url.includes('/uploads/sync')) {
         return jsonResponse({
           mid: MID,
@@ -385,6 +555,7 @@ describe('creator detail video list', () => {
   test('shows an empty state without a zero-count header', async () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.includes('/dynamics/sync')) return jsonResponse(syncOkBody('dynamics'));
       if (url.includes('/uploads/sync')) {
         return jsonResponse({
           mid: MID,
@@ -432,6 +603,7 @@ describe('creator detail video list', () => {
     let videosCalls = 0;
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.includes('/dynamics/sync')) return jsonResponse(syncOkBody('dynamics'));
       if (url.includes('/uploads/sync')) {
         return jsonResponse({
           mid: MID,

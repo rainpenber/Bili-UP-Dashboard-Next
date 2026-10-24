@@ -1,8 +1,13 @@
 import { formatShanghaiDateTime } from '@/lib/format-time';
 
-/** Default publish-event window on the follower chart (real dates, not sample snap). */
-export const FOLLOWER_EVENT_WINDOW_DAYS = 90;
-export const FOLLOWER_EVENT_WINDOW_MS = FOLLOWER_EVENT_WINDOW_DAYS * 86_400_000;
+/** Default dataZoom window on the follower chart (last N days from last sample). */
+export const FOLLOWER_VIEW_WINDOW_DAYS = 90;
+export const FOLLOWER_VIEW_WINDOW_MS = FOLLOWER_VIEW_WINDOW_DAYS * 86_400_000;
+
+/** @deprecated Prefer FOLLOWER_VIEW_WINDOW_DAYS — kept for call-site compatibility. */
+export const FOLLOWER_EVENT_WINDOW_DAYS = FOLLOWER_VIEW_WINDOW_DAYS;
+/** @deprecated Prefer FOLLOWER_VIEW_WINDOW_MS. */
+export const FOLLOWER_EVENT_WINDOW_MS = FOLLOWER_VIEW_WINDOW_MS;
 
 const SHANGHAI = 'Asia/Shanghai';
 
@@ -13,6 +18,19 @@ export type FollowerChartPublishEvent = {
   externalId: string;
   navigable: boolean;
   monitoredTargetId: string | null;
+  /** Same-origin cover URL for video tooltips; null → icon placeholder. */
+  coverProxyUrl?: string | null;
+};
+
+export type FollowerEventTooltipItem = {
+  publishedAt: string;
+  eventKind: 'video' | 'dynamic';
+  titleSnapshot: string;
+  externalId: string;
+  coverProxyUrl: string | null;
+  /** SPA path when the tooltip / marker is clickable; null when unbound. */
+  navHref: string | null;
+  label: string;
 };
 
 export type FollowerEventDayBucket = {
@@ -22,7 +40,10 @@ export type FollowerEventDayBucket = {
   xMs: number;
   /** Tooltip lines: `2026-08-28 13:29 发了动态《…》` */
   labels: string[];
+  items: FollowerEventTooltipItem[];
   navigableExternalId: string | null;
+  /** Preferred navigation target for the day marker / tooltip. */
+  navHref: string | null;
 };
 
 /** Asia/Shanghai calendar day key for same-day aggregation. */
@@ -60,17 +81,33 @@ export function eventLabelLine(event: FollowerChartPublishEvent): string {
   return `${formatShanghaiDateMinute(event.publishedAt)} ${kind}`;
 }
 
+/** Resolve SPA href for a publish event; null when there is no bound detail object. */
+export function followerEventNavHref(event: FollowerChartPublishEvent): string | null {
+  if (!event.externalId) return null;
+  if (event.eventKind === 'dynamic') {
+    return `/monitoring/dynamics/${encodeURIComponent(event.externalId)}`;
+  }
+  // Videos only when monitored (navigable); unmonitored uploads have no detail page.
+  if (event.navigable) {
+    return `/monitoring/videos/${encodeURIComponent(event.externalId)}`;
+  }
+  return null;
+}
+
 export type EventWindowPartition<T extends { publishedAt: string }> = {
   inWindow: T[];
   olderCount: number;
   windowStartMs: number;
 };
 
-/** Keep events with publishedAt >= now - windowDays; count the rest (not silently dropped). */
+/**
+ * Keep events with publishedAt >= now - windowDays; count the rest (not silently dropped).
+ * @deprecated Prefer partitionEventsBySampleRange / showAllEvents — kept for unit tests.
+ */
 export function partitionEventsByWindow<T extends { publishedAt: string }>(
   events: T[],
   nowMs: number,
-  windowMs: number = FOLLOWER_EVENT_WINDOW_MS,
+  windowMs: number = FOLLOWER_VIEW_WINDOW_MS,
 ): EventWindowPartition<T> {
   const windowStartMs = nowMs - windowMs;
   const inWindow: T[] = [];
@@ -82,6 +119,35 @@ export function partitionEventsByWindow<T extends { publishedAt: string }>(
     else olderCount += 1;
   }
   return { inWindow, olderCount, windowStartMs };
+}
+
+export type SampleRangePartition<T extends { publishedAt: string }> = {
+  inRange: T[];
+  outsideCount: number;
+};
+
+/**
+ * Default chart mode: only events that fall inside the follower-sample time span.
+ * When there are no samples, nothing is in-range (toggle 「显示全部事件」 to plot them).
+ */
+export function partitionEventsBySampleRange<T extends { publishedAt: string }>(
+  events: T[],
+  sampleTimesMs: number[],
+): SampleRangePartition<T> {
+  if (sampleTimesMs.length === 0) {
+    return { inRange: [], outsideCount: events.length };
+  }
+  const minS = Math.min(...sampleTimesMs);
+  const maxS = Math.max(...sampleTimesMs);
+  const inRange: T[] = [];
+  let outsideCount = 0;
+  for (const event of events) {
+    const t = Date.parse(event.publishedAt);
+    if (!Number.isFinite(t)) continue;
+    if (t >= minS && t <= maxS) inRange.push(event);
+    else outsideCount += 1;
+  }
+  return { inRange, outsideCount };
 }
 
 /**
@@ -101,12 +167,32 @@ export function aggregateFollowerEventsByDay(
       dayKey,
       xMs,
       labels: [],
+      items: [],
       navigableExternalId: null,
+      navHref: null,
     };
     existing.xMs = Math.min(existing.xMs, xMs);
-    existing.labels.push(eventLabelLine(event));
+    const label = eventLabelLine(event);
+    existing.labels.push(label);
+    const navHref = followerEventNavHref(event);
+    existing.items.push({
+      publishedAt: event.publishedAt,
+      eventKind: event.eventKind,
+      titleSnapshot: event.titleSnapshot?.trim() || event.externalId,
+      externalId: event.externalId,
+      coverProxyUrl: event.coverProxyUrl ?? null,
+      navHref,
+      label,
+    });
     if (event.navigable && event.externalId && !existing.navigableExternalId) {
       existing.navigableExternalId = event.externalId;
+    }
+    // Prefer first video nav, else first dynamic nav.
+    if (navHref && !existing.navHref) {
+      existing.navHref = navHref;
+    } else if (navHref && event.eventKind === 'video' && existing.navHref?.includes('/dynamics/')) {
+      existing.navHref = navHref;
+      if (event.navigable) existing.navigableExternalId = event.externalId;
     }
     buckets.set(dayKey, existing);
   }
@@ -144,21 +230,19 @@ export type FollowerTimeDomain = {
 };
 
 /**
- * X domain: left at earliest in-window event (or sample), right at today / latest point.
- * Does not extend left into empty pre-event space before the first in-window event date.
+ * X domain from samples + plotted events.
+ * When showAllEvents, earliest event can pull the axis back to 2022/2023;
+ * otherwise the domain stays within the sample span (plus in-range events).
  */
 export function buildFollowerTimeDomain(args: {
   sampleTimesMs: number[];
   eventTimesMs: number[];
   nowMs: number;
-  windowStartMs: number;
 }): FollowerTimeDomain {
-  const { sampleTimesMs, eventTimesMs, nowMs, windowStartMs } = args;
-  const samplesInWindow = sampleTimesMs.filter((t) => t >= windowStartMs);
-  const candidatesMin = [...eventTimesMs, ...samplesInWindow];
+  const { sampleTimesMs, eventTimesMs, nowMs } = args;
+  const candidatesMin = [...eventTimesMs, ...sampleTimesMs];
   const candidatesMax = [...eventTimesMs, ...sampleTimesMs, nowMs];
-  const minMs =
-    candidatesMin.length > 0 ? Math.min(...candidatesMin) : Math.min(windowStartMs, nowMs);
+  const minMs = candidatesMin.length > 0 ? Math.min(...candidatesMin) : nowMs;
   const maxMs = Math.max(...candidatesMax, minMs);
   return { minMs, maxMs };
 }

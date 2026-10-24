@@ -1,6 +1,7 @@
 import type {
   CreatorDiscoveryConfig,
   CreatorDiscoveryConfigPutRequest,
+  CreatorDynamicsSyncResponse,
   CreatorListItem,
   CreatorPublishEvent,
   CreatorUploadsSyncResponse,
@@ -89,7 +90,8 @@ export function fetchCreators(params: {
 }
 
 export function fetchCreatorMetrics(mid: string): Promise<{ items: CreatorMetricPoint[] }> {
-  return getJson(`/creators/${encodeURIComponent(mid)}/metrics?limit=500`);
+  // WP-R2-27B: full history for the follower chart; API caps at 20000 (all=1).
+  return getJson(`/creators/${encodeURIComponent(mid)}/metrics?all=1`);
 }
 
 export function fetchCreatorDiscovery(mid: string): Promise<CreatorDiscoveryConfig> {
@@ -138,6 +140,27 @@ export function syncCreatorUploads(
   return postJson(`/creators/${encodeURIComponent(mid)}/uploads/sync`, {
     force: options.force === true,
   });
+}
+
+/**
+ * Background dynamics sync (6h TTL). Returns null when the route is missing
+ * so callers can degrade silently without toasting.
+ */
+export async function syncCreatorDynamics(
+  mid: string,
+  options: { force?: boolean } = {},
+): Promise<CreatorDynamicsSyncResponse | null> {
+  const res = await fetch(`${API_BASE}/creators/${encodeURIComponent(mid)}/dynamics/sync`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ force: options.force === true }),
+  });
+  if (res.status === 404 || res.status === 405 || res.status === 501) return null;
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<CreatorDynamicsSyncResponse>;
 }
 
 export function fetchCreatorVideos(
