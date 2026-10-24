@@ -18,6 +18,7 @@ import type {
   CreatorMetricPoint,
   DynamicMetricPoint,
 } from '@studio/contracts';
+import { MONITOR_MAX_PAGE_SIZE } from '@studio/contracts';
 
 const API_BASE = import.meta.env.VITE_MONITOR_API_BASE ?? '/api/v1/monitor';
 
@@ -111,7 +112,7 @@ export function fetchCreatorPublishEvents(
 ): Promise<Paginated<CreatorPublishEvent>> {
   const qs = new URLSearchParams({
     page: '1',
-    pageSize: String(params.pageSize ?? 200),
+    pageSize: String(params.pageSize ?? MONITOR_MAX_PAGE_SIZE),
   });
   return getJson(`/creators/${encodeURIComponent(mid)}/publish-events?${qs}`);
 }

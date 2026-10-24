@@ -116,11 +116,12 @@ export type MonitorCardListQuery = {
    */
   onlyMine: boolean;
   /**
-   * Video-only. Default false: only videos with a non-deleted monitor target
-   * or a commercial project reference. Pass true (`includeUnmonitored=1`) to
-   * list every videos row (ops / backfill debugging).
+   * Video-only. Omitted: `monitor=all` lists every videos row, while
+   * active/paused/unmonitored keep their filter. False explicitly hides videos
+   * without a monitor target or commercial project reference; true
+   * (`includeUnmonitored=1`) always lists every videos row.
    */
-  includeUnmonitored: boolean;
+  includeUnmonitored?: boolean | undefined;
 };
 
 export type PinVideoRequest = {
@@ -312,8 +313,8 @@ function boundedText(
   return text;
 }
 
-function parseIncludeUnmonitoredFlag(raw: string | undefined): boolean {
-  if (raw === undefined || raw === null || raw.trim() === '') return false;
+function parseIncludeUnmonitoredFlag(raw: string | undefined): boolean | undefined {
+  if (raw === undefined || raw === null || raw.trim() === '') return undefined;
   const value = raw.trim().toLowerCase();
   return value === '1' || value === 'true' || value === 'yes';
 }

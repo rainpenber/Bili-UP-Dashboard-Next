@@ -130,16 +130,18 @@ function CreatorFollowerCharts({
   const sampledAtList = useMemo(() => points.map((p) => p.sampledAt), [points]);
   const mappedPublishEvents = useMemo<FollowerChartPublishEvent[]>(
     () =>
-      publishEvents.map((event) => ({
-        publishedAt: event.publishedAt,
-        eventKind: event.eventKind,
-        titleSnapshot: event.titleSnapshot,
-        externalId: event.externalId,
-        navigable: event.navigable,
-        monitoredTargetId: event.monitoredTargetId,
-        coverProxyUrl:
-          event.eventKind === 'video' ? (coverByBvid?.get(event.externalId) ?? null) : null,
-      })),
+      [...publishEvents]
+        .sort((a, b) => Date.parse(a.publishedAt) - Date.parse(b.publishedAt))
+        .map((event) => ({
+          publishedAt: event.publishedAt,
+          eventKind: event.eventKind,
+          titleSnapshot: event.titleSnapshot,
+          externalId: event.externalId,
+          navigable: event.navigable,
+          monitoredTargetId: event.monitoredTargetId,
+          coverProxyUrl:
+            event.eventKind === 'video' ? (coverByBvid?.get(event.externalId) ?? null) : null,
+        })),
     [publishEvents, coverByBvid],
   );
 

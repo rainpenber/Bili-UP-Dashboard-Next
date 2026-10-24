@@ -3,7 +3,6 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { useMonitorCardQuery } from '@/api/hooks/use-monitor-card-queries';
 import {
   useCreatorDetailQuery,
-  useCreatorDynamicsAutoSync,
   useCreatorMetricsDetailQuery,
   useCreatorPublishEventsQuery,
 } from '@/api/hooks/use-monitor-queries';
@@ -34,8 +33,6 @@ export function MonitoringCreatorDetailPage() {
   const cardQuery = useMonitorCardQuery('creator', mid);
   const metricsQuery = useCreatorMetricsDetailQuery(mid);
   const publishEventsQuery = useCreatorPublishEventsQuery(mid);
-  // Silent 6h-TTL dynamics sync so fan-chart event dots include recent 动态.
-  useCreatorDynamicsAutoSync(mid);
   const monitorToolbar = cardQuery.isLoading ? (
     <LoadingListSkeleton rows={1} />
   ) : cardQuery.isError ? (
