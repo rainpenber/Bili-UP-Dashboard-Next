@@ -1,5 +1,6 @@
 import {
   MonitorContractError,
+  bilibiliMediaProxyUrl,
   deriveMonitorCardState,
   monitorCardDisplayName,
   parseMonitorCard,
@@ -35,6 +36,8 @@ export function toMonitorCard(row: MonitorCardRow): MonitorCard {
     title: row.title,
     category: row.category,
     imageAssetId: row.imageAssetId,
+    imageUrl: row.imageUrl,
+    imageProxyUrl: bilibiliMediaProxyUrl(row.imageUrl),
     mid: row.mid,
     displayName: monitorCardDisplayName(row.title, row.targetLabel, row.externalId),
     hasEntity: row.hasEntity,
@@ -93,6 +96,7 @@ export function registerMonitorCardRoutes(app: Hono, db: Sql): void {
         category: c.req.query('category'),
         sort: c.req.query('sort'),
         onlyMine: c.req.query('onlyMine'),
+        includeUnmonitored: c.req.query('includeUnmonitored'),
       });
       let ownerMid: string | null = null;
       if (query.onlyMine && query.type === 'video') {
@@ -112,6 +116,7 @@ export function registerMonitorCardRoutes(app: Hono, db: Sql): void {
         ...query,
         sort: query.sort,
         ownerMid,
+        includeUnmonitored: query.includeUnmonitored,
       });
       const totalPages = Math.max(1, Math.ceil(listed.totalItems / query.pageSize));
       return c.json(

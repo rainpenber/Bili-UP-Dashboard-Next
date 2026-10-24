@@ -36,6 +36,8 @@ function card(patch: Record<string, unknown> = {}) {
     title: '离线视频',
     category: '游戏',
     imageAssetId: null,
+    imageUrl: null,
+    imageProxyUrl: null,
     mid: null,
     displayName: '离线视频',
     hasEntity: true,

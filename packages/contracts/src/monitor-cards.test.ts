@@ -125,6 +125,8 @@ describe('monitor card contracts', () => {
         title: null,
         category: null,
         imageAssetId: null,
+        imageUrl: null,
+        imageProxyUrl: null,
         mid: null,
         displayName: 'BV1xx411c7mD',
         hasEntity: true,

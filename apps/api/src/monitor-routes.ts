@@ -10,6 +10,7 @@ import {
   parseDynamicIdParam,
   parseDynamicListQuery,
   parseIsoDateParam,
+  parseMetricsAllFlag,
   parseMetricsLimit,
   parseMonitorPage,
   parseMonitorPageSize,
@@ -629,7 +630,16 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
       const mid = c.req.param('mid');
       const from = parseIsoDateParam(c.req.query('from'), 'from');
       const to = parseIsoDateParam(c.req.query('to'), 'to');
-      const limit = parseMetricsLimit(c.req.query('limit'));
+      const all = parseMetricsAllFlag(c.req.query('all'));
+      const limit = parseMetricsLimit(c.req.query('limit'), { all });
+      const countRows = await db<{ count: string }[]>`
+        SELECT count(*)::text AS count
+        FROM creator_follower_samples
+        WHERE mid = ${mid}
+          AND (${from}::timestamptz IS NULL OR sampled_at >= ${from})
+          AND (${to}::timestamptz IS NULL OR sampled_at <= ${to})
+      `;
+      const totalItems = Number(countRows[0]?.count ?? '0');
       const rows = await db`
         SELECT sampled_at, raw_time, source_timezone, timestamp_precision, follower_count
         FROM (
@@ -657,7 +667,7 @@ export function createMonitorRoutes(db: Sql, refreshDeps: MonitorRefreshOptions 
         timestampPrecision: r.timestamp_precision,
         followerCount: bigintToJson(r.follower_count)!,
       }));
-      return c.json({ mid: mid.toString(), limit, items });
+      return c.json({ mid: mid.toString(), limit, totalItems, items });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'bad request' }, 400);
     }

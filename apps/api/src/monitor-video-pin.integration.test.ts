@@ -58,7 +58,7 @@ describe('PATCH /videos/:bvid/pin', () => {
     const listed = parseMonitorCardList(
       await (
         await http().request(
-          '/api/v1/monitor/cards?type=video&category=游戏&page=1&pageSize=8&sort=published_desc',
+          '/api/v1/monitor/cards?type=video&category=游戏&page=1&pageSize=8&sort=published_desc&includeUnmonitored=1',
         )
       ).json(),
     );
@@ -92,7 +92,7 @@ describe('PATCH /videos/:bvid/pin', () => {
     const desc = parseMonitorCardList(
       await (
         await http().request(
-          '/api/v1/monitor/cards?type=video&category=游戏&page=1&pageSize=8&sort=published_desc',
+          '/api/v1/monitor/cards?type=video&category=游戏&page=1&pageSize=8&sort=published_desc&includeUnmonitored=1',
         )
       ).json(),
     );
@@ -100,7 +100,7 @@ describe('PATCH /videos/:bvid/pin', () => {
     const asc = parseMonitorCardList(
       await (
         await http().request(
-          '/api/v1/monitor/cards?type=video&category=游戏&page=1&pageSize=8&sort=published_asc',
+          '/api/v1/monitor/cards?type=video&category=游戏&page=1&pageSize=8&sort=published_asc&includeUnmonitored=1',
         )
       ).json(),
     );

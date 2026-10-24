@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_c4df6eeeee5f",
+  "databaseName": "wp_r2_11_c3855a313d1f",
   "retainedDatabase": true,
-  "registeredCount": 81,
-  "inventoryCount": 81,
-  "executedCount": 81,
-  "httpSuccessCount": 81,
-  "acceptedCount": 81,
+  "registeredCount": 86,
+  "inventoryCount": 86,
+  "executedCount": 86,
+  "httpSuccessCount": 86,
+  "acceptedCount": 86,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 9,
@@ -468,6 +468,29 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/media/image",
+      "readWrite": null,
+      "frontendCaller": false,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 400,
+          "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/monitor/cards",
       "readWrite": "read",
       "frontendCaller": true,
@@ -563,6 +586,40 @@
       "path": "/api/v1/monitor/creators/:mid/discovery",
       "readWrite": "read",
       "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/dynamics/sync",
+      "readWrite": null,
+      "frontendCaller": false,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitor/creators/:mid/media/backfill",
+      "readWrite": null,
+      "frontendCaller": false,
       "executed": true,
       "httpSuccess": true,
       "accepted": true,
@@ -1978,6 +2035,46 @@
         },
         {
           "test": "imports",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/creators/:mid/dynamics/sync",
+      "readWrite": null,
+      "frontendCaller": false,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "monitor-targets",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitor/creators/:mid/media/backfill",
+      "readWrite": null,
+      "frontendCaller": false,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "monitor-targets",
           "status": 200,
           "http": "success",
           "assertions": "passed"

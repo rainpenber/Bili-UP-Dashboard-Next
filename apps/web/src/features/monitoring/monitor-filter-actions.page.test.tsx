@@ -73,6 +73,8 @@ function videoCard(): MonitorCard {
     title: '离线视频',
     category: '游戏',
     imageAssetId: null,
+    imageUrl: null,
+    imageProxyUrl: null,
     mid: MINE,
     displayName: '离线视频',
     hasEntity: true,

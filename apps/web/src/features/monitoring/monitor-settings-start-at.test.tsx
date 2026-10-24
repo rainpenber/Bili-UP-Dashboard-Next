@@ -27,6 +27,8 @@ function baseCard(
     title: '计划视频',
     category: '游戏',
     imageAssetId: null,
+    imageUrl: null,
+    imageProxyUrl: null,
     mid: null,
     displayName: '计划视频',
     hasEntity: true,

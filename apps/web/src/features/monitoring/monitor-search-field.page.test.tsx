@@ -36,6 +36,8 @@ function videoCard(title: string) {
     title,
     category: '游戏',
     imageAssetId: null,
+    imageUrl: null,
+    imageProxyUrl: null,
     mid: '1',
     displayName: title,
     hasEntity: true,

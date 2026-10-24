@@ -120,6 +120,36 @@ describe('monitor card read model', () => {
     return sql;
   }
 
+  test('default video list hides videos with only a videos row and no target', async () => {
+    if (!sql) return;
+    const filtered = await listMonitorCards(db(), {
+      type: 'video',
+      monitor: 'all',
+      page: 1,
+      pageSize: 50,
+      q: null,
+      category: null,
+      includeUnmonitored: false,
+    });
+    expect(filtered.items.some((item) => item.externalId === IDS.plain)).toBe(false);
+    expect(filtered.items.some((item) => item.externalId === IDS.trap)).toBe(false);
+    expect(filtered.items.some((item) => item.externalId === IDS.contract)).toBe(true);
+    expect(filtered.items.some((item) => item.externalId === IDS.active)).toBe(true);
+    expect(filtered.totalItems).toBe(filtered.items.length);
+
+    const all = await listMonitorCards(db(), {
+      type: 'video',
+      monitor: 'all',
+      page: 1,
+      pageSize: 50,
+      q: null,
+      category: null,
+      includeUnmonitored: true,
+    });
+    expect(all.items.some((item) => item.externalId === IDS.plain)).toBe(true);
+    expect(all.totalItems).toBeGreaterThan(filtered.totalItems);
+  });
+
   test('keeps target state across pages and ignores monitoring_enabled', async () => {
     if (!sql) return;
     const full = await listMonitorCards(db(), {
@@ -129,6 +159,7 @@ describe('monitor card read model', () => {
       pageSize: 50,
       q: null,
       category: null,
+      includeUnmonitored: true,
     });
     expect(full.items.some((item) => item.externalId === IDS.fresh && !item.hasEntity)).toBe(true);
     expect(full.items.find((item) => item.externalId === IDS.plain)?.enabled).toBeNull();
@@ -144,6 +175,7 @@ describe('monitor card read model', () => {
       pageSize: 2,
       q: null,
       category: null,
+      includeUnmonitored: true,
     });
     const page2 = await listMonitorCards(db(), {
       type: 'video',
@@ -152,6 +184,7 @@ describe('monitor card read model', () => {
       pageSize: 2,
       q: null,
       category: null,
+      includeUnmonitored: true,
     });
     expect(page1.totalItems).toBe(full.totalItems);
     expect(page2.totalItems).toBe(full.totalItems);
@@ -177,6 +210,7 @@ describe('monitor card read model', () => {
       pageSize: 50,
       q: null,
       category: null,
+      includeUnmonitored: true,
     });
     const paused = await listMonitorCards(db(), {
       type: 'video',
@@ -185,6 +219,7 @@ describe('monitor card read model', () => {
       pageSize: 50,
       q: null,
       category: null,
+      includeUnmonitored: true,
     });
     const unmonitored = await listMonitorCards(db(), {
       type: 'video',
@@ -193,6 +228,7 @@ describe('monitor card read model', () => {
       pageSize: 50,
       q: null,
       category: null,
+      includeUnmonitored: true,
     });
     expect(active.totalItems + paused.totalItems + unmonitored.totalItems).toBe(full.totalItems);
     expect(unmonitored.items.some((item) => item.externalId === IDS.plain)).toBe(true);
@@ -208,6 +244,7 @@ describe('monitor card read model', () => {
       pageSize: 8,
       q: '尚无实体',
       category: null,
+      includeUnmonitored: true,
     });
     expect(found.totalItems).toBe(1);
     expect(found.items[0]?.externalId).toBe(IDS.fresh);
@@ -220,6 +257,7 @@ describe('monitor card read model', () => {
       pageSize: 50,
       q: null,
       category: '商业',
+      includeUnmonitored: true,
     });
     expect(category.items.map((item) => item.externalId)).toEqual([IDS.many]);
 

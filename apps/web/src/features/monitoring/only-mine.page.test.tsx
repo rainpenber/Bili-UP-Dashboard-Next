@@ -28,6 +28,8 @@ function card(externalId: string, mid: string | null = MINE) {
     title: externalId,
     category: '游戏',
     imageAssetId: null,
+    imageUrl: null,
+    imageProxyUrl: null,
     mid,
     displayName: externalId,
     hasEntity: true,

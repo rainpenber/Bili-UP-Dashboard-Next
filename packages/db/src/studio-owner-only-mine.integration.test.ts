@@ -88,6 +88,7 @@ describe('studio owner account + only-mine filter', () => {
       q: null,
       category: '游戏',
       sort: 'published_desc',
+      includeUnmonitored: true,
     });
     expect(all.totalItems).toBe(6);
 
@@ -100,6 +101,7 @@ describe('studio owner account + only-mine filter', () => {
       category: '游戏',
       sort: 'published_desc',
       ownerMid: MINE,
+      includeUnmonitored: true,
     });
     expect(mine.totalItems).toBe(3);
     expect(mine.items.map((item) => item.externalId)).toEqual([
@@ -122,6 +124,7 @@ describe('studio owner account + only-mine filter', () => {
       category: '游戏',
       sort: 'published_asc',
       ownerMid: MINE,
+      includeUnmonitored: true,
     });
     expect(page1.totalItems).toBe(3);
     expect(page1.items.map((item) => item.externalId)).toEqual([IDS.mineMid, IDS.mineOld]);
@@ -135,6 +138,7 @@ describe('studio owner account + only-mine filter', () => {
       category: '游戏',
       sort: 'published_asc',
       ownerMid: MINE,
+      includeUnmonitored: true,
     });
     expect(page2.totalItems).toBe(3);
     expect(page2.items.map((item) => item.externalId)).toEqual([IDS.mineNew]);
@@ -149,6 +153,7 @@ describe('studio owner account + only-mine filter', () => {
       category: '游戏',
       sort: 'published_desc',
       ownerMid: MINE,
+      includeUnmonitored: true,
     });
     expect(afterPin.items.map((item) => item.externalId)).toEqual([
       IDS.mineMid,
@@ -169,6 +174,7 @@ describe('studio owner account + only-mine filter', () => {
       category: null,
       sort: 'published_desc',
       ownerMid: UNKNOWN,
+      includeUnmonitored: true,
     });
     expect(empty.totalItems).toBe(0);
     expect(empty.items).toEqual([]);
@@ -197,6 +203,7 @@ describe('studio owner account + only-mine filter', () => {
       category: '游戏',
       sort: 'published_desc',
       ownerMid: OTHER_SAME_NAME,
+      includeUnmonitored: true,
     });
     expect(other.totalItems).toBe(2);
     expect(other.items.every((item) => item.mid === OTHER_SAME_NAME)).toBe(true);

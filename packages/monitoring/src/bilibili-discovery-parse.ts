@@ -16,6 +16,8 @@ export type ParsedArchiveVideo = {
   title: string;
   created: bigint;
   mid: string | null;
+  /** Cover URL from list `pic` (https-normalized by callers). */
+  pic: string | null;
 };
 
 export type ParsedSpaceDynamic = {
@@ -85,7 +87,8 @@ export function parseSpaceArcSearch(payload: unknown): ParsedArchiveVideo[] {
     if (row.mid !== undefined && row.mid !== null) {
       mid = readNonNegative(row.mid, 'mid').toString();
     }
-    out.push({ bvid, title, created, mid });
+    const pic = optionalString(row.pic);
+    out.push({ bvid, title, created, mid, pic });
   }
   return out;
 }
