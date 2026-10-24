@@ -145,7 +145,7 @@ export function MonitoringVideoDetailPage() {
           value: latest ? formatViewCountDisplay(latest.viewCount) : '—',
         },
         {
-          label: '在线观看',
+          label: '在线观看（逐点）',
           value: latest
             ? formatOnlineViewersDisplay(latest.onlineViewers, latest.onlineViewersRaw)
             : '—',

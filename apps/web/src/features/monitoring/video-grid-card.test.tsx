@@ -103,19 +103,21 @@ describe('video grid card', () => {
     expect(within(card).getByTestId('video-grid-metrics').textContent).toContain(
       formatVideoGridPlayText('13631'),
     );
-    expect(within(card).getByTestId('video-grid-metrics').textContent).toContain('在线');
+    expect(within(card).getByTestId('video-grid-metrics').textContent).toContain('峰值在线');
     expect(within(card).getByTestId('video-grid-meta').textContent).toMatch(/分类：游戏/);
     expect(within(card).getByTestId('video-grid-meta').textContent).toMatch(
       /更新：\d{4}-\d{2}-\d{2} \d{2}:\d{2}/,
     );
 
-    expect(within(card).queryByRole('link', { name: /详情/ })).toBeNull();
+    expect(within(card).getByRole('link', { name: '查看详情' })).toBeTruthy();
+    expect(within(card).getByRole('link', { name: '查看项目' })).toBeTruthy();
     expect(within(card).getByRole('button', { name: /打开视频/ })).toBeTruthy();
     expect(within(card).getByRole('button', { name: '暂停' })).toBeTruthy();
     expect(within(card).queryByRole('button', { name: '更多' })).toBeNull();
     expect(within(card).queryByRole('button', { name: '监控详情' })).toBeNull();
     expect(within(card).queryByRole('button', { name: '监控设置' })).toBeNull();
     expect(within(card).queryByRole('link', { name: '查看日志' })).toBeNull();
+    expect(within(card).queryByRole('link', { name: '进入商单' })).toBeNull();
     expect(within(card).queryByText('最近失败')).toBeNull();
     expect(within(card).queryByText('频率：')).toBeNull();
     expect(card.textContent).not.toContain('计划开始');
@@ -151,7 +153,7 @@ describe('video grid card', () => {
     expect(router.state.location.pathname).toBe('/monitoring/videos/BV1xx411c7mD');
   });
 
-  test('list presentation uses two buttons and no disclosure or more', () => {
+  test('list presentation keeps badge/primary/detail/project and no secondary ops', () => {
     let selected = 0;
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -172,6 +174,8 @@ describe('video grid card', () => {
             />
           ),
         },
+        { path: '/monitoring/videos/:bvid', element: <div /> },
+        { path: '/projects/:id', element: <div /> },
       ],
       { initialEntries: ['/'] },
     );
@@ -181,12 +185,14 @@ describe('video grid card', () => {
       </QueryClientProvider>,
     );
     const card = screen.getByTestId('monitor-object-card');
-    expect(within(card).queryByRole('button', { name: /^详情$/ })).toBeNull();
     expect(within(card).getByRole('button', { name: /选择视频/ })).toBeTruthy();
     expect(within(card).getByRole('button', { name: '暂停' })).toBeTruthy();
+    expect(within(card).getByRole('link', { name: '查看详情' })).toBeTruthy();
+    expect(within(card).getByRole('link', { name: '查看项目' })).toBeTruthy();
     expect(within(card).queryByRole('button', { name: '更多' })).toBeNull();
     expect(within(card).queryByRole('button', { name: '监控详情' })).toBeNull();
-    expect(within(card).queryByRole('link', { name: '查看详情' })).toBeNull();
+    expect(within(card).queryByRole('button', { name: '监控设置' })).toBeNull();
+    expect(within(card).queryByRole('link', { name: '查看日志' })).toBeNull();
     expect(within(card).queryByTestId('video-grid-cover')).toBeNull();
     const title = within(card).getByTitle('很长很长的视频标题用来验证单行截断');
     expect(title.className).toContain('truncate');
@@ -196,7 +202,7 @@ describe('video grid card', () => {
     expect(selected).toBe(1);
   });
 
-  test('detail layout surfaces settings, collect, logs, remove, and project', () => {
+  test('detail page surfaces settings, collect, logs, remove dialog trigger, and project', () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -228,9 +234,10 @@ describe('video grid card', () => {
     expect(within(actions).getByRole('button', { name: '监控设置' })).toBeTruthy();
     expect(within(actions).getByRole('button', { name: '立即采集' })).toBeTruthy();
     expect(within(actions).getByRole('button', { name: '移除' })).toBeTruthy();
-    expect(within(actions).getByRole('link', { name: '进入商单' })).toBeTruthy();
+    expect(within(actions).getByRole('link', { name: '关联商单' })).toBeTruthy();
     expect(within(actions).getByRole('link', { name: '查看日志' })).toBeTruthy();
     expect(within(actions).getByRole('button', { name: /监控状态/ })).toBeTruthy();
+    expect(screen.queryByTestId('remove-monitor-dialog')).toBeNull();
     expect(screen.queryByTestId('monitor-detail-secondary-actions')).toBeNull();
     expect(screen.queryByRole('button', { name: '更多' })).toBeNull();
     expect(screen.getAllByRole('group', { name: '详情页监控操作' })).toHaveLength(1);

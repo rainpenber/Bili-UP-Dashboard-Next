@@ -1,19 +1,21 @@
-# 监控卡片两键统一（16F）
+# 监控卡片动作（16F → 27C）
 
-WP-R2-16F。在 16E 视频网格精简之上，把分栏视频、UP 主（分栏+网格）、动态（分栏+网格）的卡片正面统一为「详情 + 主操作」。
+WP-R2-16F 起统一「主操作」；WP-R2-27C 将**视频**卡片进一步收成四项，并把次要操作只留在实体详情页。
 
 ## 视图与详情
 
-| Tab   | 分栏「详情」                  | 网格「详情」                  | 次要操作去向                         |
-| ----- | ----------------------------- | ----------------------------- | ------------------------------------ |
-| 视频  | 选中 → 右侧面板               | 跳 `/monitoring/videos/:id`   | 面板 / 详情页                        |
-| UP 主 | 选中 → 右侧面板               | 跳 `/monitoring/creators/:id` | 面板 / 详情页                        |
-| 动态  | 跳 `/monitoring/dynamics/:id` | 同左                          | 详情页（频率、失败、采集记录、日志） |
+| Tab   | 卡片正面                                      | 分栏右侧面板                        | 次要操作去向                             |
+| ----- | --------------------------------------------- | ----------------------------------- | ---------------------------------------- |
+| 视频  | 徽标 + 主操作 + 查看详情 + 查看项目（有商单） | 同卡片口径（无设置/采集/移除/日志） | 视频详情页（含 AlertDialog 移除确认）    |
+| UP 主 | 主操作 + 置顶 + B 站外链                      | 精简条 + 进详情                     | UP 详情页                                |
+| 动态  | 主操作 + 置顶 + B 站外链                      | —（整卡进详情）                     | 动态详情页（频率、失败、采集记录、日志） |
 
-`view=grid` 对三个 tab 均生效；动态筛选栏提供与视频/UP 相同的布局切换。
+视频卡片在线摘要取最近窗口**峰值**（「峰值在线」）；详情图表仍为逐点曲线。
 
 ## 组件
 
-- `MonitorObjectCard` / `MonitorCardControls`：列表两键；视频网格委托 `VideoGridCard`；UP 网格委托 `CreatorGridCard`；`layout=detail` 供详情页与分栏右侧面板。
-- `DynamicObjectCard` + `DynamicMonitorControls`：卡片仅两键；详情布局保留展开区与日志。
+- `MonitorObjectCard` / `MonitorCardControls`：按 `surface`（card / panel / page）分流；视频网格委托 `VideoGridCard`；UP 网格委托 `CreatorGridCard`。
+- `RemoveMonitorDialog`：移除二次确认。
+- `peakOnlineFromSamples` / `formatVideoCardMetricsSummary`：卡片峰值在线。
+- `DynamicObjectCard` + `DynamicMonitorControls`：保持两键；详情布局保留展开区与日志。
 - `MonitorStateBadge`：共用状态徽标与失败红点。

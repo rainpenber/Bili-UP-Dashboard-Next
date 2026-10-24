@@ -154,11 +154,13 @@ describe('WP-R2-16G compact card layout', () => {
     expect(title.className).toContain('truncate');
 
     const actions = within(card).getByTestId('monitor-card-actions');
-    expect(within(actions).queryByRole('button', { name: /^详情$/ })).toBeNull();
+    expect(within(actions).getByRole('link', { name: '查看详情' })).toBeTruthy();
     expect(within(actions).getByRole('button', { name: '开始监控' })).toBeTruthy();
+    expect(within(actions).queryByRole('button', { name: '监控设置' })).toBeNull();
     expect(within(card).getByTestId('video-pin-button')).toBeTruthy();
     expect(within(actions).queryByTestId('video-pin-button')).toBeNull();
     expect(actions.className).toContain('items-center');
+    expect(actions.className).toContain('flex-nowrap');
     expect(actions.className).not.toContain('mt-auto');
 
     fireEvent.click(within(card).getByTestId('monitor-card-controls'));
@@ -261,13 +263,13 @@ describe('WP-R2-16G compact card layout', () => {
     expect(title.className).toContain('truncate');
     const metrics = within(card).getByTestId('video-grid-metrics');
     expect(metrics.textContent).toMatch(/播放/);
-    expect(metrics.textContent).toMatch(/在线/);
-    // 标题/指标不与两键同处一侧挤压：动作组不含标题节点
+    expect(metrics.textContent).toMatch(/峰值在线/);
+    // 标题/指标不与动作同处一侧挤压：动作组不含标题节点
     const actions = within(card).getByTestId('monitor-card-actions');
     expect(actions.contains(title)).toBe(false);
     expect(actions.contains(metrics)).toBe(false);
     expect(actions.className).not.toContain('mt-auto');
-    expect(within(actions).queryByRole('link', { name: /详情/ })).toBeNull();
+    expect(within(actions).getByRole('link', { name: '查看详情' })).toBeTruthy();
     expect(within(actions).getByRole('button', { name: '开始监控' })).toBeTruthy();
     expect(within(actions).queryByTestId('video-pin-button')).toBeNull();
     const pin = within(card).getByTestId('video-pin-button');

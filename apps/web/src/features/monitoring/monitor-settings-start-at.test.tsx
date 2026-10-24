@@ -69,7 +69,7 @@ describe('monitor startAt display and reschedule', () => {
     const wrap = (card: MonitorCard) => (
       <QueryClientProvider client={client}>
         <MemoryRouter>
-          <MonitorCardControls card={card} listQuery="" layout="detail" />
+          <MonitorCardControls card={card} listQuery="" layout="detail" includeDetailLink={false} />
         </MemoryRouter>
       </QueryClientProvider>
     );

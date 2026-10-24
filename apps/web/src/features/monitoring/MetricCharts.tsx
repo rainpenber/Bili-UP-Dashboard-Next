@@ -305,6 +305,12 @@ export function MetricCharts(props: Props) {
       const engagementHasHistory = engagementSeries.some((series) => hasAnyNumeric(series.data));
       return (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="metric-charts-columns">
+          <p
+            className="text-xs text-muted-foreground lg:col-span-2"
+            data-testid="online-metric-scope-note"
+          >
+            在线人数：本图为逐点曲线；列表卡片摘要取最近窗口峰值（峰值在线）。
+          </p>
           <section className="min-w-0 space-y-2" data-testid="metric-chart-playback">
             <h3 className="text-sm font-medium text-foreground">播放</h3>
             {props.playbackSummary}
@@ -340,6 +346,9 @@ export function MetricCharts(props: Props) {
 
     return (
       <div className="space-y-4">
+        <p className="text-xs text-muted-foreground" data-testid="online-metric-scope-note">
+          在线人数：本图为逐点曲线；列表卡片摘要取最近窗口峰值（峰值在线）。
+        </p>
         <ReactECharts
           option={viewsOption}
           style={{ height: 300, width: '100%' }}

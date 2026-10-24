@@ -1,8 +1,6 @@
 import {
   formatCompactNumber,
   formatExactNumber,
-  formatOnlineViewersDisplay,
-  formatViewCountDisplay,
   type CompactNumberInput,
 } from '@/lib/format-compact-number';
 
@@ -13,17 +11,66 @@ export type VideoCardLatestMetrics = {
   onlineViewersRaw: string | null;
 };
 
+function parseOnlineSample(input: CompactNumberInput): number | null {
+  if (input === null || input === undefined) return null;
+  if (typeof input === 'number') {
+    if (!Number.isFinite(input)) return null;
+    return input;
+  }
+  if (typeof input === 'bigint') {
+    const asNumber = Number(input);
+    return Number.isFinite(asNumber) ? asNumber : null;
+  }
+  const trimmed = input.trim();
+  if (trimmed === '') return null;
+  // 仅接受纯数字；「1000+」等下界原文不是峰值样本
+  if (!/^-?\d+(\.\d+)?$/.test(trimmed)) return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * 最近窗口内峰值在线人数。
+ * 无有效数值样本时返回 null（卡片显示「无在线数据」，不要用 0 占位）。
+ */
+export function peakOnlineFromSamples(samples: ReadonlyArray<CompactNumberInput>): number | null {
+  let peak: number | null = null;
+  for (const sample of samples) {
+    const n = parseOnlineSample(sample);
+    if (n === null) continue;
+    if (peak === null || n > peak) peak = n;
+  }
+  return peak;
+}
+
 export function videoCardPlayText(metrics: VideoCardLatestMetrics): string {
-  return formatViewCountDisplay(metrics.viewCount);
+  return formatCompactNumber(metrics.viewCount);
 }
 
-export function videoCardOnlineText(metrics: VideoCardLatestMetrics): string {
-  return formatOnlineViewersDisplay(metrics.onlineViewers, metrics.onlineViewersRaw);
+/**
+ * 卡片在线文案：取样本峰值；无样本 →「无在线数据」。
+ * 与详情页图表口径不同：卡片=窗口峰值，图表=逐点（可含下界原文）。
+ */
+export function videoCardOnlineText(
+  metrics: VideoCardLatestMetrics,
+  onlineSamples?: ReadonlyArray<CompactNumberInput>,
+): string {
+  const samples = onlineSamples ?? [metrics.onlineViewers];
+  const peak = peakOnlineFromSamples(samples);
+  if (peak === null) return '无在线数据';
+  return formatCompactNumber(peak);
 }
 
-/** 生成卡片「播放 / 在线」摘要，两者独立格式化、不串值 */
-export function formatVideoCardMetricsSummary(metrics: VideoCardLatestMetrics): string {
-  return `播放 ${videoCardPlayText(metrics)} · 在线 ${videoCardOnlineText(metrics)}`;
+/** 生成卡片「播放 / 峰值在线」摘要 */
+export function formatVideoCardMetricsSummary(
+  metrics: VideoCardLatestMetrics,
+  onlineSamples?: ReadonlyArray<CompactNumberInput>,
+): string {
+  const online = videoCardOnlineText(metrics, onlineSamples);
+  if (online === '无在线数据') {
+    return `播放 ${videoCardPlayText(metrics)} · 无在线数据`;
+  }
+  return `播放 ${videoCardPlayText(metrics)} · 峰值在线 ${online}`;
 }
 
 /**
@@ -42,12 +89,15 @@ export function formatVideoGridPlayText(viewCount: CompactNumberInput): string {
   return `${compact} (${exact}) 播放`;
 }
 
-/** 网格第二行：播放量；有在线人数时追加 */
-export function formatVideoGridMetricsLine(metrics: VideoCardLatestMetrics): string {
+/** 网格第二行：播放量；有峰值在线时追加，无样本显示「无在线数据」 */
+export function formatVideoGridMetricsLine(
+  metrics: VideoCardLatestMetrics,
+  onlineSamples?: ReadonlyArray<CompactNumberInput>,
+): string {
   const play = formatVideoGridPlayText(metrics.viewCount);
-  const online = videoCardOnlineText(metrics);
-  if (!online || online === '—') return play;
-  return `${play} · 在线 ${online}`;
+  const online = videoCardOnlineText(metrics, onlineSamples);
+  if (online === '无在线数据') return `${play} · 无在线数据`;
+  return `${play} · 峰值在线 ${online}`;
 }
 
 /** 网格「更新：YYYY-MM-DD HH:mm」；无采样时「暂无」 */
