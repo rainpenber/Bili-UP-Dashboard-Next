@@ -289,13 +289,11 @@ describe('WP-R2-MON-01 video pin + sort UI', () => {
       );
       expect(within(refreshed!).getByTestId('video-pin-icon-filled')).toBeTruthy();
       const actions = within(refreshed!).getByTestId('monitor-card-actions');
-      // Primary monitor action + Bilibili external link (WP-R2-26B).
-      expect(
-        within(actions).getAllByRole('button').length +
-          within(actions).queryAllByRole('link').length,
-      ).toBe(2);
-      expect(within(actions).getByRole('link', { name: '在 B 站打开' })).toBeTruthy();
+      // WP-R2-27C：视频卡仅主操作 + 查看详情（无商单时无查看项目）；B 站外链留在 UP/动态卡。
       expect(within(actions).getByRole('button', { name: '暂停' })).toBeTruthy();
+      expect(within(actions).getByRole('link', { name: '查看详情' })).toBeTruthy();
+      expect(within(actions).queryByRole('link', { name: '在 B 站打开' })).toBeNull();
+      expect(within(actions).queryByRole('button', { name: '监控设置' })).toBeNull();
     });
   });
 });

@@ -1,4 +1,5 @@
-import { useNavigate } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import type { MonitorCard } from '@studio/contracts';
 import { coverAssetUrl } from '@/api/monitor-client';
 import { Button } from '@/components/ui/button';
@@ -6,7 +7,6 @@ import {
   handleCardActivateKey,
   stopCardActivatePropagation,
 } from '@/features/monitoring/card-activate';
-import { BilibiliExternalLinkButton } from '@/features/monitoring/bilibili-external-link';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
 import { MonitorPinButton } from '@/features/monitoring/monitor-pin-button';
 import {
@@ -23,8 +23,8 @@ type PrimaryAction = {
 };
 
 /**
- * 视频网格卡片：整卡进入详情页；无冗余「详情」按钮。
- * 封面右上角置顶；主操作 stopPropagation。
+ * 视频网格卡片：整卡进入详情页。
+ * 动作条仅：主操作 · 查看详情 · 查看项目（有商单时）；状态徽标纯展示。
  */
 export function VideoGridCard({
   card,
@@ -35,6 +35,7 @@ export function VideoGridCard({
   error,
   primary,
   onPinError,
+  projectLink,
 }: {
   card: MonitorCard;
   selected: boolean;
@@ -45,6 +46,7 @@ export function VideoGridCard({
   primary: PrimaryAction | null;
   onSelect?: (() => void) | undefined;
   onPinError: (message: string) => void;
+  projectLink?: ReactNode;
 }) {
   const navigate = useNavigate();
   const failed = card.execution === 'failed';
@@ -138,7 +140,6 @@ export function VideoGridCard({
             onClick={stopCardActivatePropagation}
             onKeyDown={stopCardActivatePropagation}
           >
-            <BilibiliExternalLinkButton kind="video" id={card.externalId} />
             {primary ? (
               <Button
                 type="button"
@@ -151,6 +152,12 @@ export function VideoGridCard({
                 {primary.label}
               </Button>
             ) : null}
+            <Button type="button" size="sm" variant="outline" asChild>
+              <Link to={detailHref} aria-label="查看详情" onClick={(e) => e.stopPropagation()}>
+                查看详情
+              </Link>
+            </Button>
+            {projectLink}
           </div>
         </div>
       </div>

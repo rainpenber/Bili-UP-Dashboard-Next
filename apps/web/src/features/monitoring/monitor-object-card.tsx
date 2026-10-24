@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   parseCreateMonitorTargetRequest,
   serializeCreateMonitorTargetRequest,
@@ -8,17 +8,20 @@ import {
 import { coverAssetUrl, formatCount } from '@/api/monitor-client';
 import { useMonitorTargetMutations } from '@/api/hooks/use-monitor-target-queries';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui/toast';
 import { BilibiliExternalLinkButton } from '@/features/monitoring/bilibili-external-link';
 import { CreatorGridCard } from '@/features/monitoring/creator-grid-card';
 import { formatVideoCardMetricsSummary } from '@/features/monitoring/video-card-metrics';
 import { MonitorSettingsDialog } from '@/features/monitoring/monitor-settings-dialog';
 import { MonitorStateBadge } from '@/features/monitoring/monitor-state-badge';
+import { RemoveMonitorDialog } from '@/features/monitoring/remove-monitor-dialog';
 import { VideoGridCard } from '@/features/monitoring/video-grid-card';
 import {
   handleCardActivateKey,
   stopCardActivatePropagation,
 } from '@/features/monitoring/card-activate';
 import { MonitorPinButton } from '@/features/monitoring/monitor-pin-button';
+import { detailReturnHref } from '@/features/monitoring/monitor-url-state';
 import { formatStartAtDisplay } from '@/lib/datetime-local';
 import { formatFullLocalTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
@@ -42,6 +45,67 @@ function failureLine(card: MonitorCard): string | null {
   return `最近失败：${raw}`;
 }
 
+/** 卡片上的「查看项目」：仅有关联商单时显示 */
+function ProjectViewLink({
+  projects,
+  selectId,
+  stopPropagation = false,
+}: {
+  projects: MonitorCard['projects'];
+  selectId: string;
+  stopPropagation?: boolean;
+}) {
+  const [projectId, setProjectId] = useState(projects[0]?.id ?? '');
+  if (projects.length === 0) return null;
+  if (projects.length === 1) {
+    const project = projects[0];
+    if (!project) return null;
+    return (
+      <Button type="button" size="sm" variant="outline" asChild>
+        <Link
+          to={`/projects/${project.id}`}
+          aria-label="查看项目"
+          onClick={stopPropagation ? (event) => event.stopPropagation() : undefined}
+        >
+          查看项目
+        </Link>
+      </Button>
+    );
+  }
+  const selected = projects.find((project) => project.id === projectId) ?? projects[0];
+  if (!selected) return null;
+  return (
+    <div
+      className="flex min-w-0 max-w-full flex-nowrap items-center gap-1.5"
+      onClick={stopPropagation ? stopCardActivatePropagation : undefined}
+      onKeyDown={stopPropagation ? stopCardActivatePropagation : undefined}
+    >
+      <label className="sr-only" htmlFor={selectId}>
+        关联项目
+      </label>
+      <select
+        id={selectId}
+        aria-label="关联项目"
+        className="h-8 max-w-[6.5rem] min-w-0 rounded-md border border-input bg-background px-1.5 text-xs text-foreground"
+        value={selected.id}
+        onChange={(event) => setProjectId(event.target.value)}
+      >
+        {projects.map((project) => (
+          <option key={project.id} value={project.id}>
+            {project.name}
+          </option>
+        ))}
+      </select>
+      <Button type="button" size="sm" variant="outline" asChild>
+        <Link to={`/projects/${selected.id}`} aria-label="查看项目">
+          查看项目
+        </Link>
+      </Button>
+    </div>
+  );
+}
+
+/** 详情页关联商单（可多选） */
 function ProjectJump({ projects }: { projects: MonitorCard['projects'] }) {
   const [projectId, setProjectId] = useState(projects[0]?.id ?? '');
   if (projects.length === 0) return null;
@@ -50,7 +114,7 @@ function ProjectJump({ projects }: { projects: MonitorCard['projects'] }) {
     if (!project) return null;
     return (
       <Button type="button" size="sm" variant="outline" asChild>
-        <Link to={`/projects/${project.id}`}>进入商单</Link>
+        <Link to={`/projects/${project.id}`}>关联商单</Link>
       </Button>
     );
   }
@@ -74,7 +138,7 @@ function ProjectJump({ projects }: { projects: MonitorCard['projects'] }) {
         </select>
       </label>
       <Button type="button" size="sm" variant="outline" asChild>
-        <Link to={`/projects/${selected.id}`}>进入商单</Link>
+        <Link to={`/projects/${selected.id}`}>关联商单</Link>
       </Button>
     </div>
   );
@@ -98,10 +162,11 @@ export function MonitorCardControls({
   selected?: boolean;
   onSelect?: () => void;
 }) {
+  const navigate = useNavigate();
   const mutations = useMonitorTargetMutations();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [pinError, setPinError] = useState<string | null>(null);
   const pending =
@@ -109,11 +174,13 @@ export function MonitorCardControls({
     mutations.patch.isPending ||
     mutations.remove.isPending ||
     mutations.run.isPending;
+  const removeError =
+    mutations.remove.error instanceof Error ? mutations.remove.error.message : null;
   const error =
     pinError ||
     (mutations.create.error instanceof Error && mutations.create.error.message) ||
     (mutations.patch.error instanceof Error && mutations.patch.error.message) ||
-    (mutations.remove.error instanceof Error && mutations.remove.error.message) ||
+    (!removeOpen && removeError) ||
     (mutations.run.error instanceof Error && mutations.run.error.message) ||
     null;
   const onPinError = (message: string) => {
@@ -140,15 +207,16 @@ export function MonitorCardControls({
   };
 
   const detailKind = card.type === 'video' ? 'videos' : 'creators';
+  const detailHref = `/monitoring/${detailKind}/${encodeURIComponent(card.externalId)}?from=${encodeURIComponent(listQuery)}`;
   const detailsId = `monitor-details-${card.type}-${card.externalId}`;
   const failed = failureLine(card);
   const failedDot = card.execution === 'failed';
-  const showMore = Boolean(card.target) || card.projects.length > 0;
-  /** 详情页 / 分栏右侧面板直接摊开次要入口 */
-  const detailSecondaryOpen = layout === 'detail' && showMore;
-  const showLogsOnBar = layout === 'detail' && Boolean(card.target);
-  const useVideoGrid = layout === 'card' && presentation === 'grid' && card.type === 'video';
-  const useCreatorGrid = layout === 'card' && presentation === 'grid' && card.type === 'creator';
+  /** card = 列表/网格；panel = 分栏右侧；page = 实体详情页 */
+  const surface =
+    layout === 'card' ? 'card' : includeDetailLink ? ('panel' as const) : ('page' as const);
+  const useVideoGrid = surface === 'card' && presentation === 'grid' && card.type === 'video';
+  const useCreatorGrid = surface === 'card' && presentation === 'grid' && card.type === 'creator';
+  const isVideoCardSurface = card.type === 'video' && (surface === 'card' || surface === 'panel');
 
   const primaryAction =
     card.monitorState === 'unmonitored'
@@ -166,7 +234,7 @@ export function MonitorCardControls({
           }
         : card.monitorState === 'paused' && card.target
           ? {
-              label: '恢复',
+              label: '继续',
               onClick: () =>
                 mutations.patch.mutate({ id: card.target!.id, patch: { enabled: true } }),
               variant: 'default' as const,
@@ -186,6 +254,33 @@ export function MonitorCardControls({
     </Button>
   ) : null;
 
+  const detailLinkButton = (
+    <Button type="button" size="sm" variant="outline" asChild>
+      <Link to={detailHref} aria-label="查看详情">
+        查看详情
+      </Link>
+    </Button>
+  );
+
+  const projectViewLink = (
+    <ProjectViewLink
+      projects={card.projects}
+      selectId={`card-project-${card.type}-${card.externalId}`}
+      stopPropagation={surface === 'card'}
+    />
+  );
+
+  const confirmRemove = () => {
+    if (!card.target) return;
+    mutations.remove.mutate(card.target.id, {
+      onSuccess: () => {
+        setRemoveOpen(false);
+        toast('已移除监控');
+        navigate(detailReturnHref(detailKind, listQuery || null));
+      },
+    });
+  };
+
   if (useVideoGrid) {
     return (
       <VideoGridCard
@@ -197,6 +292,7 @@ export function MonitorCardControls({
         error={error}
         primary={primaryAction ? { ...primaryAction, disabled: pending } : null}
         onPinError={onPinError}
+        projectLink={projectViewLink}
         {...(onSelect ? { onSelect } : {})}
       />
     );
@@ -218,8 +314,8 @@ export function MonitorCardControls({
     );
   }
 
-  /** 分栏卡片：整卡选中右侧面板；无冗余「详情」按钮 */
-  if (layout === 'card') {
+  /** 列表卡片：视频仅四项；UP 主保持主操作 + B 站外链 */
+  if (surface === 'card') {
     const metricsLine = card.hasSamples
       ? card.type === 'video'
         ? formatVideoCardMetricsSummary(card.latest)
@@ -251,7 +347,6 @@ export function MonitorCardControls({
         data-pending={pending ? 'true' : 'false'}
         aria-busy={pending}
       >
-        {/* 封面/头像 · 信息 · 动作同一横行；极窄时允许 wrap 回退 */}
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <div className="relative shrink-0">
             <img
@@ -302,11 +397,18 @@ export function MonitorCardControls({
             onClick={stopCardActivatePropagation}
             onKeyDown={stopCardActivatePropagation}
           >
-            <BilibiliExternalLinkButton
-              kind={card.type === 'video' ? 'video' : 'creator'}
-              id={card.externalId}
-            />
-            {primary}
+            {card.type === 'creator' ? (
+              <>
+                <BilibiliExternalLinkButton kind="creator" id={card.externalId} />
+                {primary}
+              </>
+            ) : (
+              <>
+                {primary}
+                {detailLinkButton}
+                {projectViewLink}
+              </>
+            )}
           </div>
         </div>
         {notice ? (
@@ -323,15 +425,51 @@ export function MonitorCardControls({
     );
   }
 
-  const detailLink = includeDetailLink ? (
-    <Button type="button" size="sm" variant="outline" asChild>
-      <Link
-        to={`/monitoring/${detailKind}/${encodeURIComponent(card.externalId)}?from=${encodeURIComponent(listQuery)}`}
+  /** 分栏右侧面板：与卡片同口径，次要操作只留在详情页 */
+  if (surface === 'panel') {
+    return (
+      <div
+        className="flex min-w-0 max-w-full flex-col gap-2"
+        data-testid="monitor-card-controls"
+        data-monitor-state={card.monitorState}
+        data-execution={card.execution}
+        data-external-id={card.externalId}
+        data-target-id={card.target?.id ?? ''}
+        data-pending={pending ? 'true' : 'false'}
+        aria-busy={pending}
       >
-        查看详情
-      </Link>
-    </Button>
-  ) : null;
+        <div
+          role="group"
+          aria-label="分栏监控操作"
+          data-testid="monitor-detail-bar"
+          className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto"
+        >
+          <MonitorStateBadge state={card.monitorState} failed={failedDot} />
+          {primary}
+          {detailLinkButton}
+          {isVideoCardSurface ? projectViewLink : null}
+          {card.type === 'creator' ? (
+            <BilibiliExternalLinkButton kind="creator" id={card.externalId} />
+          ) : null}
+        </div>
+        {failed ? (
+          <p data-testid="monitor-last-failure" className="break-words text-xs text-destructive">
+            {failed}
+          </p>
+        ) : null}
+        {notice ? (
+          <p role="status" className="break-words text-xs text-muted-foreground">
+            {notice}
+          </p>
+        ) : null}
+        {error ? (
+          <p role="alert" className="break-words text-xs text-destructive">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
 
   const logsLink = card.target ? (
     <Button type="button" size="sm" variant="outline" asChild>
@@ -392,47 +530,21 @@ export function MonitorCardControls({
     </Button>
   ) : null;
 
-  const removeControls = card.target ? (
-    confirmRemove ? (
-      <>
-        <Button
-          type="button"
-          size="sm"
-          variant="destructive"
-          disabled={pending}
-          aria-label="确认移除"
-          onClick={() =>
-            mutations.remove.mutate(card.target!.id, {
-              onSuccess: () => {
-                setConfirmRemove(false);
-                setNotice('已移除监控');
-              },
-            })
-          }
-        >
-          确认移除
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          aria-label="取消移除"
-          onClick={() => setConfirmRemove(false)}
-        >
-          取消
-        </Button>
-      </>
-    ) : (
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        aria-label="移除"
-        onClick={() => setConfirmRemove(true)}
-      >
-        移除
-      </Button>
-    )
+  const removeButton = card.target ? (
+    <Button
+      type="button"
+      size="sm"
+      variant="destructive"
+      disabled={pending}
+      aria-label="移除"
+      data-testid="remove-monitor-button"
+      onClick={() => {
+        mutations.remove.reset();
+        setRemoveOpen(true);
+      }}
+    >
+      移除
+    </Button>
   ) : null;
 
   return (
@@ -465,16 +577,11 @@ export function MonitorCardControls({
         </button>
         {primary}
         {detailsToggle}
-        {showLogsOnBar ? logsLink : null}
-        {detailLink}
-        {detailSecondaryOpen ? (
-          <>
-            {settingsButton}
-            {runButton}
-            <ProjectJump projects={card.projects} />
-            {removeControls}
-          </>
-        ) : null}
+        {logsLink}
+        {settingsButton}
+        {runButton}
+        <ProjectJump projects={card.projects} />
+        {removeButton}
       </div>
       {failed ? (
         <p data-testid="monitor-last-failure" className="break-words text-xs text-destructive">
@@ -510,6 +617,23 @@ export function MonitorCardControls({
       ) : null}
       {settingsOpen && card.target ? (
         <MonitorSettingsDialog card={card} open={settingsOpen} onOpenChange={setSettingsOpen} />
+      ) : null}
+      {card.target ? (
+        <RemoveMonitorDialog
+          open={removeOpen}
+          onOpenChange={(open) => {
+            setRemoveOpen(open);
+            if (!open) mutations.remove.reset();
+          }}
+          pending={mutations.remove.isPending}
+          error={removeError}
+          description={
+            card.type === 'creator'
+              ? '移除后将停止采集该 UP 主数据，历史样本保留，可重新添加恢复。'
+              : '移除后将停止采集该视频数据，历史样本保留，可重新添加恢复。'
+          }
+          onConfirm={confirmRemove}
+        />
       ) : null}
     </div>
   );

@@ -199,6 +199,7 @@ describe('WP-R2-16H / WP-R2-23A monitor filter bar and detail actions', () => {
     expect(within(actions).getByRole('button', { name: '监控设置' })).toBeTruthy();
     expect(within(actions).getByRole('button', { name: '立即采集' })).toBeTruthy();
     expect(within(actions).getByRole('button', { name: '移除' })).toBeTruthy();
+    expect(within(actions).queryByRole('link', { name: '进入商单' })).toBeNull();
     expect(screen.queryByTestId('monitor-detail-secondary-actions')).toBeNull();
   });
 });

@@ -214,9 +214,10 @@ describe('monitoring layout toggle', () => {
     expect(within(gridCard!).getByTestId('monitor-card-actions').className).not.toContain(
       'mt-auto',
     );
-    expect(within(gridCard!).queryByRole('link', { name: /详情/ })).toBeNull();
+    expect(within(gridCard!).getByRole('link', { name: '查看详情' })).toBeTruthy();
     expect(within(gridCard!).getByRole('button', { name: /打开视频/ })).toBeTruthy();
     expect(within(gridCard!).queryByRole('button', { name: '更多' })).toBeNull();
+    expect(within(gridCard!).queryByRole('button', { name: '监控设置' })).toBeNull();
     const search = router.state.location.search;
     expect(search).toContain('view=grid');
     expect(search).toContain('tab=videos');
