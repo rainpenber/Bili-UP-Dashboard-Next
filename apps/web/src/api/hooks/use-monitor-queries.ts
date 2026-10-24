@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ManualPublishEventCreateRequest } from '@studio/contracts';
 import {
@@ -17,7 +16,6 @@ import {
   fetchVideo,
   fetchVideoMetrics,
   fetchVideos,
-  syncCreatorDynamics,
   syncCreatorUploads,
 } from '@/api/monitor-client';
 import type { MonitorTab } from '@/features/monitoring/monitor-url-state';
@@ -140,13 +138,12 @@ export function useCreatorUploadsSyncStatusQuery(mid: string) {
 }
 
 /**
- * Background upload-list sync when opening the follower chart: POST without force.
- * Backend returns cached:true within TTL and skips upstream.
+ * Manual upload-list sync for the follower chart. The page never calls this on
+ * mount; only the「同步投稿」button uses it with `mutate(true)`.
  */
-export function useCreatorUploadsAutoSync(mid: string) {
+export function useCreatorUploadsSyncMutation(mid: string) {
   const client = useQueryClient();
-  const started = useRef<string | null>(null);
-  const mutation = useMutation({
+  return useMutation({
     mutationFn: (force: boolean) => syncCreatorUploads(mid, { force }),
     onSuccess: async () => {
       await Promise.all([
@@ -157,45 +154,6 @@ export function useCreatorUploadsAutoSync(mid: string) {
       ]);
     },
   });
-
-  const trigger = mutation.mutate;
-  useEffect(() => {
-    if (!mid) return;
-    if (started.current === mid) return;
-    started.current = mid;
-    // Once per mid mount; manual retry uses mutation.mutate(true).
-    trigger(false);
-  }, [mid, trigger]);
-
-  return mutation;
-}
-
-/**
- * Silent dynamics sync on UP detail open (6h TTL). Failures are swallowed so the
- * page never blocks; missing route (404) degrades to a no-op.
- */
-export function useCreatorDynamicsAutoSync(mid: string) {
-  const client = useQueryClient();
-  const started = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!mid) return;
-    if (started.current === mid) return;
-    started.current = mid;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const result = await syncCreatorDynamics(mid, { force: false });
-        if (cancelled || result == null) return;
-        await client.invalidateQueries({ queryKey: ['monitor', 'creator-publish-events', mid] });
-      } catch {
-        // Silent: chart still works with whatever events we already have.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [mid, client]);
 }
 
 /** bvid → same-origin cover URL for follower-chart tooltips (best-effort). */

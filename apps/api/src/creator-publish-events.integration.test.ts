@@ -263,4 +263,47 @@ describe('manual creator publish events', () => {
     expect(ids).toContain(plainDynamicId);
     expect(ids).not.toContain(relatedDynamicId);
   }, 30_000);
+  test('first page returns the newest 50 events in descending order', async () => {
+    if (!sql || !app) return;
+    await sql`DELETE FROM creator_publish_events WHERE mid = ${MID}`;
+
+    const base = Date.parse('2026-01-01T00:00:00.000Z');
+    const total = 55;
+    const externalIdAt = (index: number): string => String(900000000000000000n + BigInt(index));
+    for (let index = 0; index < total; index += 1) {
+      await sql`
+        INSERT INTO creator_publish_events (
+          id, mid, event_kind, external_id, published_at, title_snapshot,
+          first_discovered_at, source
+        ) VALUES (
+          ${crypto.randomUUID()}::uuid,
+          ${MID},
+          'dynamic',
+          ${externalIdAt(index)},
+          ${new Date(base + index * 60_000)},
+          ${`第 ${index} 条`},
+          ${new Date()},
+          'bilibili'
+        )
+      `;
+    }
+
+    const listed = await app.request(
+      `/api/v1/monitor/creators/${MID}/publish-events?page=1&pageSize=50`,
+    );
+    expect(listed.status).toBe(200);
+    const body = (await listed.json()) as {
+      totalItems: number;
+      items: { externalId: string; publishedAt: string }[];
+    };
+    expect(body.totalItems).toBe(total);
+    expect(body.items).toHaveLength(50);
+    expect(body.items[0]?.externalId).toBe(externalIdAt(total - 1));
+    expect(body.items.map((item) => item.publishedAt)).toEqual(
+      [...body.items.map((item) => item.publishedAt)].sort((a, b) => Date.parse(b) - Date.parse(a)),
+    );
+
+    expect(body.items.at(-1)?.externalId).toBe(externalIdAt(total - 50));
+    expect(body.items.some((item) => item.externalId === externalIdAt(0))).toBe(false);
+  }, 30_000);
 });

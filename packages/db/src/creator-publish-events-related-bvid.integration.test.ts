@@ -8,6 +8,7 @@ import type { Sql } from './client';
 
 const MID = '496445222';
 const VIDEO_BVID = 'BV1xx411c7mD';
+const BACKFILL_MID = '496445333';
 
 describe('creator publish event related bvid', () => {
   let sql: Sql | null = null;
@@ -93,5 +94,97 @@ describe('creator publish event related bvid', () => {
     expect(listed.items).toHaveLength(2);
     expect(listed.items.map((e) => e.externalId)).toEqual([VIDEO_BVID, '900000000000000002']);
     expect(listed.items[0]?.relatedBvid).toBeNull();
+  });
+
+  test('backfills related bvid on an existing dynamic without creating a row', async () => {
+    if (!sql) return;
+    const now = new Date('2026-10-24T00:00:00.000Z');
+    const externalId = '900000000000000101';
+    const first = await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid: BACKFILL_MID,
+      eventKind: 'dynamic',
+      externalId,
+      publishedAt: new Date('2026-10-02T00:00:00.000Z'),
+      titleSnapshot: '动态正文',
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+    expect(first.created).toBe(true);
+    expect(first.event.relatedBvid).toBeNull();
+
+    const patched = await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid: BACKFILL_MID,
+      eventKind: 'dynamic',
+      externalId,
+      publishedAt: new Date('2026-10-02T00:00:00.000Z'),
+      titleSnapshot: '动态正文',
+      firstDiscoveredAt: now,
+      relatedBvid: 'BV1backfill1',
+      source: 'bilibili',
+    });
+    expect(patched.created).toBe(false);
+    expect(patched.event.externalId).toBe(externalId);
+    expect(patched.event.relatedBvid).toBe('BV1backfill1');
+
+    const counts = await sql<{ count: string }[]>`
+      SELECT count(*)::text AS count
+      FROM creator_publish_events
+      WHERE mid = ${BACKFILL_MID}
+        AND event_kind = 'dynamic'
+        AND external_id = ${externalId}
+    `;
+    expect(counts[0]?.count).toBe('1');
+  });
+
+  test('does not overwrite an existing related bvid', async () => {
+    if (!sql) return;
+    const now = new Date('2026-10-24T00:00:00.000Z');
+    const externalId = '900000000000000102';
+    const first = await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid: BACKFILL_MID,
+      eventKind: 'dynamic',
+      externalId,
+      publishedAt: new Date('2026-10-02T00:00:01.000Z'),
+      titleSnapshot: '动态正文',
+      firstDiscoveredAt: now,
+      relatedBvid: 'BV1original',
+      source: 'bilibili',
+    });
+    expect(first.created).toBe(true);
+
+    const again = await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid: BACKFILL_MID,
+      eventKind: 'dynamic',
+      externalId,
+      publishedAt: new Date('2026-10-02T00:00:01.000Z'),
+      titleSnapshot: '动态正文',
+      firstDiscoveredAt: now,
+      relatedBvid: 'BV1different',
+      source: 'bilibili',
+    });
+    expect(again.created).toBe(false);
+    expect(again.event.relatedBvid).toBe('BV1original');
+  });
+
+  test('new insert with related bvid reports created and stores the bvid', async () => {
+    if (!sql) return;
+    const now = new Date('2026-10-24T00:00:00.000Z');
+    const result = await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid: BACKFILL_MID,
+      eventKind: 'dynamic',
+      externalId: '900000000000000103',
+      publishedAt: new Date('2026-10-02T00:00:02.000Z'),
+      titleSnapshot: '动态正文',
+      firstDiscoveredAt: now,
+      relatedBvid: 'BV1fresh',
+      source: 'bilibili',
+    });
+    expect(result.created).toBe(true);
+    expect(result.event.relatedBvid).toBe('BV1fresh');
   });
 });

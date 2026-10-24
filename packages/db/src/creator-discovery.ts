@@ -503,7 +503,7 @@ export async function insertCreatorPublishEvent(
   },
 ): Promise<{ event: CreatorPublishEventRow; created: boolean }> {
   const source = input.source ?? 'bilibili';
-  const inserted = await sql<EventSqlRow[]>`
+  const inserted = await sql<(EventSqlRow & { inserted: boolean })[]>`
     INSERT INTO creator_publish_events (
       id, mid, event_kind, external_id, published_at, title_snapshot,
       first_discovered_at, source, monitored_target_id, related_bvid
@@ -519,12 +519,15 @@ export async function insertCreatorPublishEvent(
       ${input.monitoredTargetId ?? null},
       ${input.relatedBvid ?? null}
     )
-    ON CONFLICT (mid, event_kind, external_id) DO NOTHING
+    ON CONFLICT (mid, event_kind, external_id) DO UPDATE SET
+      related_bvid = COALESCE(creator_publish_events.related_bvid, EXCLUDED.related_bvid)
+    WHERE EXCLUDED.related_bvid IS NOT NULL
     RETURNING
+      (xmax = 0) AS inserted,
       id, mid, event_kind, external_id, published_at, title_snapshot,
       first_discovered_at, source, monitored_target_id, related_bvid, created_at
   `;
-  if (inserted[0]) return { event: mapEvent(inserted[0]), created: true };
+  if (inserted[0]) return { event: mapEvent(inserted[0]), created: inserted[0].inserted };
   const existing = await sql<EventSqlRow[]>`
     SELECT
       id, mid, event_kind, external_id, published_at, title_snapshot,
@@ -674,7 +677,7 @@ export async function listCreatorPublishEvents(
             AND v.external_id = e.related_bvid
         )
       )
-    ORDER BY e.published_at ASC, e.id ASC
+    ORDER BY e.published_at DESC, e.id DESC
     LIMIT ${input.limit} OFFSET ${offset}
   `;
   return {
