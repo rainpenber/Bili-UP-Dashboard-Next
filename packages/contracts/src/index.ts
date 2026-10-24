@@ -21,3 +21,4 @@ export * from './commercial-source-window';
 export * from './ops';
 export * from './ops-records';
 export * from './metadata-refresh';
+export * from './media-proxy';

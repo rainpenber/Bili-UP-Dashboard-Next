@@ -81,6 +81,13 @@ export type MonitorCard = {
   title: string | null;
   category: string | null;
   imageAssetId: string | null;
+  /**
+   * Raw remote image URL from DB (`videos.cover_url` or `creators.face_url`).
+   * Prefer `imageProxyUrl` / `bilibiliMediaProxyUrl` in the browser (referer anti-leech).
+   */
+  imageUrl: string | null;
+  /** Same-origin proxy for `imageUrl` when present; null otherwise. */
+  imageProxyUrl: string | null;
   mid: string | null;
   displayName: string;
   hasEntity: boolean;
@@ -108,6 +115,12 @@ export type MonitorCardListQuery = {
    * (本人账号), not the login user. Creators ignore this flag.
    */
   onlyMine: boolean;
+  /**
+   * Video-only. Default false: only videos with a non-deleted monitor target
+   * or a commercial project reference. Pass true (`includeUnmonitored=1`) to
+   * list every videos row (ops / backfill debugging).
+   */
+  includeUnmonitored: boolean;
 };
 
 export type PinVideoRequest = {
@@ -299,6 +312,12 @@ function boundedText(
   return text;
 }
 
+function parseIncludeUnmonitoredFlag(raw: string | undefined): boolean {
+  if (raw === undefined || raw === null || raw.trim() === '') return false;
+  const value = raw.trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes';
+}
+
 export function parseMonitorCardListQuery(input: {
   type?: string | undefined;
   monitor?: string | undefined;
@@ -308,6 +327,7 @@ export function parseMonitorCardListQuery(input: {
   category?: string | undefined;
   sort?: string | undefined;
   onlyMine?: string | undefined;
+  includeUnmonitored?: string | undefined;
 }): MonitorCardListQuery {
   if (input.type !== 'video' && input.type !== 'creator') {
     throw new MonitorContractError('invalid_target_type', '卡片类型只能是视频或 UP 主');
@@ -345,6 +365,8 @@ export function parseMonitorCardListQuery(input: {
     category: boundedText(input.category, MAX_CATEGORY_LENGTH, 'invalid_category', '分类筛选过长'),
     sort: sortRaw as MonitorCardSort,
     onlyMine: parseOnlyMineFlag(input.onlyMine),
+    includeUnmonitored:
+      input.type === 'video' ? parseIncludeUnmonitoredFlag(input.includeUnmonitored) : false,
   };
 }
 
@@ -583,6 +605,8 @@ export function parseMonitorCard(value: unknown): MonitorCard {
     title: optionalString('title'),
     category: optionalString('category'),
     imageAssetId: optionalString('imageAssetId'),
+    imageUrl: optionalString('imageUrl'),
+    imageProxyUrl: optionalString('imageProxyUrl'),
     mid: optionalString('mid'),
     displayName: value.displayName,
     hasEntity: value.hasEntity,

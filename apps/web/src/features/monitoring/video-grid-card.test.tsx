@@ -18,6 +18,8 @@ function videoCard(patch: Partial<MonitorCard> = {}): MonitorCard {
     title: '很长很长的视频标题用来验证单行截断',
     category: '游戏',
     imageAssetId: null,
+    imageUrl: null,
+    imageProxyUrl: null,
     mid: null,
     displayName: '很长很长的视频标题用来验证单行截断',
     hasEntity: true,

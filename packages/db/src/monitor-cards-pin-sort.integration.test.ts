@@ -66,6 +66,7 @@ describe('monitor card pin + published sort', () => {
       q: null,
       category: '游戏',
       sort: 'published_desc',
+      includeUnmonitored: true,
     });
     expect(desc.items.map((item) => item.externalId)).toEqual([
       IDS.newPinned,
@@ -90,6 +91,7 @@ describe('monitor card pin + published sort', () => {
       q: null,
       category: '游戏',
       sort: 'published_asc',
+      includeUnmonitored: true,
     });
     expect(asc.items.map((item) => item.externalId)).toEqual([
       IDS.oldPinned,
@@ -113,6 +115,7 @@ describe('monitor card pin + published sort', () => {
       q: null,
       category: '游戏',
       sort: 'published_desc',
+      includeUnmonitored: true,
     });
     const page1 = await listMonitorCards(db(), {
       type: 'video',
@@ -122,6 +125,7 @@ describe('monitor card pin + published sort', () => {
       q: null,
       category: '游戏',
       sort: 'published_desc',
+      includeUnmonitored: true,
     });
     const page2 = await listMonitorCards(db(), {
       type: 'video',
@@ -131,6 +135,7 @@ describe('monitor card pin + published sort', () => {
       q: null,
       category: '游戏',
       sort: 'published_desc',
+      includeUnmonitored: true,
     });
     const page3 = await listMonitorCards(db(), {
       type: 'video',
@@ -140,6 +145,7 @@ describe('monitor card pin + published sort', () => {
       q: null,
       category: '游戏',
       sort: 'published_desc',
+      includeUnmonitored: true,
     });
     const paged = [...page1.items, ...page2.items, ...page3.items];
     expect(paged.map((item) => item.externalId)).toEqual(full.items.map((item) => item.externalId));
@@ -166,6 +172,7 @@ describe('monitor card pin + published sort', () => {
       q: null,
       category: '游戏',
       sort: 'published_desc',
+      includeUnmonitored: true,
     });
     expect(after.items[0]?.externalId).not.toBe(IDS.oldest);
     expect(after.items.find((item) => item.externalId === IDS.oldest)?.pinned).toBe(false);

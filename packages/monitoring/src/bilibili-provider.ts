@@ -25,6 +25,7 @@ import {
   type ParsedRelation,
   type ParsedView,
 } from './bilibili-parse';
+import { parseCreatorCard, parseCreatorSpaceAccInfo } from './creator-profile';
 import { scrubSensitive } from './sensitive';
 import {
   bilibiliHeaders,
@@ -45,6 +46,8 @@ const SPACE_ARC_SEARCH_URL = 'https://api.bilibili.com/x/space/wbi/arc/search';
 /** Fixed-doc path: reference/bilibili-api/space-dynamic-feed.md */
 const SPACE_DYNAMIC_FEED_URL = 'https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space';
 const NAV_URL = 'https://api.bilibili.com/x/web-interface/nav';
+const CARD_URL = 'https://api.bilibili.com/x/web-interface/card';
+const SPACE_ACC_INFO_URL = 'https://api.bilibili.com/x/space/acc/info';
 
 export type VideoFetchResult = {
   bvid: string;
@@ -88,6 +91,15 @@ export type CreatorDynamicsFetchResult = {
   /** Per-item skips from list parse (only_fans / malformed); round still succeeds. */
   skips: DiscoveryItemSkip[];
   calls: UpstreamCall[];
+  offset: string | null;
+  hasMore: boolean;
+};
+
+export type CreatorProfileFetchResult = {
+  mid: string;
+  faceUrl: string | null;
+  uname: string | null;
+  calls: UpstreamCall[];
 };
 
 export type BilibiliProvider = MonitorProvider & {
@@ -124,7 +136,13 @@ export type BilibiliProvider = MonitorProvider & {
     mid: string;
     cookieHeader: string | null;
     accountKey: string;
+    offset?: string | null;
   }): Promise<CreatorDynamicsFetchResult>;
+  fetchCreatorProfile(input: {
+    mid: string;
+    cookieHeader: string | null;
+    accountKey: string;
+  }): Promise<CreatorProfileFetchResult>;
 };
 
 function endpointUrl(base: string, params: Record<string, string>): string {
@@ -529,29 +547,20 @@ export function createBilibiliProvider(
         });
       }
       const calls: UpstreamCall[] = [];
-      // Logged-in SESSDATA path preferred per space-dynamic-feed.md; still sign when possible.
-      let url = endpointUrl(SPACE_DYNAMIC_FEED_URL, {
+      const feedParams: Record<string, string> = {
         host_mid: input.mid,
         timezone_offset: '-480',
         platform: 'web',
         features:
           'itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,forwardListHidden,decorationCard,commentsNewVersion,onlyfansAssetsV2,ugcDelete,onlyfansQaCard',
         web_location: '333.1387',
-      });
+      };
+      if (input.offset) feedParams.offset = input.offset;
+      // Logged-in SESSDATA path preferred per space-dynamic-feed.md; still sign when possible.
+      let url = endpointUrl(SPACE_DYNAMIC_FEED_URL, feedParams);
       if (!input.cookieHeader?.includes('SESSDATA=')) {
         const mixinKey = await ensureMixinKey(input.cookieHeader, input.accountKey, calls);
-        url = signedUrl(
-          SPACE_DYNAMIC_FEED_URL,
-          {
-            host_mid: input.mid,
-            timezone_offset: '-480',
-            platform: 'web',
-            features:
-              'itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,forwardListHidden,decorationCard,commentsNewVersion,onlyfansAssetsV2,ugcDelete,onlyfansQaCard',
-            web_location: '333.1387',
-          },
-          mixinKey,
-        );
+        url = signedUrl(SPACE_DYNAMIC_FEED_URL, feedParams, mixinKey);
       }
       const payload = await request(
         'space_dynamic_feed',
@@ -562,10 +571,14 @@ export function createBilibiliProvider(
       );
       let dynamics: ParsedSpaceDynamic[];
       let skips: CreatorDynamicsFetchResult['skips'];
+      let offset: string | null = null;
+      let hasMore = false;
       try {
         const parsed = parseSpaceDynamicFeed(payload);
         dynamics = parsed.items;
         skips = parsed.skips;
+        offset = parsed.offset;
+        hasMore = parsed.hasMore;
       } catch (error) {
         throw new BilibiliFailure({
           message: scrubSensitive(error instanceof Error ? error.message : '空间动态解析失败'),
@@ -576,7 +589,71 @@ export function createBilibiliProvider(
           calls: [...calls],
         });
       }
-      return { mid: input.mid, dynamics, skips, calls };
+      return { mid: input.mid, dynamics, skips, calls, offset, hasMore };
+    },
+    async fetchCreatorProfile(input) {
+      if (config.dryRun) {
+        const message = `dry-run GET ${CARD_URL}?mid=${input.mid}`;
+        log(`[collector] ${message}`);
+        throw new BilibiliFailure({
+          message,
+          kind: 'dry_run',
+          endpoint: 'web_interface_card',
+          statusCode: null,
+          bizCode: null,
+          calls: [],
+        });
+      }
+      const calls: UpstreamCall[] = [];
+      try {
+        const cardPayload = await request(
+          'web_interface_card',
+          endpointUrl(CARD_URL, { mid: input.mid }),
+          input.cookieHeader,
+          input.accountKey,
+          calls,
+        );
+        const profile = parseCreatorCard(cardPayload, input.mid);
+        if (profile.faceUrl || profile.uname) {
+          return {
+            mid: input.mid,
+            faceUrl: profile.faceUrl,
+            uname: profile.uname,
+            calls,
+          };
+        }
+      } catch (error) {
+        if (!(error instanceof BilibiliFailure)) {
+          throw error;
+        }
+        // Fall through to space acc/info.
+      }
+      try {
+        const infoPayload = await request(
+          'space_acc_info',
+          endpointUrl(SPACE_ACC_INFO_URL, { mid: input.mid }),
+          input.cookieHeader,
+          input.accountKey,
+          calls,
+        );
+        const profile = parseCreatorSpaceAccInfo(infoPayload, input.mid);
+        return {
+          mid: input.mid,
+          faceUrl: profile.faceUrl,
+          uname: profile.uname,
+          calls,
+        };
+      } catch (error) {
+        if (error instanceof BilibiliFailure) throw error;
+        throw new BilibiliFailure({
+          message: scrubSensitive(error instanceof Error ? error.message : '空间信息解析失败'),
+          kind: 'retryable',
+          endpoint: 'space_acc_info',
+          statusCode: calls.at(-1)?.statusCode ?? null,
+          bizCode: calls.at(-1)?.bizCode ?? null,
+          calls: [...calls],
+        });
+      }
     },
   };
 }

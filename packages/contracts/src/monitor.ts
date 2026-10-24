@@ -182,7 +182,10 @@ export type DynamicMetricPoint = {
   commentCount: BigIntString | null;
 };
 
-export const MONITOR_MAX_METRICS_LIMIT = 2000;
+/** Default capped window when `all` is not set. */
+export const MONITOR_DEFAULT_METRICS_LIMIT = 500;
+/** Hard cap when `all=1` or an explicit high limit is requested (WP-R2-27A). */
+export const MONITOR_MAX_METRICS_LIMIT = 20000;
 export const MONITOR_DEFAULT_PAGE_SIZE = 8;
 export const MONITOR_MAX_PAGE_SIZE = 50;
 export const MONITOR_CREATOR_VIDEOS_DEFAULT_LIMIT = 20;
@@ -207,10 +210,26 @@ export function parseMonitorPageSize(raw: string | undefined): number {
   return Math.min(MONITOR_MAX_PAGE_SIZE, Math.floor(n));
 }
 
-export function parseMetricsLimit(raw: string | undefined): number {
-  const n = Number(raw ?? 500);
+/**
+ * Parse metrics limit. Default 500.
+ * When `all` is true (query `all=1` / `true`), returns the hard cap so callers
+ * can fetch the full series without server-side downsampling.
+ */
+export function parseMetricsLimit(
+  raw: string | undefined,
+  options?: { all?: boolean },
+): number {
+  if (options?.all) return MONITOR_MAX_METRICS_LIMIT;
+  const n = Number(raw ?? MONITOR_DEFAULT_METRICS_LIMIT);
   if (!Number.isFinite(n) || n < 1) throw new Error('invalid limit');
   return Math.min(MONITOR_MAX_METRICS_LIMIT, Math.floor(n));
+}
+
+/** True for `all=1` / `true` / `yes` (case-insensitive). */
+export function parseMetricsAllFlag(raw: string | undefined): boolean {
+  if (raw === undefined || raw === null || raw.trim() === '') return false;
+  const value = raw.trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes';
 }
 
 export function parseCreatorVideosLimit(raw: string | undefined): number {

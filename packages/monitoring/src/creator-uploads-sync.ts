@@ -2,6 +2,7 @@ import {
   findActiveVideoTargetId,
   getCreatorUploadsSyncState,
   insertCreatorPublishEvent,
+  upsertCreatorFaceUrl,
   upsertCreatorUploadsSyncState,
   upsertVideoArchiveMetadata,
   type Sql,
@@ -9,6 +10,7 @@ import {
 import { BilibiliFailure, type UpstreamCall } from './bilibili-failure';
 import type { ParsedArchiveVideo } from './bilibili-discovery-parse';
 import { scrubCollectorError } from './credentials';
+import { httpsUrl } from './image-asset';
 
 /** Keep in sync with packages/contracts CREATOR_UPLOADS_SYNC_*. */
 export const CREATOR_UPLOADS_SYNC_TTL_MS = 6 * 60 * 60 * 1000;
@@ -41,6 +43,16 @@ export type CreatorArchivesPageProvider = {
     videos: ParsedArchiveVideo[];
     calls: UpstreamCall[];
     page?: { pn: number; ps: number; count: number | null };
+  }>;
+  /** Optional: space card / acc info for face_url during uploads sync. */
+  fetchCreatorProfile?(input: {
+    mid: string;
+    cookieHeader: string | null;
+    accountKey: string;
+  }): Promise<{
+    faceUrl: string | null;
+    uname: string | null;
+    calls: UpstreamCall[];
   }>;
 };
 
@@ -108,6 +120,7 @@ async function persistVideosAndEvents(
       title: video.title,
       mid: ownerMid,
       pubdate: publishedAt,
+      coverUrl: video.pic ? httpsUrl(video.pic) : null,
     });
     const existingTargetId = await findActiveVideoTargetId(sql, video.bvid);
     const inserted = await insertCreatorPublishEvent(sql, {
@@ -229,6 +242,27 @@ export async function syncCreatorUploads(options: {
       now,
     });
     throw failure;
+  }
+
+  if (options.provider.fetchCreatorProfile) {
+    try {
+      const profile = await options.provider.fetchCreatorProfile({
+        mid: options.mid,
+        cookieHeader: cookie,
+        accountKey: account?.id ?? 'anonymous',
+      });
+      calls.push(...profile.calls);
+      if (profile.faceUrl || profile.uname) {
+        await upsertCreatorFaceUrl(options.sql, {
+          mid: options.mid,
+          faceUrl: profile.faceUrl ? httpsUrl(profile.faceUrl) : null,
+          uname: profile.uname,
+        });
+      }
+    } catch (error) {
+      // Face is best-effort during uploads sync; covers/events still commit.
+      if (error instanceof BilibiliFailure) calls.push(...error.calls);
+    }
   }
 
   const written = await persistVideosAndEvents(options.sql, {

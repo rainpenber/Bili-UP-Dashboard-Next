@@ -13,13 +13,20 @@ describe('discovery list parsers', () => {
               title: '示例',
               created: 1700000000,
               mid: 123,
+              pic: 'http://i0.hdslb.com/bfs/archive/cover.jpg',
             },
           ],
         },
       },
     });
     expect(videos).toEqual([
-      { bvid: 'BV1xx411c7mD', title: '示例', created: 1700000000n, mid: '123' },
+      {
+        bvid: 'BV1xx411c7mD',
+        title: '示例',
+        created: 1700000000n,
+        mid: '123',
+        pic: 'http://i0.hdslb.com/bfs/archive/cover.jpg',
+      },
     ]);
   });
 

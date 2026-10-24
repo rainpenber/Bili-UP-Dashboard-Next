@@ -7,6 +7,7 @@ import {
   insertMonitorTarget,
   linkPublishEventTarget,
   markDiscoveryRunResult,
+  upsertVideoArchiveMetadata,
   type ClaimedCollectorJob,
   type CollectorScheduleWrite,
   type CreatorDiscoveryConfigRow,
@@ -19,6 +20,7 @@ import type { ParsedArchiveVideo, ParsedSpaceDynamic } from './bilibili-discover
 import { resolveDiscoveryDynamicTitle } from './bilibili-discovery-parse';
 import { scrubCollectorError } from './credentials';
 import { enrichDiscoveryDynamics, type DiscoveryDynamicDetailFetcher } from './discovery-dynamics';
+import { httpsUrl } from './image-asset';
 
 export type DiscoveryListProvider = {
   fetchCreatorArchives(input: {
@@ -122,6 +124,14 @@ export async function applyDiscoveryRound(
       let autoSlots = DISCOVERY_AUTO_CREATE_LIMIT;
       for (const video of newer) {
         const publishedAt = new Date(Number(video.created) * 1000);
+        const ownerMid = video.mid && video.mid.length > 0 ? video.mid : config.mid;
+        await upsertVideoArchiveMetadata(sql, {
+          bvid: video.bvid,
+          title: video.title,
+          mid: ownerMid,
+          pubdate: publishedAt,
+          coverUrl: video.pic ? httpsUrl(video.pic) : null,
+        });
         const existingTargetId = await findActiveVideoTargetId(sql, video.bvid);
         const inserted = await insertCreatorPublishEvent(sql, {
           id: crypto.randomUUID(),

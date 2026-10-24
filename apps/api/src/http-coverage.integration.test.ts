@@ -227,17 +227,68 @@ describe('HTTP API coverage against isolated Postgres', () => {
       onBackfill: (task) => {
         backfills.push(task);
       },
-      uploadsSyncProvider: createOfflineDiscoveryProvider({
-        videosByMid: {
-          '240240': [
-            {
-              bvid: 'BV1xx411c7mD',
-              title: '覆盖投稿',
-              created: 1_720_000_000n,
-              mid: '240240',
-            },
-          ],
+      uploadsSyncProvider: {
+        ...createOfflineDiscoveryProvider({
+          videosByMid: {
+            '240240': [
+              {
+                bvid: 'BV1xx411c7mD',
+                title: '覆盖投稿',
+                created: 1_720_000_000n,
+                mid: '240240',
+                pic: 'https://i0.hdslb.com/bfs/archive/cover.jpg',
+              },
+            ],
+          },
+          dynamicsByMid: {
+            '240240': [
+              {
+                dynamicId: '966692349750018001',
+                publishedAtSec: 1_720_000_100n,
+                title: '覆盖动态一',
+                text: '覆盖动态一正文',
+              },
+              {
+                dynamicId: '966692349750018002',
+                publishedAtSec: 1_720_000_200n,
+                title: '覆盖动态二',
+                text: '覆盖动态二正文',
+              },
+              {
+                dynamicId: '966692349750018003',
+                publishedAtSec: 1_720_000_300n,
+                title: '覆盖动态三',
+                text: '覆盖动态三正文',
+              },
+            ],
+          },
+        }),
+        async fetchCreatorProfile(input: {
+          mid: string;
+          cookieHeader: string | null;
+          accountKey: string;
+        }) {
+          return {
+            mid: input.mid,
+            faceUrl: `https://i0.hdslb.com/bfs/face/${input.mid}.jpg`,
+            uname: `覆盖UP${input.mid}`,
+            calls: [
+              {
+                endpoint: 'web_interface_card' as const,
+                statusCode: 200,
+                bizCode: 0,
+                durationMs: 1,
+                error: null,
+              },
+            ],
+          };
         },
+      },
+      mediaImageFetch: async (url: URL) => ({
+        status: 200,
+        finalUrl: url.toString(),
+        contentType: 'image/png',
+        body: PNG,
       }),
       accounts: {
         transport: async (request) => {
@@ -677,6 +728,49 @@ describe('HTTP API coverage against isolated Postgres', () => {
       )) as { cached: boolean; pagesFetched: number };
       expect(uploadsCached.cached).toBe(true);
       expect(uploadsCached.pagesFetched).toBe(0);
+      const dynamicsStatus = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/dynamics/sync'),
+        200,
+      )) as { mid: string; stale: boolean };
+      expect(dynamicsStatus.mid).toBe('240240');
+      expect(dynamicsStatus.stale).toBe(true);
+      const dynamicsSynced = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/dynamics/sync', json('POST', {})),
+        200,
+      )) as { cached: boolean; createdCount: number; dynamicCount: number };
+      expect(dynamicsSynced.cached).toBe(false);
+      expect(dynamicsSynced.dynamicCount).toBe(3);
+      expect(dynamicsSynced.createdCount).toBe(3);
+      const dynamicsCached = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/dynamics/sync', json('POST', {})),
+        200,
+      )) as { cached: boolean; pagesFetched: number };
+      expect(dynamicsCached.cached).toBe(true);
+      expect(dynamicsCached.pagesFetched).toBe(0);
+      const mediaStatus = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/media/backfill'),
+        200,
+      )) as { mid: string; stale: boolean };
+      expect(mediaStatus.mid).toBe('240240');
+      const mediaBackfill = (await expectStatus(
+        await api('/api/v1/monitor/creators/240240/media/backfill', json('POST', { force: true })),
+        200,
+      )) as { faceUpdated: boolean; coversUpdated: number; faceUrl: string | null };
+      expect(mediaBackfill.faceUpdated).toBe(true);
+      expect(mediaBackfill.coversUpdated).toBeGreaterThanOrEqual(1);
+      expect(mediaBackfill.faceUrl).toContain('hdslb.com');
+      const proxied = await expectStatus(
+        await api(
+          `/api/v1/media/image?url=${encodeURIComponent('https://i0.hdslb.com/bfs/face/a.jpg')}`,
+        ),
+        200,
+      );
+      expect(proxied.headers.get('content-type')).toContain('image/');
+      expect(proxied.headers.get('cache-control')).toContain('max-age=86400');
+      await expectStatus(
+        await api(`/api/v1/media/image?url=${encodeURIComponent('https://evil.example/x.jpg')}`),
+        400,
+      );
       const publishEvents = (await expectStatus(
         await api('/api/v1/monitor/creators/240240/publish-events?page=1&pageSize=20'),
         200,

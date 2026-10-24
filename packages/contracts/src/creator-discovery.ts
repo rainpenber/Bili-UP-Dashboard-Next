@@ -80,6 +80,15 @@ export const CREATOR_UPLOADS_SYNC_TTL_MS = 6 * 60 * 60 * 1000;
 export const CREATOR_UPLOADS_SYNC_MAX_VIDEOS = 100;
 export const CREATOR_UPLOADS_SYNC_MAX_PAGES = 3;
 
+/** TTL for creator dynamics sync (space dynamic feed). */
+export const CREATOR_DYNAMICS_SYNC_TTL_MS = 6 * 60 * 60 * 1000;
+export const CREATOR_DYNAMICS_SYNC_MAX_ITEMS = 30;
+export const CREATOR_DYNAMICS_SYNC_MAX_PAGES = 2;
+
+/** TTL for creator media (face/cover) backfill. */
+export const CREATOR_MEDIA_BACKFILL_TTL_MS = 6 * 60 * 60 * 1000;
+export const CREATOR_MEDIA_BACKFILL_MAX_VIDEOS = 100;
+
 export type CreatorUploadsSyncStatus = {
   mid: string;
   lastSyncedAt: string | null;
@@ -101,6 +110,45 @@ export type CreatorUploadsSyncResponse = {
   pagesFetched: number;
   stale: boolean;
   ttlMs: number;
+};
+
+export type CreatorDynamicsSyncStatus = {
+  mid: string;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  dynamicCount: number;
+  eventsCreated: number;
+  stale: boolean;
+  ttlMs: number;
+};
+
+export type CreatorDynamicsSyncResponse = {
+  mid: string;
+  cached: boolean;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  dynamicCount: number;
+  eventsCreated: number;
+  createdCount: number;
+  pagesFetched: number;
+  stale: boolean;
+  ttlMs: number;
+};
+
+export type CreatorMediaBackfillStatus = {
+  mid: string;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  faceUpdated: boolean;
+  coversUpdated: number;
+  stale: boolean;
+  ttlMs: number;
+};
+
+export type CreatorMediaBackfillResponse = CreatorMediaBackfillStatus & {
+  cached: boolean;
+  pagesFetched: number;
+  faceUrl: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -491,6 +539,100 @@ export function parseUploadsSyncForce(body: unknown, queryForce: string | undefi
   if (queryForce === 'true') return true;
   if (!isRecord(body)) return false;
   return body.force === true;
+}
+
+export function parseCreatorDynamicsSyncStatus(value: unknown): CreatorDynamicsSyncStatus {
+  if (!isRecord(value)) {
+    throw new MonitorContractError('invalid_body', '动态同步状态必须是对象');
+  }
+  if (typeof value.ttlMs !== 'number' || !Number.isInteger(value.ttlMs) || value.ttlMs <= 0) {
+    throw new MonitorContractError('invalid_body', 'ttlMs 非法');
+  }
+  if (
+    typeof value.dynamicCount !== 'number' ||
+    !Number.isInteger(value.dynamicCount) ||
+    value.dynamicCount < 0
+  ) {
+    throw new MonitorContractError('invalid_body', 'dynamicCount 非法');
+  }
+  if (
+    typeof value.eventsCreated !== 'number' ||
+    !Number.isInteger(value.eventsCreated) ||
+    value.eventsCreated < 0
+  ) {
+    throw new MonitorContractError('invalid_body', 'eventsCreated 非法');
+  }
+  return {
+    mid: parseCreatorMid(asString(value.mid, 'mid')),
+    lastSyncedAt: asNullableIso(value.lastSyncedAt, 'lastSyncedAt'),
+    lastError: asNullableString(value.lastError, 'lastError'),
+    dynamicCount: value.dynamicCount,
+    eventsCreated: value.eventsCreated,
+    stale: asBoolean(value.stale, 'stale'),
+    ttlMs: value.ttlMs,
+  };
+}
+
+export function parseCreatorDynamicsSyncResponse(value: unknown): CreatorDynamicsSyncResponse {
+  if (!isRecord(value)) {
+    throw new MonitorContractError('invalid_body', '动态同步响应必须是对象');
+  }
+  const base = parseCreatorDynamicsSyncStatus(value);
+  if (
+    typeof value.pagesFetched !== 'number' ||
+    !Number.isInteger(value.pagesFetched) ||
+    value.pagesFetched < 0
+  ) {
+    throw new MonitorContractError('invalid_body', 'pagesFetched 非法');
+  }
+  if (
+    typeof value.createdCount !== 'number' ||
+    !Number.isInteger(value.createdCount) ||
+    value.createdCount < 0
+  ) {
+    throw new MonitorContractError('invalid_body', 'createdCount 非法');
+  }
+  return {
+    ...base,
+    cached: asBoolean(value.cached, 'cached'),
+    pagesFetched: value.pagesFetched,
+    createdCount: value.createdCount,
+  };
+}
+
+export function parseCreatorMediaBackfillResponse(value: unknown): CreatorMediaBackfillResponse {
+  if (!isRecord(value)) {
+    throw new MonitorContractError('invalid_body', '媒体回填响应必须是对象');
+  }
+  if (typeof value.ttlMs !== 'number' || !Number.isInteger(value.ttlMs) || value.ttlMs <= 0) {
+    throw new MonitorContractError('invalid_body', 'ttlMs 非法');
+  }
+  if (
+    typeof value.coversUpdated !== 'number' ||
+    !Number.isInteger(value.coversUpdated) ||
+    value.coversUpdated < 0
+  ) {
+    throw new MonitorContractError('invalid_body', 'coversUpdated 非法');
+  }
+  if (
+    typeof value.pagesFetched !== 'number' ||
+    !Number.isInteger(value.pagesFetched) ||
+    value.pagesFetched < 0
+  ) {
+    throw new MonitorContractError('invalid_body', 'pagesFetched 非法');
+  }
+  return {
+    mid: parseCreatorMid(asString(value.mid, 'mid')),
+    lastSyncedAt: asNullableIso(value.lastSyncedAt, 'lastSyncedAt'),
+    lastError: asNullableString(value.lastError, 'lastError'),
+    faceUpdated: asBoolean(value.faceUpdated, 'faceUpdated'),
+    coversUpdated: value.coversUpdated,
+    stale: asBoolean(value.stale, 'stale'),
+    ttlMs: value.ttlMs,
+    cached: asBoolean(value.cached, 'cached'),
+    pagesFetched: value.pagesFetched,
+    faceUrl: asNullableString(value.faceUrl, 'faceUrl'),
+  };
 }
 
 export function parsePublishEventsQuery(search: URLSearchParams): {

@@ -63,8 +63,8 @@ describe('creator content discovery (offline)', () => {
       config: (await getCreatorDiscoveryConfig(sql, MID))!,
       now,
       videos: [
-        { bvid: 'BV1xx411c7mD', title: '旧视频', created: 1_700_000_000n, mid: MID },
-        { bvid: 'BV1xx411c7mE', title: '旧视频2', created: 1_700_000_100n, mid: MID },
+        { bvid: 'BV1xx411c7mD', title: '旧视频', created: 1_700_000_000n, mid: MID, pic: null },
+        { bvid: 'BV1xx411c7mE', title: '旧视频2', created: 1_700_000_100n, mid: MID, pic: null },
       ],
       dynamics: [{ dynamicId: '9001', publishedAtSec: 1_700_000_050n, title: '旧动态' }],
     });
@@ -84,9 +84,9 @@ describe('creator content discovery (offline)', () => {
       config,
       now,
       videos: [
-        { bvid: 'BV1xx411c7mA', title: '新1', created: 1_700_100_001n, mid: MID },
-        { bvid: 'BV1xx411c7mB', title: '新2', created: 1_700_100_002n, mid: MID },
-        { bvid: 'BV1xx411c7mC', title: '新3', created: 1_700_100_003n, mid: MID },
+        { bvid: 'BV1xx411c7mA', title: '新1', created: 1_700_100_001n, mid: MID, pic: null },
+        { bvid: 'BV1xx411c7mB', title: '新2', created: 1_700_100_002n, mid: MID, pic: null },
+        { bvid: 'BV1xx411c7mC', title: '新3', created: 1_700_100_003n, mid: MID, pic: null },
       ],
       dynamics: [{ dynamicId: '9100', publishedAtSec: 1_700_100_010n, title: '新动态' }],
     });
@@ -100,9 +100,9 @@ describe('creator content discovery (offline)', () => {
       config: after,
       now: new Date('2026-10-23T02:05:00.000Z'),
       videos: [
-        { bvid: 'BV1xx411c7mA', title: '新1', created: 1_700_100_001n, mid: MID },
-        { bvid: 'BV1xx411c7mB', title: '新2', created: 1_700_100_002n, mid: MID },
-        { bvid: 'BV1xx411c7mC', title: '新3', created: 1_700_100_003n, mid: MID },
+        { bvid: 'BV1xx411c7mA', title: '新1', created: 1_700_100_001n, mid: MID, pic: null },
+        { bvid: 'BV1xx411c7mB', title: '新2', created: 1_700_100_002n, mid: MID, pic: null },
+        { bvid: 'BV1xx411c7mC', title: '新3', created: 1_700_100_003n, mid: MID, pic: null },
       ],
       dynamics: [{ dynamicId: '9100', publishedAtSec: 1_700_100_010n, title: '新动态' }],
     });

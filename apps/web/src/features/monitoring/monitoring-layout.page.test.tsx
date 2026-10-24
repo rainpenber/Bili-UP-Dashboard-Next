@@ -35,6 +35,8 @@ function card(externalId: string, patch: Record<string, unknown> = {}) {
     title: externalId === OTHER ? '另一条视频' : '离线视频',
     category: '游戏',
     imageAssetId: null,
+    imageUrl: null,
+    imageProxyUrl: null,
     mid: null,
     displayName: externalId === OTHER ? '另一条视频' : '离线视频',
     hasEntity: true,

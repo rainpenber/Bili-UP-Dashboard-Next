@@ -61,6 +61,8 @@ export function createOfflineDiscoveryProvider(
         dynamics: fixture.dynamicsByMid?.[input.mid] ?? [],
         skips: fixture.skipsByMid?.[input.mid] ?? [],
         calls,
+        offset: null,
+        hasMore: false,
       };
     },
   };

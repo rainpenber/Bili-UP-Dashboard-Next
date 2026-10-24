@@ -27,8 +27,41 @@ import {
   type MonitorTargetRow,
   type Sql,
 } from '@studio/db';
+import { formatDynamicTargetLabel } from '@studio/monitoring';
 import type { StudioLogger } from '@studio/observability';
 import type { Hono } from 'hono';
+
+async function resolveDynamicCreateLabel(
+  db: Sql,
+  externalId: string,
+  requestLabel: string,
+): Promise<string> {
+  // Explicit custom label (not the externalId fallback) is kept as-is.
+  if (requestLabel.trim() && requestLabel.trim() !== externalId) {
+    return requestLabel.trim();
+  }
+  const eventRows = await db<{ title_snapshot: string }[]>`
+    SELECT title_snapshot
+    FROM creator_publish_events
+    WHERE event_kind = 'dynamic' AND external_id = ${externalId}
+    ORDER BY first_discovered_at DESC
+    LIMIT 1
+  `;
+  const fromEvent = eventRows[0]?.title_snapshot?.trim() || null;
+  if (fromEvent) {
+    return formatDynamicTargetLabel({ text: fromEvent, dynamicId: externalId });
+  }
+  const dynRows = await db<{ text: string | null }[]>`
+    SELECT metadata->>'text' AS text
+    FROM dynamics
+    WHERE dynamic_id = ${externalId}
+    LIMIT 1
+  `;
+  return formatDynamicTargetLabel({
+    text: dynRows[0]?.text ?? null,
+    dynamicId: externalId,
+  });
+}
 
 function iso(value: Date | null): string | null {
   return value ? value.toISOString() : null;
@@ -327,11 +360,15 @@ export function registerMonitorTargetRoutes(app: Hono, db: Sql): void {
         request.startAt === undefined || request.startAt === null
           ? null
           : new Date(request.startAt);
+      const label =
+        request.type === 'dynamic'
+          ? await resolveDynamicCreateLabel(db, request.externalId, request.label)
+          : request.label;
       const result = await insertMonitorTarget(db, {
         id: crypto.randomUUID(),
         type: request.type,
         externalId: request.externalId,
-        label: request.label,
+        label,
         tags: request.tags,
         intervalMinutes: request.intervalMinutes,
         intervalMode: request.intervalMode,

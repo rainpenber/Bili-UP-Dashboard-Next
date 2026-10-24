@@ -22,6 +22,11 @@ export type MonitorCardQuery = {
   ownerMid?: string | null;
   /** Exact identity read. Ignores list filters so detail matches the stored target. */
   externalId?: string | null;
+  /**
+   * Video-only. When false (default), hide videos that have neither a non-deleted
+   * monitor target nor a commercial project reference. Identity reads ignore this.
+   */
+  includeUnmonitored?: boolean;
 };
 
 export type MonitorCardProjectRow = {
@@ -35,6 +40,8 @@ export type MonitorCardRow = {
   title: string | null;
   category: string | null;
   imageAssetId: string | null;
+  /** Raw remote URL: videos.cover_url or creators.face_url. */
+  imageUrl: string | null;
   mid: string | null;
   hasEntity: boolean;
   hasSamples: boolean;
@@ -69,6 +76,7 @@ type SqlCardRow = {
   title: string | null;
   category: string | null;
   image_asset_id: string | null;
+  image_url: string | null;
   mid: string | null;
   has_entity: boolean | null;
   has_samples: boolean | null;
@@ -109,6 +117,7 @@ SELECT
   e.mid::text AS mid,
   e.creator_name AS creator_name,
   e.cover_asset_id AS image_asset_id,
+  e.cover_url AS image_url,
   (e.external_id IS NOT NULL) AS has_entity,
   (e.sampled_at IS NOT NULL) AS has_samples,
   e.pinned_at,
@@ -138,6 +147,7 @@ FROM (
     v.mid,
     cr.uname AS creator_name,
     v.cover_asset_id,
+    v.cover_url,
     v.pinned_at,
     v.pubdate,
     m.sampled_at,
@@ -172,6 +182,7 @@ SELECT
   COALESCE(e.mid, t.external_id)::text AS mid,
   e.title AS creator_name,
   e.face_asset_id AS image_asset_id,
+  e.face_url AS image_url,
   (e.external_id IS NOT NULL) AS has_entity,
   (e.sampled_at IS NOT NULL) AS has_samples,
   e.pinned_at,
@@ -200,6 +211,7 @@ FROM (
     c.category,
     c.mid::text AS mid,
     c.face_asset_id,
+    c.face_url,
     c.pinned_at,
     f.sampled_at,
     f.follower_count
@@ -252,6 +264,7 @@ function mapRow(type: MonitorCardKind, row: SqlCardRow): MonitorCardRow | null {
     title: row.title,
     category: row.category,
     imageAssetId: row.image_asset_id,
+    imageUrl: row.image_url,
     mid: row.mid,
     hasEntity: row.has_entity === true,
     hasSamples: row.has_samples === true,
@@ -294,6 +307,8 @@ export async function listMonitorCards(
   const monitor = query.monitor;
   /** Exact mid filter for「只看我的」; never applied to creator lists or identity reads. */
   const ownerMid = externalId || query.type !== 'video' || !query.ownerMid ? null : query.ownerMid;
+  const includeUnmonitored =
+    Boolean(externalId) || query.type !== 'video' || query.includeUnmonitored === true;
   const pattern = q ? likePattern(q) : null;
   const unified = query.type === 'video' ? VIDEO_UNIFIED : CREATOR_UNIFIED;
   const videoSort = query.sort === 'published_asc' ? 'published_asc' : 'published_desc';
@@ -346,6 +361,16 @@ export async function listMonitorCards(
           ${ownerMid}::text IS NULL
           OR u.mid = ${ownerMid}
         )
+        AND (
+          ${includeUnmonitored}::boolean
+          OR u.target_id IS NOT NULL
+          OR EXISTS (
+            SELECT 1 FROM project_publish_records r WHERE r.bvid = u.external_id
+          )
+          OR EXISTS (
+            SELECT 1 FROM project_monitor_contracts m WHERE m.bvid = u.external_id
+          )
+        )
     ),
     counted AS (
       SELECT count(*)::int AS total_items FROM filtered
@@ -361,6 +386,7 @@ export async function listMonitorCards(
       card_page.title,
       card_page.category,
       card_page.image_asset_id,
+      card_page.image_url,
       card_page.mid,
       card_page.has_entity,
       card_page.has_samples,
