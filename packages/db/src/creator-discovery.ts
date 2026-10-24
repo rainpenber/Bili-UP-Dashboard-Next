@@ -631,6 +631,7 @@ export async function findActivePublishMonitorTargetId(
  * Hides a dynamic that duplicates a same-day video for the same creator.
  * First layer: related_bvid points at an existing video event.
  * Second layer: normalized title matches a video published on the same UTC day.
+ * Third layer: normalized title (length >= 8) prefixes a same-day video description.
  */
 const PUBLISH_EVENT_DEDUPE_EXCLUSION = `
   NOT (
@@ -655,6 +656,17 @@ const PUBLISH_EVENT_DEDUPE_EXCLUSION = `
             = (e.published_at AT TIME ZONE 'UTC')::date
           AND lower(regexp_replace(v.title_snapshot, '[^[:alnum:]一-龥]', '', 'g'))
             = lower(regexp_replace(e.title_snapshot, '[^[:alnum:]一-龥]', '', 'g'))
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM videos vd
+        WHERE vd.mid::text = e.mid
+          AND vd.deleted_at IS NULL
+          AND (vd.pubdate AT TIME ZONE 'UTC')::date
+            = (e.published_at AT TIME ZONE 'UTC')::date
+          AND length(lower(regexp_replace(e.title_snapshot, '[^[:alnum:]一-龥]', '', 'g'))) >= 8
+          AND lower(regexp_replace(vd.description, '[^[:alnum:]一-龥]', '', 'g'))
+            LIKE lower(regexp_replace(e.title_snapshot, '[^[:alnum:]一-龥]', '', 'g')) || '%'
       )
     )
   )

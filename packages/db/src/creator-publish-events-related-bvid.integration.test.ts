@@ -10,6 +10,22 @@ const MID = '496445222';
 const VIDEO_BVID = 'BV1xx411c7mD';
 const BACKFILL_MID = '496445333';
 
+async function insertVideoWithDescription(
+  sql: Sql,
+  input: {
+    bvid: string;
+    mid: string;
+    pubdate: Date;
+    description: string;
+  },
+): Promise<void> {
+  await sql`INSERT INTO creators (mid) VALUES (${input.mid}::bigint) ON CONFLICT (mid) DO NOTHING`;
+  await sql`
+    INSERT INTO videos (bvid, mid, pubdate, description)
+    VALUES (${input.bvid}, ${input.mid}::bigint, ${input.pubdate}, ${input.description})
+  `;
+}
+
 describe('creator publish event related bvid', () => {
   let sql: Sql | null = null;
   let databaseName: string | null = null;
@@ -260,6 +276,115 @@ describe('creator publish event related bvid', () => {
     const listed = await listCreatorPublishEvents(sql, { mid, limit: 50 });
     expect(listed.totalItems).toBe(2);
     expect(listed.items).toHaveLength(2);
+  });
+
+  test('hides a dynamic whose title prefixes a same-day video description', async () => {
+    if (!sql) return;
+    const mid = '496445777';
+    const now = new Date('2026-10-24T00:00:00.000Z');
+    const description =
+      '被AppleWatch“救命”是真实经历。今年借由秋季发布会，从一个身体有点亚健康的用户角度，继续补充更多细节。';
+    await insertVideoWithDescription(sql, {
+      bvid: 'BV1dd411c7m4',
+      mid,
+      pubdate: new Date('2026-10-15T08:00:00.000Z'),
+      description,
+    });
+    await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid,
+      eventKind: 'dynamic',
+      externalId: '900000000000000301',
+      publishedAt: new Date('2026-10-15T09:00:00.000Z'),
+      titleSnapshot: description.slice(0, 40),
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+
+    const listed = await listCreatorPublishEvents(sql, { mid, limit: 50 });
+    expect(listed.totalItems).toBe(0);
+    expect(listed.items).toHaveLength(0);
+  });
+
+  test('keeps a same-day dynamic unrelated to a video description', async () => {
+    if (!sql) return;
+    const mid = '496445778';
+    const now = new Date('2026-10-24T00:00:00.000Z');
+    await insertVideoWithDescription(sql, {
+      bvid: 'BV1ee411c7m5',
+      mid,
+      pubdate: new Date('2026-10-15T08:00:00.000Z'),
+      description: '这是一段完全无关的视频简介，讲的是别的事情和别的主题。',
+    });
+    await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid,
+      eventKind: 'dynamic',
+      externalId: '900000000000000302',
+      publishedAt: new Date('2026-10-15T09:00:00.000Z'),
+      titleSnapshot: '今天出门散步看到了一只很可爱的猫',
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+
+    const listed = await listCreatorPublishEvents(sql, { mid, limit: 50 });
+    expect(listed.totalItems).toBe(1);
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0]?.externalId).toBe('900000000000000302');
+  });
+
+  test('keeps a short dynamic title even when it prefixes a video description', async () => {
+    if (!sql) return;
+    const mid = '496445779';
+    const now = new Date('2026-10-24T00:00:00.000Z');
+    await insertVideoWithDescription(sql, {
+      bvid: 'BV1ff411c7m6',
+      mid,
+      pubdate: new Date('2026-10-15T08:00:00.000Z'),
+      description: '测试视频简介，后面还有很长的一段正文内容用于校验前缀。',
+    });
+    await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid,
+      eventKind: 'dynamic',
+      externalId: '900000000000000303',
+      publishedAt: new Date('2026-10-15T09:00:00.000Z'),
+      titleSnapshot: '测试',
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+
+    const listed = await listCreatorPublishEvents(sql, { mid, limit: 50 });
+    expect(listed.totalItems).toBe(1);
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0]?.externalId).toBe('900000000000000303');
+  });
+
+  test('keeps a description-prefix dynamic on a different UTC day', async () => {
+    if (!sql) return;
+    const mid = '496445780';
+    const now = new Date('2026-10-24T00:00:00.000Z');
+    await insertVideoWithDescription(sql, {
+      bvid: 'BV1gg411c7m7',
+      mid,
+      pubdate: new Date('2026-10-16T23:30:00.000Z'),
+      description: '跨日视频简介：这是一段足够长的正文内容，用来验证同日判定边界。',
+    });
+    await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid,
+      eventKind: 'dynamic',
+      externalId: '900000000000000304',
+      publishedAt: new Date('2026-10-17T00:30:00.000Z'),
+      titleSnapshot: '跨日视频简介：这是一段足够长的正文内容',
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+
+    const listed = await listCreatorPublishEvents(sql, { mid, limit: 50 });
+    expect(listed.totalItems).toBe(1);
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0]?.externalId).toBe('900000000000000304');
   });
 
   test('new insert with related bvid reports created and stores the bvid', async () => {
