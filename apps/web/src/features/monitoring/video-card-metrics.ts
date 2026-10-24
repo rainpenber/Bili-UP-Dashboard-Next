@@ -61,7 +61,7 @@ export function videoCardOnlineText(
   return formatCompactNumber(peak);
 }
 
-/** 生成卡片「播放 / 峰值在线」摘要 */
+/** 生成卡片「播放 / 7日峰值在线」摘要 */
 export function formatVideoCardMetricsSummary(
   metrics: VideoCardLatestMetrics,
   onlineSamples?: ReadonlyArray<CompactNumberInput>,
@@ -70,7 +70,7 @@ export function formatVideoCardMetricsSummary(
   if (online === '无在线数据') {
     return `播放 ${videoCardPlayText(metrics)} · 无在线数据`;
   }
-  return `播放 ${videoCardPlayText(metrics)} · 峰值在线 ${online}`;
+  return `播放 ${videoCardPlayText(metrics)} · 7日峰值在线 ${online}`;
 }
 
 /**
@@ -89,7 +89,7 @@ export function formatVideoGridPlayText(viewCount: CompactNumberInput): string {
   return `${compact} (${exact}) 播放`;
 }
 
-/** 网格第二行：播放量；有峰值在线时追加，无样本显示「无在线数据」 */
+/** 网格第二行：播放量；有 7 日峰值在线时追加，无样本显示「无在线数据」 */
 export function formatVideoGridMetricsLine(
   metrics: VideoCardLatestMetrics,
   onlineSamples?: ReadonlyArray<CompactNumberInput>,
@@ -97,7 +97,7 @@ export function formatVideoGridMetricsLine(
   const play = formatVideoGridPlayText(metrics.viewCount);
   const online = videoCardOnlineText(metrics, onlineSamples);
   if (online === '无在线数据') return `${play} · 无在线数据`;
-  return `${play} · 峰值在线 ${online}`;
+  return `${play} · 7日峰值在线 ${online}`;
 }
 
 /** 网格「更新：YYYY-MM-DD HH:mm」；无采样时「暂无」 */
