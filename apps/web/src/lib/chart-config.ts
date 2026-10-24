@@ -12,7 +12,6 @@ import { chartSemanticFromResolved } from '@/lib/chart-colors';
 import {
   aggregateFollowerEventsByDay,
   buildFollowerTimeDomain,
-  followerSampleOnDay,
   partitionEventsBySampleRange,
   shanghaiCalendarDayKey,
   type FollowerChartPublishEvent,
@@ -421,16 +420,21 @@ export function buildFollowerOptionDetailed(
     samplesByDay.set(dayKey, rows);
   }
 
-  const publishPoints = [...dayBuckets.values()].map((bucket) => {
+  const followerFromIndexedDay = (dayKey: string, aroundMs: number): number | null => {
     let fans: number | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
-    for (const sample of samplesByDay.get(bucket.dayKey) ?? []) {
-      const distance = Math.abs(sample.timeMs - bucket.xMs);
+    for (const sample of samplesByDay.get(dayKey) ?? []) {
+      const distance = Math.abs(sample.timeMs - aroundMs);
       if (distance < bestDistance) {
         bestDistance = distance;
         fans = sample.followers;
       }
     }
+    return fans;
+  };
+
+  const publishPoints = [...dayBuckets.values()].map((bucket) => {
+    const fans = followerFromIndexedDay(bucket.dayKey, bucket.xMs);
     return {
       name:
         bucket.labels.length > 1 ? `${bucket.labels.length} 条发布` : (bucket.labels[0] ?? '发布'),
@@ -634,7 +638,7 @@ export function buildFollowerOptionDetailed(
             : sampleIsNear
               ? fans
               : bucket
-                ? followerSampleOnDay(bucket.dayKey, sampledAtList, followers, bucket.xMs)
+                ? followerFromIndexedDay(bucket.dayKey, bucket.xMs)
                 : null;
         const marker = primary?.marker ?? '';
         const sampleLine = sampleIsNear
