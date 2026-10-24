@@ -51,10 +51,12 @@ describe('monitor card read model', () => {
     `;
     await db`
       INSERT INTO video_metric_samples (
-        bvid, sampled_at, source_timezone, raw_time, timestamp_precision, view_count
+        bvid, sampled_at, source_timezone, raw_time, timestamp_precision, view_count, online_viewers
       ) VALUES
-        (${IDS.plain}, '2026-01-01T00:00:00Z', 'Asia/Shanghai', '2026-01-01 08:00', 'minute', 3),
-        (${IDS.active}, '2026-02-01T00:00:00Z', 'Asia/Shanghai', '2026-02-01 08:00', 'minute', 9)
+        (${IDS.plain}, '2026-01-01T00:00:00Z', 'Asia/Shanghai', '2026-01-01 08:00', 'minute', 3, NULL),
+        (${IDS.active}, '2026-02-01T00:00:00Z', 'Asia/Shanghai', '2026-02-01 08:00', 'minute', 9, 2),
+        (${IDS.active}, now() - interval '1 day', 'Asia/Shanghai', 'recent-peak', 'minute', 10, 9),
+        (${IDS.active}, now(), 'Asia/Shanghai', 'recent-latest', 'minute', 11, 1)
     `;
     await db`
       INSERT INTO creator_follower_samples (
@@ -163,7 +165,10 @@ describe('monitor card read model', () => {
     });
     expect(full.items.some((item) => item.externalId === IDS.fresh && !item.hasEntity)).toBe(true);
     expect(full.items.find((item) => item.externalId === IDS.plain)?.enabled).toBeNull();
-    expect(full.items.find((item) => item.externalId === IDS.active)?.enabled).toBe(true);
+    const activeCard = full.items.find((item) => item.externalId === IDS.active);
+    expect(activeCard?.enabled).toBe(true);
+    expect(activeCard?.viewCount).toBe('11');
+    expect(activeCard?.onlineViewers).toBe('9');
     const legacy = full.items.find((item) => item.externalId === IDS.plain);
     expect(legacy?.hasEntity).toBe(true);
     expect(legacy?.targetId).toBeNull();

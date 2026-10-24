@@ -152,16 +152,29 @@ FROM (
     v.pubdate,
     m.sampled_at,
     m.view_count,
-    m.online_viewers,
+    m.peak_online_viewers AS online_viewers,
     m.online_viewers_raw,
     m.like_count
   FROM videos v
   LEFT JOIN creators cr ON cr.mid = v.mid
   LEFT JOIN LATERAL (
-    SELECT sampled_at, view_count, online_viewers, online_viewers_raw, like_count
-    FROM video_metric_samples s
-    WHERE s.bvid = v.bvid
-    ORDER BY sampled_at DESC
+    SELECT
+      latest.sampled_at,
+      latest.view_count,
+      latest.online_viewers_raw,
+      latest.like_count,
+      COALESCE(
+        (
+          SELECT MAX(peak.online_viewers)
+          FROM video_metric_samples peak
+          WHERE peak.bvid = v.bvid
+            AND peak.sampled_at >= NOW() - INTERVAL '7 days'
+        ),
+        latest.online_viewers
+      ) AS peak_online_viewers
+    FROM video_metric_samples latest
+    WHERE latest.bvid = v.bvid
+    ORDER BY latest.sampled_at DESC
     LIMIT 1
   ) m ON TRUE
 ) e
