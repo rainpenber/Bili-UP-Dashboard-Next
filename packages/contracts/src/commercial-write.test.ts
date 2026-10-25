@@ -119,6 +119,38 @@ describe('commercial write contracts', () => {
     ).toThrow(/bvid or videoUrl/);
   });
 
+  test('post publish request derives externalId and requires contentUrl', () => {
+    const parsed = parseCommercialPublishRequest({
+      expectedUpdatedAt: STAMP,
+      idempotencyKey: 'post-1',
+      platform: 'bilibili',
+      contentKind: 'post',
+      contentUrl: 'https://t.bilibili.com/1262617308018245635',
+    });
+    expect(parsed.contentKind).toBe('post');
+    expect(parsed.contentUrl).toBe('https://t.bilibili.com/1262617308018245635');
+    expect(parsed.externalId).toBe('1262617308018245635');
+    expect(parsed.bvid).toBeUndefined();
+    expect(
+      parseCommercialPublishRequest({
+        expectedUpdatedAt: STAMP,
+        idempotencyKey: 'post-2',
+        platform: 'xiaohongshu',
+        contentKind: 'post',
+        contentUrl: 'https://www.xiaohongshu.com/explore/abc123def456',
+        externalId: 'explicit-id',
+      }).externalId,
+    ).toBe('explicit-id');
+    expect(() =>
+      parseCommercialPublishRequest({
+        expectedUpdatedAt: STAMP,
+        idempotencyKey: 'post-3',
+        platform: 'bilibili',
+        contentKind: 'post',
+      }),
+    ).toThrow(/contentUrl/);
+  });
+
   test('a step request keeps force and publish optional', () => {
     const node = parseCommercialNodeStepRequest({
       expectedUpdatedAt: STAMP,
@@ -188,8 +220,40 @@ describe('commercial write contracts', () => {
       },
       idempotentReplay: false,
     });
+    if (!parsed.monitor) throw new Error('missing monitor');
     expect(parsed.monitor.jobs.map((job) => job.jobType)).toEqual(['metadata', 'metrics']);
     expect(parsed.idempotentReplay).toBe(false);
+  });
+
+  test('post publish response carries no bvid and no monitor contract', () => {
+    const parsed = parseCommercialPublishResponse({
+      projectId: PROJECT_ID,
+      node: {
+        ...snapshot(),
+        name: '发布',
+        status: 'completed',
+        statusBeforeBlock: null,
+        primaryBlockItemId: null,
+        completedAt: STAMP,
+      },
+      publish: {
+        bvid: null,
+        publishedAt: STAMP,
+        publishSource: 'web',
+        idempotencyKey: 'post-1',
+        platform: 'bilibili',
+        videoUrl: null,
+        contentKind: 'post',
+        contentUrl: 'https://t.bilibili.com/1262617308018245635',
+        externalId: '1262617308018245635',
+      },
+      monitor: null,
+      idempotentReplay: false,
+    });
+    expect(parsed.publish.contentKind).toBe('post');
+    expect(parsed.publish.bvid).toBeNull();
+    expect(parsed.publish.externalId).toBe('1262617308018245635');
+    expect(parsed.monitor).toBeNull();
   });
 
   test('layout request trims names, caps length, and requires a real change', () => {
