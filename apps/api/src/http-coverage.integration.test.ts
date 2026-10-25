@@ -2026,11 +2026,18 @@ describe('HTTP API coverage against isolated Postgres', () => {
       expect(rolled.node.status).toBe('not_reached');
       tokens = await loadTokens(projectId);
 
-      const requiredSkip = await postNode(projectId, tokens, '文案', 'skip');
-      expect(parseCommercialWriteError(await expectStatus(requiredSkip, 409)).code).toBe(
-        'constraint_violation',
+      const requiredSkip = parseCommercialNodeWriteResponse(
+        await expectStatus(await postNode(projectId, tokens, '结算', 'skip'), 200),
       );
-      expect(await statusOf(db, projectId, '文案')).toBe('not_reached');
+      expect(requiredSkip.node.status).toBe('not_applicable');
+      expect(await statusOf(db, projectId, '结算')).toBe('not_applicable');
+      tokens = await loadTokens(projectId);
+
+      const clearedSkip = parseCommercialNodeWriteResponse(
+        await expectStatus(await postNode(projectId, tokens, '结算', 'rollback'), 200),
+      );
+      expect(clearedSkip.node.status).toBe('not_reached');
+      tokens = await loadTokens(projectId);
 
       const nodeStep = parseCommercialStepResponse(
         await expectStatus(await postNodeStep(projectId, tokens, '文案', 'forward'), 200),

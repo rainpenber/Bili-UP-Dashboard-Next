@@ -311,6 +311,7 @@ describe('historical dynamic sample upgrade', () => {
       '022_account_revoked_at',
       '023_creator_dynamics_media_sync',
       '024_publish_event_related_bvid',
+      '025_wf_nodes_not_applicable_any',
     ]);
     const creators = await snapshotRows(db, 'creators', 'mid');
     const dynamics = await snapshotRows(db, 'dynamics', 'dynamic_id');

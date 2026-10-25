@@ -217,8 +217,9 @@ export function timelineStatusLabel(status: string): string {
 
 function rollup(children: TimelineChild[]): TimelineRollup {
   if (children.some((child) => child.status === 'blocked')) return 'blocked';
+  if (children.length === 0) return 'not_reached';
   const applicable = children.filter((child) => child.status !== 'not_applicable');
-  if (applicable.length === 0) return 'not_reached';
+  if (applicable.length === 0) return 'completed';
   if (applicable.every((child) => child.status === 'completed' || child.status === 'done')) {
     return 'completed';
   }
