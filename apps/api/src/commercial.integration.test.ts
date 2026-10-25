@@ -97,13 +97,6 @@ function blockedNames(nodes: NodeRow[]): string[] {
   return stageNames(nodes.filter((node) => node.status === 'blocked'));
 }
 
-function nodeSatisfied(nodes: NodeRow[], name: string): boolean {
-  return nodes.some(
-    (node) =>
-      node.name === name && (node.status === 'completed' || node.status === 'not_applicable'),
-  );
-}
-
 function nodeReached(nodes: NodeRow[], name: string): boolean {
   return nodes.some(
     (node) =>
