@@ -104,9 +104,19 @@ function nodeSatisfied(nodes: NodeRow[], name: string): boolean {
   );
 }
 
+function nodeReached(nodes: NodeRow[], name: string): boolean {
+  return nodes.some(
+    (node) =>
+      node.name === name &&
+      (node.status === 'in_progress' ||
+        node.status === 'completed' ||
+        node.status === 'not_applicable'),
+  );
+}
+
 function expectedPhase(nodes: NodeRow[]): 'pending' | 'active' | 'wrapping' {
-  if (nodeSatisfied(nodes, '发布')) return 'wrapping';
-  if (nodeSatisfied(nodes, '文案')) return 'active';
+  if (nodeReached(nodes, '发布')) return 'wrapping';
+  if (nodeReached(nodes, '文案')) return 'active';
   return 'pending';
 }
 
