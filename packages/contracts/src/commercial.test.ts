@@ -285,15 +285,20 @@ describe('commercial read contracts', () => {
         blockingReason: null,
         publish: {
           published: true,
+          platform: 'bilibili',
           bvid: 'BVWP004R01',
           publishedAt: '2026-05-20T12:00:00.000Z',
           publishSource: 'web',
           idempotencyKey: 'fixture-publish-once',
+          contentKind: 'video',
+          contentUrl: null,
+          externalId: null,
         },
       }),
     );
     expect(detail.publish.published).toBe(true);
     expect(detail.publish.idempotencyKey).toBe('fixture-publish-once');
+    expect(detail.publish.contentKind).toBe('video');
     expect(detail.blockingReason).toBeNull();
 
     const graph = parseCommercialProjectWorkflow({
@@ -380,6 +385,95 @@ describe('commercial read contracts', () => {
       edges: [],
     });
     expect(template.nodes[0]?.isOptional).toBe(true);
+  });
+
+  test('parses a published post record without a bvid', () => {
+    const detail = parseCommercialProjectDetail(
+      listItem({
+        id: PROJECT_ID,
+        name: 'AI眼镜新品-品牌待确认',
+        netAmount: null,
+        rebateAmount: null,
+        overallStage: 'published_winding_down',
+        currentStageNames: [],
+        anyNodeBlocked: false,
+        blockingReason: null,
+        publish: {
+          published: true,
+          platform: 'bilibili',
+          bvid: null,
+          publishedAt: '2026-10-24T00:00:00.000Z',
+          publishSource: 'web',
+          idempotencyKey: 'fixture-publish-post',
+          contentKind: 'post',
+          contentUrl: 'https://t.bilibili.com/1262617308018245635',
+          externalId: '1262617308018245635',
+        },
+      }),
+    );
+    expect(detail.publish).toMatchObject({
+      published: true,
+      platform: 'bilibili',
+      bvid: null,
+      contentKind: 'post',
+      externalId: '1262617308018245635',
+    });
+  });
+
+  test('rejects a published record with neither bvid nor external id', () => {
+    expect(() =>
+      parseCommercialProjectDetail(
+        listItem({
+          id: PROJECT_ID,
+          name: '缺少内容标识',
+          netAmount: null,
+          rebateAmount: null,
+          overallStage: 'published_winding_down',
+          currentStageNames: [],
+          anyNodeBlocked: false,
+          blockingReason: null,
+          publish: {
+            published: true,
+            platform: 'bilibili',
+            bvid: null,
+            publishedAt: '2026-10-24T00:00:00.000Z',
+            publishSource: 'web',
+            idempotencyKey: 'fixture-publish-missing-id',
+            contentKind: 'post',
+            contentUrl: null,
+            externalId: null,
+          },
+        }),
+      ),
+    ).toThrow('已发布的记录必须有 bvid 或外部内容 ID');
+  });
+
+  test('still requires a bvid for a published video record', () => {
+    expect(() =>
+      parseCommercialProjectDetail(
+        listItem({
+          id: PROJECT_ID,
+          name: '视频缺少 bvid',
+          netAmount: null,
+          rebateAmount: null,
+          overallStage: 'published_winding_down',
+          currentStageNames: [],
+          anyNodeBlocked: false,
+          blockingReason: null,
+          publish: {
+            published: true,
+            platform: 'bilibili',
+            bvid: null,
+            publishedAt: '2026-10-24T00:00:00.000Z',
+            publishSource: 'web',
+            idempotencyKey: 'fixture-publish-video-missing-bvid',
+            contentKind: 'video',
+            contentUrl: null,
+            externalId: '1262617308018245635',
+          },
+        }),
+      ),
+    ).toThrow(/publish\.bvid/);
   });
 
   test('rejects an unpublished payload that still carries a bvid', () => {
