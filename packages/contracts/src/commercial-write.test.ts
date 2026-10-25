@@ -6,6 +6,9 @@ import {
   parseCommercialStageStepRequest,
   parseCommercialCancelItemRequest,
   parseCommercialNodeWriteResponse,
+  parseCommercialOpenItemCreateRequest,
+  parseCommercialOpenItemSnapshot,
+  parseCommercialOpenItemUpdateRequest,
   parseCommercialPlanRequest,
   parseCommercialPublishRequest,
   parseCommercialPublishResponse,
@@ -254,6 +257,128 @@ describe('commercial write contracts', () => {
     expect(parsed.publish.bvid).toBeNull();
     expect(parsed.publish.externalId).toBe('1262617308018245635');
     expect(parsed.monitor).toBeNull();
+  });
+
+  test('open item create accepts three actors and validates title, note, and dueAt', () => {
+    const created = parseCommercialOpenItemCreateRequest({
+      title: '  甲方未寄样品  ',
+      nextActor: 'third_party',
+      impact: 'blocking',
+      dueAt: '2026-11-01T00:00:00.000Z',
+      note: '  等样机  ',
+    });
+    expect(created).toEqual({
+      title: '甲方未寄样品',
+      nextActor: 'third_party',
+      impact: 'blocking',
+      dueAt: '2026-11-01T00:00:00.000Z',
+      note: '等样机',
+    });
+    expect(
+      parseCommercialOpenItemCreateRequest({
+        title: '无截止',
+        nextActor: 'us',
+        impact: 'normal',
+      }),
+    ).toEqual({ title: '无截止', nextActor: 'us', impact: 'normal', dueAt: null, note: null });
+    expect(() =>
+      parseCommercialOpenItemCreateRequest({
+        title: '   ',
+        nextActor: 'us',
+        impact: 'normal',
+      }),
+    ).toThrow(/title/);
+    expect(() =>
+      parseCommercialOpenItemCreateRequest({
+        title: 'x'.repeat(201),
+        nextActor: 'us',
+        impact: 'normal',
+      }),
+    ).toThrow(/at most/);
+    expect(() =>
+      parseCommercialOpenItemCreateRequest({
+        title: '非法责任方',
+        nextActor: 'vendor',
+        impact: 'normal',
+      }),
+    ).toThrow(/nextActor/);
+    expect(() =>
+      parseCommercialOpenItemCreateRequest({
+        title: '非法影响',
+        nextActor: 'us',
+        impact: 'warning',
+      }),
+    ).toThrow(/impact/);
+    expect(() =>
+      parseCommercialOpenItemCreateRequest({
+        title: '坏日期',
+        nextActor: 'us',
+        impact: 'normal',
+        dueAt: 'tomorrow',
+      }),
+    ).toThrow(/dueAt/);
+    expect(() =>
+      parseCommercialOpenItemCreateRequest({
+        title: '长说明',
+        nextActor: 'us',
+        impact: 'normal',
+        note: 'x'.repeat(501),
+      }),
+    ).toThrow(/at most/);
+  });
+
+  test('open item update keeps omitted fields absent and rejects an invalid actor', () => {
+    const patch = parseCommercialOpenItemUpdateRequest({
+      expectedUpdatedAt: STAMP,
+      title: ' 新标题 ',
+      nextActor: 'client',
+      dueAt: null,
+    });
+    expect(patch).toEqual({
+      expectedUpdatedAt: STAMP,
+      title: '新标题',
+      nextActor: 'client',
+      dueAt: null,
+    });
+    expect(parseCommercialOpenItemUpdateRequest({ expectedUpdatedAt: STAMP, note: '   ' })).toEqual(
+      { expectedUpdatedAt: STAMP, note: null },
+    );
+    expect(() =>
+      parseCommercialOpenItemUpdateRequest({
+        expectedUpdatedAt: STAMP,
+        nextActor: 'vendor',
+      }),
+    ).toThrow(/nextActor/);
+  });
+
+  test('open item write snapshot carries actor, dueAt, and note', () => {
+    const parsed = parseCommercialOpenItemSnapshot({
+      id: ITEM_ID,
+      title: '甲方未寄样品',
+      lifecycle: 'open',
+      impact: 'blocking',
+      nextActor: 'third_party',
+      dueAt: '2026-11-01T00:00:00.000Z',
+      note: '等样机',
+      updatedAt: STAMP,
+      cancelReason: null,
+    });
+    expect(parsed.nextActor).toBe('third_party');
+    expect(parsed.dueAt).toBe('2026-11-01T00:00:00.000Z');
+    expect(parsed.note).toBe('等样机');
+    expect(() =>
+      parseCommercialOpenItemSnapshot({
+        id: ITEM_ID,
+        title: '非法责任方',
+        lifecycle: 'open',
+        impact: 'normal',
+        nextActor: 'vendor',
+        dueAt: null,
+        note: null,
+        updatedAt: STAMP,
+        cancelReason: null,
+      }),
+    ).toThrow(/nextActor/);
   });
 
   test('layout request trims names, caps length, and requires a real change', () => {

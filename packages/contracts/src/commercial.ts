@@ -36,7 +36,7 @@ export type WfNodePhase = (typeof WF_NODE_PHASES)[number];
 export const PUBLISH_SOURCES = ['web', 'hermes', 'manual'] as const;
 export type PublishSource = (typeof PUBLISH_SOURCES)[number];
 
-export const OPEN_ITEM_ACTORS = ['us', 'client'] as const;
+export const OPEN_ITEM_ACTORS = ['us', 'client', 'third_party'] as const;
 export type OpenItemActor = (typeof OPEN_ITEM_ACTORS)[number];
 
 const OPEN_ITEM_LIFECYCLES = ['open', 'closed', 'cancelled'] as const;

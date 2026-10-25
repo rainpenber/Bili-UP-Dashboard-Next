@@ -1,5 +1,34 @@
-import type { CommercialOpenItemRead, CommercialProjectListItem } from '@studio/contracts';
+import type {
+  CommercialOpenItemRead,
+  CommercialProjectListItem,
+  OpenItemActor,
+} from '@studio/contracts';
 import { calendarDayKey, formatScheduleLabel } from './node-schedule';
+
+export const OPEN_ITEM_ACTOR_LABEL: Record<OpenItemActor, string> = {
+  us: '我方',
+  client: '甲方',
+  third_party: '第三方',
+};
+
+export const OPEN_ITEM_IMPACT_LABEL: Record<CommercialOpenItemRead['impact'], string> = {
+  normal: '提醒',
+  blocking: '阻塞',
+};
+
+/** Current project-level blocker: open only, blocking first, then stored rank/order. */
+export function pickCurrentOpenItem(
+  items: CommercialOpenItemRead[],
+): CommercialOpenItemRead | null {
+  const open = items.filter((item) => item.lifecycle === 'open');
+  if (open.length === 0) return null;
+  return [...open].sort((a, b) => {
+    if (a.impact !== b.impact) return a.impact === 'blocking' ? -1 : 1;
+    if (a.sortRank !== b.sortRank) return a.sortRank - b.sortRank;
+    if (a.createdAt !== b.createdAt) return a.createdAt.localeCompare(b.createdAt);
+    return a.id.localeCompare(b.id);
+  })[0]!;
+}
 
 export type LiveListBucket =
   'blocked_with_reason' | 'blocked_without_reason' | 'active' | 'closed' | 'archived';

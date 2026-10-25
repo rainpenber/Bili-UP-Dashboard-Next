@@ -797,6 +797,109 @@ describe('commercial workflow write API', () => {
     expect(outline?.completedAt).toBeNull();
     expect(outline?.status).toBe('not_reached');
   }, 30_000);
+
+  test('project-level open items accept third_party, reject duplicates, and edit under a token', async () => {
+    const ctx = await ready();
+    if (!ctx) return;
+    const { app: api, projectId } = ctx;
+    const collection = `/api/v1/commercial/projects/${projectId}/open-items`;
+
+    const createdRes = await api.request(
+      collection,
+      json({
+        title: '  甲方未寄样品  ',
+        nextActor: 'third_party',
+        impact: 'blocking',
+        dueAt: '2026-11-01T00:00:00.000Z',
+        note: '  等样机  ',
+      }),
+    );
+    expect(createdRes.status).toBe(201);
+    const created = parseCommercialOpenItemWriteResponse(await createdRes.json());
+    expect(created.item).toMatchObject({
+      title: '甲方未寄样品',
+      nextActor: 'third_party',
+      impact: 'blocking',
+      lifecycle: 'open',
+      note: '等样机',
+    });
+    expect(Date.parse(created.item.dueAt ?? '')).toBe(Date.parse('2026-11-01T00:00:00.000Z'));
+    expect(created.liftedNodes).toEqual([]);
+
+    const detailRes = await api.request(`/api/v1/commercial/projects/${projectId}`);
+    expect(detailRes.status).toBe(200);
+    const detail = parseCommercialProjectDetail(await detailRes.json());
+    expect(detail.openItems.find((item) => item.id === created.item.id)).toMatchObject({
+      title: '甲方未寄样品',
+      nextActor: 'third_party',
+      impact: 'blocking',
+      lifecycle: 'open',
+      description: '等样机',
+    });
+
+    await expectRefusal(
+      await api.request(
+        collection,
+        json({ title: '甲方未寄样品', nextActor: 'us', impact: 'normal' }),
+      ),
+      409,
+      'duplicate_open_item',
+    );
+
+    const updatedRes = await api.request(`${collection}/${created.item.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        expectedUpdatedAt: created.item.updatedAt,
+        title: '甲方已寄样品',
+        nextActor: 'client',
+      }),
+    });
+    expect(updatedRes.status).toBe(200);
+    const updated = parseCommercialOpenItemWriteResponse(await updatedRes.json());
+    expect(updated.item).toMatchObject({
+      title: '甲方已寄样品',
+      nextActor: 'client',
+      impact: 'blocking',
+      lifecycle: 'open',
+      note: '等样机',
+    });
+    expect(updated.item.dueAt).toBe(created.item.dueAt);
+
+    await expectRefusal(
+      await api.request(`${collection}/${created.item.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          expectedUpdatedAt: created.item.updatedAt,
+          title: '过期令牌',
+        }),
+      }),
+      409,
+      'stale_write',
+    );
+
+    const closedRes = await api.request(
+      `${collection}/${created.item.id}/close`,
+      json({ expectedUpdatedAt: updated.item.updatedAt }),
+    );
+    expect(closedRes.status).toBe(200);
+    const closed = parseCommercialOpenItemWriteResponse(await closedRes.json());
+    expect(closed.item.lifecycle).toBe('closed');
+
+    await expectRefusal(
+      await api.request(`${collection}/${created.item.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          expectedUpdatedAt: closed.item.updatedAt,
+          title: '改已关闭卡点',
+        }),
+      }),
+      409,
+      'item_closed',
+    );
+  }, 30_000);
 });
 
 async function createProject(sql: Sql, name: string): Promise<string> {

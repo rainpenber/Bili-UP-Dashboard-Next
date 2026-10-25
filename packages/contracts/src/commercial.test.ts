@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  OPEN_ITEM_ACTORS,
   WF_NODE_KINDS,
+  isOpenItemActor,
   parseCommercialDefaultTemplate,
   parseCommercialProjectArchiveResponse,
   parseCommercialProjectDetail,
@@ -43,6 +45,15 @@ function listResponse(items: unknown[]) {
 describe('commercial read contracts', () => {
   test('node kinds are only stage and merge', () => {
     expect([...WF_NODE_KINDS]).toEqual(['stage', 'merge']);
+  });
+
+  test('open item actors include third_party and reject unknown values', () => {
+    expect([...OPEN_ITEM_ACTORS]).toEqual(['us', 'client', 'third_party']);
+    for (const actor of OPEN_ITEM_ACTORS) {
+      expect(isOpenItemActor(actor)).toBe(true);
+    }
+    expect(isOpenItemActor('vendor')).toBe(false);
+    expect(isOpenItemActor(null)).toBe(false);
   });
 
   test('parses a project list item', () => {
@@ -167,6 +178,76 @@ describe('commercial read contracts', () => {
       endAt: null,
       reminderAt: null,
     });
+  });
+
+  test('parses a third_party open item from the project list', () => {
+    const parsed = parseCommercialProjectList(
+      listResponse([
+        listItem({
+          id: PROJECT_ID,
+          name: '第三方结算样例',
+          netAmount: null,
+          rebateAmount: null,
+          overallStage: 'pre_publish',
+          currentStageNames: [],
+          anyNodeBlocked: false,
+          openItems: [
+            {
+              id: ITEM_ID,
+              title: '卡第三方结算',
+              description: null,
+              closeCriteria: null,
+              nextAction: null,
+              nextActor: 'third_party',
+              lifecycle: 'open',
+              impact: 'normal',
+              plannedAt: null,
+              sortRank: 0,
+              blocksRequiredForClose: false,
+              workflowNodeId: null,
+              blocksNodeId: null,
+              createdAt: '2026-05-02T00:00:00.000000Z',
+              updatedAt: '2026-05-02T00:00:00.000000Z',
+            },
+          ],
+        }),
+      ]),
+    );
+    expect(parsed.items[0]?.openItems[0]?.nextActor).toBe('third_party');
+    expect(() =>
+      parseCommercialProjectList(
+        listResponse([
+          listItem({
+            id: PROJECT_ID,
+            name: '非法责任方',
+            netAmount: null,
+            rebateAmount: null,
+            overallStage: 'pre_publish',
+            currentStageNames: [],
+            anyNodeBlocked: false,
+            openItems: [
+              {
+                id: ITEM_ID,
+                title: '非法责任方',
+                description: null,
+                closeCriteria: null,
+                nextAction: null,
+                nextActor: 'vendor',
+                lifecycle: 'open',
+                impact: 'normal',
+                plannedAt: null,
+                sortRank: 0,
+                blocksRequiredForClose: false,
+                workflowNodeId: null,
+                blocksNodeId: null,
+                createdAt: '2026-05-02T00:00:00.000000Z',
+                updatedAt: '2026-05-02T00:00:00.000000Z',
+              },
+            ],
+          }),
+        ]),
+      ),
+    ).toThrow(/nextActor/);
   });
 
   test('rejects a malformed sourceWindow', () => {
