@@ -372,7 +372,7 @@ function parseNullableIso(value: unknown, label: string): string | null {
 }
 
 function parseNullableName(value: unknown, label: string): string | null {
-  if (value === null) return null;
+  if (value === null || value === undefined) return null;
   return parseName(value, label);
 }
 
@@ -392,7 +392,8 @@ function parsePublish(value: unknown): CommercialPublishStatus {
     if (bvid === null && externalId === null) {
       throw new Error('已发布的记录必须有 bvid 或外部内容 ID');
     }
-    const contentKind = parseContentKind(record.contentKind);
+    const contentKind =
+      record.contentKind === undefined ? 'video' : parseContentKind(record.contentKind);
     if (contentKind === 'video' && bvid === null) {
       throw new Error('publish.bvid must be a non-empty string when contentKind is video');
     }
@@ -401,7 +402,8 @@ function parsePublish(value: unknown): CommercialPublishStatus {
     }
     return {
       published: true,
-      platform: parseName(record.platform, 'publish.platform'),
+      platform:
+        record.platform === undefined ? 'bilibili' : parseName(record.platform, 'publish.platform'),
       bvid,
       publishedAt: parseIso(record.publishedAt, 'publish.publishedAt'),
       publishSource: record.publishSource,
