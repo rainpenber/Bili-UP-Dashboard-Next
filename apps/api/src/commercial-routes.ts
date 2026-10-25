@@ -310,7 +310,7 @@ const PROJECT_PHASE_SQL = `
                 ON t.id = n.template_node_id
                AND t.template_version_id = n.template_version_id
               WHERE n.project_id = p.id
-                AND n.status IN ('completed', 'not_applicable')
+                AND n.status IN ('in_progress', 'completed', 'not_applicable')
                 AND (t.slug = 'copy' OR n.name = '文案')
             ) THEN 'active'
             ELSE 'pending'
