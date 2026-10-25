@@ -97,6 +97,19 @@ function blockedNames(nodes: NodeRow[]): string[] {
   return stageNames(nodes.filter((node) => node.status === 'blocked'));
 }
 
+function nodeSatisfied(nodes: NodeRow[], name: string): boolean {
+  return nodes.some(
+    (node) =>
+      node.name === name && (node.status === 'completed' || node.status === 'not_applicable'),
+  );
+}
+
+function expectedPhase(nodes: NodeRow[]): 'pending' | 'active' | 'wrapping' {
+  if (nodeSatisfied(nodes, '发布')) return 'wrapping';
+  if (nodeSatisfied(nodes, '文案')) return 'active';
+  return 'pending';
+}
+
 function asActor(value: string) {
   if (!isOpenItemActor(value)) throw new Error(`unexpected next_actor ${value}`);
   return value;
@@ -260,6 +273,7 @@ describe('commercial read API', () => {
         netAmount: project.net_amount,
         rebateAmount: project.rebate_amount,
         overallStage: asOverallStage(project.overall_stage),
+        phase: expectedPhase(projectNodes),
         currentStageNames: stageNames(projectNodes),
         anyNodeBlocked: projectNodes.some((node) => node.status === 'blocked'),
         blockingReason: blockingReason(projectItems, projectNodes),
@@ -312,6 +326,27 @@ describe('commercial read API', () => {
       currentStageNames: ['文案', '预拍摄'],
       anyNodeBlocked: true,
     });
+  }, 30_000);
+
+  test('project list phase follows the 文案 and 发布 thresholds', async () => {
+    if (!sql || !app) return;
+    const res = await app.request('/api/v1/commercial/projects');
+    expect(res.status).toBe(200);
+    const body = parseCommercialProjectList(await res.json());
+    const byId = new Map(body.items.map((item) => [item.id, item]));
+    expect(byId.get(FIXTURE_PROJECT_IDS.freshInquiryOnly)?.phase).toBe('pending');
+    expect(byId.get(FIXTURE_PROJECT_IDS.multiBlock)?.phase).toBe('active');
+    expect(byId.get(FIXTURE_PROJECT_IDS.publishedOpen)?.phase).toBe('wrapping');
+
+    const paged = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects?limit=2&offset=1')).json(),
+    );
+    expect(paged.total).toBe(body.total);
+    expect(paged.limit).toBe(2);
+    expect(paged.offset).toBe(1);
+    expect(paged.items.map((item) => item.id)).toEqual(
+      body.items.slice(1, 3).map((item) => item.id),
+    );
   }, 30_000);
 
   test('project detail matches blocking reason and publish status', async () => {

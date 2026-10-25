@@ -14,6 +14,10 @@ export const OVERALL_STAGES = [
 ] as const;
 export type OverallStage = (typeof OVERALL_STAGES)[number];
 
+/** Project list grouping (WP-OC-007), derived from node status — never stored. */
+export const COMMERCIAL_PROJECT_PHASES = ['pending', 'active', 'wrapping'] as const;
+export type CommercialProjectPhase = (typeof COMMERCIAL_PROJECT_PHASES)[number];
+
 export const WF_NODE_STATUSES = [
   'not_reached',
   'in_progress',
@@ -55,6 +59,12 @@ export function isOverallStage(value: unknown): value is OverallStage {
 
 export function isWfNodeStatus(value: unknown): value is WfNodeStatus {
   return typeof value === 'string' && (WF_NODE_STATUSES as readonly string[]).includes(value);
+}
+
+export function isCommercialProjectPhase(value: unknown): value is CommercialProjectPhase {
+  return (
+    typeof value === 'string' && (COMMERCIAL_PROJECT_PHASES as readonly string[]).includes(value)
+  );
 }
 
 export function isWfNodeKind(value: unknown): value is WfNodeKind {
@@ -127,6 +137,8 @@ export type CommercialProjectListItem = {
   /** 返点金额, numeric(14,2) text. */
   rebateAmount: string | null;
   overallStage: OverallStage;
+  /** Derived list grouping: pending until 文案 is done, active until 发布 is done, then wrapping. */
+  phase: CommercialProjectPhase;
   /** Names of in-progress and blocked nodes, layout order. Empty when none are active. */
   currentStageNames: string[];
   anyNodeBlocked: boolean;
@@ -447,6 +459,7 @@ function parseSourceWindow(value: unknown): CommercialSourceWindow | null {
 function parseListItem(value: unknown): CommercialProjectListItem {
   const record = asRecord(value, 'project list item');
   if (!isOverallStage(record.overallStage)) throw new Error('overallStage is invalid');
+  if (!isCommercialProjectPhase(record.phase)) throw new Error('phase is invalid');
   if (typeof record.anyNodeBlocked !== 'boolean') {
     throw new Error('anyNodeBlocked must be a boolean');
   }
@@ -456,6 +469,7 @@ function parseListItem(value: unknown): CommercialProjectListItem {
     netAmount: parseMoney(record.netAmount, 'netAmount'),
     rebateAmount: parseMoney(record.rebateAmount, 'rebateAmount'),
     overallStage: record.overallStage,
+    phase: record.phase,
     currentStageNames: parseStageNames(record.currentStageNames, 'currentStageNames'),
     anyNodeBlocked: record.anyNodeBlocked,
     blockingReason: parseBlockingReason(record.blockingReason),

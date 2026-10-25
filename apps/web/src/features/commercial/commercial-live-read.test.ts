@@ -85,6 +85,7 @@ describe('commercial live read client', () => {
               netAmount: null,
               rebateAmount: null,
               overallStage: 'pre_publish',
+              phase: 'pending',
               currentStageNames: [],
               anyNodeBlocked: false,
               blockingReason: null,

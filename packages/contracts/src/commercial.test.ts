@@ -15,6 +15,7 @@ const EDGE_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee04';
 const ITEM_ID = 'f0a10001-0001-4001-8001-0000000000a4';
 
 const READ_FIELDS = {
+  phase: 'pending' as const,
   createdAt: '2026-05-01T00:00:00.000000Z',
   updatedAt: '2026-05-01T00:00:00.000000Z',
   userDeadlineAt: null,
@@ -82,6 +83,7 @@ describe('commercial read contracts', () => {
       ]),
     );
     expect(parsed.items[0]?.netAmount).toBe('18000.00');
+    expect(parsed.items[0]?.phase).toBe('pending');
     expect(parsed.items[0]?.currentStageNames).toEqual(['文案', '预拍摄']);
     expect(parsed.items[0]?.openItems[0]?.plannedAt).toBeNull();
     expect(parsed.items[0]?.openItems[0]?.nextActor).toBe('client');
@@ -223,6 +225,9 @@ describe('commercial read contracts', () => {
     const withoutCreated = { ...base } as Record<string, unknown>;
     delete withoutCreated.createdAt;
     expect(() => parseCommercialProjectList(listResponse([withoutCreated]))).toThrow(/createdAt/);
+    expect(() =>
+      parseCommercialProjectList(listResponse([listItem({ ...base, phase: 'published' })])),
+    ).toThrow(/phase/);
     expect(() =>
       parseCommercialProjectList(
         listResponse([listItem({ ...base, openItems: [{ id: ITEM_ID }] })]),
