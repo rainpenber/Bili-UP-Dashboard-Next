@@ -313,6 +313,7 @@ describe('historical dynamic sample upgrade', () => {
       '024_publish_event_related_bvid',
       '025_wf_nodes_not_applicable_any',
       '026_publish_non_video',
+      '027_open_item_third_party',
     ]);
     const creators = await snapshotRows(db, 'creators', 'mid');
     const dynamics = await snapshotRows(db, 'dynamics', 'dynamic_id');
