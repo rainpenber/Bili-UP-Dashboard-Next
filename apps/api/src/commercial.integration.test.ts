@@ -372,13 +372,27 @@ describe('commercial read API', () => {
     const publishes = await sql<
       {
         project_id: string;
-        bvid: string;
+        bvid: string | null;
         published_at: Date;
         publish_source: string;
         idempotency_key: string;
+        platform: string;
+        content_kind: 'video' | 'post';
+        content_url: string | null;
+        external_id: string | null;
       }[]
     >`
-      SELECT project_id, bvid, published_at, publish_source, idempotency_key FROM project_publish_records
+      SELECT
+        project_id,
+        bvid,
+        published_at,
+        publish_source,
+        idempotency_key,
+        platform,
+        content_kind,
+        content_url,
+        external_id
+      FROM project_publish_records
     `;
     const publishByProject = new Map(publishes.map((row) => [row.project_id, row]));
 
@@ -406,18 +420,26 @@ describe('commercial read API', () => {
       if (publish) {
         expect(detail.publish).toEqual({
           published: true,
+          platform: publish.platform,
           bvid: publish.bvid,
           publishedAt: publish.published_at.toISOString(),
           publishSource: asPublishSource(publish.publish_source),
           idempotencyKey: publish.idempotency_key,
+          contentKind: publish.content_kind,
+          contentUrl: publish.content_url,
+          externalId: publish.external_id,
         });
       } else {
         expect(detail.publish).toEqual({
           published: false,
+          platform: 'bilibili',
           bvid: null,
           publishedAt: null,
           publishSource: null,
           idempotencyKey: null,
+          contentKind: 'video',
+          contentUrl: null,
+          externalId: null,
         });
       }
     }
@@ -465,11 +487,73 @@ describe('commercial read API', () => {
     );
     expect(parseCommercialProjectDetail(await published.json()).publish).toEqual({
       published: true,
+      platform: 'bilibili',
       bvid: 'BVWP004R01',
       publishedAt: '2026-05-20T12:00:00.000Z',
       publishSource: 'web',
       idempotencyKey: 'fixture-publish-once',
+      contentKind: 'video',
+      contentUrl: null,
+      externalId: null,
     });
+  }, 30_000);
+
+  test('project detail returns a post publish record without a bvid', async () => {
+    if (!sql || !app) return;
+    const projectId = FIXTURE_PROJECT_IDS.publishReady;
+    await sql`
+      INSERT INTO project_publish_records (
+        project_id,
+        bvid,
+        published_at,
+        publish_source,
+        idempotency_key,
+        platform,
+        content_kind,
+        content_url,
+        external_id
+      )
+      VALUES (
+        ${projectId},
+        NULL,
+        ${'2026-10-24T00:00:00.000Z'},
+        'web',
+        'fixture-publish-post',
+        'bilibili',
+        'post',
+        ${'https://t.bilibili.com/1262617308018245635'},
+        ${'1262617308018245635'}
+      )
+    `;
+    try {
+      const res = await app.request(`/api/v1/commercial/projects/${projectId}`);
+      expect(res.status).toBe(200);
+      const detail = parseCommercialProjectDetail(await res.json());
+      expect(detail.publish).toEqual({
+        published: true,
+        platform: 'bilibili',
+        bvid: null,
+        publishedAt: '2026-10-24T00:00:00.000Z',
+        publishSource: 'web',
+        idempotencyKey: 'fixture-publish-post',
+        contentKind: 'post',
+        contentUrl: 'https://t.bilibili.com/1262617308018245635',
+        externalId: '1262617308018245635',
+      });
+
+      const video = await app.request(
+        `/api/v1/commercial/projects/${FIXTURE_PROJECT_IDS.publishedOpen}`,
+      );
+      expect(video.status).toBe(200);
+      const videoDetail = parseCommercialProjectDetail(await video.json());
+      expect(videoDetail.publish).toMatchObject({
+        published: true,
+        bvid: 'BVWP004R01',
+        contentKind: 'video',
+      });
+    } finally {
+      await sql`DELETE FROM project_publish_records WHERE project_id = ${projectId}`;
+    }
   }, 30_000);
 
   test('workflow graph matches rows and includes the merge node kind', async () => {

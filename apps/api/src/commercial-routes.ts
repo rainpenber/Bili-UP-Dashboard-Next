@@ -7,6 +7,7 @@ import {
   isOpenItemImpact,
   isOpenItemLifecycle,
   isOverallStage,
+  isPublishContentKind,
   isPublishSource,
   isUuidString,
   isWfNodeKind,
@@ -112,6 +113,11 @@ function nodeKind(value: string): WfNodeKind {
 
 function publishSource(value: string): PublishSource {
   if (!isPublishSource(value)) throw new Error(`unexpected publish_source ${value}`);
+  return value;
+}
+
+function publishContentKind(value: string): 'video' | 'post' {
+  if (!isPublishContentKind(value)) throw new Error(`unexpected content_kind ${value}`);
   return value;
 }
 
@@ -754,9 +760,21 @@ export function createCommercialRoutes(db: Sql) {
           published_at: Date | null;
           publish_source: string | null;
           idempotency_key: string | null;
+          platform: string;
+          content_kind: string;
+          content_url: string | null;
+          external_id: string | null;
         }[]
       >`
-        SELECT bvid, published_at, publish_source, idempotency_key
+        SELECT
+          bvid,
+          published_at,
+          publish_source,
+          idempotency_key,
+          platform,
+          content_kind,
+          content_url,
+          external_id
         FROM project_publish_records
         WHERE project_id = ${projectId}
       `;
@@ -768,17 +786,25 @@ export function createCommercialRoutes(db: Sql) {
           publishRow === undefined
             ? {
                 published: false,
+                platform: 'bilibili',
                 bvid: null,
                 publishedAt: null,
                 publishSource: null,
                 idempotencyKey: null,
+                contentKind: 'video',
+                contentUrl: null,
+                externalId: null,
               }
             : {
                 published: true,
-                bvid: publishRow.bvid ?? '',
+                platform: publishRow.platform,
+                bvid: publishRow.bvid,
                 publishedAt: toIso(publishRow.published_at ?? ''),
                 publishSource: publishSource(publishRow.publish_source ?? ''),
                 idempotencyKey: publishRow.idempotency_key ?? '',
+                contentKind: publishContentKind(publishRow.content_kind),
+                contentUrl: publishRow.content_url,
+                externalId: publishRow.external_id,
               },
       };
       return c.json(parseCommercialProjectDetail(detail));
