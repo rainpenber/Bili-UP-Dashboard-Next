@@ -1,12 +1,14 @@
 /** Commercial workflow write contracts (WP-004R2-3A). */
 
 import {
+  isOpenItemActor,
   isOverallStage,
   isPublishSource,
   isUuidString,
   isWfNodeKind,
   isWfNodeStatus,
   type CommercialWorkflowNode,
+  type OpenItemActor,
   type OverallStage,
   type PublishSource,
   type WfNodeKind,
@@ -26,6 +28,8 @@ export const COMMERCIAL_WRITE_ERROR_CODES = [
   'not_applicable_block',
   'invalid_body',
   'confirmation_required',
+  'duplicate_open_item',
+  'item_closed',
 ] as const;
 
 export type CommercialWriteErrorCode = (typeof COMMERCIAL_WRITE_ERROR_CODES)[number];
@@ -126,6 +130,11 @@ export type CommercialOpenItemSnapshot = {
   title: string;
   lifecycle: OpenItemLifecycle;
   impact: OpenItemImpact;
+  nextActor: OpenItemActor;
+  /** open_items.planned_at. Null when the item has no deadline. */
+  dueAt: string | null;
+  /** open_items.description. Null when no note was stored. */
+  note: string | null;
   updatedAt: string;
   cancelReason: string | null;
 };
@@ -192,6 +201,32 @@ export type CommercialCancelItemRequest = {
   expectedUpdatedAt: string;
   /** Passed through to the database. A blank value is rejected by the check constraint. */
   cancelReason: string;
+};
+
+/** Max length for a project-level open item title. */
+export const COMMERCIAL_OPEN_ITEM_TITLE_MAX = 200;
+/** Max length for an optional open item note. */
+export const COMMERCIAL_OPEN_ITEM_NOTE_MAX = 500;
+
+export type CommercialOpenItemCreateRequest = {
+  title: string;
+  nextActor: OpenItemActor;
+  impact: OpenItemImpact;
+  /** Optional deadline ISO instant. Null / omitted means no deadline. */
+  dueAt?: string | null;
+  /** Optional short note (max 500 chars after trimming). */
+  note?: string | null;
+};
+
+export type CommercialOpenItemUpdateRequest = {
+  expectedUpdatedAt: string;
+  title?: string;
+  nextActor?: OpenItemActor;
+  impact?: OpenItemImpact;
+  /** Omit to leave unchanged; null clears the deadline. */
+  dueAt?: string | null;
+  /** Omit to leave unchanged; null clears the note. */
+  note?: string | null;
 };
 
 export type CommercialPublishRequest = {
@@ -389,10 +424,42 @@ export function parseCommercialNodeWriteResponse(value: unknown): CommercialNode
   };
 }
 
+function parseOpenItemTitle(value: unknown, label = 'title'): string {
+  if (typeof value !== 'string') throw new Error(`${label} must be a string`);
+  const title = value.trim();
+  if (title.length === 0) throw new Error(`${label} must be a non-empty string`);
+  if (title.length > COMMERCIAL_OPEN_ITEM_TITLE_MAX) {
+    throw new Error(`${label} must be at most ${COMMERCIAL_OPEN_ITEM_TITLE_MAX} characters`);
+  }
+  return title;
+}
+
+function parseOpenItemNote(value: unknown, label = 'note'): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') throw new Error(`${label} must be a string or null`);
+  const note = value.trim();
+  if (note.length === 0) return null;
+  if (note.length > COMMERCIAL_OPEN_ITEM_NOTE_MAX) {
+    throw new Error(`${label} must be at most ${COMMERCIAL_OPEN_ITEM_NOTE_MAX} characters`);
+  }
+  return note;
+}
+
+function parseOpenItemActor(value: unknown, label = 'nextActor'): OpenItemActor {
+  if (!isOpenItemActor(value)) throw new Error(`${label} is invalid`);
+  return value;
+}
+
+function parseOptionalDueAt(value: unknown, label = 'dueAt'): string | null {
+  if (value === null || value === undefined) return null;
+  return parseIso(value, label);
+}
+
 export function parseCommercialOpenItemSnapshot(value: unknown): CommercialOpenItemSnapshot {
   const record = asRecord(value, 'open item');
   if (!isLifecycle(record.lifecycle)) throw new Error('lifecycle is invalid');
   if (!isImpact(record.impact)) throw new Error('impact is invalid');
+  if (!isOpenItemActor(record.nextActor)) throw new Error('nextActor is invalid');
   const cancelReason =
     record.cancelReason === null ? null : parseName(record.cancelReason, 'cancelReason');
   if (record.lifecycle === 'cancelled' && cancelReason === null) {
@@ -406,9 +473,44 @@ export function parseCommercialOpenItemSnapshot(value: unknown): CommercialOpenI
     title: parseName(record.title, 'title'),
     lifecycle: record.lifecycle,
     impact: record.impact,
+    nextActor: record.nextActor,
+    dueAt: parseOptionalDueAt(record.dueAt),
+    note: parseOpenItemNote(record.note),
     updatedAt: parseIso(record.updatedAt, 'updatedAt'),
     cancelReason,
   };
+}
+
+export function parseCommercialOpenItemCreateRequest(
+  value: unknown,
+): CommercialOpenItemCreateRequest {
+  const record = asRecord(value, 'open item create');
+  if (!isImpact(record.impact)) throw new Error('impact is invalid');
+  return {
+    title: parseOpenItemTitle(record.title),
+    nextActor: parseOpenItemActor(record.nextActor),
+    impact: record.impact,
+    dueAt: parseOptionalDueAt(record.dueAt),
+    note: parseOpenItemNote(record.note),
+  };
+}
+
+export function parseCommercialOpenItemUpdateRequest(
+  value: unknown,
+): CommercialOpenItemUpdateRequest {
+  const record = asRecord(value, 'open item update');
+  const request: CommercialOpenItemUpdateRequest = {
+    expectedUpdatedAt: parseIso(record.expectedUpdatedAt, 'expectedUpdatedAt'),
+  };
+  if (record.title !== undefined) request.title = parseOpenItemTitle(record.title);
+  if (record.nextActor !== undefined) request.nextActor = parseOpenItemActor(record.nextActor);
+  if (record.impact !== undefined) {
+    if (!isImpact(record.impact)) throw new Error('impact is invalid');
+    request.impact = record.impact;
+  }
+  if (record.dueAt !== undefined) request.dueAt = parseOptionalDueAt(record.dueAt);
+  if (record.note !== undefined) request.note = parseOpenItemNote(record.note);
+  return request;
 }
 
 export function parseCommercialOpenItemWriteResponse(

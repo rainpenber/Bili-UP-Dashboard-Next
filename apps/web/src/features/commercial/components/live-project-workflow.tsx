@@ -347,6 +347,11 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [displayReadOnly, layoutDirty, saveLayout]);
 
+  const onOpenItemsChanged = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['commercial', 'live-project', projectId] });
+    void queryClient.invalidateQueries({ queryKey: liveCommercialProjectsKey });
+  }, [projectId, queryClient]);
+
   const planEditor = useMemo<PlanEditor>(
     () => ({
       disabled: Boolean(displayReadOnly),
@@ -501,7 +506,12 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
             当前为来源展示态：已隐藏推进 / 完成等写操作入口。
           </p>
         ) : null}
-        <OpenItemsReadout items={detailQuery.data?.openItems ?? []} />
+        <OpenItemsReadout
+          items={detailQuery.data?.openItems ?? []}
+          projectId={projectId}
+          readOnly={displayReadOnly}
+          onChanged={onOpenItemsChanged}
+        />
         <ProgressTimeline
           nodes={timelineNodes}
           stepEditor={stepEditor}

@@ -2020,6 +2020,39 @@ describe('HTTP API coverage against isolated Postgres', () => {
       expect(cancelled.item.lifecycle).toBe('cancelled');
       tokens = await loadTokens(projectId);
 
+      const createdOpenItem = parseCommercialOpenItemWriteResponse(
+        await expectStatus(
+          await api(
+            `/api/v1/commercial/projects/${projectId}/open-items`,
+            json('POST', {
+              title: '第三方结算未到账',
+              nextActor: 'third_party',
+              impact: 'normal',
+              dueAt: '2026-11-01T00:00:00.000Z',
+              note: '等财务确认',
+            }),
+          ),
+          201,
+        ),
+      );
+      expect(createdOpenItem.item.nextActor).toBe('third_party');
+      expect(createdOpenItem.item.lifecycle).toBe('open');
+      const editedOpenItem = parseCommercialOpenItemWriteResponse(
+        await expectStatus(
+          await api(
+            `/api/v1/commercial/projects/${projectId}/open-items/${createdOpenItem.item.id}`,
+            json('PATCH', {
+              expectedUpdatedAt: createdOpenItem.item.updatedAt,
+              title: '第三方结算已确认',
+              nextActor: 'client',
+            }),
+          ),
+          200,
+        ),
+      );
+      expect(editedOpenItem.item.title).toBe('第三方结算已确认');
+      expect(editedOpenItem.item.nextActor).toBe('client');
+
       const rolled = parseCommercialNodeWriteResponse(
         await expectStatus(await postNode(projectId, tokens, '大纲', 'rollback'), 200),
       );

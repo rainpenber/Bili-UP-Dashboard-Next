@@ -1,4 +1,5 @@
 import {
+  isOpenItemActor,
   isOverallStage,
   isPublishContentKind,
   isPublishPlatform,
@@ -10,6 +11,8 @@ import {
   parseCommercialNodeStepRequest,
   parseCommercialNodeTokenRequest,
   parseCommercialNodeWriteResponse,
+  parseCommercialOpenItemCreateRequest,
+  parseCommercialOpenItemUpdateRequest,
   parseCommercialOpenItemWriteResponse,
   parseCommercialPlanRequest,
   parseCommercialPublishRequest,
@@ -36,7 +39,10 @@ import {
   type CommercialWorkflowNode,
   type CommercialWriteErrorBody,
   type CommercialWriteErrorCode,
+  type CommercialOpenItemCreateRequest,
+  type CommercialOpenItemUpdateRequest,
   type MonitorJobType,
+  type OpenItemActor,
   type OpenItemImpact,
   type OpenItemLifecycle,
   type PublishContentKind,
@@ -135,8 +141,11 @@ type DbEdge = {
 type ItemRow = {
   id: string;
   title: string;
+  description: string | null;
   lifecycle: string;
   impact: string;
+  next_actor: string;
+  planned_at: string | null;
   cancel_reason: string | null;
   updated_at: string;
 };
@@ -165,6 +174,11 @@ function asLifecycle(value: string): OpenItemLifecycle {
 function asImpact(value: string): OpenItemImpact {
   if (value === 'normal' || value === 'blocking') return value;
   throw new Error(`unexpected impact ${value}`);
+}
+
+function asActor(value: string): OpenItemActor {
+  if (!isOpenItemActor(value)) throw new Error(`unexpected next_actor ${value}`);
+  return value;
 }
 
 function asJobType(value: string): MonitorJobType {
@@ -352,8 +366,11 @@ async function pinnedView(
     SELECT
       id,
       title,
+      description,
       lifecycle,
       impact,
+      next_actor,
+      to_char(planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       cancel_reason,
       to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
     FROM open_items
@@ -389,8 +406,11 @@ async function lockItem(tx: Tx, projectId: string, itemId: string): Promise<Item
     SELECT
       id,
       title,
+      description,
       lifecycle,
       impact,
+      next_actor,
+      to_char(planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       cancel_reason,
       to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
     FROM open_items
@@ -407,6 +427,9 @@ function itemSnapshot(item: ItemRow): CommercialOpenItemSnapshot {
     title: item.title.trim(),
     lifecycle,
     impact: asImpact(item.impact),
+    nextActor: asActor(item.next_actor),
+    dueAt: item.planned_at,
+    note: item.description,
     updatedAt: item.updated_at,
     cancelReason: lifecycle === 'cancelled' ? item.cancel_reason : null,
   };
@@ -932,6 +955,92 @@ async function cancelItem(
   const saved = await lockItem(tx, projectId, itemId);
   if (!saved) refuse(404, 'not_found', '开放事项不存在');
   return { projectId, item: itemSnapshot(saved), liftedNodes };
+}
+
+async function assertUniqueOpenTitle(
+  tx: Tx,
+  projectId: string,
+  title: string,
+  excludeItemId: string | null,
+): Promise<void> {
+  const rows = await tx<{ id: string }[]>`
+    SELECT id FROM open_items
+    WHERE project_id = ${projectId}
+      AND lifecycle = 'open'
+      AND btrim(title) = ${title}
+      AND (${excludeItemId}::uuid IS NULL OR id <> ${excludeItemId}::uuid)
+    LIMIT 1
+  `;
+  if (rows[0]) refuse(409, 'duplicate_open_item', '同一项目已有同名开放卡点');
+}
+
+async function createItem(
+  tx: Tx,
+  projectId: string,
+  input: CommercialOpenItemCreateRequest,
+): Promise<CommercialOpenItemWriteResponse> {
+  await requireProject(tx, projectId);
+  await assertUniqueOpenTitle(tx, projectId, input.title, null);
+  const itemId = crypto.randomUUID();
+  await tx`
+    INSERT INTO open_items (
+      id, project_id, title, description, next_actor, lifecycle, impact, planned_at
+    ) VALUES (
+      ${itemId}, ${projectId}, ${input.title}, ${input.note ?? null},
+      ${input.nextActor}, 'open', ${input.impact}, ${input.dueAt ?? null}
+    )
+  `;
+  await audit(tx, projectId, 'open_item', itemId, 'create', {
+    title: input.title,
+    nextActor: input.nextActor,
+    impact: input.impact,
+    dueAt: input.dueAt ?? null,
+    note: input.note ?? null,
+  });
+  const saved = await lockItem(tx, projectId, itemId);
+  if (!saved) refuse(404, 'not_found', '开放事项不存在');
+  return { projectId, item: itemSnapshot(saved), liftedNodes: [] };
+}
+
+async function updateItem(
+  tx: Tx,
+  projectId: string,
+  itemId: string,
+  input: CommercialOpenItemUpdateRequest,
+): Promise<CommercialOpenItemWriteResponse> {
+  await requireProject(tx, projectId);
+  const item = await lockItem(tx, projectId, itemId);
+  if (!item) refuse(404, 'not_found', '开放事项不存在');
+  assertToken(item.updated_at, input.expectedUpdatedAt);
+  if (item.lifecycle !== 'open') refuse(409, 'item_closed', '事项已关闭或取消，不能再编辑');
+  const title = input.title ?? item.title.trim();
+  if (input.title !== undefined) {
+    await assertUniqueOpenTitle(tx, projectId, title, itemId);
+  }
+  const nextActor = input.nextActor ?? asActor(item.next_actor);
+  const impact = input.impact ?? asImpact(item.impact);
+  const dueAt = input.dueAt === undefined ? item.planned_at : input.dueAt;
+  const note = input.note === undefined ? item.description : input.note;
+  await tx`
+    UPDATE open_items
+    SET title = ${title},
+        description = ${note},
+        next_actor = ${nextActor},
+        impact = ${impact},
+        planned_at = ${dueAt},
+        updated_at = now()
+    WHERE id = ${itemId} AND project_id = ${projectId}
+  `;
+  await audit(tx, projectId, 'open_item', itemId, 'update', {
+    title,
+    nextActor,
+    impact,
+    dueAt,
+    note,
+  });
+  const saved = await lockItem(tx, projectId, itemId);
+  if (!saved) refuse(404, 'not_found', '开放事项不存在');
+  return { projectId, item: itemSnapshot(saved), liftedNodes: [] };
 }
 
 type PublishRecord = {
@@ -1763,6 +1872,34 @@ export function registerCommercialWriteRoutes(app: Hono, db: Sql): void {
           ),
         )
         .then((result) => c.json(parseCommercialStepResponse(result))),
+    );
+  });
+
+  app.post('/projects/:projectId/open-items', async (c) => {
+    const projectId = c.req.param('projectId');
+    if (!isUuid(projectId)) return invalidBody(c, '项目 id 不是 uuid');
+    const raw = await readBody(c);
+    if (isResponse(raw)) return raw;
+    const body = parseRequest(c, raw, parseCommercialOpenItemCreateRequest);
+    if (body instanceof Response) return body;
+    return runWrite(c, () =>
+      db
+        .begin((tx) => createItem(tx, projectId, body))
+        .then((result) => c.json(parseCommercialOpenItemWriteResponse(result), 201)),
+    );
+  });
+
+  app.patch('/projects/:projectId/open-items/:itemId', async (c) => {
+    const ids = itemPathIds(c);
+    if (ids instanceof Response) return ids;
+    const raw = await readBody(c);
+    if (isResponse(raw)) return raw;
+    const body = parseRequest(c, raw, parseCommercialOpenItemUpdateRequest);
+    if (body instanceof Response) return body;
+    return runWrite(c, () =>
+      db
+        .begin((tx) => updateItem(tx, ids.projectId, ids.itemId, body))
+        .then((result) => c.json(parseCommercialOpenItemWriteResponse(result))),
     );
   });
 

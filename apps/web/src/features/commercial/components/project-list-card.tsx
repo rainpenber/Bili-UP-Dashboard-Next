@@ -9,14 +9,15 @@ import { cn } from '@/lib/utils';
 import { businessStateListBadge } from '../business-display-state';
 import { unarchiveLiveProject } from '../commercial-live-api';
 import {
+  OPEN_ITEM_ACTOR_LABEL,
   isArchivedLiveProject,
   liveInstantLabel,
   liveStageLabel,
+  pickCurrentOpenItem,
 } from '../commercial-live-selectors';
 import { liveCommercialProjectsKey } from '../use-live-workflow';
 
 const LIFECYCLE_LABEL = { open: '开放', closed: '已关闭', cancelled: '已取消' } as const;
-const ACTOR_LABEL = { us: '我方', client: '甲方' } as const;
 
 export function ProjectListCard({ project }: { project: CommercialProjectListItem }) {
   const queryClient = useQueryClient();
@@ -30,6 +31,7 @@ export function ProjectListCard({ project }: { project: CommercialProjectListIte
   const displayBadge = businessStateListBadge(project.businessState, project.originStatusLabel);
   const weakenStage =
     project.businessState === 'not_started' || project.businessState === 'finished';
+  const currentOpenItem = pickCurrentOpenItem(project.openItems);
 
   const onRestore = () => {
     setRestoring(true);
@@ -86,6 +88,18 @@ export function ProjectListCard({ project }: { project: CommercialProjectListIte
           >
             当前阶段：{liveStageLabel(project)}
           </p>
+          {currentOpenItem ? (
+            <p
+              className={cn(
+                'mt-1 text-sm font-medium',
+                currentOpenItem.impact === 'blocking' ? 'text-destructive' : 'text-amber-700',
+              )}
+              data-testid="project-list-open-item-line"
+              data-impact={currentOpenItem.impact}
+            >
+              卡在{OPEN_ITEM_ACTOR_LABEL[currentOpenItem.nextActor]} · {currentOpenItem.title}
+            </p>
+          ) : null}
           {restoreError ? (
             <p className="mt-1 text-sm text-destructive" role="alert">
               {restoreError}
@@ -155,7 +169,7 @@ export function ProjectListCard({ project }: { project: CommercialProjectListIte
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{item.title}</span>
                     <Badge variant="outline" className="text-[10px]">
-                      {ACTOR_LABEL[item.nextActor]}
+                      {OPEN_ITEM_ACTOR_LABEL[item.nextActor]}
                     </Badge>
                     <Badge variant="secondary" className="text-[10px]">
                       {LIFECYCLE_LABEL[item.lifecycle]}
