@@ -39,6 +39,26 @@ export type OpenItemImpact = (typeof OPEN_ITEM_IMPACTS)[number];
 export const MONITOR_JOB_TYPES = ['metadata', 'metrics'] as const;
 export type MonitorJobType = (typeof MONITOR_JOB_TYPES)[number];
 
+export const PUBLISH_CONTENT_KINDS = ['video', 'post'] as const;
+export type PublishContentKind = (typeof PUBLISH_CONTENT_KINDS)[number];
+
+export const PUBLISH_PLATFORMS = [
+  'bilibili',
+  'xiaohongshu',
+  'douyin',
+  'wechat_channels',
+  'other',
+] as const;
+export type PublishPlatform = (typeof PUBLISH_PLATFORMS)[number];
+
+export function isPublishContentKind(value: unknown): value is PublishContentKind {
+  return typeof value === 'string' && (PUBLISH_CONTENT_KINDS as readonly string[]).includes(value);
+}
+
+export function isPublishPlatform(value: unknown): value is PublishPlatform {
+  return typeof value === 'string' && (PUBLISH_PLATFORMS as readonly string[]).includes(value);
+}
+
 export type CommercialStepEffect = {
   nodeId: string;
   nodeName: string;
@@ -126,19 +146,24 @@ export type CommercialPublishResponse = {
   projectId: string;
   node: CommercialNodeSnapshot;
   publish: {
-    bvid: string;
+    /** Null for post deliveries, which have no bvid. */
+    bvid: string | null;
     publishedAt: string;
     publishSource: PublishSource;
     idempotencyKey: string;
     platform: string;
     videoUrl: string | null;
+    contentKind: PublishContentKind;
+    contentUrl: string | null;
+    externalId: string | null;
   };
+  /** Null for post deliveries: monitoring is video-only. */
   monitor: {
     contractId: string;
     bvid: string;
     metadataTaskStatus: string;
     jobs: CommercialMonitorJobSnapshot[];
-  };
+  } | null;
   idempotentReplay: boolean;
 };
 
@@ -172,9 +197,15 @@ export type CommercialCancelItemRequest = {
 export type CommercialPublishRequest = {
   expectedUpdatedAt: string;
   idempotencyKey: string;
-  platform: string;
+  platform: PublishPlatform;
+  /** Defaults to video. */
+  contentKind?: PublishContentKind;
   bvid?: string;
   videoUrl?: string;
+  /** Required for post deliveries. */
+  contentUrl?: string;
+  /** Derived from contentUrl when omitted on a post delivery. */
+  externalId?: string;
   publishedAt?: string;
   publishSource?: PublishSource;
 };
@@ -183,9 +214,12 @@ export type CommercialStepDirection = 'forward' | 'rollback';
 
 export type CommercialStepPublish = {
   idempotencyKey: string;
-  platform: string;
+  platform: PublishPlatform;
+  contentKind?: PublishContentKind;
   bvid?: string;
   videoUrl?: string;
+  contentUrl?: string;
+  externalId?: string;
   publishedAt?: string;
   publishSource?: PublishSource;
 };
@@ -399,34 +433,64 @@ function parseJob(value: unknown): CommercialMonitorJobSnapshot {
   };
 }
 
+function parseNullableName(value: unknown, label: string): string | null {
+  return value === null || value === undefined ? null : parseName(value, label);
+}
+
 export function parseCommercialPublishResponse(value: unknown): CommercialPublishResponse {
   const record = asRecord(value, 'publish result');
   const publish = asRecord(record.publish, 'publish');
-  const monitor = asRecord(record.monitor, 'monitor');
+  const contentKind =
+    publish.contentKind === undefined || publish.contentKind === null
+      ? 'video'
+      : publish.contentKind;
+  if (!isPublishContentKind(contentKind)) throw new Error('contentKind is invalid');
   if (!isPublishSource(publish.publishSource)) throw new Error('publishSource is invalid');
   if (typeof record.idempotentReplay !== 'boolean') {
     throw new Error('idempotentReplay must be a boolean');
   }
-  if (!Array.isArray(monitor.jobs)) throw new Error('jobs must be an array');
-  const videoUrl = publish.videoUrl === null ? null : parseName(publish.videoUrl, 'videoUrl');
+  const bvid = parseNullableName(publish.bvid, 'bvid');
+  const contentUrl = parseNullableName(publish.contentUrl, 'contentUrl');
+  const externalId = parseNullableName(publish.externalId, 'externalId');
+  const videoUrl = parseNullableName(publish.videoUrl, 'videoUrl');
+  if (contentKind === 'video' && bvid === null) throw new Error('video publish requires bvid');
+  if (contentKind === 'post' && contentUrl === null) {
+    throw new Error('post publish requires contentUrl');
+  }
+  const monitor =
+    record.monitor === null || record.monitor === undefined
+      ? null
+      : parseMonitorBundle(record.monitor);
+  if (contentKind === 'video' && monitor === null) {
+    throw new Error('video publish requires a monitor contract');
+  }
   return {
     projectId: parseUuid(record.projectId, 'projectId'),
     node: parseCommercialNodeSnapshot(record.node),
     publish: {
-      bvid: parseName(publish.bvid, 'bvid'),
+      bvid,
       publishedAt: parseIso(publish.publishedAt, 'publishedAt'),
       publishSource: publish.publishSource,
       idempotencyKey: parseName(publish.idempotencyKey, 'idempotencyKey'),
       platform: parseName(publish.platform, 'platform'),
       videoUrl,
+      contentKind,
+      contentUrl,
+      externalId,
     },
-    monitor: {
-      contractId: parseUuid(monitor.contractId, 'contractId'),
-      bvid: parseName(monitor.bvid, 'monitor.bvid'),
-      metadataTaskStatus: parseName(monitor.metadataTaskStatus, 'metadataTaskStatus'),
-      jobs: monitor.jobs.map((job) => parseJob(job)),
-    },
+    monitor,
     idempotentReplay: record.idempotentReplay,
+  };
+}
+
+function parseMonitorBundle(value: unknown): NonNullable<CommercialPublishResponse['monitor']> {
+  const monitor = asRecord(value, 'monitor');
+  if (!Array.isArray(monitor.jobs)) throw new Error('jobs must be an array');
+  return {
+    contractId: parseUuid(monitor.contractId, 'contractId'),
+    bvid: parseName(monitor.bvid, 'monitor.bvid'),
+    metadataTaskStatus: parseName(monitor.metadataTaskStatus, 'metadataTaskStatus'),
+    jobs: monitor.jobs.map((job) => parseJob(job)),
   };
 }
 
@@ -572,30 +636,95 @@ export function parseCommercialCancelItemRequest(value: unknown): CommercialCanc
   };
 }
 
-export function parseCommercialPublishRequest(value: unknown): CommercialPublishRequest {
-  const record = asRecord(value, 'publish request');
-  const request: CommercialPublishRequest = {
-    expectedUpdatedAt: parseIso(record.expectedUpdatedAt, 'expectedUpdatedAt'),
-    idempotencyKey: parseName(record.idempotencyKey, 'idempotencyKey'),
-    platform: parseName(record.platform, 'platform'),
+function parseContentKind(value: unknown): PublishContentKind {
+  if (value === undefined || value === null) return 'video';
+  if (!isPublishContentKind(value)) throw new Error('contentKind is invalid');
+  return value;
+}
+
+/** Last path segment of a platform content link (query, hash, and slash stripped). */
+export function extractExternalIdFromContentUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  let last = '';
+  try {
+    const segments = new URL(trimmed).pathname.split('/').filter((part) => part.length > 0);
+    last = segments[segments.length - 1] ?? '';
+  } catch {
+    const withoutQuery = trimmed.split(/[?#]/)[0] ?? '';
+    const segments = withoutQuery
+      .replace(/\/+$/, '')
+      .split('/')
+      .filter((part) => part.length > 0);
+    last = segments[segments.length - 1] ?? '';
+  }
+  if (last.length === 0) return null;
+  const decoded = decodeURIComponent(last);
+  return decoded.length > 0 ? decoded : null;
+}
+
+type ParsedPublishFields = {
+  platform: PublishPlatform;
+  contentKind: PublishContentKind;
+  bvid?: string;
+  videoUrl?: string;
+  contentUrl?: string;
+  externalId?: string;
+  publishedAt?: string;
+  publishSource?: PublishSource;
+};
+
+function parsePublishFields(record: Record<string, unknown>): ParsedPublishFields {
+  const contentKind = parseContentKind(record.contentKind);
+  const fields: ParsedPublishFields = {
+    platform: parseName(record.platform, 'platform') as PublishPlatform,
+    contentKind,
   };
   if (record.bvid !== undefined && record.bvid !== null) {
-    request.bvid = parseName(record.bvid, 'bvid');
+    fields.bvid = parseName(record.bvid, 'bvid');
   }
   if (record.videoUrl !== undefined && record.videoUrl !== null) {
-    request.videoUrl = parseName(record.videoUrl, 'videoUrl');
+    fields.videoUrl = parseName(record.videoUrl, 'videoUrl');
   }
-  if (request.bvid === undefined && request.videoUrl === undefined) {
-    throw new Error('bvid or videoUrl is required');
+  if (record.contentUrl !== undefined && record.contentUrl !== null) {
+    fields.contentUrl = parseName(record.contentUrl, 'contentUrl');
+  }
+  if (record.externalId !== undefined && record.externalId !== null) {
+    fields.externalId = parseName(record.externalId, 'externalId');
+  }
+  if (contentKind === 'video') {
+    if (fields.bvid === undefined && fields.videoUrl === undefined) {
+      throw new Error('bvid or videoUrl is required');
+    }
+  } else {
+    if (fields.contentUrl === undefined) {
+      throw new Error('contentUrl is required for post deliveries');
+    }
+    if (fields.externalId === undefined) {
+      const derived = extractExternalIdFromContentUrl(fields.contentUrl);
+      if (derived === null) {
+        throw new Error('externalId is required when contentUrl has no trailing id');
+      }
+      fields.externalId = derived;
+    }
   }
   if (record.publishedAt !== undefined && record.publishedAt !== null) {
-    request.publishedAt = parseIso(record.publishedAt, 'publishedAt');
+    fields.publishedAt = parseIso(record.publishedAt, 'publishedAt');
   }
   if (record.publishSource !== undefined && record.publishSource !== null) {
     if (!isPublishSource(record.publishSource)) throw new Error('publishSource is invalid');
-    request.publishSource = record.publishSource;
+    fields.publishSource = record.publishSource;
   }
-  return request;
+  return fields;
+}
+
+export function parseCommercialPublishRequest(value: unknown): CommercialPublishRequest {
+  const record = asRecord(value, 'publish request');
+  return {
+    expectedUpdatedAt: parseIso(record.expectedUpdatedAt, 'expectedUpdatedAt'),
+    idempotencyKey: parseName(record.idempotencyKey, 'idempotencyKey'),
+    ...parsePublishFields(record),
+  };
 }
 
 function parseDirection(value: unknown): CommercialStepDirection {
@@ -614,26 +743,10 @@ function parseForce(value: unknown): boolean {
 function parseStepPublish(value: unknown): CommercialStepPublish | null {
   if (value === undefined || value === null) return null;
   const record = asRecord(value, 'publish');
-  const publish: CommercialStepPublish = {
+  return {
     idempotencyKey: parseName(record.idempotencyKey, 'idempotencyKey'),
-    platform: parseName(record.platform, 'platform'),
+    ...parsePublishFields(record),
   };
-  if (record.bvid !== undefined && record.bvid !== null)
-    publish.bvid = parseName(record.bvid, 'bvid');
-  if (record.videoUrl !== undefined && record.videoUrl !== null) {
-    publish.videoUrl = parseName(record.videoUrl, 'videoUrl');
-  }
-  if (publish.bvid === undefined && publish.videoUrl === undefined) {
-    throw new Error('bvid or videoUrl is required');
-  }
-  if (record.publishedAt !== undefined && record.publishedAt !== null) {
-    publish.publishedAt = parseIso(record.publishedAt, 'publishedAt');
-  }
-  if (record.publishSource !== undefined && record.publishSource !== null) {
-    if (!isPublishSource(record.publishSource)) throw new Error('publishSource is invalid');
-    publish.publishSource = record.publishSource;
-  }
-  return publish;
 }
 
 export function parseCommercialNodeStepRequest(value: unknown): CommercialNodeStepRequest {

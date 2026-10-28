@@ -367,6 +367,7 @@ describe('commercial workflow write API', () => {
       publishSource: 'web',
       videoUrl: 'https://www.bilibili.com/video/BV1writeapi01',
     });
+    if (!first.monitor) throw new Error('missing monitor');
     expect(first.monitor.metadataTaskStatus).toBe('pending');
     expect(first.monitor.jobs.map((job) => ({ jobType: job.jobType, status: job.status }))).toEqual(
       [
@@ -387,6 +388,7 @@ describe('commercial workflow write API', () => {
     expect(secondRes.status).toBe(200);
     const second = parseCommercialPublishResponse(await secondRes.json());
     expect(second.idempotentReplay).toBe(true);
+    if (!second.monitor) throw new Error('missing monitor');
     expect(second.monitor.contractId).toBe(first.monitor.contractId);
     expect(second.monitor.jobs.map((job) => job.id)).toEqual(
       first.monitor.jobs.map((job) => job.id),
@@ -565,8 +567,84 @@ describe('commercial workflow write API', () => {
     expect(fromUrl.status).toBe(200);
     const published = parseCommercialPublishResponse(await fromUrl.json());
     expect(published.publish.bvid).toBe('BV1fromurl001');
+    if (!published.monitor) throw new Error('missing monitor');
     expect(published.monitor.bvid).toBe('BV1fromurl001');
     expect(published.monitor.jobs).toHaveLength(2);
+  }, 30_000);
+
+  test('a post delivery completes publish without a bvid or monitor contract', async () => {
+    const ctx = await ready();
+    if (!ctx) return;
+    const { projectId, tokens, app, sql } = ctx;
+    await completeThrough(ctx, [
+      '询单',
+      '大纲',
+      '文案',
+      '预拍摄',
+      '汇合节点',
+      'A-roll 拍摄',
+      'B-roll 素材',
+      'AI 后期',
+      '审核',
+    ]);
+    const publishNode = await mustNode(await postNode(app, projectId, tokens, '发布', 'advance'));
+    remember(tokens, publishNode);
+
+    const res = await postNode(app, projectId, tokens, '发布', 'publish', {
+      idempotencyKey: `post-${projectId}`,
+      platform: 'bilibili',
+      contentKind: 'post',
+      contentUrl: 'https://t.bilibili.com/1262617308018245635',
+    });
+    expect(res.status).toBe(200);
+    const published = parseCommercialPublishResponse(await res.json());
+    expect(published.idempotentReplay).toBe(false);
+    expect(published.node.status).toBe('completed');
+    expect(published.publish).toMatchObject({
+      bvid: null,
+      contentKind: 'post',
+      contentUrl: 'https://t.bilibili.com/1262617308018245635',
+      externalId: '1262617308018245635',
+      platform: 'bilibili',
+      publishSource: 'web',
+    });
+    expect(published.monitor).toBeNull();
+    expect(await statusOf(sql, projectId, '发布')).toBe('completed');
+
+    const [record] = await sql<
+      {
+        bvid: string | null;
+        content_kind: string;
+        content_url: string | null;
+        external_id: string | null;
+      }[]
+    >`
+      SELECT bvid, content_kind, content_url, external_id
+      FROM project_publish_records
+      WHERE project_id = ${projectId}
+    `;
+    expect(record).toEqual({
+      bvid: null,
+      content_kind: 'post',
+      content_url: 'https://t.bilibili.com/1262617308018245635',
+      external_id: '1262617308018245635',
+    });
+    const [contracts] = await sql<{ c: string }[]>`
+      SELECT count(*)::text AS c
+      FROM project_monitor_contracts
+      WHERE project_id = ${projectId}
+    `;
+    expect(contracts?.c).toBe('0');
+    expect(await openCount(sql, 'monitor_jobs', projectId)).toBe(0);
+
+    const conflict = await postNode(app, projectId, tokens, '发布', 'publish', {
+      idempotencyKey: `post-${projectId}-other`,
+      platform: 'bilibili',
+      contentKind: 'post',
+      contentUrl: 'https://t.bilibili.com/1262617308018245636',
+    });
+    await expectRefusal(conflict, 409, 'publish_conflict');
+    expect(await openCount(sql, 'project_publish_records', projectId)).toBe(1);
   }, 30_000);
 
   test('a stale concurrency token is rejected and does not change the node', async () => {
