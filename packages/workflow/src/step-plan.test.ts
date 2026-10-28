@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { EngineEdge } from './engine';
 import {
   PROGRESS_STAGE_IDS,
+  PROGRESS_STAGE_SLUGS,
   planNodeStep,
   planStageStep,
   type PlanNode,
@@ -34,9 +35,9 @@ const edges: EngineEdge[] = [
   { fromNodeId: 'pre_shoot', toNodeId: 'merge' },
   { fromNodeId: 'merge', toNodeId: 'a_roll' },
   { fromNodeId: 'merge', toNodeId: 'b_roll' },
-  { fromNodeId: 'merge', toNodeId: 'ai_post' },
-  { fromNodeId: 'a_roll', toNodeId: 'review' },
-  { fromNodeId: 'b_roll', toNodeId: 'review' },
+  { fromNodeId: 'a_roll', toNodeId: 'edit' },
+  { fromNodeId: 'b_roll', toNodeId: 'edit' },
+  { fromNodeId: 'edit', toNodeId: 'ai_post' },
   { fromNodeId: 'ai_post', toNodeId: 'review' },
   { fromNodeId: 'review', toNodeId: 'publish' },
   { fromNodeId: 'publish', toNodeId: 'settlement' },
@@ -54,6 +55,7 @@ function fresh(): PlanNode[] {
     node('merge', '汇合节点', 'not_reached', { kind: 'merge', templateSlug: 'merge' }),
     node('a_roll', 'A-roll 拍摄', 'not_reached'),
     node('b_roll', 'B-roll 素材', 'not_reached'),
+    node('edit', '剪辑', 'not_reached'),
     node('ai_post', 'AI 后期', 'not_reached'),
     node('review', '审核', 'not_reached'),
     node('publish', '发布', 'not_reached'),
@@ -243,8 +245,9 @@ describe('stage step plan', () => {
       merge: 'completed',
       a_roll: 'in_progress',
       b_roll: 'in_progress',
-      ai_post: 'in_progress',
     });
+    expect(targets(plan).edit).toBeUndefined();
+    expect(targets(plan).ai_post).toBeUndefined();
     expect(targets(plan).review).toBeUndefined();
   });
 
@@ -268,6 +271,7 @@ describe('stage step plan', () => {
           'merge',
           'a_roll',
           'b_roll',
+          'edit',
           'ai_post',
         ].includes(item.id)
       ) {
@@ -294,7 +298,7 @@ describe('stage step plan', () => {
 
   test('a stage whose members are all not_applicable counts as complete', () => {
     const nodes = fresh().map((item) =>
-      ['a_roll', 'b_roll', 'ai_post'].includes(item.id)
+      ['a_roll', 'b_roll', 'edit', 'ai_post'].includes(item.id)
         ? { ...item, status: 'not_applicable' as const }
         : item,
     );
@@ -330,7 +334,7 @@ describe('stage step plan', () => {
       if (['inquiry', 'outline', 'copy', 'pre_shoot', 'merge'].includes(item.id)) {
         return { ...item, status: 'completed' as const };
       }
-      if (['a_roll', 'b_roll', 'ai_post'].includes(item.id))
+      if (['a_roll', 'b_roll', 'edit', 'ai_post'].includes(item.id))
         return { ...item, status: 'in_progress' as const };
       return item;
     });
@@ -338,6 +342,7 @@ describe('stage step plan', () => {
     expect(targets(plan)).toEqual({
       a_roll: 'not_reached',
       b_roll: 'not_reached',
+      edit: 'not_reached',
       ai_post: 'not_reached',
     });
   });
@@ -408,6 +413,49 @@ describe('stage step plan', () => {
     expect(twice.ok).toBe(false);
     if (twice.ok) return;
     expect(twice.successors.map((item) => item.nodeId)).toEqual(['review']);
+  });
+
+  test('production includes the 剪辑 node in template order', () => {
+    expect(PROGRESS_STAGE_SLUGS.production).toEqual(['a_roll', 'b_roll', 'edit', 'ai_post']);
+  });
+
+  test('advancing 剪辑 is legal and completes only its unfinished ancestors', () => {
+    const plan = ok(planNodeStep(fresh(), edges, 'edit', 'forward'));
+    expect(plan.action).toBe('advance');
+    expect(targets(plan).edit).toBe('in_progress');
+    expect(targets(plan).ai_post).toBeUndefined();
+    expect(targets(plan).review).toBeUndefined();
+  });
+
+  test('completing 剪辑 does not complete AI 后期 or 审核', () => {
+    const nodes = fresh().map((item) => {
+      if (
+        ['inquiry', 'outline', 'copy', 'pre_shoot', 'merge', 'a_roll', 'b_roll'].includes(item.id)
+      ) {
+        return { ...item, status: 'completed' as const };
+      }
+      if (item.id === 'edit') return { ...item, status: 'in_progress' as const };
+      return item;
+    });
+    const plan = ok(planNodeStep(nodes, edges, 'edit', 'forward'));
+    expect(plan.action).toBe('complete');
+    expect(targets(plan)).toEqual({ edit: 'completed' });
+    expect(targets(plan).ai_post).toBeUndefined();
+  });
+
+  test('rolling 剪辑 back is legal while AI 后期 is untouched', () => {
+    const nodes = fresh().map((item) => {
+      if (
+        ['inquiry', 'outline', 'copy', 'pre_shoot', 'merge', 'a_roll', 'b_roll'].includes(item.id)
+      ) {
+        return { ...item, status: 'completed' as const };
+      }
+      if (item.id === 'edit') return { ...item, status: 'completed' as const };
+      return item;
+    });
+    const plan = ok(planNodeStep(nodes, edges, 'edit', 'rollback'));
+    expect(plan.action).toBe('rollback');
+    expect(targets(plan)).toEqual({ edit: 'in_progress' });
   });
 
   test('a blocked stage complete lists the block and still scopes to that stage', () => {

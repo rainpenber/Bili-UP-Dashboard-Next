@@ -1795,7 +1795,7 @@ describe('HTTP API coverage against isolated Postgres', () => {
       );
       expect(restored.archivedAt).toBeNull();
       let tokens = await loadTokens(projectId);
-      expect(tokens.size).toBe(14);
+      expect(tokens.size).toBe(15);
 
       const [auditsBefore] = await db<{ count: string }[]>`
       SELECT count(*)::text AS count FROM domain_audit_events WHERE project_id = ${projectId}
@@ -2124,6 +2124,7 @@ describe('HTTP API coverage against isolated Postgres', () => {
       await completeName(db, projectId, '预拍摄');
       await completeName(db, projectId, 'A-roll 拍摄');
       await completeName(db, projectId, 'B-roll 素材');
+      await completeName(db, projectId, '剪辑');
       await completeName(db, projectId, 'AI 后期');
       await completeName(db, projectId, '审核');
       tokens = await loadTokens(projectId);

@@ -31,6 +31,7 @@ const NODE_IDS: Record<string, string> = {
   merge: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000005',
   a_roll: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000006',
   b_roll: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000007',
+  edit: 'aaaaaaaa-aaaa-4aaa-8aaa-00000000000f',
   ai_post: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000008',
   review: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000009',
   publish: 'aaaaaaaa-aaaa-4aaa-8aaa-00000000000a',
@@ -64,6 +65,7 @@ const blockedCopy: TimelineSourceNode[] = [
   node('merge', '汇合节点', 'not_reached'),
   node('a_roll', 'A-roll 拍摄', 'not_reached'),
   node('b_roll', 'B-roll 素材', 'not_reached'),
+  node('edit', '剪辑', 'not_reached'),
   node('ai_post', 'AI 后期', 'not_reached'),
   node('review', '审核', 'not_reached'),
   node('publish', '发布', 'not_reached'),
@@ -141,6 +143,34 @@ describe('ProgressTimeline', () => {
     expect(done?.querySelector('[data-testid="progress-stage-gradient"]')).toBeNull();
     expect(done?.querySelector('[data-testid="progress-stage-line-label"]')).toBeNull();
     expect(document.querySelectorAll('[stroke-dasharray]')).toHaveLength(0);
+  });
+
+  test('renders 剪辑 in the production tooltip with stage step actions', async () => {
+    render(
+      <ProgressTimeline
+        nodes={[
+          node('a_roll', 'A-roll 拍摄', 'completed'),
+          node('b_roll', 'B-roll 素材', 'completed'),
+          node('edit', '剪辑', 'in_progress'),
+          node('ai_post', 'AI 后期', 'not_reached'),
+        ]}
+        stepEditor={{
+          disabled: false,
+          onRefresh: () => undefined,
+          onStep: async () => ({ ok: true }),
+        }}
+      />,
+    );
+    const stage = screen
+      .getAllByTestId('progress-stage')
+      .find((item) => item.getAttribute('data-stage-id') === 'production');
+    if (!stage) throw new Error('missing production stage');
+    fireEvent.pointerMove(stage);
+    const tip = await screen.findByTestId('progress-stage-tooltip');
+    expect(tip.textContent).toContain('剪辑');
+    expect(within(tip).getByTestId('stage-step-actions')).toBeTruthy();
+    expect(within(tip).getByTestId('stage-step').textContent).toBe('完成');
+    expect(within(tip).getByTestId('stage-rollback').textContent).toBe('回退');
   });
 
   test('shows each blocked node status once, and keeps the reason in the tooltip and detail', async () => {

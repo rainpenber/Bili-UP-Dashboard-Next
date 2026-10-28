@@ -22,7 +22,7 @@ export type ProgressStageId = (typeof PROGRESS_STAGE_IDS)[number];
 export const PROGRESS_STAGE_SLUGS: Record<ProgressStageId, readonly string[]> = {
   write_outline: ['outline'],
   copy_prep: ['copy', 'pre_shoot', 'manual'],
-  production: ['a_roll', 'b_roll', 'ai_post'],
+  production: ['a_roll', 'b_roll', 'edit', 'ai_post'],
   client_review: ['review', 'publish'],
   distribution_settlement: ['distribution', 'settlement', 'data_maint', 'other'],
 };

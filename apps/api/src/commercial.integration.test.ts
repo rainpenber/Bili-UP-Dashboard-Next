@@ -601,12 +601,12 @@ describe('commercial read API', () => {
       expect(new Set(graph.edges.map((edge) => edge.id))).toEqual(
         new Set(edges.map((edge) => edge.id)),
       );
-      expect(graph.nodes).toHaveLength(14);
+      expect(graph.nodes).toHaveLength(15);
       expect(graph.edges).toHaveLength(16);
     }
   }, 30_000);
 
-  test('default template endpoint matches the published 14/16 seed', async () => {
+  test('default template endpoint matches the published 15/16 seed', async () => {
     if (!sql || !app) return;
     const res = await app.request('/api/v1/commercial/templates/default');
     expect(res.status).toBe(200);
@@ -641,7 +641,7 @@ describe('commercial read API', () => {
         isOptional: node.is_optional,
       })),
     );
-    expect(template.nodes).toHaveLength(14);
+    expect(template.nodes).toHaveLength(15);
     expect(template.edges).toHaveLength(16);
     const merge = template.nodes.filter((node) => node.kind === 'merge');
     expect(merge).toEqual([
@@ -660,7 +660,6 @@ describe('commercial read API', () => {
         '预拍摄->汇合节点',
         '汇合节点->A-roll 拍摄',
         '汇合节点->B-roll 素材',
-        '汇合节点->AI 后期',
       ].sort(),
     );
   }, 30_000);
