@@ -235,7 +235,7 @@ describe('commercial domain DB invariants', () => {
     );
   });
 
-  test('rejects not_applicable on required node', async () => {
+  test('allows not_applicable on a required node after the optional check is dropped', async () => {
     assertIntegrationSql(sql);
     const p = 'e1000001-0001-4001-8001-000000000001';
     const w = 'e2000001-0001-4001-8001-000000000001';
@@ -246,13 +246,42 @@ describe('commercial domain DB invariants', () => {
       'e3000001-0001-4001-8001-000000000003',
     ]);
 
+    const [before] = await sql<{ is_optional: boolean }[]>`
+      SELECT is_optional FROM wf_nodes WHERE id = ${n0}
+    `;
+    expect(before?.is_optional).toBe(false);
+
+    await sql`UPDATE wf_nodes SET status = 'not_applicable' WHERE id = ${n0}`;
+    const [row] = await sql<{ status: string }[]>`SELECT status FROM wf_nodes WHERE id = ${n0}`;
+    expect(row?.status).toBe('not_applicable');
+  });
+
+  test('drops only the optional not_applicable check and keeps the status whitelist', async () => {
+    assertIntegrationSql(sql);
+    const constraints = await sql<{ conname: string }[]>`
+      SELECT conname
+      FROM pg_constraint
+      WHERE conrelid = 'wf_nodes'::regclass AND contype = 'c'
+    `;
+    const names = constraints.map((row) => row.conname);
+    expect(names).not.toContain('wf_nodes_check');
+    expect(names).toContain('wf_nodes_status_check');
+
+    const p = 'e4000001-0001-4001-8001-000000000001';
+    const w = 'e5000001-0001-4001-8001-000000000001';
+    const n0 = 'e6000001-0001-4001-8001-000000000001';
+    await seedMinimalProject(sql, p, w, [
+      n0,
+      'e6000001-0001-4001-8001-000000000002',
+      'e6000001-0001-4001-8001-000000000003',
+    ]);
     await expectDbError(
-      () => sql!`UPDATE wf_nodes SET status = 'not_applicable' WHERE id = ${n0}`,
-      /check constraint|wf_nodes_check/i,
+      () => sql!`UPDATE wf_nodes SET status = 'not_a_status' WHERE id = ${n0}`,
+      /check constraint|wf_nodes_status_check/i,
     );
   });
 
-  test('allows not_applicable only on optional nodes', async () => {
+  test('still allows not_applicable on an optional node', async () => {
     assertIntegrationSql(sql);
     const p = 'f1000001-0001-4001-8001-000000000001';
     const w = 'f2000001-0001-4001-8001-000000000001';

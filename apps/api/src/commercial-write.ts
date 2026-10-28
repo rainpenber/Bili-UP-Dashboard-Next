@@ -471,6 +471,9 @@ async function skipNode(
   const pinRefusal = notApplicableBlockRefusal(node.primary_block_pinned_item_id !== null);
   if (pinRefusal) refuse(409, 'not_applicable_block', pinRefusal);
   const status = asStatus(node.status);
+  if (status === 'completed') {
+    refuse(409, 'invalid_transition', '已完成的节点不能标记为不适用');
+  }
   if (status !== 'not_reached' && status !== 'in_progress') {
     refuse(409, 'invalid_transition', '只能跳过未到达或进行中的节点');
   }

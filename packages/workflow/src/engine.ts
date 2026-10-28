@@ -121,7 +121,7 @@ export function normalizeBlockReason(reason: string | null | undefined): string 
 /**
  * not_applicable may not carry a primary block item.
  * Returns the refusal message, or null when the marker may be applied.
- * Whether the node is optional is a database check, not this function.
+ * Any node may be marked not_applicable; is_optional does not gate this.
  */
 export function notApplicableBlockRefusal(hasPrimaryBlockItem: boolean): string | null {
   if (!hasPrimaryBlockItem) return null;

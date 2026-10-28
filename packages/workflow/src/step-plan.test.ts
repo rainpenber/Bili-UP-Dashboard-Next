@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import type { EngineEdge } from './engine';
-import { planNodeStep, planStageStep, type PlanNode, type StepPlan } from './step-plan';
+import {
+  PROGRESS_STAGE_IDS,
+  planNodeStep,
+  planStageStep,
+  type PlanNode,
+  type StepPlan,
+} from './step-plan';
 
 function node(
   id: string,
@@ -284,6 +290,29 @@ describe('stage step plan', () => {
     const plan = planStageStep(nodes, edges, 'write_outline', 'forward');
     expect(plan.ok).toBe(false);
     if (!plan.ok) expect(plan.error).toBe('阶段已完成');
+  });
+
+  test('a stage whose members are all not_applicable counts as complete', () => {
+    const nodes = fresh().map((item) =>
+      ['a_roll', 'b_roll', 'ai_post'].includes(item.id)
+        ? { ...item, status: 'not_applicable' as const }
+        : item,
+    );
+    const plan = planStageStep(nodes, edges, 'production', 'forward');
+    expect(plan.ok).toBe(false);
+    if (!plan.ok) expect(plan.error).toBe('阶段已完成');
+  });
+
+  test('every stage is complete when all nodes are completed or not_applicable', () => {
+    const nodes = fresh().map((item) => ({
+      ...item,
+      status: item.id === 'inquiry' ? ('completed' as const) : ('not_applicable' as const),
+    }));
+    for (const stageId of PROGRESS_STAGE_IDS) {
+      const plan = planStageStep(nodes, edges, stageId, 'forward');
+      expect(plan.ok).toBe(false);
+      if (!plan.ok) expect(plan.error).toBe('阶段已完成');
+    }
   });
 
   test('rolling a finished serial stage moves only the exit back to in_progress', () => {

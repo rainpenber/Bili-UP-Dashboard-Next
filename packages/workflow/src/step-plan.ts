@@ -146,9 +146,6 @@ export function planStageStep(
   const graph = indexGraph(nodes, edges);
   const members = stageMembers(graph, stageId);
   const applicable = members.filter((node) => node.status !== 'not_applicable');
-  if (applicable.length === 0) {
-    return refusal('invalid_transition', '这个阶段没有可推进的子节点');
-  }
   const level = rollup(members);
   if (direction === 'rollback') return planStageRollback(graph, applicable, level);
   return planStageForward(graph, applicable, level);
@@ -348,8 +345,9 @@ function stageMembers(graph: Graph, stageId: ProgressStageId): PlanNode[] {
 
 function rollup(members: readonly PlanNode[]): Rollup {
   if (members.some((node) => node.status === 'blocked')) return 'blocked';
+  if (members.length === 0) return 'not_reached';
   const applicable = members.filter((node) => node.status !== 'not_applicable');
-  if (applicable.length === 0) return 'not_reached';
+  if (applicable.length === 0) return 'completed';
   if (applicable.every((node) => node.status === 'completed')) return 'completed';
   if (applicable.every((node) => node.status === 'not_reached')) return 'not_reached';
   return 'in_progress';

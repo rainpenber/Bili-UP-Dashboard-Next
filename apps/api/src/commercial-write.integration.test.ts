@@ -122,13 +122,44 @@ describe('commercial workflow write API', () => {
     }
   }, 30_000);
 
-  test('a required node skip is refused by the database check and writes nothing', async () => {
+  test('skipping a required node marks it not_applicable and its successors can advance', async () => {
     const ctx = await ready();
     if (!ctx) return;
-    const refused = await postNode(ctx.app, ctx.projectId, ctx.tokens, '文案', 'skip');
-    const body = await expectRefusal(refused, 409, 'constraint_violation');
-    expect(body.error).toMatch(/wf_nodes_check|check constraint/i);
-    expect(await statusOf(ctx.sql, ctx.projectId, '文案')).toBe('not_reached');
+    const { projectId, tokens, sql } = ctx;
+    const [required] = await sql<{ is_optional: boolean }[]>`
+      SELECT is_optional FROM wf_nodes WHERE project_id = ${projectId} AND name = '文案'
+    `;
+    expect(required?.is_optional).toBe(false);
+
+    await completeThrough(ctx, ['询单', '大纲']);
+    const skipped = await mustNode(await postNode(ctx.app, projectId, tokens, '文案', 'skip'));
+    expect(skipped.node.status).toBe('not_applicable');
+    remember(tokens, skipped);
+    const skippedPre = await mustNode(await postNode(ctx.app, projectId, tokens, '预拍摄', 'skip'));
+    expect(skippedPre.node.status).toBe('not_applicable');
+    remember(tokens, skippedPre);
+    expect(await statusOf(sql, projectId, '文案')).toBe('not_applicable');
+    expect(await auditCount(sql, projectId, 'skip')).toBe(2);
+
+    const merge = await mustNode(await postNode(ctx.app, projectId, tokens, '汇合节点', 'advance'));
+    expect(merge.node.status).toBe('in_progress');
+    remember(tokens, merge);
+    await completeThrough(ctx, ['汇合节点']);
+    const aRoll = await mustNode(
+      await postNode(ctx.app, projectId, tokens, 'A-roll 拍摄', 'advance'),
+    );
+    expect(aRoll.node.status).toBe('in_progress');
+    remember(tokens, aRoll);
+  }, 30_000);
+
+  test('skipping a completed node is refused and writes nothing', async () => {
+    const ctx = await ready();
+    if (!ctx) return;
+    await completeThrough(ctx, ['询单']);
+    const refused = await postNode(ctx.app, ctx.projectId, ctx.tokens, '询单', 'skip');
+    const body = await expectRefusal(refused, 409, 'invalid_transition');
+    expect(body.error).toBe('已完成的节点不能标记为不适用');
+    expect(await statusOf(ctx.sql, ctx.projectId, '询单')).toBe('completed');
     expect(await auditCount(ctx.sql, ctx.projectId, 'skip')).toBe(0);
   }, 30_000);
 

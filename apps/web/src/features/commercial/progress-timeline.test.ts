@@ -170,6 +170,22 @@ describe('progress timeline mapping', () => {
     expect(timeline.stages.some((stage) => stage.current)).toBe(false);
   });
 
+  test('a stage with every node not_applicable is complete, so the project can finish', () => {
+    const done = Object.fromEntries(TEMPLATE.map((item) => [item.templateSlug, 'completed']));
+    const statuses = {
+      ...done,
+      a_roll: 'not_applicable',
+      b_roll: 'not_applicable',
+      ai_post: 'not_applicable',
+    };
+    const timeline = deriveProgressTimeline(withStatus(statuses));
+    const production = timeline.stages.find((stage) => stage.id === 'production');
+    expect(production?.status).toBe('completed');
+    expect(timeline.stages.every((stage) => stage.status === 'completed')).toBe(true);
+    expect(timeline.stages.some((stage) => stage.current)).toBe(false);
+    expect(timeline.points.at(-1)?.demoStatus).toBe('done');
+  });
+
   test('reuses project detail fields for the summary facts', () => {
     const facts = timelineFactsFromDetail(
       asLiveDetail({
