@@ -2,8 +2,8 @@
   "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
   "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 86,
-  "wiredRouteCount": 59,
+  "apiRouteCount": 88,
+  "wiredRouteCount": 61,
   "unwiredImplementedRouteCount": 27,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes and registerCommercialIngressRoutes add fixed POST/GET lists.",
@@ -1447,6 +1447,50 @@
       "wired": false,
       "notes": "Older per-node engine. No web caller.",
       "storedEntity": "wf_nodes and related commercial tables inside one transaction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/open-items",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1790,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#parseCommercialOpenItemCreateRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialOpenItemWriteResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "createLiveOpenItem",
+          "evidence": "/open-items`,"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-OC-011. Creates a project-level open item (non-node-blocking allowed) with nextActor us|client|third_party. Duplicate open title in the same project returns 409 duplicate_open_item. 201 on success.",
+      "storedEntity": "open_items"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1805,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#parseCommercialOpenItemUpdateRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialOpenItemWriteResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "updateLiveOpenItem",
+          "evidence": "/open-items/${encodeURIComponent(itemId)}`"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-OC-011. Edits title, nextActor, impact, dueAt, or note under expectedUpdatedAt optimistic locking. Only lifecycle=open items are editable; closed/cancelled returns 409 item_closed.",
+      "storedEntity": "open_items"
     },
     {
       "method": "POST",

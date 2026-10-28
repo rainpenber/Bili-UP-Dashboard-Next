@@ -97,6 +97,7 @@ function toEventDto(
     source: event.source,
     monitored,
     monitoredTargetId,
+    ...(event.relatedBvid ? { relatedBvid: event.relatedBvid } : {}),
     navigable,
   };
 }

@@ -14,6 +14,10 @@ export const OVERALL_STAGES = [
 ] as const;
 export type OverallStage = (typeof OVERALL_STAGES)[number];
 
+/** Project list grouping (WP-OC-007), derived from node status — never stored. */
+export const COMMERCIAL_PROJECT_PHASES = ['pending', 'active', 'wrapping'] as const;
+export type CommercialProjectPhase = (typeof COMMERCIAL_PROJECT_PHASES)[number];
+
 export const WF_NODE_STATUSES = [
   'not_reached',
   'in_progress',
@@ -36,7 +40,7 @@ export type WfNodePhase = (typeof WF_NODE_PHASES)[number];
 export const PUBLISH_SOURCES = ['web', 'hermes', 'manual'] as const;
 export type PublishSource = (typeof PUBLISH_SOURCES)[number];
 
-export const OPEN_ITEM_ACTORS = ['us', 'client'] as const;
+export const OPEN_ITEM_ACTORS = ['us', 'client', 'third_party'] as const;
 export type OpenItemActor = (typeof OPEN_ITEM_ACTORS)[number];
 
 const OPEN_ITEM_LIFECYCLES = ['open', 'closed', 'cancelled'] as const;
@@ -55,6 +59,12 @@ export function isOverallStage(value: unknown): value is OverallStage {
 
 export function isWfNodeStatus(value: unknown): value is WfNodeStatus {
   return typeof value === 'string' && (WF_NODE_STATUSES as readonly string[]).includes(value);
+}
+
+export function isCommercialProjectPhase(value: unknown): value is CommercialProjectPhase {
+  return (
+    typeof value === 'string' && (COMMERCIAL_PROJECT_PHASES as readonly string[]).includes(value)
+  );
 }
 
 export function isWfNodeKind(value: unknown): value is WfNodeKind {
@@ -127,6 +137,8 @@ export type CommercialProjectListItem = {
   /** 返点金额, numeric(14,2) text. */
   rebateAmount: string | null;
   overallStage: OverallStage;
+  /** Derived list grouping: pending until 文案 is done, active until 发布 is done, then wrapping. */
+  phase: CommercialProjectPhase;
   /** Names of in-progress and blocked nodes, layout order. Empty when none are active. */
   currentStageNames: string[];
   anyNodeBlocked: boolean;
@@ -183,11 +195,16 @@ export type CommercialProjectListResponse = {
 
 export type CommercialPublishStatus = {
   published: boolean;
+  platform: string;
+  /** Null for post deliveries, which have no bvid. */
   bvid: string | null;
   publishedAt: string | null;
   publishSource: PublishSource | null;
   /** Stored publish idempotency key. Present only after a record exists, so a later complete can reuse it. */
   idempotencyKey: string | null;
+  contentKind: 'video' | 'post';
+  contentUrl: string | null;
+  externalId: string | null;
 };
 
 export type CommercialProjectDetail = CommercialProjectListItem & {
@@ -366,22 +383,46 @@ function parseNullableIso(value: unknown, label: string): string | null {
   return parseIso(value, label);
 }
 
+function parseNullableName(value: unknown, label: string): string | null {
+  if (value === null || value === undefined) return null;
+  return parseName(value, label);
+}
+
+function parseContentKind(value: unknown): 'video' | 'post' {
+  if (value !== 'video' && value !== 'post') {
+    throw new Error('publish.contentKind must be video or post');
+  }
+  return value;
+}
+
 function parsePublish(value: unknown): CommercialPublishStatus {
   const record = asRecord(value, 'publish');
   if (typeof record.published !== 'boolean') throw new Error('publish.published must be a boolean');
   if (record.published) {
-    if (typeof record.bvid !== 'string' || record.bvid.length === 0) {
-      throw new Error('publish.bvid must be a non-empty string when published');
+    const bvid = parseNullableName(record.bvid, 'publish.bvid');
+    const externalId = parseNullableName(record.externalId, 'publish.externalId');
+    if (bvid === null && externalId === null) {
+      throw new Error('已发布的记录必须有 bvid 或外部内容 ID');
+    }
+    const contentKind =
+      record.contentKind === undefined ? 'video' : parseContentKind(record.contentKind);
+    if (contentKind === 'video' && bvid === null) {
+      throw new Error('publish.bvid must be a non-empty string when contentKind is video');
     }
     if (!isPublishSource(record.publishSource)) {
       throw new Error('publish.publishSource is invalid');
     }
     return {
       published: true,
-      bvid: record.bvid,
+      platform:
+        record.platform === undefined ? 'bilibili' : parseName(record.platform, 'publish.platform'),
+      bvid,
       publishedAt: parseIso(record.publishedAt, 'publish.publishedAt'),
       publishSource: record.publishSource,
       idempotencyKey: parseName(record.idempotencyKey, 'publish.idempotencyKey'),
+      contentKind,
+      contentUrl: parseNullableName(record.contentUrl, 'publish.contentUrl'),
+      externalId,
     };
   }
   if (record.bvid !== null || record.publishedAt !== null || record.publishSource !== null) {
@@ -392,10 +433,15 @@ function parsePublish(value: unknown): CommercialPublishStatus {
   }
   return {
     published: false,
+    platform:
+      record.platform === undefined ? 'bilibili' : parseName(record.platform, 'publish.platform'),
     bvid: null,
     publishedAt: null,
     publishSource: null,
     idempotencyKey: null,
+    contentKind: record.contentKind === undefined ? 'video' : parseContentKind(record.contentKind),
+    contentUrl: parseNullableName(record.contentUrl ?? null, 'publish.contentUrl'),
+    externalId: parseNullableName(record.externalId ?? null, 'publish.externalId'),
   };
 }
 
@@ -447,6 +493,7 @@ function parseSourceWindow(value: unknown): CommercialSourceWindow | null {
 function parseListItem(value: unknown): CommercialProjectListItem {
   const record = asRecord(value, 'project list item');
   if (!isOverallStage(record.overallStage)) throw new Error('overallStage is invalid');
+  if (!isCommercialProjectPhase(record.phase)) throw new Error('phase is invalid');
   if (typeof record.anyNodeBlocked !== 'boolean') {
     throw new Error('anyNodeBlocked must be a boolean');
   }
@@ -456,6 +503,7 @@ function parseListItem(value: unknown): CommercialProjectListItem {
     netAmount: parseMoney(record.netAmount, 'netAmount'),
     rebateAmount: parseMoney(record.rebateAmount, 'rebateAmount'),
     overallStage: record.overallStage,
+    phase: record.phase,
     currentStageNames: parseStageNames(record.currentStageNames, 'currentStageNames'),
     anyNodeBlocked: record.anyNodeBlocked,
     blockingReason: parseBlockingReason(record.blockingReason),

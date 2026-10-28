@@ -22,6 +22,8 @@ export type RecordOverlayItem = {
   planLabel?: string | null;
   actualLabel?: string | null;
   overdue?: boolean;
+  /** Per-row interactive controls, such as the stage tooltip node actions. */
+  actions?: ReactNode;
 };
 
 type Placement = {
@@ -82,6 +84,9 @@ export function RecordOverlayList({ items }: { items: RecordOverlayItem[] }) {
                 <p className="record-overlay-meta">实际 {item.actualLabel}</p>
               ) : null}
               {item.overdue ? <p className="record-overlay-overdue">逾期</p> : null}
+              {item.actions ? (
+                <div className="flex min-w-0 flex-wrap justify-end">{item.actions}</div>
+              ) : null}
             </div>
           </li>
         );

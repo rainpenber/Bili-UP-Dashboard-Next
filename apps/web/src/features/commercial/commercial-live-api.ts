@@ -1,6 +1,9 @@
 import {
   parseCommercialDefaultTemplate,
   parseCommercialNodeWriteResponse,
+  parseCommercialOpenItemCreateRequest,
+  parseCommercialOpenItemUpdateRequest,
+  parseCommercialOpenItemWriteResponse,
   parseCommercialProjectArchiveResponse,
   parseCommercialProjectDetail,
   parseCommercialProjectList,
@@ -11,6 +14,9 @@ import {
   parseCommercialWriteError,
   type CommercialDefaultTemplate,
   type CommercialNodeWriteResponse,
+  type CommercialOpenItemCreateRequest,
+  type CommercialOpenItemUpdateRequest,
+  type CommercialOpenItemWriteResponse,
   type CommercialProjectArchiveResponse,
   type CommercialProjectDetail,
   type CommercialProjectListResponse,
@@ -182,10 +188,68 @@ export async function saveLiveWorkflowLayout(
   return parseCommercialWorkflowLayoutResponse(payload);
 }
 
+async function writeOpenItem(
+  path: string,
+  method: 'POST' | 'PATCH',
+  body: unknown,
+): Promise<CommercialOpenItemWriteResponse> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    throw new CommercialReadError(err instanceof Error ? err.message : '网络异常', 0, 'http');
+  }
+  const payload: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message =
+      typeof payload === 'object' &&
+      payload !== null &&
+      'error' in payload &&
+      typeof payload.error === 'string'
+        ? payload.error
+        : `HTTP ${res.status}`;
+    throw new CommercialReadError(message, res.status, 'http');
+  }
+  return parseRead(parseCommercialOpenItemWriteResponse, payload);
+}
+
+export function createLiveOpenItem(
+  projectId: string,
+  body: CommercialOpenItemCreateRequest,
+): Promise<CommercialOpenItemWriteResponse> {
+  const request = parseCommercialOpenItemCreateRequest(body);
+  return writeOpenItem(
+    `/api/v1/commercial/projects/${encodeURIComponent(projectId)}/open-items`,
+    'POST',
+    request,
+  );
+}
+
+export function updateLiveOpenItem(
+  projectId: string,
+  itemId: string,
+  body: CommercialOpenItemUpdateRequest,
+): Promise<CommercialOpenItemWriteResponse> {
+  const request = parseCommercialOpenItemUpdateRequest(body);
+  return writeOpenItem(
+    `/api/v1/commercial/projects/${encodeURIComponent(projectId)}/open-items/${encodeURIComponent(itemId)}`,
+    'PATCH',
+    request,
+  );
+}
+
 export type LiveStepResult =
   { ok: true } | { ok: false; status: number; body: CommercialWriteErrorBody };
 
-async function postStep(path: string, body: unknown): Promise<LiveStepResult> {
+async function postStep(
+  path: string,
+  body: unknown,
+  parseOk: (value: unknown) => unknown = parseCommercialStepResponse,
+): Promise<LiveStepResult> {
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -206,7 +270,7 @@ async function postStep(path: string, body: unknown): Promise<LiveStepResult> {
       return { ok: false, status: res.status, body: { error: message, code: 'invalid_body' } };
     }
   }
-  parseCommercialStepResponse(payload);
+  parseOk(payload);
   return { ok: true };
 }
 
@@ -223,6 +287,18 @@ export function postLiveNodeStep(
   return postStep(
     `/api/v1/commercial/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/step`,
     body,
+  );
+}
+
+export function postLiveNodeUnblock(
+  projectId: string,
+  nodeId: string,
+  expectedUpdatedAt: string,
+): Promise<LiveStepResult> {
+  return postStep(
+    `/api/v1/commercial/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/unblock`,
+    { expectedUpdatedAt },
+    parseCommercialNodeWriteResponse,
   );
 }
 

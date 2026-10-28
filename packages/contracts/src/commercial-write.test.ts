@@ -6,6 +6,9 @@ import {
   parseCommercialStageStepRequest,
   parseCommercialCancelItemRequest,
   parseCommercialNodeWriteResponse,
+  parseCommercialOpenItemCreateRequest,
+  parseCommercialOpenItemSnapshot,
+  parseCommercialOpenItemUpdateRequest,
   parseCommercialPlanRequest,
   parseCommercialPublishRequest,
   parseCommercialPublishResponse,
@@ -119,6 +122,38 @@ describe('commercial write contracts', () => {
     ).toThrow(/bvid or videoUrl/);
   });
 
+  test('post publish request derives externalId and requires contentUrl', () => {
+    const parsed = parseCommercialPublishRequest({
+      expectedUpdatedAt: STAMP,
+      idempotencyKey: 'post-1',
+      platform: 'bilibili',
+      contentKind: 'post',
+      contentUrl: 'https://t.bilibili.com/1262617308018245635',
+    });
+    expect(parsed.contentKind).toBe('post');
+    expect(parsed.contentUrl).toBe('https://t.bilibili.com/1262617308018245635');
+    expect(parsed.externalId).toBe('1262617308018245635');
+    expect(parsed.bvid).toBeUndefined();
+    expect(
+      parseCommercialPublishRequest({
+        expectedUpdatedAt: STAMP,
+        idempotencyKey: 'post-2',
+        platform: 'xiaohongshu',
+        contentKind: 'post',
+        contentUrl: 'https://www.xiaohongshu.com/explore/abc123def456',
+        externalId: 'explicit-id',
+      }).externalId,
+    ).toBe('explicit-id');
+    expect(() =>
+      parseCommercialPublishRequest({
+        expectedUpdatedAt: STAMP,
+        idempotencyKey: 'post-3',
+        platform: 'bilibili',
+        contentKind: 'post',
+      }),
+    ).toThrow(/contentUrl/);
+  });
+
   test('a step request keeps force and publish optional', () => {
     const node = parseCommercialNodeStepRequest({
       expectedUpdatedAt: STAMP,
@@ -188,8 +223,162 @@ describe('commercial write contracts', () => {
       },
       idempotentReplay: false,
     });
+    if (!parsed.monitor) throw new Error('missing monitor');
     expect(parsed.monitor.jobs.map((job) => job.jobType)).toEqual(['metadata', 'metrics']);
     expect(parsed.idempotentReplay).toBe(false);
+  });
+
+  test('post publish response carries no bvid and no monitor contract', () => {
+    const parsed = parseCommercialPublishResponse({
+      projectId: PROJECT_ID,
+      node: {
+        ...snapshot(),
+        name: '发布',
+        status: 'completed',
+        statusBeforeBlock: null,
+        primaryBlockItemId: null,
+        completedAt: STAMP,
+      },
+      publish: {
+        bvid: null,
+        publishedAt: STAMP,
+        publishSource: 'web',
+        idempotencyKey: 'post-1',
+        platform: 'bilibili',
+        videoUrl: null,
+        contentKind: 'post',
+        contentUrl: 'https://t.bilibili.com/1262617308018245635',
+        externalId: '1262617308018245635',
+      },
+      monitor: null,
+      idempotentReplay: false,
+    });
+    expect(parsed.publish.contentKind).toBe('post');
+    expect(parsed.publish.bvid).toBeNull();
+    expect(parsed.publish.externalId).toBe('1262617308018245635');
+    expect(parsed.monitor).toBeNull();
+  });
+
+  test('open item create accepts three actors and validates title, note, and dueAt', () => {
+    const created = parseCommercialOpenItemCreateRequest({
+      title: '  甲方未寄样品  ',
+      nextActor: 'third_party',
+      impact: 'blocking',
+      dueAt: '2026-11-01T00:00:00.000Z',
+      note: '  等样机  ',
+    });
+    expect(created).toEqual({
+      title: '甲方未寄样品',
+      nextActor: 'third_party',
+      impact: 'blocking',
+      dueAt: '2026-11-01T00:00:00.000Z',
+      note: '等样机',
+    });
+    expect(
+      parseCommercialOpenItemCreateRequest({
+        title: '无截止',
+        nextActor: 'us',
+        impact: 'normal',
+      }),
+    ).toEqual({ title: '无截止', nextActor: 'us', impact: 'normal', dueAt: null, note: null });
+    expect(() =>
+      parseCommercialOpenItemCreateRequest({
+        title: '   ',
+        nextActor: 'us',
+        impact: 'normal',
+      }),
+    ).toThrow(/title/);
+    expect(() =>
+      parseCommercialOpenItemCreateRequest({
+        title: 'x'.repeat(201),
+        nextActor: 'us',
+        impact: 'normal',
+      }),
+    ).toThrow(/at most/);
+    expect(() =>
+      parseCommercialOpenItemCreateRequest({
+        title: '非法责任方',
+        nextActor: 'vendor',
+        impact: 'normal',
+      }),
+    ).toThrow(/nextActor/);
+    expect(() =>
+      parseCommercialOpenItemCreateRequest({
+        title: '非法影响',
+        nextActor: 'us',
+        impact: 'warning',
+      }),
+    ).toThrow(/impact/);
+    expect(() =>
+      parseCommercialOpenItemCreateRequest({
+        title: '坏日期',
+        nextActor: 'us',
+        impact: 'normal',
+        dueAt: 'tomorrow',
+      }),
+    ).toThrow(/dueAt/);
+    expect(() =>
+      parseCommercialOpenItemCreateRequest({
+        title: '长说明',
+        nextActor: 'us',
+        impact: 'normal',
+        note: 'x'.repeat(501),
+      }),
+    ).toThrow(/at most/);
+  });
+
+  test('open item update keeps omitted fields absent and rejects an invalid actor', () => {
+    const patch = parseCommercialOpenItemUpdateRequest({
+      expectedUpdatedAt: STAMP,
+      title: ' 新标题 ',
+      nextActor: 'client',
+      dueAt: null,
+    });
+    expect(patch).toEqual({
+      expectedUpdatedAt: STAMP,
+      title: '新标题',
+      nextActor: 'client',
+      dueAt: null,
+    });
+    expect(parseCommercialOpenItemUpdateRequest({ expectedUpdatedAt: STAMP, note: '   ' })).toEqual(
+      { expectedUpdatedAt: STAMP, note: null },
+    );
+    expect(() =>
+      parseCommercialOpenItemUpdateRequest({
+        expectedUpdatedAt: STAMP,
+        nextActor: 'vendor',
+      }),
+    ).toThrow(/nextActor/);
+  });
+
+  test('open item write snapshot carries actor, dueAt, and note', () => {
+    const parsed = parseCommercialOpenItemSnapshot({
+      id: ITEM_ID,
+      title: '甲方未寄样品',
+      lifecycle: 'open',
+      impact: 'blocking',
+      nextActor: 'third_party',
+      dueAt: '2026-11-01T00:00:00.000Z',
+      note: '等样机',
+      updatedAt: STAMP,
+      cancelReason: null,
+    });
+    expect(parsed.nextActor).toBe('third_party');
+    expect(parsed.dueAt).toBe('2026-11-01T00:00:00.000Z');
+    expect(parsed.note).toBe('等样机');
+    expect(() =>
+      parseCommercialOpenItemSnapshot({
+        id: ITEM_ID,
+        title: '非法责任方',
+        lifecycle: 'open',
+        impact: 'normal',
+        nextActor: 'vendor',
+        dueAt: null,
+        note: null,
+        updatedAt: STAMP,
+        cancelReason: null,
+      }),
+    ).toThrow(/nextActor/);
   });
 
   test('layout request trims names, caps length, and requires a real change', () => {

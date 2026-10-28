@@ -3,6 +3,7 @@ import {
   ensureVideoDenseCollectPlan,
   findActiveVideoTargetId,
   getCreatorDiscoveryConfig,
+  hasCreatorVideoPublishEvent,
   insertCreatorPublishEvent,
   insertMonitorTarget,
   linkPublishEventTarget,
@@ -75,6 +76,7 @@ export type DiscoveryRoundSummary = {
   seededDynamicWatermark: boolean;
   videoEventsCreated: number;
   dynamicEventsCreated: number;
+  skippedDuplicates: number;
   targetsCreated: number;
   targetsSuppressed: number;
   skippedCount: number;
@@ -104,6 +106,7 @@ export async function applyDiscoveryRound(
   let seededDynamicWatermark = false;
   let videoEventsCreated = 0;
   let dynamicEventsCreated = 0;
+  let skippedDuplicates = 0;
   let targetsCreated = 0;
   let targetsSuppressed = 0;
   const skips = [...(input.skips ?? [])];
@@ -202,6 +205,13 @@ export async function applyDiscoveryRound(
           a.publishedAtSec < b.publishedAtSec ? -1 : a.publishedAtSec > b.publishedAtSec ? 1 : 0,
         );
       for (const dyn of newer) {
+        if (
+          dyn.bvid &&
+          (await hasCreatorVideoPublishEvent(sql, { mid: config.mid, bvid: dyn.bvid }))
+        ) {
+          skippedDuplicates += 1;
+          continue;
+        }
         const publishedAt = new Date(Number(dyn.publishedAtSec) * 1000);
         const titleSnapshot = resolveDiscoveryDynamicTitle({
           title: dyn.title,
@@ -217,6 +227,7 @@ export async function applyDiscoveryRound(
           titleSnapshot,
           firstDiscoveredAt: now,
           monitoredTargetId: null,
+          relatedBvid: dyn.bvid ?? null,
         });
         if (inserted.created) dynamicEventsCreated += 1;
         if (dyn.publishedAtSec > (dynamicWatermark ?? 0n)) {
@@ -242,6 +253,7 @@ export async function applyDiscoveryRound(
     seededDynamicWatermark,
     videoEventsCreated,
     dynamicEventsCreated,
+    skippedDuplicates,
     targetsCreated,
     targetsSuppressed,
     skippedCount: skips.length,
@@ -447,7 +459,7 @@ export async function runDiscoveryJob(options: {
     calls,
   });
   log(
-    `[collector] 发现成功 ${options.job.id} videos=${summary.videoEventsCreated} dynamics=${summary.dynamicEventsCreated} targets=${summary.targetsCreated} suppressed=${summary.targetsSuppressed} skipped=${summary.skippedCount}`,
+    `[collector] 发现成功 ${options.job.id} videos=${summary.videoEventsCreated} dynamics=${summary.dynamicEventsCreated} duplicates=${summary.skippedDuplicates} targets=${summary.targetsCreated} suppressed=${summary.targetsSuppressed} skipped=${summary.skippedCount}`,
   );
   return 'succeeded';
 }

@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  OPEN_ITEM_ACTORS,
   WF_NODE_KINDS,
+  isOpenItemActor,
   parseCommercialDefaultTemplate,
   parseCommercialProjectArchiveResponse,
   parseCommercialProjectDetail,
@@ -15,6 +17,7 @@ const EDGE_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee04';
 const ITEM_ID = 'f0a10001-0001-4001-8001-0000000000a4';
 
 const READ_FIELDS = {
+  phase: 'pending' as const,
   createdAt: '2026-05-01T00:00:00.000000Z',
   updatedAt: '2026-05-01T00:00:00.000000Z',
   userDeadlineAt: null,
@@ -43,6 +46,15 @@ function listResponse(items: unknown[]) {
 describe('commercial read contracts', () => {
   test('node kinds are only stage and merge', () => {
     expect([...WF_NODE_KINDS]).toEqual(['stage', 'merge']);
+  });
+
+  test('open item actors include third_party and reject unknown values', () => {
+    expect([...OPEN_ITEM_ACTORS]).toEqual(['us', 'client', 'third_party']);
+    for (const actor of OPEN_ITEM_ACTORS) {
+      expect(isOpenItemActor(actor)).toBe(true);
+    }
+    expect(isOpenItemActor('vendor')).toBe(false);
+    expect(isOpenItemActor(null)).toBe(false);
   });
 
   test('parses a project list item', () => {
@@ -82,6 +94,7 @@ describe('commercial read contracts', () => {
       ]),
     );
     expect(parsed.items[0]?.netAmount).toBe('18000.00');
+    expect(parsed.items[0]?.phase).toBe('pending');
     expect(parsed.items[0]?.currentStageNames).toEqual(['文案', '预拍摄']);
     expect(parsed.items[0]?.openItems[0]?.plannedAt).toBeNull();
     expect(parsed.items[0]?.openItems[0]?.nextActor).toBe('client');
@@ -169,6 +182,76 @@ describe('commercial read contracts', () => {
     });
   });
 
+  test('parses a third_party open item from the project list', () => {
+    const parsed = parseCommercialProjectList(
+      listResponse([
+        listItem({
+          id: PROJECT_ID,
+          name: '第三方结算样例',
+          netAmount: null,
+          rebateAmount: null,
+          overallStage: 'pre_publish',
+          currentStageNames: [],
+          anyNodeBlocked: false,
+          openItems: [
+            {
+              id: ITEM_ID,
+              title: '卡第三方结算',
+              description: null,
+              closeCriteria: null,
+              nextAction: null,
+              nextActor: 'third_party',
+              lifecycle: 'open',
+              impact: 'normal',
+              plannedAt: null,
+              sortRank: 0,
+              blocksRequiredForClose: false,
+              workflowNodeId: null,
+              blocksNodeId: null,
+              createdAt: '2026-05-02T00:00:00.000000Z',
+              updatedAt: '2026-05-02T00:00:00.000000Z',
+            },
+          ],
+        }),
+      ]),
+    );
+    expect(parsed.items[0]?.openItems[0]?.nextActor).toBe('third_party');
+    expect(() =>
+      parseCommercialProjectList(
+        listResponse([
+          listItem({
+            id: PROJECT_ID,
+            name: '非法责任方',
+            netAmount: null,
+            rebateAmount: null,
+            overallStage: 'pre_publish',
+            currentStageNames: [],
+            anyNodeBlocked: false,
+            openItems: [
+              {
+                id: ITEM_ID,
+                title: '非法责任方',
+                description: null,
+                closeCriteria: null,
+                nextAction: null,
+                nextActor: 'vendor',
+                lifecycle: 'open',
+                impact: 'normal',
+                plannedAt: null,
+                sortRank: 0,
+                blocksRequiredForClose: false,
+                workflowNodeId: null,
+                blocksNodeId: null,
+                createdAt: '2026-05-02T00:00:00.000000Z',
+                updatedAt: '2026-05-02T00:00:00.000000Z',
+              },
+            ],
+          }),
+        ]),
+      ),
+    ).toThrow(/nextActor/);
+  });
+
   test('rejects a malformed sourceWindow', () => {
     expect(() =>
       parseCommercialProjectList(
@@ -223,6 +306,9 @@ describe('commercial read contracts', () => {
     const withoutCreated = { ...base } as Record<string, unknown>;
     delete withoutCreated.createdAt;
     expect(() => parseCommercialProjectList(listResponse([withoutCreated]))).toThrow(/createdAt/);
+    expect(() =>
+      parseCommercialProjectList(listResponse([listItem({ ...base, phase: 'published' })])),
+    ).toThrow(/phase/);
     expect(() =>
       parseCommercialProjectList(
         listResponse([listItem({ ...base, openItems: [{ id: ITEM_ID }] })]),
@@ -285,15 +371,20 @@ describe('commercial read contracts', () => {
         blockingReason: null,
         publish: {
           published: true,
+          platform: 'bilibili',
           bvid: 'BVWP004R01',
           publishedAt: '2026-05-20T12:00:00.000Z',
           publishSource: 'web',
           idempotencyKey: 'fixture-publish-once',
+          contentKind: 'video',
+          contentUrl: null,
+          externalId: null,
         },
       }),
     );
     expect(detail.publish.published).toBe(true);
     expect(detail.publish.idempotencyKey).toBe('fixture-publish-once');
+    expect(detail.publish.contentKind).toBe('video');
     expect(detail.blockingReason).toBeNull();
 
     const graph = parseCommercialProjectWorkflow({
@@ -380,6 +471,95 @@ describe('commercial read contracts', () => {
       edges: [],
     });
     expect(template.nodes[0]?.isOptional).toBe(true);
+  });
+
+  test('parses a published post record without a bvid', () => {
+    const detail = parseCommercialProjectDetail(
+      listItem({
+        id: PROJECT_ID,
+        name: 'AI眼镜新品-品牌待确认',
+        netAmount: null,
+        rebateAmount: null,
+        overallStage: 'published_winding_down',
+        currentStageNames: [],
+        anyNodeBlocked: false,
+        blockingReason: null,
+        publish: {
+          published: true,
+          platform: 'bilibili',
+          bvid: null,
+          publishedAt: '2026-10-24T00:00:00.000Z',
+          publishSource: 'web',
+          idempotencyKey: 'fixture-publish-post',
+          contentKind: 'post',
+          contentUrl: 'https://t.bilibili.com/1262617308018245635',
+          externalId: '1262617308018245635',
+        },
+      }),
+    );
+    expect(detail.publish).toMatchObject({
+      published: true,
+      platform: 'bilibili',
+      bvid: null,
+      contentKind: 'post',
+      externalId: '1262617308018245635',
+    });
+  });
+
+  test('rejects a published record with neither bvid nor external id', () => {
+    expect(() =>
+      parseCommercialProjectDetail(
+        listItem({
+          id: PROJECT_ID,
+          name: '缺少内容标识',
+          netAmount: null,
+          rebateAmount: null,
+          overallStage: 'published_winding_down',
+          currentStageNames: [],
+          anyNodeBlocked: false,
+          blockingReason: null,
+          publish: {
+            published: true,
+            platform: 'bilibili',
+            bvid: null,
+            publishedAt: '2026-10-24T00:00:00.000Z',
+            publishSource: 'web',
+            idempotencyKey: 'fixture-publish-missing-id',
+            contentKind: 'post',
+            contentUrl: null,
+            externalId: null,
+          },
+        }),
+      ),
+    ).toThrow('已发布的记录必须有 bvid 或外部内容 ID');
+  });
+
+  test('still requires a bvid for a published video record', () => {
+    expect(() =>
+      parseCommercialProjectDetail(
+        listItem({
+          id: PROJECT_ID,
+          name: '视频缺少 bvid',
+          netAmount: null,
+          rebateAmount: null,
+          overallStage: 'published_winding_down',
+          currentStageNames: [],
+          anyNodeBlocked: false,
+          blockingReason: null,
+          publish: {
+            published: true,
+            platform: 'bilibili',
+            bvid: null,
+            publishedAt: '2026-10-24T00:00:00.000Z',
+            publishSource: 'web',
+            idempotencyKey: 'fixture-publish-video-missing-bvid',
+            contentKind: 'video',
+            contentUrl: null,
+            externalId: '1262617308018245635',
+          },
+        }),
+      ),
+    ).toThrow(/publish\.bvid/);
   });
 
   test('rejects an unpublished payload that still carries a bvid', () => {

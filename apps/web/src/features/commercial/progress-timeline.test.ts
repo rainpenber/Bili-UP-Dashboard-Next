@@ -36,6 +36,7 @@ const TEMPLATE = [
   node('merge', '汇合节点', 'not_reached'),
   node('a_roll', 'A-roll 拍摄', 'not_reached'),
   node('b_roll', 'B-roll 素材', 'not_reached'),
+  node('edit', '剪辑', 'not_reached'),
   node('ai_post', 'AI 后期', 'not_reached'),
   node('review', '审核', 'not_reached'),
   node('publish', '发布', 'not_reached'),
@@ -64,6 +65,7 @@ describe('progress timeline mapping', () => {
     expect(stageIdForNode('manual')).toBe('copy_prep');
     expect(stageIdForNode('a_roll')).toBe('production');
     expect(stageIdForNode('b_roll')).toBe('production');
+    expect(stageIdForNode('edit')).toBe('production');
     expect(stageIdForNode('ai_post')).toBe('production');
     expect(stageIdForNode('review')).toBe('client_review');
     expect(stageIdForNode('publish')).toBe('client_review');
@@ -73,6 +75,17 @@ describe('progress timeline mapping', () => {
     expect(stageIdForNode('other')).toBe('distribution_settlement');
     expect(stageIdForNode('inquiry')).toBeNull();
     expect(stageIdForNode('merge')).toBeNull();
+  });
+
+  test('keeps 剪辑 between B-roll and AI 后期 inside production', () => {
+    const production = PROGRESS_STAGES.find((stage) => stage.id === 'production');
+    expect(production?.nodeIds).toEqual(['a_roll', 'b_roll', 'edit', 'ai_post']);
+    const timeline = deriveProgressTimeline(
+      withStatus({ a_roll: 'completed', b_roll: 'completed', edit: 'in_progress' }),
+    );
+    const children = timeline.stages.find((stage) => stage.id === 'production')?.children ?? [];
+    expect(children.map((child) => child.nodeId)).toEqual(['a_roll', 'b_roll', 'edit', 'ai_post']);
+    expect(children.find((child) => child.nodeId === 'edit')?.name).toBe('剪辑');
   });
 
   test('maps persisted statuses onto the four colors, with not_applicable unfinished', () => {
@@ -168,6 +181,23 @@ describe('progress timeline mapping', () => {
     expect(settlement?.status).toBe('completed');
     expect(timeline.points.at(-1)?.demoStatus).toBe('done');
     expect(timeline.stages.some((stage) => stage.current)).toBe(false);
+  });
+
+  test('a stage with every node not_applicable is complete, so the project can finish', () => {
+    const done = Object.fromEntries(TEMPLATE.map((item) => [item.templateSlug, 'completed']));
+    const statuses = {
+      ...done,
+      a_roll: 'not_applicable',
+      b_roll: 'not_applicable',
+      edit: 'not_applicable',
+      ai_post: 'not_applicable',
+    };
+    const timeline = deriveProgressTimeline(withStatus(statuses));
+    const production = timeline.stages.find((stage) => stage.id === 'production');
+    expect(production?.status).toBe('completed');
+    expect(timeline.stages.every((stage) => stage.status === 'completed')).toBe(true);
+    expect(timeline.stages.some((stage) => stage.current)).toBe(false);
+    expect(timeline.points.at(-1)?.demoStatus).toBe('done');
   });
 
   test('reuses project detail fields for the summary facts', () => {

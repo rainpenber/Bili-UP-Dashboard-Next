@@ -74,24 +74,21 @@ describe('commercial workflow write API', () => {
     remember(tokens, advanced);
   }, 30_000);
 
-  test('the join node gates A-roll, B-roll, and AI 后期', async () => {
+  test('the join node gates A-roll and B-roll', async () => {
     const ctx = await ready();
     if (!ctx) return;
     const { projectId, tokens } = ctx;
     await completeThrough(ctx, ['询单', '大纲', '文案', '预拍摄']);
 
-    for (const name of ['A-roll 拍摄', 'B-roll 素材', 'AI 后期']) {
+    for (const name of ['A-roll 拍摄', 'B-roll 素材']) {
       const refused = await postNode(ctx.app, projectId, tokens, name, 'advance');
       const body = await expectRefusal(refused, 409, 'predecessors_incomplete', ['汇合节点']);
       expect(body.error).toBe('须先完成前置节点：汇合节点');
     }
 
     await completeThrough(ctx, ['汇合节点']);
-    for (const name of ['A-roll 拍摄', 'B-roll 素材', 'AI 后期']) {
-      const advanced = await mustNode(await postNode(ctx.app, projectId, tokens, name, 'advance'));
-      expect(advanced.node.status).toBe('in_progress');
-      remember(tokens, advanced);
-    }
+    await completeThrough(ctx, ['A-roll 拍摄', 'B-roll 素材', '剪辑', 'AI 后期']);
+    expect(await statusOf(ctx.sql, projectId, 'AI 后期')).toBe('completed');
   }, 30_000);
 
   test('skipping the optional join lets its successors advance, and passthrough still names upstream', async () => {
@@ -115,20 +112,48 @@ describe('commercial workflow write API', () => {
     expect(passedBody.names).not.toContain('汇合节点');
 
     await completeThrough(ctx, ['文案', '预拍摄']);
-    for (const name of ['A-roll 拍摄', 'B-roll 素材', 'AI 后期']) {
-      const advanced = await mustNode(await postNode(ctx.app, projectId, tokens, name, 'advance'));
-      expect(advanced.node.status).toBe('in_progress');
-      remember(tokens, advanced);
-    }
+    await completeThrough(ctx, ['A-roll 拍摄', 'B-roll 素材', '剪辑', 'AI 后期']);
+    expect(await statusOf(ctx.sql, projectId, 'AI 后期')).toBe('completed');
   }, 30_000);
 
-  test('a required node skip is refused by the database check and writes nothing', async () => {
+  test('skipping a required node marks it not_applicable and its successors can advance', async () => {
     const ctx = await ready();
     if (!ctx) return;
-    const refused = await postNode(ctx.app, ctx.projectId, ctx.tokens, '文案', 'skip');
-    const body = await expectRefusal(refused, 409, 'constraint_violation');
-    expect(body.error).toMatch(/wf_nodes_check|check constraint/i);
-    expect(await statusOf(ctx.sql, ctx.projectId, '文案')).toBe('not_reached');
+    const { projectId, tokens, sql } = ctx;
+    const [required] = await sql<{ is_optional: boolean }[]>`
+      SELECT is_optional FROM wf_nodes WHERE project_id = ${projectId} AND name = '文案'
+    `;
+    expect(required?.is_optional).toBe(false);
+
+    await completeThrough(ctx, ['询单', '大纲']);
+    const skipped = await mustNode(await postNode(ctx.app, projectId, tokens, '文案', 'skip'));
+    expect(skipped.node.status).toBe('not_applicable');
+    remember(tokens, skipped);
+    const skippedPre = await mustNode(await postNode(ctx.app, projectId, tokens, '预拍摄', 'skip'));
+    expect(skippedPre.node.status).toBe('not_applicable');
+    remember(tokens, skippedPre);
+    expect(await statusOf(sql, projectId, '文案')).toBe('not_applicable');
+    expect(await auditCount(sql, projectId, 'skip')).toBe(2);
+
+    const merge = await mustNode(await postNode(ctx.app, projectId, tokens, '汇合节点', 'advance'));
+    expect(merge.node.status).toBe('in_progress');
+    remember(tokens, merge);
+    await completeThrough(ctx, ['汇合节点']);
+    const aRoll = await mustNode(
+      await postNode(ctx.app, projectId, tokens, 'A-roll 拍摄', 'advance'),
+    );
+    expect(aRoll.node.status).toBe('in_progress');
+    remember(tokens, aRoll);
+  }, 30_000);
+
+  test('skipping a completed node is refused and writes nothing', async () => {
+    const ctx = await ready();
+    if (!ctx) return;
+    await completeThrough(ctx, ['询单']);
+    const refused = await postNode(ctx.app, ctx.projectId, ctx.tokens, '询单', 'skip');
+    const body = await expectRefusal(refused, 409, 'invalid_transition');
+    expect(body.error).toBe('已完成的节点不能标记为不适用');
+    expect(await statusOf(ctx.sql, ctx.projectId, '询单')).toBe('completed');
     expect(await auditCount(ctx.sql, ctx.projectId, 'skip')).toBe(0);
   }, 30_000);
 
@@ -306,6 +331,7 @@ describe('commercial workflow write API', () => {
       '汇合节点',
       'A-roll 拍摄',
       'B-roll 素材',
+      '剪辑',
       'AI 后期',
       '审核',
     ]);
@@ -336,6 +362,7 @@ describe('commercial workflow write API', () => {
       publishSource: 'web',
       videoUrl: 'https://www.bilibili.com/video/BV1writeapi01',
     });
+    if (!first.monitor) throw new Error('missing monitor');
     expect(first.monitor.metadataTaskStatus).toBe('pending');
     expect(first.monitor.jobs.map((job) => ({ jobType: job.jobType, status: job.status }))).toEqual(
       [
@@ -356,6 +383,7 @@ describe('commercial workflow write API', () => {
     expect(secondRes.status).toBe(200);
     const second = parseCommercialPublishResponse(await secondRes.json());
     expect(second.idempotentReplay).toBe(true);
+    if (!second.monitor) throw new Error('missing monitor');
     expect(second.monitor.contractId).toBe(first.monitor.contractId);
     expect(second.monitor.jobs.map((job) => job.id)).toEqual(
       first.monitor.jobs.map((job) => job.id),
@@ -433,6 +461,7 @@ describe('commercial workflow write API', () => {
       '汇合节点',
       'A-roll 拍摄',
       'B-roll 素材',
+      '剪辑',
       'AI 后期',
       '审核',
     ]);
@@ -507,6 +536,7 @@ describe('commercial workflow write API', () => {
       '汇合节点',
       'A-roll 拍摄',
       'B-roll 素材',
+      '剪辑',
       'AI 后期',
       '审核',
     ]);
@@ -534,8 +564,85 @@ describe('commercial workflow write API', () => {
     expect(fromUrl.status).toBe(200);
     const published = parseCommercialPublishResponse(await fromUrl.json());
     expect(published.publish.bvid).toBe('BV1fromurl001');
+    if (!published.monitor) throw new Error('missing monitor');
     expect(published.monitor.bvid).toBe('BV1fromurl001');
     expect(published.monitor.jobs).toHaveLength(2);
+  }, 30_000);
+
+  test('a post delivery completes publish without a bvid or monitor contract', async () => {
+    const ctx = await ready();
+    if (!ctx) return;
+    const { projectId, tokens, app, sql } = ctx;
+    await completeThrough(ctx, [
+      '询单',
+      '大纲',
+      '文案',
+      '预拍摄',
+      '汇合节点',
+      'A-roll 拍摄',
+      'B-roll 素材',
+      '剪辑',
+      'AI 后期',
+      '审核',
+    ]);
+    const publishNode = await mustNode(await postNode(app, projectId, tokens, '发布', 'advance'));
+    remember(tokens, publishNode);
+
+    const res = await postNode(app, projectId, tokens, '发布', 'publish', {
+      idempotencyKey: `post-${projectId}`,
+      platform: 'bilibili',
+      contentKind: 'post',
+      contentUrl: 'https://t.bilibili.com/1262617308018245635',
+    });
+    expect(res.status).toBe(200);
+    const published = parseCommercialPublishResponse(await res.json());
+    expect(published.idempotentReplay).toBe(false);
+    expect(published.node.status).toBe('completed');
+    expect(published.publish).toMatchObject({
+      bvid: null,
+      contentKind: 'post',
+      contentUrl: 'https://t.bilibili.com/1262617308018245635',
+      externalId: '1262617308018245635',
+      platform: 'bilibili',
+      publishSource: 'web',
+    });
+    expect(published.monitor).toBeNull();
+    expect(await statusOf(sql, projectId, '发布')).toBe('completed');
+
+    const [record] = await sql<
+      {
+        bvid: string | null;
+        content_kind: string;
+        content_url: string | null;
+        external_id: string | null;
+      }[]
+    >`
+      SELECT bvid, content_kind, content_url, external_id
+      FROM project_publish_records
+      WHERE project_id = ${projectId}
+    `;
+    expect(record).toEqual({
+      bvid: null,
+      content_kind: 'post',
+      content_url: 'https://t.bilibili.com/1262617308018245635',
+      external_id: '1262617308018245635',
+    });
+    const [contracts] = await sql<{ c: string }[]>`
+      SELECT count(*)::text AS c
+      FROM project_monitor_contracts
+      WHERE project_id = ${projectId}
+    `;
+    expect(contracts?.c).toBe('0');
+    expect(await openCount(sql, 'monitor_jobs', projectId)).toBe(0);
+
+    const conflict = await postNode(app, projectId, tokens, '发布', 'publish', {
+      idempotencyKey: `post-${projectId}-other`,
+      platform: 'bilibili',
+      contentKind: 'post',
+      contentUrl: 'https://t.bilibili.com/1262617308018245636',
+    });
+    await expectRefusal(conflict, 409, 'publish_conflict');
+    expect(await openCount(sql, 'project_publish_records', projectId)).toBe(1);
   }, 30_000);
 
   test('a stale concurrency token is rejected and does not change the node', async () => {
@@ -573,7 +680,7 @@ describe('commercial workflow write API', () => {
     if (!sql || !app) return null;
     const projectId = await createProject(sql, `write-${crypto.randomUUID()}`);
     const tokens = await loadTokens(app, projectId);
-    expect(tokens.size).toBe(14);
+    expect(tokens.size).toBe(15);
     return { app, sql, projectId, tokens };
   }
 
@@ -687,6 +794,109 @@ describe('commercial workflow write API', () => {
     expect(outline?.plannedAt).toBeNull();
     expect(outline?.completedAt).toBeNull();
     expect(outline?.status).toBe('not_reached');
+  }, 30_000);
+
+  test('project-level open items accept third_party, reject duplicates, and edit under a token', async () => {
+    const ctx = await ready();
+    if (!ctx) return;
+    const { app: api, projectId } = ctx;
+    const collection = `/api/v1/commercial/projects/${projectId}/open-items`;
+
+    const createdRes = await api.request(
+      collection,
+      json({
+        title: '  甲方未寄样品  ',
+        nextActor: 'third_party',
+        impact: 'blocking',
+        dueAt: '2026-11-01T00:00:00.000Z',
+        note: '  等样机  ',
+      }),
+    );
+    expect(createdRes.status).toBe(201);
+    const created = parseCommercialOpenItemWriteResponse(await createdRes.json());
+    expect(created.item).toMatchObject({
+      title: '甲方未寄样品',
+      nextActor: 'third_party',
+      impact: 'blocking',
+      lifecycle: 'open',
+      note: '等样机',
+    });
+    expect(Date.parse(created.item.dueAt ?? '')).toBe(Date.parse('2026-11-01T00:00:00.000Z'));
+    expect(created.liftedNodes).toEqual([]);
+
+    const detailRes = await api.request(`/api/v1/commercial/projects/${projectId}`);
+    expect(detailRes.status).toBe(200);
+    const detail = parseCommercialProjectDetail(await detailRes.json());
+    expect(detail.openItems.find((item) => item.id === created.item.id)).toMatchObject({
+      title: '甲方未寄样品',
+      nextActor: 'third_party',
+      impact: 'blocking',
+      lifecycle: 'open',
+      description: '等样机',
+    });
+
+    await expectRefusal(
+      await api.request(
+        collection,
+        json({ title: '甲方未寄样品', nextActor: 'us', impact: 'normal' }),
+      ),
+      409,
+      'duplicate_open_item',
+    );
+
+    const updatedRes = await api.request(`${collection}/${created.item.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        expectedUpdatedAt: created.item.updatedAt,
+        title: '甲方已寄样品',
+        nextActor: 'client',
+      }),
+    });
+    expect(updatedRes.status).toBe(200);
+    const updated = parseCommercialOpenItemWriteResponse(await updatedRes.json());
+    expect(updated.item).toMatchObject({
+      title: '甲方已寄样品',
+      nextActor: 'client',
+      impact: 'blocking',
+      lifecycle: 'open',
+      note: '等样机',
+    });
+    expect(updated.item.dueAt).toBe(created.item.dueAt);
+
+    await expectRefusal(
+      await api.request(`${collection}/${created.item.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          expectedUpdatedAt: created.item.updatedAt,
+          title: '过期令牌',
+        }),
+      }),
+      409,
+      'stale_write',
+    );
+
+    const closedRes = await api.request(
+      `${collection}/${created.item.id}/close`,
+      json({ expectedUpdatedAt: updated.item.updatedAt }),
+    );
+    expect(closedRes.status).toBe(200);
+    const closed = parseCommercialOpenItemWriteResponse(await closedRes.json());
+    expect(closed.item.lifecycle).toBe('closed');
+
+    await expectRefusal(
+      await api.request(`${collection}/${created.item.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          expectedUpdatedAt: closed.item.updatedAt,
+          title: '改已关闭卡点',
+        }),
+      }),
+      409,
+      'item_closed',
+    );
   }, 30_000);
 });
 

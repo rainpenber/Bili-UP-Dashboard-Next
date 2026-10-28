@@ -62,7 +62,7 @@ describe('commercial domain DB invariants', () => {
     if (databaseName) await dropIsolatedTestDatabase(databaseName);
   });
 
-  test('default template seed is 14 nodes, 16 edges, and one explicit merge', async () => {
+  test('default template seed is 15 nodes, 16 edges, and one explicit merge', async () => {
     assertIntegrationSql(sql);
     const [counts] = await sql<
       { nodes: string; edges: string; draft: boolean; is_default: boolean }[]
@@ -75,7 +75,7 @@ describe('commercial domain DB invariants', () => {
       FROM wf_template_versions v
       WHERE v.id = ${DEFAULT_TEMPLATE}
     `;
-    expect(Number(counts?.nodes)).toBe(14);
+    expect(Number(counts?.nodes)).toBe(15);
     expect(Number(counts?.edges)).toBe(16);
     expect(counts?.draft).toBe(false);
     expect(counts?.is_default).toBe(true);
@@ -91,13 +91,13 @@ describe('commercial domain DB invariants', () => {
     expect(merge).toEqual([
       { name: '汇合节点', kind: 'merge', is_optional: true, in_package: false },
     ]);
-    expect(nodes.filter((node) => node.kind === 'stage')).toHaveLength(13);
+    expect(nodes.filter((node) => node.kind === 'stage')).toHaveLength(14);
     expect(
       nodes
         .filter((node) => node.in_package)
         .map((node) => node.name)
         .sort(),
-    ).toEqual(['A-roll 拍摄', 'AI 后期', 'B-roll 素材'].sort());
+    ).toEqual(['A-roll 拍摄', 'AI 后期', 'B-roll 素材', '剪辑'].sort());
 
     const edges = await sql<{ from_name: string; to_name: string }[]>`
       SELECT fn.name AS from_name, tn.name AS to_name
@@ -111,11 +111,11 @@ describe('commercial domain DB invariants', () => {
     const pairs = edges.map((edge) => `${edge.from_name}->${edge.to_name}`).sort();
     expect(pairs).toEqual(
       [
-        'A-roll 拍摄->审核',
+        'A-roll 拍摄->剪辑',
         'AI 后期->审核',
-        'B-roll 素材->审核',
+        'B-roll 素材->剪辑',
+        '剪辑->AI 后期',
         '汇合节点->A-roll 拍摄',
-        '汇合节点->AI 后期',
         '汇合节点->B-roll 素材',
         '发布->全平台分发',
         '发布->其他',
@@ -133,10 +133,9 @@ describe('commercial domain DB invariants', () => {
       (pair) =>
         pair.endsWith('->汇合节点') ||
         pair.startsWith('汇合节点->A-roll 拍摄') ||
-        pair.startsWith('汇合节点->B-roll 素材') ||
-        pair.startsWith('汇合节点->AI 后期'),
+        pair.startsWith('汇合节点->B-roll 素材'),
     );
-    expect(segment).toHaveLength(5);
+    expect(segment).toHaveLength(4);
   });
 
   test('rejects cross-project open item node reference', async () => {
@@ -235,7 +234,7 @@ describe('commercial domain DB invariants', () => {
     );
   });
 
-  test('rejects not_applicable on required node', async () => {
+  test('allows not_applicable on a required node after the optional check is dropped', async () => {
     assertIntegrationSql(sql);
     const p = 'e1000001-0001-4001-8001-000000000001';
     const w = 'e2000001-0001-4001-8001-000000000001';
@@ -246,13 +245,42 @@ describe('commercial domain DB invariants', () => {
       'e3000001-0001-4001-8001-000000000003',
     ]);
 
+    const [before] = await sql<{ is_optional: boolean }[]>`
+      SELECT is_optional FROM wf_nodes WHERE id = ${n0}
+    `;
+    expect(before?.is_optional).toBe(false);
+
+    await sql`UPDATE wf_nodes SET status = 'not_applicable' WHERE id = ${n0}`;
+    const [row] = await sql<{ status: string }[]>`SELECT status FROM wf_nodes WHERE id = ${n0}`;
+    expect(row?.status).toBe('not_applicable');
+  });
+
+  test('drops only the optional not_applicable check and keeps the status whitelist', async () => {
+    assertIntegrationSql(sql);
+    const constraints = await sql<{ conname: string }[]>`
+      SELECT conname
+      FROM pg_constraint
+      WHERE conrelid = 'wf_nodes'::regclass AND contype = 'c'
+    `;
+    const names = constraints.map((row) => row.conname);
+    expect(names).not.toContain('wf_nodes_check');
+    expect(names).toContain('wf_nodes_status_check');
+
+    const p = 'e4000001-0001-4001-8001-000000000001';
+    const w = 'e5000001-0001-4001-8001-000000000001';
+    const n0 = 'e6000001-0001-4001-8001-000000000001';
+    await seedMinimalProject(sql, p, w, [
+      n0,
+      'e6000001-0001-4001-8001-000000000002',
+      'e6000001-0001-4001-8001-000000000003',
+    ]);
     await expectDbError(
-      () => sql!`UPDATE wf_nodes SET status = 'not_applicable' WHERE id = ${n0}`,
-      /check constraint|wf_nodes_check/i,
+      () => sql!`UPDATE wf_nodes SET status = 'not_a_status' WHERE id = ${n0}`,
+      /check constraint|wf_nodes_status_check/i,
     );
   });
 
-  test('allows not_applicable only on optional nodes', async () => {
+  test('still allows not_applicable on an optional node', async () => {
     assertIntegrationSql(sql);
     const p = 'f1000001-0001-4001-8001-000000000001';
     const w = 'f2000001-0001-4001-8001-000000000001';
@@ -550,7 +578,7 @@ describe('commercial domain DB invariants', () => {
     const [before] = await sql<{ c: string }[]>`
       SELECT count(*)::text AS c FROM wf_template_nodes WHERE package_id = ${packageId}
     `;
-    expect(Number(before?.c)).toBe(3);
+    expect(Number(before?.c)).toBe(4);
     await expectDbError(
       () => sql!`DELETE FROM wf_template_packages WHERE id = ${packageId}`,
       /immutable/i,
@@ -562,7 +590,7 @@ describe('commercial domain DB invariants', () => {
       SELECT count(*)::text AS c FROM wf_template_nodes WHERE package_id = ${packageId}
     `;
     expect(Number(pkg?.c)).toBe(1);
-    expect(Number(after?.c)).toBe(3);
+    expect(Number(after?.c)).toBe(4);
   });
 
   test('no ON DELETE SET NULL foreign key includes an owner column', async () => {

@@ -4,6 +4,7 @@ import {
   dropIsolatedTestDatabase,
   getCreatorDiscoveryConfig,
   getVideoDenseCollectPlan,
+  insertCreatorPublishEvent,
   insertMonitorTarget,
   listCreatorPublishEvents,
   resolveDenseCollectMinutes,
@@ -121,6 +122,67 @@ describe('creator content discovery (offline)', () => {
         .map((e) => getVideoDenseCollectPlan(db, e.monitoredTargetId!)),
     );
     expect(plans.filter(Boolean).length).toBe(2);
+  });
+
+  test('skips discovery dynamic whose bvid already has a video event', async () => {
+    if (!sql) return;
+    const mid = '10003';
+    const bvid = 'BV1xx411c7mY';
+    const now = new Date('2026-10-23T05:00:00.000Z');
+    await insertMonitorTarget(sql, {
+      id: crypto.randomUUID(),
+      type: 'creator',
+      externalId: mid,
+      label: '去重UP',
+      tags: [],
+      intervalMinutes: 240,
+      intervalMode: 'auto',
+      now,
+    });
+    await upsertCreatorDiscoveryConfig(sql, {
+      mid,
+      enabled: true,
+      discoverVideos: false,
+      discoverDynamics: true,
+      monitorNewVideos: false,
+      now,
+    });
+    await applyDiscoveryRound(sql, {
+      config: (await getCreatorDiscoveryConfig(sql, mid))!,
+      now,
+      videos: [],
+      dynamics: [{ dynamicId: '7000', publishedAtSec: 1_700_300_000n, title: '种子' }],
+    });
+    await insertCreatorPublishEvent(sql, {
+      id: crypto.randomUUID(),
+      mid,
+      eventKind: 'video',
+      externalId: bvid,
+      publishedAt: new Date('2026-10-23T05:01:00.000Z'),
+      titleSnapshot: '视频标题',
+      firstDiscoveredAt: now,
+      source: 'bilibili',
+    });
+
+    const summary = await applyDiscoveryRound(sql, {
+      config: (await getCreatorDiscoveryConfig(sql, mid))!,
+      now: new Date('2026-10-23T05:05:00.000Z'),
+      videos: [],
+      dynamics: [
+        {
+          dynamicId: '7001',
+          publishedAtSec: 1_700_300_100n,
+          title: '动态正文',
+          bvid,
+        },
+      ],
+    });
+    expect(summary.dynamicEventsCreated).toBe(0);
+    expect(summary.skippedDuplicates).toBe(1);
+
+    const events = await listCreatorPublishEvents(sql, { mid, limit: 50 });
+    expect(events.totalItems).toBe(1);
+    expect(events.items.map((e) => [e.eventKind, e.externalId])).toEqual([['video', bvid]]);
   });
 
   test('dense plan switches 15 → 30 → normal from stored timestamps', () => {

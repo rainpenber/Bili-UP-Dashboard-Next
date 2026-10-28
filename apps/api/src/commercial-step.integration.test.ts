@@ -104,7 +104,6 @@ describe('commercial stepwise progress', () => {
     const advanced = await stepStage(ctx, 'production', 'forward');
     expect(advanced.nodes.map((node) => `${node.name}:${node.status}`).sort()).toEqual(
       [
-        'AI 后期:in_progress',
         'A-roll 拍摄:in_progress',
         'B-roll 素材:in_progress',
         '文案:completed',
@@ -120,7 +119,8 @@ describe('commercial stepwise progress', () => {
     expect(await statuses(ctx.sql, ctx.projectId)).toMatchObject({
       a_roll: 'completed',
       b_roll: 'in_progress',
-      ai_post: 'in_progress',
+      edit: 'not_reached',
+      ai_post: 'not_reached',
       review: 'not_reached',
     });
 
@@ -131,14 +131,16 @@ describe('commercial stepwise progress', () => {
     expect(await statuses(ctx.sql, ctx.projectId)).toMatchObject({
       a_roll: 'completed',
       b_roll: 'completed',
+      edit: 'completed',
       ai_post: 'completed',
       review: 'not_reached',
     });
 
     await stepStage(ctx, 'production', 'rollback');
     expect(await statuses(ctx.sql, ctx.projectId)).toMatchObject({
-      a_roll: 'in_progress',
-      b_roll: 'in_progress',
+      a_roll: 'completed',
+      b_roll: 'completed',
+      edit: 'completed',
       ai_post: 'in_progress',
       merge: 'completed',
       review: 'not_reached',
@@ -148,6 +150,7 @@ describe('commercial stepwise progress', () => {
     expect(await statuses(ctx.sql, ctx.projectId)).toMatchObject({
       a_roll: 'not_reached',
       b_roll: 'not_reached',
+      edit: 'not_reached',
       ai_post: 'not_reached',
       merge: 'completed',
       copy: 'completed',
@@ -211,6 +214,7 @@ describe('commercial stepwise progress', () => {
       '汇合节点',
       'A-roll 拍摄',
       'B-roll 素材',
+      '剪辑',
       'AI 后期',
     ]);
     await markStatus(ctx.sql, ctx.projectId, '审核', 'in_progress');
@@ -355,6 +359,7 @@ describe('commercial stepwise progress', () => {
       '汇合节点',
       'A-roll 拍摄',
       'B-roll 素材',
+      '剪辑',
       'AI 后期',
       '审核',
     ]);
@@ -410,6 +415,7 @@ describe('commercial stepwise progress', () => {
       '汇合节点',
       'A-roll 拍摄',
       'B-roll 素材',
+      '剪辑',
       'AI 后期',
     ]);
     await markStatus(ctx.sql, ctx.projectId, '审核', 'in_progress');
@@ -572,7 +578,7 @@ function stageSlugs(stageId: string): Set<string> {
   const map: Record<string, string[]> = {
     write_outline: ['outline'],
     copy_prep: ['copy', 'pre_shoot', 'manual'],
-    production: ['a_roll', 'b_roll', 'ai_post'],
+    production: ['a_roll', 'b_roll', 'edit', 'ai_post'],
     client_review: ['review', 'publish'],
     distribution_settlement: ['distribution', 'settlement', 'data_maint', 'other'],
   };

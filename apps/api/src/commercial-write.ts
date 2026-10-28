@@ -1,5 +1,8 @@
 import {
+  isOpenItemActor,
   isOverallStage,
+  isPublishContentKind,
+  isPublishPlatform,
   isWfNodeKind,
   isWfNodeStatus,
   parseCommercialCancelItemRequest,
@@ -8,6 +11,8 @@ import {
   parseCommercialNodeStepRequest,
   parseCommercialNodeTokenRequest,
   parseCommercialNodeWriteResponse,
+  parseCommercialOpenItemCreateRequest,
+  parseCommercialOpenItemUpdateRequest,
   parseCommercialOpenItemWriteResponse,
   parseCommercialPlanRequest,
   parseCommercialPublishRequest,
@@ -34,9 +39,13 @@ import {
   type CommercialWorkflowNode,
   type CommercialWriteErrorBody,
   type CommercialWriteErrorCode,
+  type CommercialOpenItemCreateRequest,
+  type CommercialOpenItemUpdateRequest,
   type MonitorJobType,
+  type OpenItemActor,
   type OpenItemImpact,
   type OpenItemLifecycle,
+  type PublishContentKind,
   type PublishSource,
   type WfNodeKind,
   type WfNodeStatus,
@@ -132,8 +141,11 @@ type DbEdge = {
 type ItemRow = {
   id: string;
   title: string;
+  description: string | null;
   lifecycle: string;
   impact: string;
+  next_actor: string;
+  planned_at: string | null;
   cancel_reason: string | null;
   updated_at: string;
 };
@@ -164,6 +176,11 @@ function asImpact(value: string): OpenItemImpact {
   throw new Error(`unexpected impact ${value}`);
 }
 
+function asActor(value: string): OpenItemActor {
+  if (!isOpenItemActor(value)) throw new Error(`unexpected next_actor ${value}`);
+  return value;
+}
+
 function asJobType(value: string): MonitorJobType {
   if (value === 'metadata' || value === 'metrics') return value;
   throw new Error(`unexpected job type ${value}`);
@@ -172,6 +189,11 @@ function asJobType(value: string): MonitorJobType {
 function asPublishSource(value: string): PublishSource {
   if (value === 'web' || value === 'hermes' || value === 'manual') return value;
   throw new Error(`unexpected publish source ${value}`);
+}
+
+function asPublishContentKind(value: string): PublishContentKind {
+  if (!isPublishContentKind(value)) throw new Error(`unexpected publish content kind ${value}`);
+  return value;
 }
 
 function assertToken(actual: string, expected: string): void {
@@ -344,8 +366,11 @@ async function pinnedView(
     SELECT
       id,
       title,
+      description,
       lifecycle,
       impact,
+      next_actor,
+      to_char(planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       cancel_reason,
       to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
     FROM open_items
@@ -381,8 +406,11 @@ async function lockItem(tx: Tx, projectId: string, itemId: string): Promise<Item
     SELECT
       id,
       title,
+      description,
       lifecycle,
       impact,
+      next_actor,
+      to_char(planned_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS planned_at,
       cancel_reason,
       to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
     FROM open_items
@@ -399,6 +427,9 @@ function itemSnapshot(item: ItemRow): CommercialOpenItemSnapshot {
     title: item.title.trim(),
     lifecycle,
     impact: asImpact(item.impact),
+    nextActor: asActor(item.next_actor),
+    dueAt: item.planned_at,
+    note: item.description,
     updatedAt: item.updated_at,
     cancelReason: lifecycle === 'cancelled' ? item.cancel_reason : null,
   };
@@ -471,6 +502,9 @@ async function skipNode(
   const pinRefusal = notApplicableBlockRefusal(node.primary_block_pinned_item_id !== null);
   if (pinRefusal) refuse(409, 'not_applicable_block', pinRefusal);
   const status = asStatus(node.status);
+  if (status === 'completed') {
+    refuse(409, 'invalid_transition', '已完成的节点不能标记为不适用');
+  }
   if (status !== 'not_reached' && status !== 'in_progress') {
     refuse(409, 'invalid_transition', '只能跳过未到达或进行中的节点');
   }
@@ -923,12 +957,102 @@ async function cancelItem(
   return { projectId, item: itemSnapshot(saved), liftedNodes };
 }
 
+async function assertUniqueOpenTitle(
+  tx: Tx,
+  projectId: string,
+  title: string,
+  excludeItemId: string | null,
+): Promise<void> {
+  const rows = await tx<{ id: string }[]>`
+    SELECT id FROM open_items
+    WHERE project_id = ${projectId}
+      AND lifecycle = 'open'
+      AND btrim(title) = ${title}
+      AND (${excludeItemId}::uuid IS NULL OR id <> ${excludeItemId}::uuid)
+    LIMIT 1
+  `;
+  if (rows[0]) refuse(409, 'duplicate_open_item', '同一项目已有同名开放卡点');
+}
+
+async function createItem(
+  tx: Tx,
+  projectId: string,
+  input: CommercialOpenItemCreateRequest,
+): Promise<CommercialOpenItemWriteResponse> {
+  await requireProject(tx, projectId);
+  await assertUniqueOpenTitle(tx, projectId, input.title, null);
+  const itemId = crypto.randomUUID();
+  await tx`
+    INSERT INTO open_items (
+      id, project_id, title, description, next_actor, lifecycle, impact, planned_at
+    ) VALUES (
+      ${itemId}, ${projectId}, ${input.title}, ${input.note ?? null},
+      ${input.nextActor}, 'open', ${input.impact}, ${input.dueAt ?? null}
+    )
+  `;
+  await audit(tx, projectId, 'open_item', itemId, 'create', {
+    title: input.title,
+    nextActor: input.nextActor,
+    impact: input.impact,
+    dueAt: input.dueAt ?? null,
+    note: input.note ?? null,
+  });
+  const saved = await lockItem(tx, projectId, itemId);
+  if (!saved) refuse(404, 'not_found', '开放事项不存在');
+  return { projectId, item: itemSnapshot(saved), liftedNodes: [] };
+}
+
+async function updateItem(
+  tx: Tx,
+  projectId: string,
+  itemId: string,
+  input: CommercialOpenItemUpdateRequest,
+): Promise<CommercialOpenItemWriteResponse> {
+  await requireProject(tx, projectId);
+  const item = await lockItem(tx, projectId, itemId);
+  if (!item) refuse(404, 'not_found', '开放事项不存在');
+  assertToken(item.updated_at, input.expectedUpdatedAt);
+  if (item.lifecycle !== 'open') refuse(409, 'item_closed', '事项已关闭或取消，不能再编辑');
+  const title = input.title ?? item.title.trim();
+  if (input.title !== undefined) {
+    await assertUniqueOpenTitle(tx, projectId, title, itemId);
+  }
+  const nextActor = input.nextActor ?? asActor(item.next_actor);
+  const impact = input.impact ?? asImpact(item.impact);
+  const dueAt = input.dueAt === undefined ? item.planned_at : input.dueAt;
+  const note = input.note === undefined ? item.description : input.note;
+  await tx`
+    UPDATE open_items
+    SET title = ${title},
+        description = ${note},
+        next_actor = ${nextActor},
+        impact = ${impact},
+        planned_at = ${dueAt},
+        updated_at = now()
+    WHERE id = ${itemId} AND project_id = ${projectId}
+  `;
+  await audit(tx, projectId, 'open_item', itemId, 'update', {
+    title,
+    nextActor,
+    impact,
+    dueAt,
+    note,
+  });
+  const saved = await lockItem(tx, projectId, itemId);
+  if (!saved) refuse(404, 'not_found', '开放事项不存在');
+  return { projectId, item: itemSnapshot(saved), liftedNodes: [] };
+}
+
 type PublishRecord = {
   project_id: string;
-  bvid: string;
+  bvid: string | null;
   publish_source: string;
   published_at: string;
   idempotency_key: string | null;
+  platform: string;
+  content_kind: string;
+  content_url: string | null;
+  external_id: string | null;
 };
 
 async function loadPublishBundle(
@@ -942,25 +1066,43 @@ async function loadPublishBundle(
       bvid,
       publish_source,
       to_char(published_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS published_at,
-      idempotency_key
+      idempotency_key,
+      platform,
+      content_kind,
+      content_url,
+      external_id
     FROM project_publish_records
     WHERE project_id = ${projectId}
   `;
   const record = records[0];
   if (!record || !record.idempotency_key) refuse(404, 'not_found', '发布记录不存在');
-  const contracts = await tx<{ id: string; bvid: string; metadata_task_status: string }[]>`
-    SELECT id, bvid, metadata_task_status
-    FROM project_monitor_contracts
-    WHERE project_id = ${projectId}
-  `;
-  const contract = contracts[0];
-  if (!contract) refuse(404, 'not_found', '监控合同不存在');
-  const jobs = await tx<{ id: string; job_type: string; status: string }[]>`
-    SELECT id, job_type, status
-    FROM monitor_jobs
-    WHERE project_id = ${projectId}
-    ORDER BY job_type
-  `;
+  const contentKind = asPublishContentKind(record.content_kind);
+  let monitor: CommercialPublishResponse['monitor'] = null;
+  if (contentKind === 'video') {
+    const contracts = await tx<{ id: string; bvid: string; metadata_task_status: string }[]>`
+      SELECT id, bvid, metadata_task_status
+      FROM project_monitor_contracts
+      WHERE project_id = ${projectId}
+    `;
+    const contract = contracts[0];
+    if (!contract) refuse(404, 'not_found', '监控合同不存在');
+    const jobs = await tx<{ id: string; job_type: string; status: string }[]>`
+      SELECT id, job_type, status
+      FROM monitor_jobs
+      WHERE project_id = ${projectId}
+      ORDER BY job_type
+    `;
+    monitor = {
+      contractId: contract.id,
+      bvid: contract.bvid,
+      metadataTaskStatus: contract.metadata_task_status,
+      jobs: jobs.map((job) => ({
+        id: job.id,
+        jobType: asJobType(job.job_type),
+        status: job.status,
+      })),
+    };
+  }
   const audits = await tx<{ detail: unknown }[]>`
     SELECT detail
     FROM domain_audit_events
@@ -971,6 +1113,12 @@ async function loadPublishBundle(
     LIMIT 1
   `;
   const detail = asDetail(audits[0]?.detail);
+  const videoUrl =
+    contentKind === 'video'
+      ? typeof detail.videoUrl === 'string'
+        ? detail.videoUrl
+        : record.content_url
+      : null;
   return {
     projectId,
     node: toSnapshot(node),
@@ -979,19 +1127,13 @@ async function loadPublishBundle(
       publishedAt: record.published_at,
       publishSource: asPublishSource(record.publish_source),
       idempotencyKey: record.idempotency_key,
-      platform: typeof detail.platform === 'string' ? detail.platform : 'bilibili',
-      videoUrl: typeof detail.videoUrl === 'string' ? detail.videoUrl : null,
+      platform: record.platform,
+      videoUrl,
+      contentKind,
+      contentUrl: record.content_url,
+      externalId: record.external_id,
     },
-    monitor: {
-      contractId: contract.id,
-      bvid: contract.bvid,
-      metadataTaskStatus: contract.metadata_task_status,
-      jobs: jobs.map((job) => ({
-        id: job.id,
-        jobType: asJobType(job.job_type),
-        status: job.status,
-      })),
-    },
+    monitor,
   };
 }
 
@@ -1010,12 +1152,27 @@ async function publishNode(
     expectedUpdatedAt: string;
     idempotencyKey: string;
     platform: string;
-    bvid: string;
+    contentKind: PublishContentKind;
+    bvid: string | null;
     videoUrl: string | null;
+    contentUrl: string | null;
+    externalId: string | null;
     publishedAt: string | null;
     publishSource: PublishSource;
   },
 ): Promise<CommercialPublishResponse> {
+  if (input.contentKind === 'post') {
+    if (!isPublishPlatform(input.platform)) {
+      refuse(400, 'unsupported_platform', `不支持的发布平台：${input.platform}`);
+    }
+    if (input.contentUrl === null) refuse(400, 'invalid_body', '图文发布需要内容链接');
+    if (input.externalId === null) refuse(400, 'invalid_body', '图文发布需要内容外部 id');
+  } else {
+    if (input.platform !== 'bilibili') {
+      refuse(400, 'unsupported_platform', '视频发布目前只接受平台 bilibili');
+    }
+    if (input.bvid === null) refuse(400, 'invalid_body', '链接里没有可用的 bvid');
+  }
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${input.idempotencyKey}, 0))`;
   await requireProject(tx, projectId);
   const existing = await tx<PublishRecord[]>`
@@ -1024,7 +1181,11 @@ async function publishNode(
       bvid,
       publish_source,
       to_char(published_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS published_at,
-      idempotency_key
+      idempotency_key,
+      platform,
+      content_kind,
+      content_url,
+      external_id
     FROM project_publish_records
     WHERE idempotency_key = ${input.idempotencyKey} OR project_id = ${projectId}
     FOR UPDATE
@@ -1037,8 +1198,17 @@ async function publishNode(
   if (byProject && byProject.idempotency_key !== input.idempotencyKey) {
     refuse(409, 'publish_conflict', '项目已有发布记录');
   }
-  if (byProject && byProject.bvid !== input.bvid) {
-    refuse(409, 'publish_conflict', '幂等键已用于不同的视频标识');
+  if (byProject) {
+    if (byProject.content_kind !== input.contentKind) {
+      refuse(409, 'publish_conflict', '幂等键已用于不同的交付类型');
+    }
+    const sameIdentity =
+      input.contentKind === 'video'
+        ? byProject.bvid === input.bvid
+        : byProject.external_id === input.externalId;
+    if (!sameIdentity) {
+      refuse(409, 'publish_conflict', '幂等键已用于不同的内容标识');
+    }
   }
   const graph = await loadGraph(tx, projectId);
   const node = requireNode(graph, nodeId);
@@ -1067,14 +1237,12 @@ async function publishNode(
       from: status,
       to: 'completed',
       bvid: input.bvid,
+      contentKind: input.contentKind,
       idempotentReplay: true,
     });
     await syncOverallStage(tx, projectId, graph);
     const bundle = await loadPublishBundle(tx, projectId, updated);
     return { ...bundle, idempotentReplay: true };
-  }
-  if (input.platform !== 'bilibili') {
-    refuse(400, 'unsupported_platform', '发布记录只保存 bvid，目前只接受平台 bilibili');
   }
   assertToken(node.updated_at, input.expectedUpdatedAt);
   const status = asStatus(node.status);
@@ -1090,49 +1258,63 @@ async function publishNode(
   });
   rememberNode(graph, updated);
   const publishedAt = input.publishedAt ?? new Date().toISOString();
+  const contentUrl = input.contentKind === 'post' ? input.contentUrl : null;
   await tx`
     INSERT INTO project_publish_records (
-      project_id, bvid, published_at, publish_source, idempotency_key
+      project_id, bvid, published_at, publish_source, idempotency_key,
+      platform, content_kind, content_url, external_id
     ) VALUES (
-      ${projectId}, ${input.bvid}, ${publishedAt}, ${input.publishSource}, ${input.idempotencyKey}
+      ${projectId}, ${input.bvid}, ${publishedAt}, ${input.publishSource},
+      ${input.idempotencyKey}, ${input.platform}, ${input.contentKind},
+      ${contentUrl}, ${input.externalId}
     )
   `;
-  const contractId = crypto.randomUUID();
-  await tx`
-    INSERT INTO project_monitor_contracts (id, project_id, bvid, metadata_task_status)
-    VALUES (${contractId}, ${projectId}, ${input.bvid}, 'pending')
-  `;
-  const jobSpecs: { id: string; jobType: MonitorJobType }[] = [
-    { id: crypto.randomUUID(), jobType: 'metadata' },
-    { id: crypto.randomUUID(), jobType: 'metrics' },
-  ];
-  for (const job of jobSpecs) {
+  let contractId: string | null = null;
+  let jobSpecs: { id: string; jobType: MonitorJobType }[] = [];
+  if (input.contentKind === 'video') {
+    contractId = crypto.randomUUID();
     await tx`
-      INSERT INTO monitor_jobs (id, project_id, job_type, status)
-      VALUES (${job.id}, ${projectId}, ${job.jobType}, 'pending')
+      INSERT INTO project_monitor_contracts (id, project_id, bvid, metadata_task_status)
+      VALUES (${contractId}, ${projectId}, ${input.bvid}, 'pending')
     `;
+    jobSpecs = [
+      { id: crypto.randomUUID(), jobType: 'metadata' },
+      { id: crypto.randomUUID(), jobType: 'metrics' },
+    ];
+    for (const job of jobSpecs) {
+      await tx`
+        INSERT INTO monitor_jobs (id, project_id, job_type, status)
+        VALUES (${job.id}, ${projectId}, ${job.jobType}, 'pending')
+      `;
+    }
   }
   await audit(tx, projectId, 'wf_node', nodeId, 'complete', {
     from: status,
     to: 'completed',
     bvid: input.bvid,
+    contentKind: input.contentKind,
   });
   await audit(tx, projectId, 'project_publish_record', projectId, 'record', {
     platform: input.platform,
     bvid: input.bvid,
     videoUrl: input.videoUrl,
+    contentKind: input.contentKind,
+    contentUrl,
+    externalId: input.externalId,
     idempotencyKey: input.idempotencyKey,
     publishSource: input.publishSource,
   });
-  await audit(tx, projectId, 'project_monitor_contract', contractId, 'create', {
-    bvid: input.bvid,
-    metadataTaskStatus: 'pending',
-  });
-  for (const job of jobSpecs) {
-    await audit(tx, projectId, 'monitor_job', job.id, 'create', {
-      jobType: job.jobType,
-      status: 'pending',
+  if (contractId !== null) {
+    await audit(tx, projectId, 'project_monitor_contract', contractId, 'create', {
+      bvid: input.bvid,
+      metadataTaskStatus: 'pending',
     });
+    for (const job of jobSpecs) {
+      await audit(tx, projectId, 'monitor_job', job.id, 'create', {
+        jobType: job.jobType,
+        status: 'pending',
+      });
+    }
   }
   // Same transaction as the publish record: keep overall_stage aligned with /step.
   await syncOverallStage(tx, projectId, graph);
@@ -1393,25 +1575,26 @@ async function applyStep(
       { blocks: plan.blocks, effects },
     );
   }
+  let publishBvid: string | null = null;
   if (plan.publishNodeId) {
     if (!publish) {
       refuse(409, 'publish_required', '完成发布节点必须在同一事务中记录发布信息', undefined, {
         effects,
       });
     }
-    const resolved = resolvePublishBvid({
-      bvid: publish.bvid ?? null,
-      videoUrl: publish.videoUrl ?? null,
-    });
-    if (!resolved.ok) {
-      refuse(
-        400,
-        'invalid_body',
-        resolved.reason === 'mismatch' ? 'bvid 与链接中的标识不一致' : '链接里没有可用的 bvid',
-      );
-    }
-    if (publish.platform !== 'bilibili') {
-      refuse(400, 'unsupported_platform', '发布记录只保存 bvid，目前只接受平台 bilibili');
+    if ((publish.contentKind ?? 'video') === 'video') {
+      const resolved = resolvePublishBvid({
+        bvid: publish.bvid ?? null,
+        videoUrl: publish.videoUrl ?? null,
+      });
+      if (!resolved.ok) {
+        refuse(
+          400,
+          'invalid_body',
+          resolved.reason === 'mismatch' ? 'bvid 与链接中的标识不一致' : '链接里没有可用的 bvid',
+        );
+      }
+      publishBvid = resolved.bvid;
     }
   }
   if (plan.blocks.length > 0) {
@@ -1440,17 +1623,15 @@ async function applyStep(
         step: true,
       });
     }
-    const resolved = resolvePublishBvid({
-      bvid: publish.bvid ?? null,
-      videoUrl: publish.videoUrl ?? null,
-    });
-    if (!resolved.ok) refuse(400, 'invalid_body', '链接里没有可用的 bvid');
     await publishNode(tx, projectId, plan.publishNodeId, {
       expectedUpdatedAt: publishNodeRow.updated_at,
       idempotencyKey: publish.idempotencyKey,
       platform: publish.platform,
-      bvid: resolved.bvid,
+      contentKind: publish.contentKind ?? 'video',
+      bvid: publishBvid,
       videoUrl: publish.videoUrl ?? null,
+      contentUrl: publish.contentUrl ?? null,
+      externalId: publish.externalId ?? null,
       publishedAt: publish.publishedAt ?? null,
       publishSource: publish.publishSource ?? 'web',
     });
@@ -1609,15 +1790,20 @@ export function registerCommercialWriteRoutes(app: Hono, db: Sql): void {
     if (isResponse(raw)) return raw;
     const body = parseRequest(c, raw, parseCommercialPublishRequest);
     if (body instanceof Response) return body;
-    const resolved = resolvePublishBvid({
-      bvid: body.bvid ?? null,
-      videoUrl: body.videoUrl ?? null,
-    });
-    if (!resolved.ok) {
-      return invalidBody(
-        c,
-        resolved.reason === 'mismatch' ? 'bvid 与链接中的标识不一致' : '链接里没有可用的 bvid',
-      );
+    const contentKind = body.contentKind ?? 'video';
+    let bvid: string | null = null;
+    if (contentKind === 'video') {
+      const resolved = resolvePublishBvid({
+        bvid: body.bvid ?? null,
+        videoUrl: body.videoUrl ?? null,
+      });
+      if (!resolved.ok) {
+        return invalidBody(
+          c,
+          resolved.reason === 'mismatch' ? 'bvid 与链接中的标识不一致' : '链接里没有可用的 bvid',
+        );
+      }
+      bvid = resolved.bvid;
     }
     return runWrite(c, () =>
       db
@@ -1626,8 +1812,11 @@ export function registerCommercialWriteRoutes(app: Hono, db: Sql): void {
             expectedUpdatedAt: body.expectedUpdatedAt,
             idempotencyKey: body.idempotencyKey,
             platform: body.platform,
-            bvid: resolved.bvid,
+            contentKind,
+            bvid,
             videoUrl: body.videoUrl ?? null,
+            contentUrl: body.contentUrl ?? null,
+            externalId: body.externalId ?? null,
             publishedAt: body.publishedAt ?? null,
             publishSource: body.publishSource ?? 'web',
           }),
@@ -1683,6 +1872,34 @@ export function registerCommercialWriteRoutes(app: Hono, db: Sql): void {
           ),
         )
         .then((result) => c.json(parseCommercialStepResponse(result))),
+    );
+  });
+
+  app.post('/projects/:projectId/open-items', async (c) => {
+    const projectId = c.req.param('projectId');
+    if (!isUuid(projectId)) return invalidBody(c, '项目 id 不是 uuid');
+    const raw = await readBody(c);
+    if (isResponse(raw)) return raw;
+    const body = parseRequest(c, raw, parseCommercialOpenItemCreateRequest);
+    if (body instanceof Response) return body;
+    return runWrite(c, () =>
+      db
+        .begin((tx) => createItem(tx, projectId, body))
+        .then((result) => c.json(parseCommercialOpenItemWriteResponse(result), 201)),
+    );
+  });
+
+  app.patch('/projects/:projectId/open-items/:itemId', async (c) => {
+    const ids = itemPathIds(c);
+    if (ids instanceof Response) return ids;
+    const raw = await readBody(c);
+    if (isResponse(raw)) return raw;
+    const body = parseRequest(c, raw, parseCommercialOpenItemUpdateRequest);
+    if (body instanceof Response) return body;
+    return runWrite(c, () =>
+      db
+        .begin((tx) => updateItem(tx, ids.projectId, ids.itemId, body))
+        .then((result) => c.json(parseCommercialOpenItemWriteResponse(result))),
     );
   });
 

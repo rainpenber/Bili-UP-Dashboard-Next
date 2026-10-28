@@ -1,17 +1,17 @@
 import { Button } from '@/components/ui/button';
 import {
-  useCreatorUploadsAutoSync,
+  useCreatorUploadsSyncMutation,
   useCreatorUploadsSyncStatusQuery,
 } from '@/api/hooks/use-monitor-queries';
 import { formatFullLocalTime } from '@/lib/format-time';
 
 /**
  * Lightweight status + manual sync above the follower chart.
- * Auto-sync runs in the background on mount (does not block chart render).
+ * Opening the page never syncs; only the button POSTs.
  */
 export function CreatorUploadsSyncBar({ mid }: { mid: string }) {
   const statusQuery = useCreatorUploadsSyncStatusQuery(mid);
-  const sync = useCreatorUploadsAutoSync(mid);
+  const sync = useCreatorUploadsSyncMutation(mid);
   const status = sync.data ?? statusQuery.data;
   const pending = sync.isPending;
   const failed = sync.isError;

@@ -1795,7 +1795,7 @@ describe('HTTP API coverage against isolated Postgres', () => {
       );
       expect(restored.archivedAt).toBeNull();
       let tokens = await loadTokens(projectId);
-      expect(tokens.size).toBe(14);
+      expect(tokens.size).toBe(15);
 
       const [auditsBefore] = await db<{ count: string }[]>`
       SELECT count(*)::text AS count FROM domain_audit_events WHERE project_id = ${projectId}
@@ -2020,17 +2020,57 @@ describe('HTTP API coverage against isolated Postgres', () => {
       expect(cancelled.item.lifecycle).toBe('cancelled');
       tokens = await loadTokens(projectId);
 
+      const createdOpenItem = parseCommercialOpenItemWriteResponse(
+        await expectStatus(
+          await api(
+            `/api/v1/commercial/projects/${projectId}/open-items`,
+            json('POST', {
+              title: '第三方结算未到账',
+              nextActor: 'third_party',
+              impact: 'normal',
+              dueAt: '2026-11-01T00:00:00.000Z',
+              note: '等财务确认',
+            }),
+          ),
+          201,
+        ),
+      );
+      expect(createdOpenItem.item.nextActor).toBe('third_party');
+      expect(createdOpenItem.item.lifecycle).toBe('open');
+      const editedOpenItem = parseCommercialOpenItemWriteResponse(
+        await expectStatus(
+          await api(
+            `/api/v1/commercial/projects/${projectId}/open-items/${createdOpenItem.item.id}`,
+            json('PATCH', {
+              expectedUpdatedAt: createdOpenItem.item.updatedAt,
+              title: '第三方结算已确认',
+              nextActor: 'client',
+            }),
+          ),
+          200,
+        ),
+      );
+      expect(editedOpenItem.item.title).toBe('第三方结算已确认');
+      expect(editedOpenItem.item.nextActor).toBe('client');
+
       const rolled = parseCommercialNodeWriteResponse(
         await expectStatus(await postNode(projectId, tokens, '大纲', 'rollback'), 200),
       );
       expect(rolled.node.status).toBe('not_reached');
       tokens = await loadTokens(projectId);
 
-      const requiredSkip = await postNode(projectId, tokens, '文案', 'skip');
-      expect(parseCommercialWriteError(await expectStatus(requiredSkip, 409)).code).toBe(
-        'constraint_violation',
+      const requiredSkip = parseCommercialNodeWriteResponse(
+        await expectStatus(await postNode(projectId, tokens, '结算', 'skip'), 200),
       );
-      expect(await statusOf(db, projectId, '文案')).toBe('not_reached');
+      expect(requiredSkip.node.status).toBe('not_applicable');
+      expect(await statusOf(db, projectId, '结算')).toBe('not_applicable');
+      tokens = await loadTokens(projectId);
+
+      const clearedSkip = parseCommercialNodeWriteResponse(
+        await expectStatus(await postNode(projectId, tokens, '结算', 'rollback'), 200),
+      );
+      expect(clearedSkip.node.status).toBe('not_reached');
+      tokens = await loadTokens(projectId);
 
       const nodeStep = parseCommercialStepResponse(
         await expectStatus(await postNodeStep(projectId, tokens, '文案', 'forward'), 200),
@@ -2084,6 +2124,7 @@ describe('HTTP API coverage against isolated Postgres', () => {
       await completeName(db, projectId, '预拍摄');
       await completeName(db, projectId, 'A-roll 拍摄');
       await completeName(db, projectId, 'B-roll 素材');
+      await completeName(db, projectId, '剪辑');
       await completeName(db, projectId, 'AI 后期');
       await completeName(db, projectId, '审核');
       tokens = await loadTokens(projectId);

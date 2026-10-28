@@ -87,6 +87,7 @@ export async function enrichDiscoveryDynamics(input: {
         publishedAtSec: item.publishedAtSec,
         title,
         ...(mergedText ? { text: mergedText.slice(0, 500) } : {}),
+        ...(item.bvid ? { bvid: item.bvid } : {}),
       });
     } catch (error) {
       if (error instanceof BilibiliFailure) {

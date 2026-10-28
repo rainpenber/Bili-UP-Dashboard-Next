@@ -97,6 +97,29 @@ function blockedNames(nodes: NodeRow[]): string[] {
   return stageNames(nodes.filter((node) => node.status === 'blocked'));
 }
 
+function nodeReached(nodes: NodeRow[], name: string): boolean {
+  return nodes.some(
+    (node) =>
+      node.name === name &&
+      (node.status === 'in_progress' ||
+        node.status === 'completed' ||
+        node.status === 'not_applicable'),
+  );
+}
+
+function nodeSatisfied(nodes: NodeRow[], name: string): boolean {
+  return nodes.some(
+    (node) =>
+      node.name === name && (node.status === 'completed' || node.status === 'not_applicable'),
+  );
+}
+
+function expectedPhase(nodes: NodeRow[]): 'pending' | 'active' | 'wrapping' {
+  if (nodeSatisfied(nodes, '发布')) return 'wrapping';
+  if (nodeReached(nodes, '文案')) return 'active';
+  return 'pending';
+}
+
 function asActor(value: string) {
   if (!isOpenItemActor(value)) throw new Error(`unexpected next_actor ${value}`);
   return value;
@@ -260,6 +283,7 @@ describe('commercial read API', () => {
         netAmount: project.net_amount,
         rebateAmount: project.rebate_amount,
         overallStage: asOverallStage(project.overall_stage),
+        phase: expectedPhase(projectNodes),
         currentStageNames: stageNames(projectNodes),
         anyNodeBlocked: projectNodes.some((node) => node.status === 'blocked'),
         blockingReason: blockingReason(projectItems, projectNodes),
@@ -314,6 +338,27 @@ describe('commercial read API', () => {
     });
   }, 30_000);
 
+  test('project list phase follows the 文案 and 发布 thresholds', async () => {
+    if (!sql || !app) return;
+    const res = await app.request('/api/v1/commercial/projects');
+    expect(res.status).toBe(200);
+    const body = parseCommercialProjectList(await res.json());
+    const byId = new Map(body.items.map((item) => [item.id, item]));
+    expect(byId.get(FIXTURE_PROJECT_IDS.freshInquiryOnly)?.phase).toBe('pending');
+    expect(byId.get(FIXTURE_PROJECT_IDS.multiBlock)?.phase).toBe('active');
+    expect(byId.get(FIXTURE_PROJECT_IDS.publishedOpen)?.phase).toBe('wrapping');
+
+    const paged = parseCommercialProjectList(
+      await (await app.request('/api/v1/commercial/projects?limit=2&offset=1')).json(),
+    );
+    expect(paged.total).toBe(body.total);
+    expect(paged.limit).toBe(2);
+    expect(paged.offset).toBe(1);
+    expect(paged.items.map((item) => item.id)).toEqual(
+      body.items.slice(1, 3).map((item) => item.id),
+    );
+  }, 30_000);
+
   test('project detail matches blocking reason and publish status', async () => {
     if (!sql || !app) return;
     const nodes = await sql<NodeRow[]>`
@@ -327,13 +372,27 @@ describe('commercial read API', () => {
     const publishes = await sql<
       {
         project_id: string;
-        bvid: string;
+        bvid: string | null;
         published_at: Date;
         publish_source: string;
         idempotency_key: string;
+        platform: string;
+        content_kind: 'video' | 'post';
+        content_url: string | null;
+        external_id: string | null;
       }[]
     >`
-      SELECT project_id, bvid, published_at, publish_source, idempotency_key FROM project_publish_records
+      SELECT
+        project_id,
+        bvid,
+        published_at,
+        publish_source,
+        idempotency_key,
+        platform,
+        content_kind,
+        content_url,
+        external_id
+      FROM project_publish_records
     `;
     const publishByProject = new Map(publishes.map((row) => [row.project_id, row]));
 
@@ -361,18 +420,26 @@ describe('commercial read API', () => {
       if (publish) {
         expect(detail.publish).toEqual({
           published: true,
+          platform: publish.platform,
           bvid: publish.bvid,
           publishedAt: publish.published_at.toISOString(),
           publishSource: asPublishSource(publish.publish_source),
           idempotencyKey: publish.idempotency_key,
+          contentKind: publish.content_kind,
+          contentUrl: publish.content_url,
+          externalId: publish.external_id,
         });
       } else {
         expect(detail.publish).toEqual({
           published: false,
+          platform: 'bilibili',
           bvid: null,
           publishedAt: null,
           publishSource: null,
           idempotencyKey: null,
+          contentKind: 'video',
+          contentUrl: null,
+          externalId: null,
         });
       }
     }
@@ -420,11 +487,73 @@ describe('commercial read API', () => {
     );
     expect(parseCommercialProjectDetail(await published.json()).publish).toEqual({
       published: true,
+      platform: 'bilibili',
       bvid: 'BVWP004R01',
       publishedAt: '2026-05-20T12:00:00.000Z',
       publishSource: 'web',
       idempotencyKey: 'fixture-publish-once',
+      contentKind: 'video',
+      contentUrl: null,
+      externalId: null,
     });
+  }, 30_000);
+
+  test('project detail returns a post publish record without a bvid', async () => {
+    if (!sql || !app) return;
+    const projectId = FIXTURE_PROJECT_IDS.publishReady;
+    await sql`
+      INSERT INTO project_publish_records (
+        project_id,
+        bvid,
+        published_at,
+        publish_source,
+        idempotency_key,
+        platform,
+        content_kind,
+        content_url,
+        external_id
+      )
+      VALUES (
+        ${projectId},
+        NULL,
+        ${'2026-10-24T00:00:00.000Z'},
+        'web',
+        'fixture-publish-post',
+        'bilibili',
+        'post',
+        ${'https://t.bilibili.com/1262617308018245635'},
+        ${'1262617308018245635'}
+      )
+    `;
+    try {
+      const res = await app.request(`/api/v1/commercial/projects/${projectId}`);
+      expect(res.status).toBe(200);
+      const detail = parseCommercialProjectDetail(await res.json());
+      expect(detail.publish).toEqual({
+        published: true,
+        platform: 'bilibili',
+        bvid: null,
+        publishedAt: '2026-10-24T00:00:00.000Z',
+        publishSource: 'web',
+        idempotencyKey: 'fixture-publish-post',
+        contentKind: 'post',
+        contentUrl: 'https://t.bilibili.com/1262617308018245635',
+        externalId: '1262617308018245635',
+      });
+
+      const video = await app.request(
+        `/api/v1/commercial/projects/${FIXTURE_PROJECT_IDS.publishedOpen}`,
+      );
+      expect(video.status).toBe(200);
+      const videoDetail = parseCommercialProjectDetail(await video.json());
+      expect(videoDetail.publish).toMatchObject({
+        published: true,
+        bvid: 'BVWP004R01',
+        contentKind: 'video',
+      });
+    } finally {
+      await sql`DELETE FROM project_publish_records WHERE project_id = ${projectId}`;
+    }
   }, 30_000);
 
   test('workflow graph matches rows and includes the merge node kind', async () => {
@@ -517,12 +646,12 @@ describe('commercial read API', () => {
       expect(new Set(graph.edges.map((edge) => edge.id))).toEqual(
         new Set(edges.map((edge) => edge.id)),
       );
-      expect(graph.nodes).toHaveLength(14);
+      expect(graph.nodes).toHaveLength(15);
       expect(graph.edges).toHaveLength(16);
     }
   }, 30_000);
 
-  test('default template endpoint matches the published 14/16 seed', async () => {
+  test('default template endpoint matches the published 15/16 seed', async () => {
     if (!sql || !app) return;
     const res = await app.request('/api/v1/commercial/templates/default');
     expect(res.status).toBe(200);
@@ -557,7 +686,7 @@ describe('commercial read API', () => {
         isOptional: node.is_optional,
       })),
     );
-    expect(template.nodes).toHaveLength(14);
+    expect(template.nodes).toHaveLength(15);
     expect(template.edges).toHaveLength(16);
     const merge = template.nodes.filter((node) => node.kind === 'merge');
     expect(merge).toEqual([
@@ -576,7 +705,6 @@ describe('commercial read API', () => {
         '预拍摄->汇合节点',
         '汇合节点->A-roll 拍摄',
         '汇合节点->B-roll 素材',
-        '汇合节点->AI 后期',
       ].sort(),
     );
   }, 30_000);

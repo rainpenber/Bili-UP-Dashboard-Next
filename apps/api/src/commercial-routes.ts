@@ -2,10 +2,12 @@ import {
   commercialDisplayStateFromSource,
   commercialSourceWindowFromPayload,
   isCommercialOriginKind,
+  isCommercialProjectPhase,
   isOpenItemActor,
   isOpenItemImpact,
   isOpenItemLifecycle,
   isOverallStage,
+  isPublishContentKind,
   isPublishSource,
   isUuidString,
   isWfNodeKind,
@@ -19,6 +21,7 @@ import {
   type CommercialOriginKind,
   type CommercialProjectDetail,
   type CommercialProjectListItem,
+  type CommercialProjectPhase,
   type CommercialProjectSourceSummary,
   type OverallStage,
   type PublishSource,
@@ -40,6 +43,7 @@ type ProjectCoreRow = {
   net_amount: string | null;
   rebate_amount: string | null;
   overall_stage: string;
+  phase: string;
   current_stage_names: string[] | null;
   blocked_node_names: string[] | null;
   any_node_blocked: boolean;
@@ -92,6 +96,11 @@ function overallStage(value: string): OverallStage {
   return value;
 }
 
+function projectPhase(value: string): CommercialProjectPhase {
+  if (!isCommercialProjectPhase(value)) throw new Error(`unexpected phase ${value}`);
+  return value;
+}
+
 function nodeStatus(value: string): WfNodeStatus {
   if (!isWfNodeStatus(value)) throw new Error(`unexpected node status ${value}`);
   return value;
@@ -104,6 +113,11 @@ function nodeKind(value: string): WfNodeKind {
 
 function publishSource(value: string): PublishSource {
   if (!isPublishSource(value)) throw new Error(`unexpected publish_source ${value}`);
+  return value;
+}
+
+function publishContentKind(value: string): 'video' | 'post' {
+  if (!isPublishContentKind(value)) throw new Error(`unexpected content_kind ${value}`);
   return value;
 }
 
@@ -199,6 +213,7 @@ function toListItem(
     netAmount: moneyText(row.net_amount),
     rebateAmount: moneyText(row.rebate_amount),
     overallStage: overallStage(row.overall_stage),
+    phase: projectPhase(row.phase),
     currentStageNames: stageNames(row.current_stage_names),
     anyNodeBlocked: row.any_node_blocked,
     blockingReason: row.blocking_reason,
@@ -276,6 +291,36 @@ function parseProjectListQuery(
   }
   return { originKind: origin, unclassifiedOnly, includeArchived, limit, offset };
 }
+
+/**
+ * One SQL pass derives the list phase from two threshold nodes (WP-OC-007).
+ * not_applicable counts as satisfied, matching the workflow engine's semantics.
+ * A node matches by its template slug or, for ad-hoc nodes, its canonical name.
+ */
+const PROJECT_PHASE_SQL = `
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM wf_nodes n
+              LEFT JOIN wf_template_nodes t
+                ON t.id = n.template_node_id
+               AND t.template_version_id = n.template_version_id
+              WHERE n.project_id = p.id
+                AND n.status IN ('completed', 'not_applicable')
+                AND (t.slug = 'publish' OR n.name = '发布')
+            ) THEN 'wrapping'
+            WHEN EXISTS (
+              SELECT 1
+              FROM wf_nodes n
+              LEFT JOIN wf_template_nodes t
+                ON t.id = n.template_node_id
+               AND t.template_version_id = n.template_version_id
+              WHERE n.project_id = p.id
+                AND n.status IN ('in_progress', 'completed', 'not_applicable')
+                AND (t.slug = 'copy' OR n.name = '文案')
+            ) THEN 'active'
+            ELSE 'pending'
+          END`;
 
 const BLOCKING_REASON_SQL = `
           (
@@ -384,6 +429,7 @@ async function readProjectCores(
         p.net_amount::text AS net_amount,
         p.rebate_amount::text AS rebate_amount,
         p.overall_stage,
+        ${db.unsafe(PROJECT_PHASE_SQL)} AS phase,
         ARRAY(
           SELECT n.name
           FROM wf_nodes n
@@ -459,6 +505,7 @@ async function readProjectCores(
             p.net_amount::text AS net_amount,
             p.rebate_amount::text AS rebate_amount,
             p.overall_stage,
+            ${db.unsafe(PROJECT_PHASE_SQL)} AS phase,
             ARRAY(
               SELECT n.name
               FROM wf_nodes n
@@ -518,6 +565,7 @@ async function readProjectCores(
             p.net_amount::text AS net_amount,
             p.rebate_amount::text AS rebate_amount,
             p.overall_stage,
+            ${db.unsafe(PROJECT_PHASE_SQL)} AS phase,
             ARRAY(
               SELECT n.name
               FROM wf_nodes n
@@ -712,9 +760,21 @@ export function createCommercialRoutes(db: Sql) {
           published_at: Date | null;
           publish_source: string | null;
           idempotency_key: string | null;
+          platform: string;
+          content_kind: string;
+          content_url: string | null;
+          external_id: string | null;
         }[]
       >`
-        SELECT bvid, published_at, publish_source, idempotency_key
+        SELECT
+          bvid,
+          published_at,
+          publish_source,
+          idempotency_key,
+          platform,
+          content_kind,
+          content_url,
+          external_id
         FROM project_publish_records
         WHERE project_id = ${projectId}
       `;
@@ -726,17 +786,25 @@ export function createCommercialRoutes(db: Sql) {
           publishRow === undefined
             ? {
                 published: false,
+                platform: 'bilibili',
                 bvid: null,
                 publishedAt: null,
                 publishSource: null,
                 idempotencyKey: null,
+                contentKind: 'video',
+                contentUrl: null,
+                externalId: null,
               }
             : {
                 published: true,
-                bvid: publishRow.bvid ?? '',
+                platform: publishRow.platform,
+                bvid: publishRow.bvid,
                 publishedAt: toIso(publishRow.published_at ?? ''),
                 publishSource: publishSource(publishRow.publish_source ?? ''),
                 idempotencyKey: publishRow.idempotency_key ?? '',
+                contentKind: publishContentKind(publishRow.content_kind),
+                contentUrl: publishRow.content_url,
+                externalId: publishRow.external_id,
               },
       };
       return c.json(parseCommercialProjectDetail(detail));

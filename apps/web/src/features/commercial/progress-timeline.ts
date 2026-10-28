@@ -6,7 +6,7 @@ import type { MockStatus } from '../workflow-mock/flow-nodes';
  * Achievement points are the dots. Stages are the lines between them.
  * Workflow node ids here are template slugs, not instance UUIDs.
  * 「手工」is not its own node yet; it stays inside 文案准备.
- * 「AI 生成」and「后期剪辑」are still the single template node `ai_post`.
+ * 「剪辑」is its own template node `edit`, before AI 后期 (`ai_post`).
  */
 export const ACHIEVEMENT_POINTS = [
   { id: 'inquiry', label: '询单' },
@@ -39,7 +39,7 @@ export const PROGRESS_STAGES = [
     label: '拍摄制作',
     from: 'script_locked',
     to: 'edit_done',
-    nodeIds: ['a_roll', 'b_roll', 'ai_post'],
+    nodeIds: ['a_roll', 'b_roll', 'edit', 'ai_post'],
   },
   {
     id: 'client_review',
@@ -75,9 +75,10 @@ const NAME_TO_NODE_ID: Record<string, string> = {
   手工: 'manual',
   'A-roll 拍摄': 'a_roll',
   'B-roll 素材': 'b_roll',
+  剪辑: 'edit',
+  后期剪辑: 'edit',
   'AI 后期': 'ai_post',
   'AI 生成': 'ai_post',
-  后期剪辑: 'ai_post',
   审核: 'review',
   发布: 'publish',
   全平台分发: 'distribution',
@@ -199,6 +200,83 @@ export function stageSituationLabel(stage: SituationStage): string | null {
   return null;
 }
 
+export type NodeStepActionId = 'start' | 'complete' | 'rollback' | 'unblock';
+
+export type NodeStepActionSpec = {
+  id: NodeStepActionId;
+  label: string;
+  endpoint: 'step' | 'unblock';
+  direction: 'forward' | 'rollback' | null;
+  enabled: boolean;
+  /** Shown on hover when a node must be completed through its own write path. */
+  hint?: string;
+};
+
+export const PUBLISH_COMPLETE_HINT = '发布节点请用发布按钮填写链接';
+
+/**
+ * State-exact actions for one node row in the stage tooltip.
+ * 进行中 / 完成 / 回退 are always present so the row keeps a predictable shape.
+ * Blocked nodes get one extra 解除阻塞 action.
+ */
+export function deriveNodeStepActions(
+  status: string,
+  options: { nodeId?: string | null } = {},
+): NodeStepActionSpec[] {
+  const isPublish = options.nodeId === 'publish';
+  const canStart = status === 'not_reached';
+  const canComplete = status === 'in_progress' && !isPublish;
+  const canRollback =
+    status === 'in_progress' ||
+    status === 'completed' ||
+    status === 'not_applicable' ||
+    status === 'blocked';
+  const actions: NodeStepActionSpec[] = [
+    {
+      id: 'start',
+      label: '进行中',
+      endpoint: 'step',
+      direction: 'forward',
+      enabled: canStart,
+    },
+    {
+      id: 'complete',
+      label: '完成',
+      endpoint: 'step',
+      direction: 'forward',
+      enabled: canComplete,
+      ...(isPublish ? { hint: PUBLISH_COMPLETE_HINT } : {}),
+    },
+    {
+      id: 'rollback',
+      label: '回退',
+      endpoint: 'step',
+      direction: 'rollback',
+      enabled: canRollback,
+    },
+  ];
+  if (status === 'blocked') {
+    actions.push({
+      id: 'unblock',
+      label: '解除阻塞',
+      endpoint: 'unblock',
+      direction: null,
+      enabled: true,
+    });
+  }
+  return actions;
+}
+
+/** Ids of the actions that may actually be clicked for this node status. */
+export function availableNodeStepActions(
+  status: string,
+  options: { nodeId?: string | null } = {},
+): NodeStepActionId[] {
+  return deriveNodeStepActions(status, options)
+    .filter((action) => action.enabled)
+    .map((action) => action.id);
+}
+
 export function timelineStatusLabel(status: string): string {
   switch (status) {
     case 'completed':
@@ -217,8 +295,9 @@ export function timelineStatusLabel(status: string): string {
 
 function rollup(children: TimelineChild[]): TimelineRollup {
   if (children.some((child) => child.status === 'blocked')) return 'blocked';
+  if (children.length === 0) return 'not_reached';
   const applicable = children.filter((child) => child.status !== 'not_applicable');
-  if (applicable.length === 0) return 'not_reached';
+  if (applicable.length === 0) return 'completed';
   if (applicable.every((child) => child.status === 'completed' || child.status === 'done')) {
     return 'completed';
   }

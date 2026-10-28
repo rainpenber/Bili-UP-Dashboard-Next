@@ -122,7 +122,7 @@ describe('monitor card read model', () => {
     return sql;
   }
 
-  test('default video list hides videos with only a videos row and no target', async () => {
+  test('explicit includeUnmonitored=false hides; monitor=all defaults to every video', async () => {
     if (!sql) return;
     const filtered = await listMonitorCards(db(), {
       type: 'video',
@@ -150,6 +150,18 @@ describe('monitor card read model', () => {
     });
     expect(all.items.some((item) => item.externalId === IDS.plain)).toBe(true);
     expect(all.totalItems).toBeGreaterThan(filtered.totalItems);
+
+    // UI default (`monitor=all` without includeUnmonitored) must be really all.
+    const defaultAll = await listMonitorCards(db(), {
+      type: 'video',
+      monitor: 'all',
+      page: 1,
+      pageSize: 50,
+      q: null,
+      category: null,
+    });
+    expect(defaultAll.items.some((item) => item.externalId === IDS.plain)).toBe(true);
+    expect(defaultAll.totalItems).toBe(all.totalItems);
   });
 
   test('keeps target state across pages and ignores monitoring_enabled', async () => {

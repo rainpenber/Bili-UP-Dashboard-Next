@@ -51,6 +51,8 @@ export type CreatorPublishEventRow = {
   firstDiscoveredAt: Date;
   source: CreatorPublishEventSource;
   monitoredTargetId: string | null;
+  /** For AV dynamics: bvid of the upload video this dynamic points at. */
+  relatedBvid: string | null;
   createdAt: Date;
 };
 
@@ -113,6 +115,7 @@ type EventSqlRow = {
   first_discovered_at: Date;
   source: CreatorPublishEventSource;
   monitored_target_id: string | null;
+  related_bvid: string | null;
   created_at: Date;
 };
 
@@ -161,6 +164,7 @@ function mapEvent(row: EventSqlRow): CreatorPublishEventRow {
     firstDiscoveredAt: row.first_discovered_at,
     source: row.source,
     monitoredTargetId: row.monitored_target_id,
+    relatedBvid: row.related_bvid,
     createdAt: row.created_at,
   };
 }
@@ -494,14 +498,15 @@ export async function insertCreatorPublishEvent(
     titleSnapshot: string;
     firstDiscoveredAt: Date;
     monitoredTargetId?: string | null;
+    relatedBvid?: string | null;
     source?: CreatorPublishEventSource;
   },
 ): Promise<{ event: CreatorPublishEventRow; created: boolean }> {
   const source = input.source ?? 'bilibili';
-  const inserted = await sql<EventSqlRow[]>`
+  const inserted = await sql<(EventSqlRow & { inserted: boolean })[]>`
     INSERT INTO creator_publish_events (
       id, mid, event_kind, external_id, published_at, title_snapshot,
-      first_discovered_at, source, monitored_target_id
+      first_discovered_at, source, monitored_target_id, related_bvid
     ) VALUES (
       ${input.id}::uuid,
       ${input.mid},
@@ -511,18 +516,22 @@ export async function insertCreatorPublishEvent(
       ${input.titleSnapshot},
       ${input.firstDiscoveredAt},
       ${source},
-      ${input.monitoredTargetId ?? null}
+      ${input.monitoredTargetId ?? null},
+      ${input.relatedBvid ?? null}
     )
-    ON CONFLICT (mid, event_kind, external_id) DO NOTHING
+    ON CONFLICT (mid, event_kind, external_id) DO UPDATE SET
+      related_bvid = COALESCE(creator_publish_events.related_bvid, EXCLUDED.related_bvid)
+    WHERE EXCLUDED.related_bvid IS NOT NULL
     RETURNING
+      (xmax = 0) AS inserted,
       id, mid, event_kind, external_id, published_at, title_snapshot,
-      first_discovered_at, source, monitored_target_id, created_at
+      first_discovered_at, source, monitored_target_id, related_bvid, created_at
   `;
-  if (inserted[0]) return { event: mapEvent(inserted[0]), created: true };
+  if (inserted[0]) return { event: mapEvent(inserted[0]), created: inserted[0].inserted };
   const existing = await sql<EventSqlRow[]>`
     SELECT
       id, mid, event_kind, external_id, published_at, title_snapshot,
-      first_discovered_at, source, monitored_target_id, created_at
+      first_discovered_at, source, monitored_target_id, related_bvid, created_at
     FROM creator_publish_events
     WHERE mid = ${input.mid}
       AND event_kind = ${input.eventKind}
@@ -531,6 +540,23 @@ export async function insertCreatorPublishEvent(
   const row = existing[0];
   if (!row) throw new Error('发布事件冲突后未能读回');
   return { event: mapEvent(row), created: false };
+}
+
+/** True when the creator already has a video event for this bvid. */
+export async function hasCreatorVideoPublishEvent(
+  sql: Queryable,
+  input: { mid: string; bvid: string },
+): Promise<boolean> {
+  const rows = await sql<{ found: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM creator_publish_events
+      WHERE mid = ${input.mid}
+        AND event_kind = 'video'
+        AND external_id = ${input.bvid}
+    ) AS found
+  `;
+  return rows[0]?.found === true;
 }
 
 export async function linkPublishEventTarget(
@@ -559,7 +585,7 @@ export async function getCreatorPublishEventById(
   const rows = await sql<EventSqlRow[]>`
     SELECT
       id, mid, event_kind, external_id, published_at, title_snapshot,
-      first_discovered_at, source, monitored_target_id, created_at
+      first_discovered_at, source, monitored_target_id, related_bvid, created_at
     FROM creator_publish_events
     WHERE mid = ${input.mid}
       AND id = ${input.eventId}::uuid
@@ -601,6 +627,51 @@ export async function findActivePublishMonitorTargetId(
   return rows[0]?.id ?? null;
 }
 
+/**
+ * Hides a dynamic that duplicates a same-day video for the same creator.
+ * First layer: related_bvid points at an existing video event.
+ * Second layer: normalized title matches a video published on the same UTC day.
+ * Third layer: normalized title (length >= 8) prefixes a same-day video description.
+ */
+const PUBLISH_EVENT_DEDUPE_EXCLUSION = `
+  NOT (
+    e.event_kind = 'dynamic'
+    AND (
+      (
+        e.related_bvid IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM creator_publish_events v
+          WHERE v.mid = e.mid
+            AND v.event_kind = 'video'
+            AND v.external_id = e.related_bvid
+        )
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM creator_publish_events v
+        WHERE v.mid = e.mid
+          AND v.event_kind = 'video'
+          AND (v.published_at AT TIME ZONE 'UTC')::date
+            = (e.published_at AT TIME ZONE 'UTC')::date
+          AND lower(regexp_replace(v.title_snapshot, '[^[:alnum:]一-龥]', '', 'g'))
+            = lower(regexp_replace(e.title_snapshot, '[^[:alnum:]一-龥]', '', 'g'))
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM videos vd
+        WHERE vd.mid::text = e.mid
+          AND vd.deleted_at IS NULL
+          AND (vd.pubdate AT TIME ZONE 'UTC')::date
+            = (e.published_at AT TIME ZONE 'UTC')::date
+          AND length(lower(regexp_replace(e.title_snapshot, '[^[:alnum:]一-龥]', '', 'g'))) >= 8
+          AND lower(regexp_replace(vd.description, '[^[:alnum:]一-龥]', '', 'g'))
+            LIKE lower(regexp_replace(e.title_snapshot, '[^[:alnum:]一-龥]', '', 'g')) || '%'
+      )
+    )
+  )
+`;
+
 export async function listCreatorPublishEvents(
   sql: Queryable,
   input: {
@@ -616,20 +687,22 @@ export async function listCreatorPublishEvents(
   const offset = input.offset ?? 0;
   const countRows = await sql<{ count: string }[]>`
     SELECT count(*)::text AS count
-    FROM creator_publish_events
-    WHERE mid = ${input.mid}
-      AND (${from}::timestamptz IS NULL OR published_at >= ${from})
-      AND (${to}::timestamptz IS NULL OR published_at <= ${to})
+    FROM creator_publish_events e
+    WHERE e.mid = ${input.mid}
+      AND (${from}::timestamptz IS NULL OR e.published_at >= ${from})
+      AND (${to}::timestamptz IS NULL OR e.published_at <= ${to})
+      AND ${sql.unsafe(PUBLISH_EVENT_DEDUPE_EXCLUSION)}
   `;
   const rows = await sql<EventSqlRow[]>`
     SELECT
-      id, mid, event_kind, external_id, published_at, title_snapshot,
-      first_discovered_at, source, monitored_target_id, created_at
-    FROM creator_publish_events
-    WHERE mid = ${input.mid}
-      AND (${from}::timestamptz IS NULL OR published_at >= ${from})
-      AND (${to}::timestamptz IS NULL OR published_at <= ${to})
-    ORDER BY published_at ASC, id ASC
+      e.id, e.mid, e.event_kind, e.external_id, e.published_at, e.title_snapshot,
+      e.first_discovered_at, e.source, e.monitored_target_id, e.related_bvid, e.created_at
+    FROM creator_publish_events e
+    WHERE e.mid = ${input.mid}
+      AND (${from}::timestamptz IS NULL OR e.published_at >= ${from})
+      AND (${to}::timestamptz IS NULL OR e.published_at <= ${to})
+      AND ${sql.unsafe(PUBLISH_EVENT_DEDUPE_EXCLUSION)}
+    ORDER BY e.published_at DESC, e.id DESC
     LIMIT ${input.limit} OFFSET ${offset}
   `;
   return {

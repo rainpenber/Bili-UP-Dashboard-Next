@@ -1,6 +1,7 @@
 import { ChevronDown } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import type { CommercialProjectListItem, CommercialProjectPhase } from '@studio/contracts';
 import { PageHeader } from '@/components/layout/page-header';
 import { EmptyState, ErrorState, LoadingListSkeleton } from '@/components/states/async-states';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,12 @@ import { useLiveCommercialProjectsQuery } from '@/features/commercial/use-live-w
 import { cn } from '@/lib/utils';
 
 type OriginFilter = '' | 'real' | 'fixture' | 'manual' | 'unclassified';
+
+const PHASE_COLUMNS: ReadonlyArray<{ phase: CommercialProjectPhase; title: string }> = [
+  { phase: 'pending', title: '待开始' },
+  { phase: 'active', title: '进行中' },
+  { phase: 'wrapping', title: '收尾完结' },
+];
 
 function readArchivedExpanded(searchParams: URLSearchParams): boolean {
   return searchParams.get('includeArchived') === '1';
@@ -50,6 +57,16 @@ export function ProjectListPage() {
     if (!activeQuery.data) return [];
     return sortLiveProjects(filterLiveProjects(activeQuery.data.items, filters));
   }, [activeQuery.data, filters]);
+
+  const phaseGroups = useMemo(() => {
+    const groups: Record<CommercialProjectPhase, CommercialProjectListItem[]> = {
+      pending: [],
+      active: [],
+      wrapping: [],
+    };
+    for (const project of activeList) groups[project.phase].push(project);
+    return groups;
+  }, [activeList]);
 
   const archivedList = useMemo(() => {
     if (!withArchivedQuery.data) return [];
@@ -178,10 +195,39 @@ export function ProjectListPage() {
               }
             />
           ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {activeList.map((project) => (
-                <ProjectListCard key={project.id} project={project} />
-              ))}
+            <div
+              className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start"
+              data-testid="project-phase-columns"
+            >
+              {PHASE_COLUMNS.map(({ phase, title }) => {
+                const projects = phaseGroups[phase];
+                return (
+                  <section
+                    key={phase}
+                    className="min-w-0 space-y-3"
+                    data-testid="project-phase-column"
+                    data-phase={phase}
+                  >
+                    <h2
+                      className="border-b pb-2 text-sm font-semibold"
+                      data-testid="project-phase-heading"
+                    >
+                      {title} · {projects.length}
+                    </h2>
+                    {projects.length === 0 ? (
+                      <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                        暂无项目
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {projects.map((project) => (
+                          <ProjectListCard key={project.id} project={project} />
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
             </div>
           )}
 
