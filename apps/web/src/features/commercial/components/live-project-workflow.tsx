@@ -21,6 +21,7 @@ import {
   archiveLiveProject,
   CommercialReadError,
   postLiveNodeStep,
+  postLiveNodeUnblock,
   postLiveStageStep,
   saveLiveNodePlan,
   saveLiveWorkflowLayout,
@@ -43,6 +44,15 @@ import { WorkflowLiveCanvas } from './workflow-live-canvas';
 
 function stepFailure(message: string, code = 'invalid_body'): StepResult {
   return { ok: false, message, code, blocks: [], effects: [], successors: [] };
+}
+
+async function refreshLiveStep(
+  projectId: string,
+  queryClient: ReturnType<typeof useQueryClient>,
+): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: ['commercial', 'live-workflow', projectId] });
+  await queryClient.invalidateQueries({ queryKey: ['commercial', 'live-project', projectId] });
+  await queryClient.invalidateQueries({ queryKey: liveCommercialProjectsKey });
 }
 
 async function runLiveStep(
@@ -73,9 +83,7 @@ async function runLiveStep(
     );
   }
   if (result.ok) {
-    await queryClient.invalidateQueries({ queryKey: ['commercial', 'live-workflow', projectId] });
-    await queryClient.invalidateQueries({ queryKey: ['commercial', 'live-project', projectId] });
-    await queryClient.invalidateQueries({ queryKey: liveCommercialProjectsKey });
+    await refreshLiveStep(projectId, queryClient);
     return { ok: true };
   }
   return {
@@ -98,6 +106,34 @@ async function runLiveStep(
       nodeName: item.nodeName,
       templateSlug: item.templateSlug,
     })),
+  };
+}
+
+async function runLiveUnblock(
+  projectId: string,
+  nodeId: string,
+  expectedUpdatedAt: string,
+  queryClient: ReturnType<typeof useQueryClient>,
+): Promise<StepResult> {
+  let result;
+  try {
+    result = await postLiveNodeUnblock(projectId, nodeId, expectedUpdatedAt);
+  } catch (err) {
+    return stepFailure(
+      err instanceof Error && err.message.trim().length > 0 ? err.message : '网络异常，请重试',
+    );
+  }
+  if (result.ok) {
+    await refreshLiveStep(projectId, queryClient);
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    message: result.body.error,
+    code: result.body.code,
+    blocks: [],
+    effects: [],
+    successors: [],
   };
 }
 
@@ -174,6 +210,11 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
     (call: StepCall) => runLiveStep(projectId, call, queryClient),
     [projectId, queryClient],
   );
+  const onUnblock = useCallback(
+    (nodeId: string, expectedUpdatedAt: string) =>
+      runLiveUnblock(projectId, nodeId, expectedUpdatedAt, queryClient),
+    [projectId, queryClient],
+  );
   const recordedPublish = useMemo(() => {
     const publish = detailQuery.data?.publish;
     if (!publish?.published || !publish.idempotencyKey) return null;
@@ -214,9 +255,10 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
       disabled: Boolean(displayReadOnly),
       onRefresh,
       onStep,
+      onUnblock,
       recordedPublish,
     }),
-    [displayReadOnly, onRefresh, onStep, recordedPublish],
+    [displayReadOnly, onRefresh, onStep, onUnblock, recordedPublish],
   );
   const step = useStepController(stepEditor, (stageId) => locateRef.current(stageId));
 

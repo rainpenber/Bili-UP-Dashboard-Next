@@ -1,5 +1,5 @@
 import type { CommercialBusinessState, CommercialSourceWindow } from '@studio/contracts';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   NodeStepActions,
   PlanEditButton,
@@ -35,6 +35,7 @@ import { sourceWindowCardCopy } from '../source-window-display';
 import { DEMO_STATUS_COLOR } from '../workflow-status-map';
 import type { MockStatus } from '../../workflow-mock/flow-nodes';
 import { AnchoredRecordOverlay, RecordOverlayList, type RecordOverlayItem } from './record-overlay';
+import { TooltipNodeActions } from './node-step-actions';
 
 /** Bottom of the stage wash. 0x1f / 255 ≈ 0.12, inside the 0.10–0.14 band. */
 const HIGHLIGHT_ALPHA = '1f';
@@ -84,7 +85,10 @@ function blockCaptionLines(label: string): string {
   return label.replaceAll('、', '\n');
 }
 
-function childItems(stage: DerivedStage): RecordOverlayItem[] {
+function childItems(
+  stage: DerivedStage,
+  renderActions?: (child: TimelineChild) => ReactNode,
+): RecordOverlayItem[] {
   return stage.children.map((child) => ({
     id: child.id,
     name: child.name,
@@ -94,6 +98,7 @@ function childItems(stage: DerivedStage): RecordOverlayItem[] {
     blockingReason: child.blockingReason,
     planLabel: child.plannedAt ? formatScheduleLabel(child.plannedAt) : null,
     actualLabel: child.completedAt ? formatScheduleLabel(child.completedAt) : null,
+    ...(renderActions ? { actions: renderActions(child) } : {}),
   }));
 }
 
@@ -619,6 +624,13 @@ export function ProgressTimeline({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  const activeStepEditor = stepEditor && !stepEditor.disabled ? stepEditor : null;
+  const renderTooltipNodeActions = activeStepEditor
+    ? (child: TimelineChild) => (
+        <TooltipNodeActions child={child} controller={step} editor={activeStepEditor} />
+      )
+    : undefined;
+
   return (
     <Card>
       <CardHeader>
@@ -736,7 +748,7 @@ export function ProgressTimeline({
           {overlayStage && overlayStage.children.length === 0 ? (
             <p className="record-overlay-note">这个阶段还没有子节点。</p>
           ) : overlayStage ? (
-            <RecordOverlayList items={childItems(overlayStage)} />
+            <RecordOverlayList items={childItems(overlayStage, renderTooltipNodeActions)} />
           ) : null}
         </AnchoredRecordOverlay>
         {stepEditor ? <StepNotices controller={step} /> : null}

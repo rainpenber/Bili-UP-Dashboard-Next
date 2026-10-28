@@ -66,6 +66,8 @@ export type StepEditor = {
   disabled: boolean;
   onStep: (call: StepCall) => Promise<StepResult>;
   onRefresh: () => void;
+  /** Direct unblock write. The tooltip uses POST .../nodes/:id/unblock. */
+  onUnblock?: (nodeId: string, expectedUpdatedAt: string) => Promise<StepResult>;
   /** Set when this project already has a publish record, including after the publish node was rolled back. */
   recordedPublish?: RecordedPublish | null;
 };
@@ -139,6 +141,33 @@ export function useStepController(
     }
   };
 
+  const runUnblock = async (nodeId: string, expectedUpdatedAt: string) => {
+    if (!editor || editor.disabled || !editor.onUnblock || lock.current) return;
+    lock.current = true;
+    setPending(true);
+    setError(null);
+    setSuccessors([]);
+    setSubjectNodeId(nodeId);
+    try {
+      const result = await editor.onUnblock(nodeId, expectedUpdatedAt);
+      if (result.ok) {
+        setConfirm(null);
+        setPublish(null);
+        return;
+      }
+      setError(result.message);
+      setSuccessors(result.successors);
+    } catch (err) {
+      setSuccessors([]);
+      setError(
+        err instanceof Error && err.message.trim().length > 0 ? err.message : '网络异常，请重试',
+      );
+    } finally {
+      lock.current = false;
+      setPending(false);
+    }
+  };
+
   return {
     pending,
     error,
@@ -147,6 +176,7 @@ export function useStepController(
     confirm,
     publish,
     run,
+    runUnblock,
     cancelConfirm: () => setConfirm(null),
     cancelPublish: () => setPublish(null),
     locate: (slug: string | null) => {

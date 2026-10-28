@@ -199,6 +199,83 @@ export function stageSituationLabel(stage: SituationStage): string | null {
   return null;
 }
 
+export type NodeStepActionId = 'start' | 'complete' | 'rollback' | 'unblock';
+
+export type NodeStepActionSpec = {
+  id: NodeStepActionId;
+  label: string;
+  endpoint: 'step' | 'unblock';
+  direction: 'forward' | 'rollback' | null;
+  enabled: boolean;
+  /** Shown on hover when a node must be completed through its own write path. */
+  hint?: string;
+};
+
+export const PUBLISH_COMPLETE_HINT = '发布节点请用发布按钮填写链接';
+
+/**
+ * State-exact actions for one node row in the stage tooltip.
+ * 进行中 / 完成 / 回退 are always present so the row keeps a predictable shape.
+ * Blocked nodes get one extra 解除阻塞 action.
+ */
+export function deriveNodeStepActions(
+  status: string,
+  options: { nodeId?: string | null } = {},
+): NodeStepActionSpec[] {
+  const isPublish = options.nodeId === 'publish';
+  const canStart = status === 'not_reached';
+  const canComplete = status === 'in_progress' && !isPublish;
+  const canRollback =
+    status === 'in_progress' ||
+    status === 'completed' ||
+    status === 'not_applicable' ||
+    status === 'blocked';
+  const actions: NodeStepActionSpec[] = [
+    {
+      id: 'start',
+      label: '进行中',
+      endpoint: 'step',
+      direction: 'forward',
+      enabled: canStart,
+    },
+    {
+      id: 'complete',
+      label: '完成',
+      endpoint: 'step',
+      direction: 'forward',
+      enabled: canComplete,
+      ...(isPublish ? { hint: PUBLISH_COMPLETE_HINT } : {}),
+    },
+    {
+      id: 'rollback',
+      label: '回退',
+      endpoint: 'step',
+      direction: 'rollback',
+      enabled: canRollback,
+    },
+  ];
+  if (status === 'blocked') {
+    actions.push({
+      id: 'unblock',
+      label: '解除阻塞',
+      endpoint: 'unblock',
+      direction: null,
+      enabled: true,
+    });
+  }
+  return actions;
+}
+
+/** Ids of the actions that may actually be clicked for this node status. */
+export function availableNodeStepActions(
+  status: string,
+  options: { nodeId?: string | null } = {},
+): NodeStepActionId[] {
+  return deriveNodeStepActions(status, options)
+    .filter((action) => action.enabled)
+    .map((action) => action.id);
+}
+
 export function timelineStatusLabel(status: string): string {
   switch (status) {
     case 'completed':

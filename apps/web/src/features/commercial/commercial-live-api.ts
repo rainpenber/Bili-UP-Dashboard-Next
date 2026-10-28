@@ -185,7 +185,11 @@ export async function saveLiveWorkflowLayout(
 export type LiveStepResult =
   { ok: true } | { ok: false; status: number; body: CommercialWriteErrorBody };
 
-async function postStep(path: string, body: unknown): Promise<LiveStepResult> {
+async function postStep(
+  path: string,
+  body: unknown,
+  parseOk: (value: unknown) => unknown = parseCommercialStepResponse,
+): Promise<LiveStepResult> {
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -206,7 +210,7 @@ async function postStep(path: string, body: unknown): Promise<LiveStepResult> {
       return { ok: false, status: res.status, body: { error: message, code: 'invalid_body' } };
     }
   }
-  parseCommercialStepResponse(payload);
+  parseOk(payload);
   return { ok: true };
 }
 
@@ -223,6 +227,18 @@ export function postLiveNodeStep(
   return postStep(
     `/api/v1/commercial/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/step`,
     body,
+  );
+}
+
+export function postLiveNodeUnblock(
+  projectId: string,
+  nodeId: string,
+  expectedUpdatedAt: string,
+): Promise<LiveStepResult> {
+  return postStep(
+    `/api/v1/commercial/projects/${encodeURIComponent(projectId)}/nodes/${encodeURIComponent(nodeId)}/unblock`,
+    { expectedUpdatedAt },
+    parseCommercialNodeWriteResponse,
   );
 }
 
