@@ -6,7 +6,7 @@ import type { MockStatus } from '../workflow-mock/flow-nodes';
  * Achievement points are the dots. Stages are the lines between them.
  * Workflow node ids here are template slugs, not instance UUIDs.
  * 「手工」is not its own node yet; it stays inside 文案准备.
- * 「AI 生成」and「后期剪辑」are still the single template node `ai_post`.
+ * 「剪辑」is its own template node `edit`, before AI 后期 (`ai_post`).
  */
 export const ACHIEVEMENT_POINTS = [
   { id: 'inquiry', label: '询单' },
@@ -39,7 +39,7 @@ export const PROGRESS_STAGES = [
     label: '拍摄制作',
     from: 'script_locked',
     to: 'edit_done',
-    nodeIds: ['a_roll', 'b_roll', 'ai_post'],
+    nodeIds: ['a_roll', 'b_roll', 'edit', 'ai_post'],
   },
   {
     id: 'client_review',
@@ -75,9 +75,10 @@ const NAME_TO_NODE_ID: Record<string, string> = {
   手工: 'manual',
   'A-roll 拍摄': 'a_roll',
   'B-roll 素材': 'b_roll',
+  剪辑: 'edit',
+  后期剪辑: 'edit',
   'AI 后期': 'ai_post',
   'AI 生成': 'ai_post',
-  后期剪辑: 'ai_post',
   审核: 'review',
   发布: 'publish',
   全平台分发: 'distribution',

@@ -110,7 +110,7 @@ describe('commercial ingress foundation (WP-R2-19A)', () => {
       FROM wf_nodes
       WHERE project_id = ${projectId}
     `;
-    expect(Number(nodeStats?.total)).toBe(14);
+    expect(Number(nodeStats?.total)).toBe(15);
     expect(Number(nodeStats?.started)).toBe(0);
 
     const lookup = parseCommercialSourceLookupResponse(

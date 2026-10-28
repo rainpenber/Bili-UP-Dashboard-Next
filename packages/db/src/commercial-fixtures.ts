@@ -31,6 +31,7 @@ const PRE_PUBLISH_DONE = [
   'merge',
   'a_roll',
   'b_roll',
+  'edit',
   'ai_post',
   'review',
   'publish',
@@ -85,7 +86,7 @@ function defaultNodeStatus(projectId: string, slug: string): NodeStatus {
 
   if (projectId === FIXTURE_PROJECT_IDS.productionParallel) {
     if (slug === 'merge') return 'completed';
-    if (['a_roll', 'b_roll', 'ai_post'].includes(slug)) return 'in_progress';
+    if (['a_roll', 'b_roll', 'edit', 'ai_post'].includes(slug)) return 'in_progress';
   }
 
   if (projectId === FIXTURE_PROJECT_IDS.publishedOpen) {
@@ -141,6 +142,7 @@ function defaultNodeStatus(projectId: string, slug: string): NodeStatus {
         'merge',
         'a_roll',
         'b_roll',
+        'edit',
         'ai_post',
         'review',
       ].includes(slug)

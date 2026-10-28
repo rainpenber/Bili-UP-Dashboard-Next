@@ -74,24 +74,21 @@ describe('commercial workflow write API', () => {
     remember(tokens, advanced);
   }, 30_000);
 
-  test('the join node gates A-roll, B-roll, and AI 后期', async () => {
+  test('the join node gates A-roll and B-roll', async () => {
     const ctx = await ready();
     if (!ctx) return;
     const { projectId, tokens } = ctx;
     await completeThrough(ctx, ['询单', '大纲', '文案', '预拍摄']);
 
-    for (const name of ['A-roll 拍摄', 'B-roll 素材', 'AI 后期']) {
+    for (const name of ['A-roll 拍摄', 'B-roll 素材']) {
       const refused = await postNode(ctx.app, projectId, tokens, name, 'advance');
       const body = await expectRefusal(refused, 409, 'predecessors_incomplete', ['汇合节点']);
       expect(body.error).toBe('须先完成前置节点：汇合节点');
     }
 
     await completeThrough(ctx, ['汇合节点']);
-    for (const name of ['A-roll 拍摄', 'B-roll 素材', 'AI 后期']) {
-      const advanced = await mustNode(await postNode(ctx.app, projectId, tokens, name, 'advance'));
-      expect(advanced.node.status).toBe('in_progress');
-      remember(tokens, advanced);
-    }
+    await completeThrough(ctx, ['A-roll 拍摄', 'B-roll 素材', '剪辑', 'AI 后期']);
+    expect(await statusOf(ctx.sql, projectId, 'AI 后期')).toBe('completed');
   }, 30_000);
 
   test('skipping the optional join lets its successors advance, and passthrough still names upstream', async () => {
@@ -115,11 +112,8 @@ describe('commercial workflow write API', () => {
     expect(passedBody.names).not.toContain('汇合节点');
 
     await completeThrough(ctx, ['文案', '预拍摄']);
-    for (const name of ['A-roll 拍摄', 'B-roll 素材', 'AI 后期']) {
-      const advanced = await mustNode(await postNode(ctx.app, projectId, tokens, name, 'advance'));
-      expect(advanced.node.status).toBe('in_progress');
-      remember(tokens, advanced);
-    }
+    await completeThrough(ctx, ['A-roll 拍摄', 'B-roll 素材', '剪辑', 'AI 后期']);
+    expect(await statusOf(ctx.sql, projectId, 'AI 后期')).toBe('completed');
   }, 30_000);
 
   test('skipping a required node marks it not_applicable and its successors can advance', async () => {
@@ -337,6 +331,7 @@ describe('commercial workflow write API', () => {
       '汇合节点',
       'A-roll 拍摄',
       'B-roll 素材',
+      '剪辑',
       'AI 后期',
       '审核',
     ]);
@@ -466,6 +461,7 @@ describe('commercial workflow write API', () => {
       '汇合节点',
       'A-roll 拍摄',
       'B-roll 素材',
+      '剪辑',
       'AI 后期',
       '审核',
     ]);
@@ -540,6 +536,7 @@ describe('commercial workflow write API', () => {
       '汇合节点',
       'A-roll 拍摄',
       'B-roll 素材',
+      '剪辑',
       'AI 后期',
       '审核',
     ]);
@@ -584,6 +581,7 @@ describe('commercial workflow write API', () => {
       '汇合节点',
       'A-roll 拍摄',
       'B-roll 素材',
+      '剪辑',
       'AI 后期',
       '审核',
     ]);
@@ -682,7 +680,7 @@ describe('commercial workflow write API', () => {
     if (!sql || !app) return null;
     const projectId = await createProject(sql, `write-${crypto.randomUUID()}`);
     const tokens = await loadTokens(app, projectId);
-    expect(tokens.size).toBe(14);
+    expect(tokens.size).toBe(15);
     return { app, sql, projectId, tokens };
   }
 
