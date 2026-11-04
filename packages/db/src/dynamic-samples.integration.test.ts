@@ -315,6 +315,7 @@ describe('historical dynamic sample upgrade', () => {
       '026_publish_non_video',
       '027_open_item_third_party',
       '028_add_edit_node',
+      '029_commercial_amount_evidence',
     ]);
     const creators = await snapshotRows(db, 'creators', 'mid');
     const dynamics = await snapshotRows(db, 'dynamics', 'dynamic_id');
