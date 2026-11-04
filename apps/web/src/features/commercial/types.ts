@@ -1,3 +1,5 @@
+import type { CommercialAmountEvidence } from '@studio/contracts';
+
 /** 工作流节点在只读图上的展示状态 */
 export type WorkflowNodeStatus = 'done' | 'in_progress' | 'blocked' | 'not_reached';
 
@@ -84,6 +86,8 @@ export interface CommercialProject {
   mainBlockingItem?: string;
   netAmountYuan: number;
   rebateAmountYuan: number;
+  amountRationale: string | null;
+  amountEvidence: CommercialAmountEvidence[];
   /** 未完成节点的计划时间摘要 */
   upcomingNodeSchedule: { name: string; dateLabel: string }[];
   finishedNodeSchedule: { name: string; dateLabel: string }[];

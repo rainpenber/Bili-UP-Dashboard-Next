@@ -42,6 +42,8 @@ type ProjectCoreRow = {
   name: string;
   net_amount: string | null;
   rebate_amount: string | null;
+  amount_rationale: string | null;
+  amount_evidence: unknown;
   overall_stage: string;
   phase: string;
   current_stage_names: string[] | null;
@@ -212,6 +214,8 @@ function toListItem(
     name: row.name,
     netAmount: moneyText(row.net_amount),
     rebateAmount: moneyText(row.rebate_amount),
+    amountRationale: row.amount_rationale,
+    amountEvidence: Array.isArray(row.amount_evidence) ? row.amount_evidence : [],
     overallStage: overallStage(row.overall_stage),
     phase: projectPhase(row.phase),
     currentStageNames: stageNames(row.current_stage_names),
@@ -428,6 +432,8 @@ async function readProjectCores(
         p.name,
         p.net_amount::text AS net_amount,
         p.rebate_amount::text AS rebate_amount,
+        p.amount_rationale,
+        p.amount_evidence,
         p.overall_stage,
         ${db.unsafe(PROJECT_PHASE_SQL)} AS phase,
         ARRAY(
@@ -504,6 +510,8 @@ async function readProjectCores(
             p.name,
             p.net_amount::text AS net_amount,
             p.rebate_amount::text AS rebate_amount,
+            p.amount_rationale,
+            p.amount_evidence,
             p.overall_stage,
             ${db.unsafe(PROJECT_PHASE_SQL)} AS phase,
             ARRAY(
@@ -564,6 +572,8 @@ async function readProjectCores(
             p.name,
             p.net_amount::text AS net_amount,
             p.rebate_amount::text AS rebate_amount,
+            p.amount_rationale,
+            p.amount_evidence,
             p.overall_stage,
             ${db.unsafe(PROJECT_PHASE_SQL)} AS phase,
             ARRAY(

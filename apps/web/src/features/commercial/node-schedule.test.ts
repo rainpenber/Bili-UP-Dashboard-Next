@@ -14,6 +14,8 @@ function facts(overrides: Partial<TimelineProjectFacts> = {}): TimelineProjectFa
   return {
     netAmount: null,
     rebateAmount: null,
+    amountRationale: null,
+    amountEvidence: [],
     overallStage: 'pre_publish',
     overallStageLabel: '发布前',
     currentTasks: [],

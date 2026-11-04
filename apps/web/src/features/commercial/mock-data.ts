@@ -33,6 +33,8 @@ export const commercialProjectsMock: CommercialProject[] = [
     mainBlockingItem: '确认口播是偏「家庭场景」还是「智驾体验」',
     netAmountYuan: 88000,
     rebateAmountYuan: 8800,
+    amountRationale: null,
+    amountEvidence: [],
     upcomingNodeSchedule: [
       { name: '大纲', dateLabel: '3月10日' },
       { name: '文案', dateLabel: '3月14日' },
@@ -87,6 +89,8 @@ export const commercialProjectsMock: CommercialProject[] = [
     inProgressNodeNames: ['大纲'],
     netAmountYuan: 32000,
     rebateAmountYuan: 3200,
+    amountRationale: null,
+    amountEvidence: [],
     upcomingNodeSchedule: [
       { name: '大纲', dateLabel: '3月9日' },
       { name: '文案', dateLabel: '3月12日' },
@@ -125,6 +129,8 @@ export const commercialProjectsMock: CommercialProject[] = [
     inProgressNodeNames: ['文案', 'B-roll 素材'],
     netAmountYuan: 56000,
     rebateAmountYuan: 5600,
+    amountRationale: null,
+    amountEvidence: [],
     upcomingNodeSchedule: [
       { name: '文案', dateLabel: '3月8日' },
       { name: '成片', dateLabel: '3月15日' },
@@ -170,6 +176,8 @@ export const commercialProjectsMock: CommercialProject[] = [
     mainBlockingItem: '甲方补发暗光样张原图',
     netAmountYuan: 120000,
     rebateAmountYuan: 12000,
+    amountRationale: null,
+    amountEvidence: [],
     upcomingNodeSchedule: [{ name: '发布', dateLabel: '3月7日' }],
     finishedNodeSchedule: [
       { name: '大纲', dateLabel: '2月22日' },
@@ -223,6 +231,8 @@ export const commercialProjectsMock: CommercialProject[] = [
     inProgressNodeNames: ['A-roll', 'B-roll', 'AI 后期'],
     netAmountYuan: 45000,
     rebateAmountYuan: 4500,
+    amountRationale: null,
+    amountEvidence: [],
     upcomingNodeSchedule: [
       { name: '审核', dateLabel: '3月11日' },
       { name: '发布', dateLabel: '3月13日' },
@@ -269,6 +279,8 @@ export const commercialProjectsMock: CommercialProject[] = [
     inProgressNodeNames: ['A-roll', '外拍补充镜头'],
     netAmountYuan: 38000,
     rebateAmountYuan: 3800,
+    amountRationale: null,
+    amountEvidence: [],
     upcomingNodeSchedule: [{ name: '成片', dateLabel: '3月16日' }],
     finishedNodeSchedule: [{ name: '文案', dateLabel: '3月3日' }],
     statusHeadline: '剪辑中',
@@ -311,6 +323,8 @@ export const commercialProjectsMock: CommercialProject[] = [
     mainBlockingItem: '1:6 船模手工涂装未完成',
     netAmountYuan: 28000,
     rebateAmountYuan: 2800,
+    amountRationale: null,
+    amountEvidence: [],
     upcomingNodeSchedule: [
       { name: 'A-roll', dateLabel: '3月12日' },
       { name: '发布', dateLabel: '3月20日' },
@@ -362,6 +376,8 @@ export const commercialProjectsMock: CommercialProject[] = [
     inProgressNodeNames: ['结算', '全平台分发', '数据维护'],
     netAmountYuan: 72000,
     rebateAmountYuan: 7200,
+    amountRationale: null,
+    amountEvidence: [],
     upcomingNodeSchedule: [
       { name: '结算', dateLabel: '3月31日' },
       { name: '数据维护', dateLabel: '持续' },
@@ -425,6 +441,8 @@ export const commercialProjectsMock: CommercialProject[] = [
     mainBlockingItem: '返点公对公发票',
     netAmountYuan: 65000,
     rebateAmountYuan: 6500,
+    amountRationale: null,
+    amountEvidence: [],
     upcomingNodeSchedule: [{ name: '结算收尾', dateLabel: '待发票' }],
     finishedNodeSchedule: [{ name: '发布', dateLabel: '1月15日' }],
     statusHeadline: '待结算',
@@ -471,6 +489,8 @@ export const commercialProjectsMock: CommercialProject[] = [
     inProgressNodeNames: ['审核', '还机'],
     netAmountYuan: 95000,
     rebateAmountYuan: 9500,
+    amountRationale: null,
+    amountEvidence: [],
     upcomingNodeSchedule: [{ name: '还机', dateLabel: '3月9日' }],
     finishedNodeSchedule: [{ name: 'A-roll', dateLabel: '3月2日' }],
     statusHeadline: '审核中',
@@ -519,6 +539,8 @@ export const commercialProjectsMock: CommercialProject[] = [
     inProgressNodeNames: [],
     netAmountYuan: 24000,
     rebateAmountYuan: 2400,
+    amountRationale: null,
+    amountEvidence: [],
     upcomingNodeSchedule: [],
     finishedNodeSchedule: [
       { name: '发布', dateLabel: '2025年10月1日' },

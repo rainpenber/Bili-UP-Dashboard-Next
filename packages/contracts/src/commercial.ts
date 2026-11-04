@@ -48,6 +48,19 @@ const OPEN_ITEM_IMPACTS = ['normal', 'blocking'] as const;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DECIMAL_RE = /^-?\d+(\.\d+)?$/;
+const NUMERIC_14_2_RE = /^-?\d{1,12}(\.\d{1,2})?$/;
+
+export const COMMERCIAL_AMOUNT_EVIDENCE_LIMIT = 10;
+export const COMMERCIAL_AMOUNT_EVIDENCE_TEXT_LIMIT = 300;
+export const COMMERCIAL_AMOUNT_RATIONALE_LIMIT = 500;
+
+export type CommercialAmountEvidence = {
+  text: string;
+  speaker: string;
+  at: string;
+  conversationId: number;
+  role: string;
+};
 
 export function isUuidString(value: unknown): value is string {
   return typeof value === 'string' && UUID_RE.test(value);
@@ -136,6 +149,10 @@ export type CommercialProjectListItem = {
   netAmount: string | null;
   /** 返点金额, numeric(14,2) text. */
   rebateAmount: string | null;
+  /** Why the amount was decided. Null when nothing was recorded. */
+  amountRationale: string | null;
+  /** Source quotes behind the amount. Empty when nothing was recorded. */
+  amountEvidence: CommercialAmountEvidence[];
   overallStage: OverallStage;
   /** Derived list grouping: pending until 文案 is done, active until 发布 is done, then wrapping. */
   phase: CommercialProjectPhase;
@@ -305,6 +322,56 @@ function parseMoney(value: unknown, label: string): string | null {
   if (typeof value !== 'string' || !DECIMAL_RE.test(value)) {
     throw new Error(`${label} must be a decimal string or null`);
   }
+  return value;
+}
+
+export function parseNumeric14_2(value: unknown, label: string): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string' || !NUMERIC_14_2_RE.test(value)) {
+    throw new Error(`${label} must be a numeric(14,2) decimal string or null`);
+  }
+  return value;
+}
+
+function parseAmountEvidenceItem(value: unknown, label: string): CommercialAmountEvidence {
+  const record = asRecord(value, label);
+  if (typeof record.text !== 'string') throw new Error(`${label}.text must be a string`);
+  if (typeof record.speaker !== 'string' || record.speaker.trim().length === 0) {
+    throw new Error(`${label}.speaker must be a non-empty string`);
+  }
+  if (
+    typeof record.conversationId !== 'number' ||
+    !Number.isInteger(record.conversationId) ||
+    record.conversationId < 0
+  ) {
+    throw new Error(`${label}.conversationId must be a non-negative integer`);
+  }
+  if (typeof record.role !== 'string' || record.role.trim().length === 0) {
+    throw new Error(`${label}.role must be a non-empty string`);
+  }
+  return {
+    text: record.text.slice(0, COMMERCIAL_AMOUNT_EVIDENCE_TEXT_LIMIT),
+    speaker: record.speaker,
+    at: parseIso(record.at, `${label}.at`),
+    conversationId: record.conversationId,
+    role: record.role,
+  };
+}
+
+export function normalizeCommercialAmountEvidence(value: unknown): CommercialAmountEvidence[] {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error('amountEvidence must be an array');
+  const items = value.map((item, index) =>
+    parseAmountEvidenceItem(item, `amountEvidence[${index}]`),
+  );
+  return items
+    .sort((a, b) => a.at.localeCompare(b.at))
+    .slice(-COMMERCIAL_AMOUNT_EVIDENCE_LIMIT);
+}
+
+export function parseCommercialAmountRationale(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') throw new Error('rationale must be a string or null');
   return value;
 }
 
@@ -502,6 +569,8 @@ function parseListItem(value: unknown): CommercialProjectListItem {
     name: parseName(record.name, 'name'),
     netAmount: parseMoney(record.netAmount, 'netAmount'),
     rebateAmount: parseMoney(record.rebateAmount, 'rebateAmount'),
+    amountRationale: parseCommercialAmountRationale(record.amountRationale),
+    amountEvidence: normalizeCommercialAmountEvidence(record.amountEvidence),
     overallStage: record.overallStage,
     phase: record.phase,
     currentStageNames: parseStageNames(record.currentStageNames, 'currentStageNames'),
@@ -565,6 +634,54 @@ export function parseCommercialProjectArchiveResponse(
   return {
     id: parseUuid(record.id, 'id'),
     archivedAt: parseNullableIso(record.archivedAt, 'archivedAt'),
+  };
+}
+
+export type CommercialAmountUpdateRequest = {
+  netAmount: string | null;
+  rebateAmount: string | null;
+  rationale: string | null;
+  evidence: CommercialAmountEvidence[];
+  expectedUpdatedAt: string;
+};
+
+export type CommercialProjectAmountResponse = {
+  id: string;
+  netAmount: string | null;
+  rebateAmount: string | null;
+  amountRationale: string | null;
+  amountEvidence: CommercialAmountEvidence[];
+  updatedAt: string;
+};
+
+export function parseCommercialAmountUpdateRequest(value: unknown): CommercialAmountUpdateRequest {
+  const record = asRecord(value, 'amount update request');
+  const rationale = parseCommercialAmountRationale(record.rationale);
+  if (rationale !== null && rationale.length > COMMERCIAL_AMOUNT_RATIONALE_LIMIT) {
+    throw new Error(
+      `rationale must be at most ${COMMERCIAL_AMOUNT_RATIONALE_LIMIT} characters`,
+    );
+  }
+  return {
+    netAmount: parseNumeric14_2(record.netAmount, 'netAmount'),
+    rebateAmount: parseNumeric14_2(record.rebateAmount, 'rebateAmount'),
+    rationale,
+    evidence: normalizeCommercialAmountEvidence(record.evidence),
+    expectedUpdatedAt: parseIso(record.expectedUpdatedAt, 'expectedUpdatedAt'),
+  };
+}
+
+export function parseCommercialProjectAmountResponse(
+  value: unknown,
+): CommercialProjectAmountResponse {
+  const record = asRecord(value, 'project amount response');
+  return {
+    id: parseUuid(record.id, 'id'),
+    netAmount: parseMoney(record.netAmount, 'netAmount'),
+    rebateAmount: parseMoney(record.rebateAmount, 'rebateAmount'),
+    amountRationale: parseCommercialAmountRationale(record.amountRationale),
+    amountEvidence: normalizeCommercialAmountEvidence(record.amountEvidence),
+    updatedAt: parseIso(record.updatedAt, 'updatedAt'),
   };
 }
 

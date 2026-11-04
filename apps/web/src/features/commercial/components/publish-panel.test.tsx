@@ -23,6 +23,8 @@ const project: CommercialProject = {
   inProgressNodeNames: ['发布'],
   netAmountYuan: 0,
   rebateAmountYuan: 0,
+  amountRationale: null,
+  amountEvidence: [],
   upcomingNodeSchedule: [],
   finishedNodeSchedule: [],
   statusHeadline: '待发布',

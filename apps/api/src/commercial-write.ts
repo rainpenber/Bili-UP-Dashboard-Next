@@ -6,6 +6,7 @@ import {
   isWfNodeKind,
   isWfNodeStatus,
   parseCommercialCancelItemRequest,
+  parseCommercialAmountUpdateRequest,
   parseCommercialBlockRequest,
   parseCommercialCloseItemRequest,
   parseCommercialNodeStepRequest,
@@ -15,6 +16,7 @@ import {
   parseCommercialOpenItemUpdateRequest,
   parseCommercialOpenItemWriteResponse,
   parseCommercialPlanRequest,
+  parseCommercialProjectAmountResponse,
   parseCommercialPublishRequest,
   parseCommercialPublishResponse,
   parseCommercialStageStepRequest,
@@ -39,6 +41,7 @@ import {
   type CommercialWorkflowNode,
   type CommercialWriteErrorBody,
   type CommercialWriteErrorCode,
+  type CommercialAmountUpdateRequest,
   type CommercialOpenItemCreateRequest,
   type CommercialOpenItemUpdateRequest,
   type MonitorJobType,
@@ -1650,6 +1653,74 @@ async function applyStep(
   };
 }
 
+type ProjectAmountRow = {
+  id: string;
+  net_amount: string | null;
+  rebate_amount: string | null;
+  amount_rationale: string | null;
+  amount_evidence: unknown;
+  updated_at: string;
+};
+
+async function updateProjectAmount(
+  tx: Tx,
+  projectId: string,
+  input: CommercialAmountUpdateRequest,
+): Promise<unknown> {
+  const rows = await tx<ProjectAmountRow[]>`
+    SELECT
+      id,
+      net_amount::text AS net_amount,
+      rebate_amount::text AS rebate_amount,
+      amount_rationale,
+      amount_evidence,
+      to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
+    FROM commercial_projects
+    WHERE id = ${projectId}
+    FOR UPDATE
+  `;
+  const current = rows[0];
+  if (!current) refuse(404, 'not_found', '项目不存在');
+  assertToken(current.updated_at, input.expectedUpdatedAt);
+
+  const updated = await tx<ProjectAmountRow[]>`
+    UPDATE commercial_projects
+    SET net_amount = ${input.netAmount},
+        rebate_amount = ${input.rebateAmount},
+        amount_rationale = ${input.rationale},
+        amount_evidence = ${tx.json(input.evidence)},
+        updated_at = now()
+    WHERE id = ${projectId}
+    RETURNING
+      id,
+      net_amount::text AS net_amount,
+      rebate_amount::text AS rebate_amount,
+      amount_rationale,
+      amount_evidence,
+      to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
+  `;
+  const row = updated[0];
+  if (!row) refuse(404, 'not_found', '项目不存在');
+
+  await audit(tx, projectId, 'commercial_project', projectId, 'amount_update', {
+    netAmountBefore: current.net_amount,
+    netAmountAfter: input.netAmount,
+    rebateAmountBefore: current.rebate_amount,
+    rebateAmountAfter: input.rebateAmount,
+    rationale: input.rationale,
+    evidence: input.evidence,
+  });
+
+  return {
+    id: row.id,
+    netAmount: row.net_amount,
+    rebateAmount: row.rebate_amount,
+    amountRationale: row.amount_rationale,
+    amountEvidence: Array.isArray(row.amount_evidence) ? row.amount_evidence : [],
+    updatedAt: row.updated_at,
+  };
+}
+
 function invalidBody(c: Context, message: string): Response {
   return c.json(parseCommercialWriteError({ error: message, code: 'invalid_body' }), 400);
 }
@@ -1928,6 +1999,20 @@ export function registerCommercialWriteRoutes(app: Hono, db: Sql): void {
       db
         .begin((tx) => cancelItem(tx, ids.projectId, ids.itemId, body))
         .then((result) => c.json(parseCommercialOpenItemWriteResponse(result))),
+    );
+  });
+
+  app.put('/projects/:projectId/amount', async (c) => {
+    const projectId = c.req.param('projectId');
+    if (!isUuid(projectId)) return invalidBody(c, '项目 id 不是 uuid');
+    const raw = await readBody(c);
+    if (isResponse(raw)) return raw;
+    const body = parseRequest(c, raw, parseCommercialAmountUpdateRequest);
+    if (body instanceof Response) return body;
+    return runWrite(c, () =>
+      db
+        .begin((tx) => updateProjectAmount(tx, projectId, body))
+        .then((result) => c.json(parseCommercialProjectAmountResponse(result))),
     );
   });
 

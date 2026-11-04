@@ -217,6 +217,8 @@ describe('progress timeline mapping', () => {
     expect(facts).toEqual({
       netAmount: '18000.00',
       rebateAmount: '600.00',
+      amountRationale: null,
+      amountEvidence: [],
       overallStage: 'pre_publish',
       overallStageLabel: '发布前',
       currentTasks: ['文案', '预拍摄'],

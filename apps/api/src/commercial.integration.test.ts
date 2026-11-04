@@ -209,6 +209,8 @@ describe('commercial read API', () => {
         stage_entered_at: string;
         business_closed_at: string | null;
         origin_kind: string | null;
+        amount_rationale: string | null;
+        amount_evidence: { text: string; speaker: string; at: string; conversationId: number; role: string }[];
       }[]
     >`
       SELECT
@@ -224,7 +226,9 @@ describe('commercial read API', () => {
         to_char(archived_at AT TIME ZONE 'UTC', ${STAMP}) AS archived_at,
         to_char(stage_entered_at AT TIME ZONE 'UTC', ${STAMP}) AS stage_entered_at,
         to_char(business_closed_at AT TIME ZONE 'UTC', ${STAMP}) AS business_closed_at,
-        origin_kind
+        origin_kind,
+        amount_rationale,
+        amount_evidence
       FROM commercial_projects
       ORDER BY created_at ASC, id ASC
     `;
@@ -282,6 +286,8 @@ describe('commercial read API', () => {
         name: project.name,
         netAmount: project.net_amount,
         rebateAmount: project.rebate_amount,
+        amountRationale: project.amount_rationale,
+        amountEvidence: project.amount_evidence,
         overallStage: asOverallStage(project.overall_stage),
         phase: expectedPhase(projectNodes),
         currentStageNames: stageNames(projectNodes),

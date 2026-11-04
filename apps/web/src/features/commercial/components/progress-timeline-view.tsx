@@ -36,6 +36,8 @@ import { DEMO_STATUS_COLOR } from '../workflow-status-map';
 import type { MockStatus } from '../../workflow-mock/flow-nodes';
 import { AnchoredRecordOverlay, RecordOverlayList, type RecordOverlayItem } from './record-overlay';
 import { TooltipNodeActions } from './node-step-actions';
+import { AmountEditDialog } from './amount-edit-dialog';
+import { AmountEvidencePopover } from './amount-evidence-popover';
 
 /** Bottom of the stage wash. 0x1f / 255 ≈ 0.12, inside the 0.10–0.14 band. */
 const HIGHLIGHT_ALPHA = '1f';
@@ -926,6 +928,7 @@ export function ProgressSummary({
   now,
   sourceWindow = null,
   sourceNamespace = null,
+  amountEdit = null,
 }: {
   facts: TimelineProjectFacts | null;
   nodes?: TimelineSourceNode[];
@@ -933,6 +936,12 @@ export function ProgressSummary({
   /** Bound source schedule window; null when unbound (fixtures keep「排期待确认」). */
   sourceWindow?: CommercialSourceWindow | null;
   sourceNamespace?: string | null;
+  /** Detail-page amount edit entry. Null keeps the summary read-only. */
+  amountEdit?: {
+    projectId: string;
+    updatedAt: string;
+    onSaved: () => void;
+  } | null;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState(false);
@@ -985,7 +994,24 @@ export function ProgressSummary({
       <Card data-testid="progress-summary-money">
         <CardContent className="px-4 py-3">
           <p className="text-xs text-muted-foreground">到手金额</p>
-          <p className="text-lg font-semibold leading-tight">{moneyLabel(facts.netAmount)}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <AmountEvidencePopover
+              netAmount={facts.netAmount}
+              rebateAmount={facts.rebateAmount}
+              rationale={facts.amountRationale}
+              evidence={facts.amountEvidence}
+            />
+            {amountEdit ? (
+              <AmountEditDialog
+                projectId={amountEdit.projectId}
+                netAmount={facts.netAmount}
+                rebateAmount={facts.rebateAmount}
+                rationale={facts.amountRationale}
+                updatedAt={amountEdit.updatedAt}
+                onSaved={amountEdit.onSaved}
+              />
+            ) : null}
+          </div>
           <p className="mt-1 text-xs text-muted-foreground">
             返点 {moneyLabel(facts.rebateAmount)}
           </p>

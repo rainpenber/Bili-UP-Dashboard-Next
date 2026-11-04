@@ -1,10 +1,12 @@
 import {
+  parseCommercialAmountUpdateRequest,
   parseCommercialDefaultTemplate,
   parseCommercialNodeWriteResponse,
   parseCommercialOpenItemCreateRequest,
   parseCommercialOpenItemUpdateRequest,
   parseCommercialOpenItemWriteResponse,
   parseCommercialProjectArchiveResponse,
+  parseCommercialProjectAmountResponse,
   parseCommercialProjectDetail,
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
@@ -13,11 +15,13 @@ import {
   parseCommercialWorkflowLayoutResponse,
   parseCommercialWriteError,
   type CommercialDefaultTemplate,
+  type CommercialAmountUpdateRequest,
   type CommercialNodeWriteResponse,
   type CommercialOpenItemCreateRequest,
   type CommercialOpenItemUpdateRequest,
   type CommercialOpenItemWriteResponse,
   type CommercialProjectArchiveResponse,
+  type CommercialProjectAmountResponse,
   type CommercialProjectDetail,
   type CommercialProjectListResponse,
   type CommercialProjectWorkflow,
@@ -126,6 +130,38 @@ export function fetchLiveProjectDetail(projectId: string): Promise<CommercialPro
   return getJson(`/api/v1/commercial/projects/${encodeURIComponent(projectId)}`).then((body) =>
     parseRead(parseCommercialProjectDetail, body),
   );
+}
+
+export async function putProjectAmount(
+  projectId: string,
+  body: CommercialAmountUpdateRequest,
+): Promise<CommercialProjectAmountResponse> {
+  const request = parseCommercialAmountUpdateRequest(body);
+  let res: Response;
+  try {
+    res = await fetch(
+      `/api/v1/commercial/projects/${encodeURIComponent(projectId)}/amount`,
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(request),
+      },
+    );
+  } catch (err) {
+    throw new CommercialReadError(err instanceof Error ? err.message : '网络异常', 0, 'http');
+  }
+  const payload: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message =
+      typeof payload === 'object' &&
+      payload !== null &&
+      'error' in payload &&
+      typeof payload.error === 'string'
+        ? payload.error
+        : `HTTP ${res.status}`;
+    throw new CommercialReadError(message, res.status, 'http');
+  }
+  return parseRead(parseCommercialProjectAmountResponse, payload);
 }
 
 export function fetchLiveProjectWorkflow(projectId: string): Promise<CommercialProjectWorkflow> {

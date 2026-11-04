@@ -17,10 +17,12 @@ const LIVE_READ_DEFAULTS = {
   sourceWindow: null,
   blockedNodeNames: [] as string[],
   openItems: [] as CommercialOpenItemRead[],
+  amountRationale: null,
+  amountEvidence: [],
 };
 
 export function asLiveDetail<T extends Record<string, unknown>>(
   detail: T,
 ): CommercialProjectDetail & T {
-  return { ...LIVE_READ_DEFAULTS, ...detail } as CommercialProjectDetail & T;
+  return { ...LIVE_READ_DEFAULTS, ...detail } as unknown as CommercialProjectDetail & T;
 }
