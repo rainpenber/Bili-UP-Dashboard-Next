@@ -47,7 +47,16 @@ describe('AudienceReactionPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '评论模拟' }));
     expect(/内部模拟|非真实|不是真实/.test(preview.value)).toBe(true);
     expect(preview.value).toContain('【内部评估说明】');
-    expect(preview.value).toContain('写30条');
+    expect(preview.value).toContain('写 50 条');
+  });
+
+  test('generation count flows into the composed prompt', () => {
+    render(<AudienceReactionPage />);
+    const preview = screen.getByLabelText('组合提示词预览') as HTMLTextAreaElement;
+    expect(preview.value).toContain('共 50 条');
+    const input = screen.getByLabelText('生成条数') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '80' } });
+    expect(preview.value).toContain('共 80 条');
   });
 
   test('manual copy dialog content includes the same simulation notice', async () => {
@@ -105,7 +114,7 @@ describe('AudienceReactionPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '评论模拟' }));
     await waitFor(() => {
-      expect(preview.value).toContain('写30条');
+      expect(preview.value).toContain('写 50 条');
       expect(preview.value).toContain('测试耳机');
     });
   });

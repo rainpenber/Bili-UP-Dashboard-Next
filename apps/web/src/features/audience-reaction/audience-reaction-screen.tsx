@@ -84,6 +84,7 @@ export function AudienceReactionScreen() {
   const categoryId = useId();
   const positioningId = useId();
   const refId = useId();
+  const countId = useId();
   const danmakuInId = useId();
   const danmakuOutId = useId();
 
@@ -97,6 +98,7 @@ export function AudienceReactionScreen() {
       positioning: form.positioning,
       reference_comments: form.reference_comments,
       subtitle_csv,
+      count: String(form.count),
     });
   }, [templateRaw, form, cues]);
 
@@ -357,6 +359,29 @@ export function AudienceReactionScreen() {
                   onChange={(e) => updateForm({ positioning: e.target.value })}
                   className="mt-1"
                 />
+              </div>
+              <div>
+                <Label htmlFor={countId}>生成条数</Label>
+                <Input
+                  id={countId}
+                  type="number"
+                  min={1}
+                  max={500}
+                  inputMode="numeric"
+                  value={form.count}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    updateForm({
+                      count: Number.isFinite(next)
+                        ? Math.min(500, Math.max(1, Math.trunc(next)))
+                        : 1,
+                    });
+                  }}
+                  className="mt-1"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  弹幕/评论各生成多少条，1–500；会写入提示词。
+                </p>
               </div>
             </CardContent>
           </Card>

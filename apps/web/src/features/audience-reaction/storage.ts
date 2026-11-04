@@ -15,6 +15,8 @@ export type StoredForm = {
   positioning: string;
   reference_comments: string;
   templateId: TemplateId;
+  /** 生成条数：弹幕/评论各一批要多少条 */
+  count: number;
 };
 
 export type LoadFormResult =
@@ -35,6 +37,7 @@ const FORM_KEYS = [
   'positioning',
   'reference_comments',
   'templateId',
+  'count',
 ] as const;
 
 export const defaultForm = (): StoredForm => ({
@@ -43,6 +46,7 @@ export const defaultForm = (): StoredForm => ({
   positioning: '',
   reference_comments: '',
   templateId: 'danmaku',
+  count: 50,
 });
 
 /** 浏览器草稿后端（默认同 localStorage；测试可注入） */
@@ -99,6 +103,13 @@ export function parseStoredForm(raw: unknown): StoredForm {
   form.category = asStringField(o.category, 'category');
   form.positioning = asStringField(o.positioning, 'positioning');
   form.reference_comments = asStringField(o.reference_comments, 'reference_comments');
+  if (o.count !== undefined) {
+    const count = typeof o.count === 'string' ? Number(o.count) : o.count;
+    if (typeof count !== 'number' || !Number.isInteger(count) || count < 1 || count > 500) {
+      throw new Error('count 必须是 1~500 的整数');
+    }
+    form.count = count;
+  }
   if (o.templateId !== undefined) {
     if (!isTemplateId(o.templateId)) {
       throw new Error('templateId 必须是 comment 或 danmaku');
@@ -159,6 +170,7 @@ export function saveForm(data: StoredForm): SaveFormResult {
       positioning: data.positioning,
       reference_comments: data.reference_comments,
       templateId: normalizeTemplateId(data.templateId),
+      count: data.count,
     };
     storage.setItem(STORAGE_KEY, JSON.stringify(safe));
     return { ok: true };
@@ -198,6 +210,7 @@ export function exportConfig(form: StoredForm): string {
       positioning: form.positioning,
       reference_comments: form.reference_comments,
       templateId: normalizeTemplateId(form.templateId),
+      count: form.count,
     },
   };
   return JSON.stringify(payload, null, 2);

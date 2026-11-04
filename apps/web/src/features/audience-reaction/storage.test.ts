@@ -136,3 +136,22 @@ describe('localStorage load/save', () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 });
+
+describe('generation count', () => {
+  it('defaults to 50 and survives a round trip', () => {
+    expect(defaultForm().count).toBe(50);
+    const form = { ...defaultForm(), count: 120 };
+    const parsed = parseStoredForm(JSON.parse(JSON.stringify(form)));
+    expect(parsed.count).toBe(120);
+  });
+
+  it('rejects counts outside 1..500 or non-integers', () => {
+    expect(() => parseStoredForm({ count: 0 })).toThrow(/count/);
+    expect(() => parseStoredForm({ count: 501 })).toThrow(/count/);
+    expect(() => parseStoredForm({ count: 12.5 })).toThrow(/count/);
+  });
+
+  it('keeps old drafts readable when count is absent', () => {
+    expect(parseStoredForm({ templateId: 'comment' }).count).toBe(50);
+  });
+});

@@ -50,6 +50,7 @@ describe('legacy templates', () => {
       expect(tpl).toContain('{{positioning}}');
       expect(tpl).toContain('{{reference_comments}}');
       expect(tpl).toContain('{{subtitle_csv}}');
+      expect(tpl).toContain('{{count}}');
     }
   });
 

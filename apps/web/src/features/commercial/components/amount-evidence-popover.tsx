@@ -1,5 +1,5 @@
 import type { CommercialAmountEvidence } from '@studio/contracts';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { formatYuan } from '../commercial-selectors';
@@ -30,6 +30,8 @@ export function AmountEvidencePopover({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [placement, setPlacement] = useState<'up' | 'down'>('down');
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [showAll, setShowAll] = useState(false);
   const ordered = useMemo(() => sortedEvidence(evidence), [evidence]);
   const visible = showAll ? ordered : ordered.slice(0, 5);
@@ -53,7 +55,15 @@ export function AmountEvidencePopover({
         aria-expanded={open}
         className="inline-flex size-5 items-center justify-center rounded-full border text-xs font-semibold text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
         data-testid="amount-evidence-trigger"
-        onClick={() => setOpen((value) => !value)}
+        ref={triggerRef}
+        onClick={() => {
+          const rect = triggerRef.current?.getBoundingClientRect();
+          if (rect) {
+            const below = window.innerHeight - rect.bottom;
+            setPlacement(below < 360 && rect.top > below ? 'up' : 'down');
+          }
+          setOpen((value) => !value);
+        }}
       >
         ?
       </button>
@@ -68,7 +78,10 @@ export function AmountEvidencePopover({
           <div
             role="dialog"
             aria-label="金额依据"
-            className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-y-auto rounded-t-xl border bg-popover p-4 text-left text-sm text-popover-foreground shadow-xl sm:absolute sm:inset-x-auto sm:bottom-full sm:right-0 sm:mb-2 sm:max-h-96 sm:w-80 sm:rounded-lg"
+            className={cn(
+              'fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-y-auto rounded-t-xl border bg-popover p-4 text-left text-sm text-popover-foreground shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:max-h-[min(60vh,24rem)] sm:w-80 sm:rounded-lg',
+              placement === 'up' ? 'sm:bottom-full sm:mb-2' : 'sm:top-full sm:mt-2',
+            )}
             data-testid="amount-evidence-popover"
           >
             <p className="font-medium" data-testid="amount-evidence-summary">

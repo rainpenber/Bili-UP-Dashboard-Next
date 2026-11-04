@@ -7,6 +7,7 @@ export type TemplateVars = {
   positioning: string;
   reference_comments: string;
   subtitle_csv: string;
+  count: string;
 };
 
 /** 组合结果前置说明（不改动用户模板正文）；须含内部模拟标识供复制给 AI */
