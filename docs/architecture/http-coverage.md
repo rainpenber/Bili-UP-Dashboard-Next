@@ -1,8 +1,8 @@
 # HTTP API 覆盖
 
-验收库 `wp_r2_11_c3855a313d1f` 保留，本文件不执行 DROP DATABASE。
+验收库 `wp_r2_11_341b615f149f` 保留，本文件不执行 DROP DATABASE。
 
-注册 86，清单 86，已执行 86，HTTP 成功 86，断言验收 86。
+注册 89，清单 89，已执行 89，HTTP 成功 89，断言验收 89。
 
 验收结论：通过。每一条注册路由都有一次 HTTP 成功响应，且发出该响应的测试断言已通过。
 
@@ -88,6 +88,7 @@
 - commercial：HTTP 404（拒绝响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
+- commercial：HTTP 200（成功响应，断言通过）
 
 ## GET `/api/v1/commercial/projects/:projectId/workflow`
 
@@ -95,6 +96,10 @@
 - 已执行：是
 - HTTP 成功：是
 - 断言验收：是
+- commercial：HTTP 200（成功响应，断言通过）
+- commercial：HTTP 200（成功响应，断言通过）
+- commercial：HTTP 200（成功响应，断言通过）
+- commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
@@ -496,6 +501,14 @@
 - accounts：HTTP 200（成功响应，断言通过）
 - accounts：HTTP 404（拒绝响应，断言通过）
 
+## PATCH `/api/v1/commercial/projects/:projectId/open-items/:itemId`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- commercial：HTTP 200（成功响应，断言通过）
+
 ## PATCH `/api/v1/commercial/projects/:projectId/workflow/layout`
 
 - 前端调用：有
@@ -608,6 +621,7 @@
 - commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
+- commercial：HTTP 200（成功响应，断言通过）
 
 ## POST `/api/v1/commercial/projects/:projectId/nodes/:nodeId/block`
 
@@ -626,6 +640,7 @@
 - 已执行：是
 - HTTP 成功：是
 - 断言验收：是
+- commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
@@ -660,6 +675,7 @@
 - HTTP 成功：是
 - 断言验收：是
 - commercial：HTTP 200（成功响应，断言通过）
+- commercial：HTTP 200（成功响应，断言通过）
 
 ## POST `/api/v1/commercial/projects/:projectId/nodes/:nodeId/skip`
 
@@ -668,7 +684,7 @@
 - HTTP 成功：是
 - 断言验收：是
 - commercial：HTTP 200（成功响应，断言通过）
-- commercial：HTTP 409（拒绝响应，断言通过）
+- commercial：HTTP 200（成功响应，断言通过）
 
 ## POST `/api/v1/commercial/projects/:projectId/nodes/:nodeId/step`
 
@@ -687,6 +703,14 @@
 - HTTP 成功：是
 - 断言验收：是
 - commercial：HTTP 200（成功响应，断言通过）
+
+## POST `/api/v1/commercial/projects/:projectId/open-items`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- commercial：HTTP 201（成功响应，断言通过）
 
 ## POST `/api/v1/commercial/projects/:projectId/open-items/:itemId/cancel`
 
@@ -832,6 +856,14 @@
 - 断言验收：是
 - metadata-refresh：HTTP 200（成功响应，断言通过）
 - metadata-refresh：HTTP 404（拒绝响应，断言通过）
+
+## PUT `/api/v1/commercial/projects/:projectId/amount`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- commercial：HTTP 200（成功响应，断言通过）
 
 ## PUT `/api/v1/monitor/creators/:mid/discovery`
 

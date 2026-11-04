@@ -2,8 +2,8 @@
   "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
   "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 88,
-  "wiredRouteCount": 61,
+  "apiRouteCount": 89,
+  "wiredRouteCount": 62,
   "unwiredImplementedRouteCount": 27,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes and registerCommercialIngressRoutes add fixed POST/GET lists.",
@@ -1089,6 +1089,28 @@
     },
     {
       "method": "PATCH",
+      "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 1805,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial-write.ts#parseCommercialOpenItemUpdateRequest",
+      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialOpenItemWriteResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "updateLiveOpenItem",
+          "evidence": "/open-items/${encodeURIComponent(itemId)}`"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-OC-011. Edits title, nextActor, impact, dueAt, or note under expectedUpdatedAt optimistic locking. Only lifecycle=open items are editable; closed/cancelled returns 409 item_closed.",
+      "storedEntity": "open_items"
+    },
+    {
+      "method": "PATCH",
       "path": "/api/v1/commercial/projects/:projectId/workflow/layout",
       "mountPrefix": "/api/v1/commercial",
       "sourceFile": "apps/api/src/commercial-write.ts",
@@ -1471,28 +1493,6 @@
       "storedEntity": "open_items"
     },
     {
-      "method": "PATCH",
-      "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId",
-      "mountPrefix": "/api/v1/commercial",
-      "sourceFile": "apps/api/src/commercial-write.ts",
-      "sourceLine": 1805,
-      "registration": "registerCommercialWriteRoutes",
-      "readWrite": "write",
-      "area": "commercial",
-      "requestContract": "packages/contracts/src/commercial-write.ts#parseCommercialOpenItemUpdateRequest",
-      "responseContract": "packages/contracts/src/commercial-write.ts#parseCommercialOpenItemWriteResponse",
-      "frontendCallers": [
-        {
-          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
-          "symbol": "updateLiveOpenItem",
-          "evidence": "/open-items/${encodeURIComponent(itemId)}`"
-        }
-      ],
-      "wired": true,
-      "notes": "WP-OC-011. Edits title, nextActor, impact, dueAt, or note under expectedUpdatedAt optimistic locking. Only lifecycle=open items are editable; closed/cancelled returns 409 item_closed.",
-      "storedEntity": "open_items"
-    },
-    {
       "method": "POST",
       "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId/cancel",
       "mountPrefix": "/api/v1/commercial",
@@ -1734,6 +1734,28 @@
       "frontendCallers": [],
       "wired": false,
       "notes": "Synchronous view/detail refresh. force=false and metadata_state=ok does not call upstream."
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/commercial/projects/:projectId/amount",
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-write.ts",
+      "sourceLine": 2005,
+      "registration": "registerCommercialWriteRoutes",
+      "readWrite": "write",
+      "area": "commercial",
+      "requestContract": "packages/contracts/src/commercial.ts#parseCommercialAmountUpdateRequest",
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialProjectAmountResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "putProjectAmount",
+          "evidence": "/amount`,"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-OC-013. Writes net/rebate amount with a rationale and up to 10 evidence quotes; audited as amount_update; optimistic lock returns 409.",
+      "storedEntity": "commercial_projects"
     },
     {
       "method": "PUT",

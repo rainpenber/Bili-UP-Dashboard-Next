@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_c3855a313d1f",
+  "databaseName": "wp_r2_11_341b615f149f",
   "retainedDatabase": true,
-  "registeredCount": 86,
-  "inventoryCount": 86,
-  "executedCount": 86,
-  "httpSuccessCount": 86,
-  "acceptedCount": 86,
+  "registeredCount": 89,
+  "inventoryCount": 89,
+  "executedCount": 89,
+  "httpSuccessCount": 89,
+  "acceptedCount": 89,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 9,
@@ -214,6 +214,12 @@
           "status": 200,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -226,6 +232,30 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "commercial",
           "status": 200,
@@ -1359,6 +1389,23 @@
     },
     {
       "method": "PATCH",
+      "path": "/api/v1/commercial/projects/:projectId/open-items/:itemId",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
       "path": "/api/v1/commercial/projects/:projectId/workflow/layout",
       "readWrite": "write",
       "frontendCaller": true,
@@ -1691,6 +1738,12 @@
           "status": 200,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1738,6 +1791,12 @@
       "httpSuccess": true,
       "accepted": true,
       "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
         {
           "test": "commercial",
           "status": 200,
@@ -1848,6 +1907,12 @@
           "status": 200,
           "http": "success",
           "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
         }
       ]
     },
@@ -1868,8 +1933,8 @@
         },
         {
           "test": "commercial",
-          "status": 409,
-          "http": "reject",
+          "status": 200,
+          "http": "success",
           "assertions": "passed"
         }
       ]
@@ -1915,6 +1980,23 @@
         {
           "test": "commercial",
           "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/projects/:projectId/open-items",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 201,
           "http": "success",
           "assertions": "passed"
         }
@@ -2352,6 +2434,23 @@
           "test": "metadata-refresh",
           "status": 404,
           "http": "reject",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/commercial/projects/:projectId/amount",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
           "assertions": "passed"
         }
       ]

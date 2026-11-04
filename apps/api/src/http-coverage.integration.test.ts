@@ -8,6 +8,7 @@ import {
   parseCommercialDefaultTemplate,
   parseCommercialNodeWriteResponse,
   parseCommercialOpenItemWriteResponse,
+  parseCommercialProjectAmountResponse,
   parseCommercialProjectArchiveResponse,
   parseCommercialProjectDetail,
   parseCommercialProjectList,
@@ -1794,6 +1795,36 @@ describe('HTTP API coverage against isolated Postgres', () => {
         ),
       );
       expect(restored.archivedAt).toBeNull();
+      const amountWrite = parseCommercialProjectAmountResponse(
+        await expectStatus(
+          await api(`/api/v1/commercial/projects/${projectId}/amount`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              netAmount: '20000.00',
+              rebateAmount: '0.00',
+              rationale: '集成测试写入',
+              evidence: [
+                {
+                  text: '就是按照20000元给咱们结算的噻',
+                  speaker: '甲方',
+                  at: '2026-11-04T07:11:00Z',
+                  conversationId: 1,
+                  role: 'client',
+                },
+              ],
+              expectedUpdatedAt: detail.updatedAt,
+            }),
+          }),
+          200,
+        ),
+      );
+      expect(amountWrite.netAmount).toBe('20000.00');
+      const afterAmount = parseCommercialProjectDetail(
+        await expectStatus(await api(`/api/v1/commercial/projects/${projectId}`), 200),
+      );
+      expect(afterAmount.amountEvidence).toHaveLength(1);
+      expect(afterAmount.amountRationale).toBe('集成测试写入');
       let tokens = await loadTokens(projectId);
       expect(tokens.size).toBe(15);
 
