@@ -364,9 +364,7 @@ export function normalizeCommercialAmountEvidence(value: unknown): CommercialAmo
   const items = value.map((item, index) =>
     parseAmountEvidenceItem(item, `amountEvidence[${index}]`),
   );
-  return items
-    .sort((a, b) => a.at.localeCompare(b.at))
-    .slice(-COMMERCIAL_AMOUNT_EVIDENCE_LIMIT);
+  return items.sort((a, b) => a.at.localeCompare(b.at)).slice(-COMMERCIAL_AMOUNT_EVIDENCE_LIMIT);
 }
 
 export function parseCommercialAmountRationale(value: unknown): string | null {
@@ -658,9 +656,7 @@ export function parseCommercialAmountUpdateRequest(value: unknown): CommercialAm
   const record = asRecord(value, 'amount update request');
   const rationale = parseCommercialAmountRationale(record.rationale);
   if (rationale !== null && rationale.length > COMMERCIAL_AMOUNT_RATIONALE_LIMIT) {
-    throw new Error(
-      `rationale must be at most ${COMMERCIAL_AMOUNT_RATIONALE_LIMIT} characters`,
-    );
+    throw new Error(`rationale must be at most ${COMMERCIAL_AMOUNT_RATIONALE_LIMIT} characters`);
   }
   return {
     netAmount: parseNumeric14_2(record.netAmount, 'netAmount'),

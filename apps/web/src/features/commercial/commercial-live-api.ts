@@ -139,14 +139,11 @@ export async function putProjectAmount(
   const request = parseCommercialAmountUpdateRequest(body);
   let res: Response;
   try {
-    res = await fetch(
-      `/api/v1/commercial/projects/${encodeURIComponent(projectId)}/amount`,
-      {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(request),
-      },
-    );
+    res = await fetch(`/api/v1/commercial/projects/${encodeURIComponent(projectId)}/amount`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    });
   } catch (err) {
     throw new CommercialReadError(err instanceof Error ? err.message : '网络异常', 0, 'http');
   }

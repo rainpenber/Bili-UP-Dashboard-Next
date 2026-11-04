@@ -210,7 +210,13 @@ describe('commercial read API', () => {
         business_closed_at: string | null;
         origin_kind: string | null;
         amount_rationale: string | null;
-        amount_evidence: { text: string; speaker: string; at: string; conversationId: number; role: string }[];
+        amount_evidence: {
+          text: string;
+          speaker: string;
+          at: string;
+          conversationId: number;
+          role: string;
+        }[];
       }[]
     >`
       SELECT

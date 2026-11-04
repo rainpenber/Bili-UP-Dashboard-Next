@@ -114,7 +114,10 @@ export function AmountEvidencePopover({
               )}
             </div>
             {latestAt ? (
-              <p className="mt-3 text-xs text-muted-foreground" data-testid="amount-evidence-source">
+              <p
+                className="mt-3 text-xs text-muted-foreground"
+                data-testid="amount-evidence-source"
+              >
                 数据来自 微信采集器 · {latestAt.slice(0, 10)}
               </p>
             ) : null}

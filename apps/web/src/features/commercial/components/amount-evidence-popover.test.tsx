@@ -43,14 +43,21 @@ describe('amount evidence popover', () => {
   });
 
   test('shows an empty hint instead of a blank panel', () => {
-    render(<AmountEvidencePopover netAmount={null} rebateAmount={null} rationale={null} evidence={[]} />);
+    render(
+      <AmountEvidencePopover netAmount={null} rebateAmount={null} rationale={null} evidence={[]} />,
+    );
     fireEvent.click(screen.getByTestId('amount-evidence-trigger'));
     expect(screen.getByText(/暂无原文依据/)).toBeTruthy();
   });
 
   test('closes on escape', () => {
     render(
-      <AmountEvidencePopover netAmount="20000.00" rebateAmount={null} rationale="理由" evidence={evidence} />,
+      <AmountEvidencePopover
+        netAmount="20000.00"
+        rebateAmount={null}
+        rationale="理由"
+        evidence={evidence}
+      />,
     );
     fireEvent.click(screen.getByTestId('amount-evidence-trigger'));
     expect(screen.getByText('理由')).toBeTruthy();
