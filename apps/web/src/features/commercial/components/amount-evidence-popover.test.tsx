@@ -22,11 +22,11 @@ const evidence = [
 afterEach(() => cleanup());
 
 describe('amount evidence popover', () => {
-  test('opens from the question mark and shows the rationale with quotes', () => {
+  test('shows only platform price, agreed rate, rationale, and quotes', () => {
     render(
       <AmountEvidencePopover
-        netAmount="20000.00"
-        rebateAmount="0.00"
+        platformAmount="31922.00"
+        agreedRebateRate="0.30"
         rationale="纯现金、无置换无返点"
         evidence={evidence}
       />,
@@ -37,24 +37,38 @@ describe('amount evidence popover', () => {
     expect(screen.queryByText('就是按照20000元给咱们结算的噻')).toBeNull();
 
     fireEvent.click(trigger);
-    expect(screen.getByText('纯现金、无置换无返点')).toBeTruthy();
-    expect(screen.getByText(/20000元给咱们结算/)).toBeTruthy();
-    expect(screen.getByText(/别动我冰可乐/)).toBeTruthy();
+    const popover = screen.getByTestId('amount-evidence-popover');
+    expect(popover.textContent).toContain('平台下单价格');
+    expect(popover.textContent).toContain('¥31,922');
+    expect(popover.textContent).toContain('商议返点比例');
+    expect(popover.textContent).toContain('30.0%');
+    expect(popover.textContent).toContain('纯现金、无置换无返点');
+    expect(popover.textContent).toContain('就是按照20000元给咱们结算的噻');
+    expect(popover.textContent).toContain('别动我冰可乐');
+    expect(popover.textContent).not.toContain('到手金额');
+    expect(popover.textContent).not.toContain('到手');
+    expect(popover.textContent).not.toContain('净额');
   });
 
   test('shows an empty hint instead of a blank panel', () => {
     render(
-      <AmountEvidencePopover netAmount={null} rebateAmount={null} rationale={null} evidence={[]} />,
+      <AmountEvidencePopover
+        platformAmount={null}
+        agreedRebateRate={null}
+        rationale={null}
+        evidence={[]}
+      />,
     );
     fireEvent.click(screen.getByTestId('amount-evidence-trigger'));
     expect(screen.getByText(/暂无原文依据/)).toBeTruthy();
+    expect(screen.getByTestId('amount-evidence-popover').textContent).toContain('未填写');
   });
 
   test('closes on escape', () => {
     render(
       <AmountEvidencePopover
-        netAmount="20000.00"
-        rebateAmount={null}
+        platformAmount="39000.00"
+        agreedRebateRate={null}
         rationale="理由"
         evidence={evidence}
       />,

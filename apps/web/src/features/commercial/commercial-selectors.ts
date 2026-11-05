@@ -89,3 +89,11 @@ export function formatYuan(amount: number): string {
     maximumFractionDigits: 0,
   }).format(amount);
 }
+
+/** Decimal ratio text (0~1) as one-decimal percent. Null stays「未填写」. */
+export function formatRebateRate(rate: string | null): string {
+  if (rate === null) return '未填写';
+  const value = Number(rate);
+  if (!Number.isFinite(value)) return rate;
+  return `${(value * 100).toFixed(1)}%`;
+}

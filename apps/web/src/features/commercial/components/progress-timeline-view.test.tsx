@@ -463,6 +463,10 @@ describe('LiveProjectWorkflow timeline placement', () => {
             name: '甲方卡文案确认样例',
             netAmount: '18000.00',
             rebateAmount: '600.00',
+            platformAmount: '18600.00',
+            agreedRebateRate: '0.0323',
+            actualRebateRate: '0.0323',
+            amountGap: '0.00',
             overallStage: 'pre_publish',
             currentStageNames: ['文案', '预拍摄'],
             anyNodeBlocked: true,
@@ -505,9 +509,12 @@ describe('LiveProjectWorkflow timeline placement', () => {
     expect(money.className).toContain('rounded-lg');
     expect(money.querySelector('[data-slot="card-content"]')?.className).toContain('px-4');
     expect(money.querySelector('[data-slot="card-content"]')?.className).toContain('py-3');
-    expect(money.textContent).toContain('到手金额');
+    expect(money.textContent).toContain('到手');
     expect(money.textContent).toContain('¥18,000');
-    expect(money.textContent).toContain('返点');
+    expect(money.textContent).toContain('返点转款');
+    expect(money.textContent).toContain('¥600');
+    expect(money.textContent).toContain('实际返点');
+    expect(money.textContent).toContain('3.2%');
     expect(screen.getByTestId('progress-summary-schedule').textContent).toContain('排期待确认');
     expect(screen.getByTestId('progress-summary-tasks').textContent).toContain('文案、预拍摄');
     expect(screen.getByTestId('progress-summary-tasks').textContent).not.toContain(
@@ -989,6 +996,10 @@ function summaryFacts(overrides: Partial<TimelineProjectFacts> = {}): TimelinePr
   return {
     netAmount: '18000.00',
     rebateAmount: '600.00',
+    platformAmount: null,
+    agreedRebateRate: null,
+    actualRebateRate: null,
+    amountGap: null,
     amountRationale: null,
     amountEvidence: [],
     overallStage: 'pre_publish',

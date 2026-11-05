@@ -1801,8 +1801,10 @@ describe('HTTP API coverage against isolated Postgres', () => {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
-              netAmount: '20000.00',
-              rebateAmount: '0.00',
+              netAmount: '28080.00',
+              rebateAmount: '10920.00',
+              platformAmount: '39000.00',
+              agreedRebateRate: '0.28',
               rationale: '集成测试写入',
               evidence: [
                 {
@@ -1819,12 +1821,30 @@ describe('HTTP API coverage against isolated Postgres', () => {
           200,
         ),
       );
-      expect(amountWrite.netAmount).toBe('20000.00');
+      expect(amountWrite.netAmount).toBe('28080.00');
+      expect(amountWrite.platformAmount).toBe('39000.00');
+      expect(amountWrite.agreedRebateRate).toBe('0.2800');
+      expect(amountWrite.actualRebateRate).toBe('0.2800');
+      expect(amountWrite.amountGap).toBe('0.00');
       const afterAmount = parseCommercialProjectDetail(
         await expectStatus(await api(`/api/v1/commercial/projects/${projectId}`), 200),
       );
       expect(afterAmount.amountEvidence).toHaveLength(1);
       expect(afterAmount.amountRationale).toBe('集成测试写入');
+      expect(afterAmount.platformAmount).toBe('39000.00');
+      expect(afterAmount.agreedRebateRate).toBe('0.2800');
+      expect(afterAmount.actualRebateRate).toBe('0.2800');
+      expect(afterAmount.amountGap).toBe('0.00');
+      const [amountAudit] = await db<{ detail: Record<string, unknown> }[]>`
+        SELECT detail FROM domain_audit_events
+        WHERE project_id = ${projectId} AND action = 'amount_update'
+        ORDER BY id DESC
+        LIMIT 1
+      `;
+      expect(amountAudit?.detail.platformAmountBefore).toBeNull();
+      expect(amountAudit?.detail.platformAmountAfter).toBe('39000.00');
+      expect(amountAudit?.detail.agreedRebateRateBefore).toBeNull();
+      expect(amountAudit?.detail.agreedRebateRateAfter).toBe('0.2800');
       let tokens = await loadTokens(projectId);
       expect(tokens.size).toBe(15);
 

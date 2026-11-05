@@ -1,6 +1,7 @@
 import {
   commercialDisplayStateFromSource,
   commercialSourceWindowFromPayload,
+  deriveCommercialAmounts,
   isCommercialOriginKind,
   isCommercialProjectPhase,
   isOpenItemActor,
@@ -42,6 +43,8 @@ type ProjectCoreRow = {
   name: string;
   net_amount: string | null;
   rebate_amount: string | null;
+  platform_amount: string | null;
+  agreed_rebate_rate: string | null;
   amount_rationale: string | null;
   amount_evidence: unknown;
   overall_stage: string;
@@ -209,11 +212,20 @@ function toListItem(
 ): CommercialProjectListItem {
   const source = toSourceSummary(row);
   const display = commercialDisplayStateFromSource(source);
+  const derived = deriveCommercialAmounts({
+    platformAmount: row.platform_amount,
+    rebateAmount: row.rebate_amount,
+    netAmount: row.net_amount,
+  });
   return {
     id: row.id,
     name: row.name,
     netAmount: moneyText(row.net_amount),
     rebateAmount: moneyText(row.rebate_amount),
+    platformAmount: moneyText(row.platform_amount),
+    agreedRebateRate: moneyText(row.agreed_rebate_rate),
+    actualRebateRate: derived.actualRebateRate,
+    amountGap: derived.amountGap,
     amountRationale: row.amount_rationale,
     amountEvidence: Array.isArray(row.amount_evidence) ? row.amount_evidence : [],
     overallStage: overallStage(row.overall_stage),
@@ -432,6 +444,8 @@ async function readProjectCores(
         p.name,
         p.net_amount::text AS net_amount,
         p.rebate_amount::text AS rebate_amount,
+        p.platform_amount::text AS platform_amount,
+        p.agreed_rebate_rate::text AS agreed_rebate_rate,
         p.amount_rationale,
         p.amount_evidence,
         p.overall_stage,
@@ -510,6 +524,8 @@ async function readProjectCores(
             p.name,
             p.net_amount::text AS net_amount,
             p.rebate_amount::text AS rebate_amount,
+            p.platform_amount::text AS platform_amount,
+            p.agreed_rebate_rate::text AS agreed_rebate_rate,
             p.amount_rationale,
             p.amount_evidence,
             p.overall_stage,
@@ -572,6 +588,8 @@ async function readProjectCores(
             p.name,
             p.net_amount::text AS net_amount,
             p.rebate_amount::text AS rebate_amount,
+            p.platform_amount::text AS platform_amount,
+            p.agreed_rebate_rate::text AS agreed_rebate_rate,
             p.amount_rationale,
             p.amount_evidence,
             p.overall_stage,

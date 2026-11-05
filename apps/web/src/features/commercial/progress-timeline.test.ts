@@ -217,6 +217,10 @@ describe('progress timeline mapping', () => {
     expect(facts).toEqual({
       netAmount: '18000.00',
       rebateAmount: '600.00',
+      platformAmount: null,
+      agreedRebateRate: null,
+      actualRebateRate: null,
+      amountGap: null,
       amountRationale: null,
       amountEvidence: [],
       overallStage: 'pre_publish',

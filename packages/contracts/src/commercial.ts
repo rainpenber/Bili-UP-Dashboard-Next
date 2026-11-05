@@ -49,6 +49,7 @@ const OPEN_ITEM_IMPACTS = ['normal', 'blocking'] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DECIMAL_RE = /^-?\d+(\.\d+)?$/;
 const NUMERIC_14_2_RE = /^-?\d{1,12}(\.\d{1,2})?$/;
+const REBATE_RATE_RE = /^(?:0(?:\.\d{1,4})?|1(?:\.0{1,4})?)$/;
 
 export const COMMERCIAL_AMOUNT_EVIDENCE_LIMIT = 10;
 export const COMMERCIAL_AMOUNT_EVIDENCE_TEXT_LIMIT = 300;
@@ -147,8 +148,16 @@ export type CommercialProjectListItem = {
   name: string;
   /** 到手金额, numeric(14,2) text. */
   netAmount: string | null;
-  /** 返点金额, numeric(14,2) text. */
+  /** 实际返点转款, numeric(14,2) text. */
   rebateAmount: string | null;
+  /** 平台下单价格（= 平台打款金额）, numeric(14,2) text. */
+  platformAmount: string | null;
+  /** 商议返点比例, 0~1 numeric(6,4) text. */
+  agreedRebateRate: string | null;
+  /** Derived rebate_amount / platform_amount, 4-decimal ratio text. Never stored. */
+  actualRebateRate: string | null;
+  /** Derived platform_amount - rebate_amount - net_amount, numeric(14,2) text. Never stored. */
+  amountGap: string | null;
   /** Why the amount was decided. Null when nothing was recorded. */
   amountRationale: string | null;
   /** Source quotes behind the amount. Empty when nothing was recorded. */
@@ -331,6 +340,40 @@ export function parseNumeric14_2(value: unknown, label: string): string | null {
     throw new Error(`${label} must be a numeric(14,2) decimal string or null`);
   }
   return value;
+}
+
+export function parseRebateRate(value: unknown, label: string): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string' || !REBATE_RATE_RE.test(value)) {
+    throw new Error(`${label} must be a decimal rate between 0 and 1, or null`);
+  }
+  return value;
+}
+
+/** Computes the two read-only money values. Nothing here is persisted. */
+export function deriveCommercialAmounts(amounts: {
+  platformAmount: string | null;
+  rebateAmount: string | null;
+  netAmount: string | null;
+}): { actualRebateRate: string | null; amountGap: string | null } {
+  const platform = amounts.platformAmount === null ? null : Number(amounts.platformAmount);
+  const rebate = amounts.rebateAmount === null ? null : Number(amounts.rebateAmount);
+  const net = amounts.netAmount === null ? null : Number(amounts.netAmount);
+
+  const actualRebateRate =
+    platform !== null && rebate !== null && Number.isFinite(platform) && platform !== 0
+      ? (Math.round((rebate / platform) * 10000) / 10000).toFixed(4)
+      : null;
+
+  const amountGap =
+    platform !== null && rebate !== null && net !== null
+      ? (
+          (Math.round(platform * 100) - Math.round(rebate * 100) - Math.round(net * 100)) /
+          100
+        ).toFixed(2)
+      : null;
+
+  return { actualRebateRate, amountGap };
 }
 
 function parseAmountEvidenceItem(value: unknown, label: string): CommercialAmountEvidence {
@@ -567,6 +610,10 @@ function parseListItem(value: unknown): CommercialProjectListItem {
     name: parseName(record.name, 'name'),
     netAmount: parseMoney(record.netAmount, 'netAmount'),
     rebateAmount: parseMoney(record.rebateAmount, 'rebateAmount'),
+    platformAmount: parseNumeric14_2(record.platformAmount, 'platformAmount'),
+    agreedRebateRate: parseRebateRate(record.agreedRebateRate, 'agreedRebateRate'),
+    actualRebateRate: parseMoney(record.actualRebateRate ?? null, 'actualRebateRate'),
+    amountGap: parseNumeric14_2(record.amountGap, 'amountGap'),
     amountRationale: parseCommercialAmountRationale(record.amountRationale),
     amountEvidence: normalizeCommercialAmountEvidence(record.amountEvidence),
     overallStage: record.overallStage,
@@ -638,6 +685,8 @@ export function parseCommercialProjectArchiveResponse(
 export type CommercialAmountUpdateRequest = {
   netAmount: string | null;
   rebateAmount: string | null;
+  platformAmount?: string | null | undefined;
+  agreedRebateRate?: string | null | undefined;
   rationale: string | null;
   evidence: CommercialAmountEvidence[];
   expectedUpdatedAt: string;
@@ -647,6 +696,10 @@ export type CommercialProjectAmountResponse = {
   id: string;
   netAmount: string | null;
   rebateAmount: string | null;
+  platformAmount: string | null;
+  agreedRebateRate: string | null;
+  actualRebateRate: string | null;
+  amountGap: string | null;
   amountRationale: string | null;
   amountEvidence: CommercialAmountEvidence[];
   updatedAt: string;
@@ -661,6 +714,14 @@ export function parseCommercialAmountUpdateRequest(value: unknown): CommercialAm
   return {
     netAmount: parseNumeric14_2(record.netAmount, 'netAmount'),
     rebateAmount: parseNumeric14_2(record.rebateAmount, 'rebateAmount'),
+    platformAmount:
+      record.platformAmount === undefined
+        ? undefined
+        : parseNumeric14_2(record.platformAmount, 'platformAmount'),
+    agreedRebateRate:
+      record.agreedRebateRate === undefined
+        ? undefined
+        : parseRebateRate(record.agreedRebateRate, 'agreedRebateRate'),
     rationale,
     evidence: normalizeCommercialAmountEvidence(record.evidence),
     expectedUpdatedAt: parseIso(record.expectedUpdatedAt, 'expectedUpdatedAt'),
@@ -675,6 +736,10 @@ export function parseCommercialProjectAmountResponse(
     id: parseUuid(record.id, 'id'),
     netAmount: parseMoney(record.netAmount, 'netAmount'),
     rebateAmount: parseMoney(record.rebateAmount, 'rebateAmount'),
+    platformAmount: parseNumeric14_2(record.platformAmount, 'platformAmount'),
+    agreedRebateRate: parseRebateRate(record.agreedRebateRate, 'agreedRebateRate'),
+    actualRebateRate: parseMoney(record.actualRebateRate ?? null, 'actualRebateRate'),
+    amountGap: parseNumeric14_2(record.amountGap, 'amountGap'),
     amountRationale: parseCommercialAmountRationale(record.amountRationale),
     amountEvidence: normalizeCommercialAmountEvidence(record.amountEvidence),
     updatedAt: parseIso(record.updatedAt, 'updatedAt'),

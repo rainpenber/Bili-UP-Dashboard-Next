@@ -1,4 +1,5 @@
 import {
+  deriveCommercialAmounts,
   isOpenItemActor,
   isOverallStage,
   isPublishContentKind,
@@ -1657,6 +1658,8 @@ type ProjectAmountRow = {
   id: string;
   net_amount: string | null;
   rebate_amount: string | null;
+  platform_amount: string | null;
+  agreed_rebate_rate: string | null;
   amount_rationale: string | null;
   amount_evidence: unknown;
   updated_at: string;
@@ -1672,6 +1675,8 @@ async function updateProjectAmount(
       id,
       net_amount::text AS net_amount,
       rebate_amount::text AS rebate_amount,
+      platform_amount::text AS platform_amount,
+      agreed_rebate_rate::text AS agreed_rebate_rate,
       amount_rationale,
       amount_evidence,
       to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
@@ -1683,10 +1688,17 @@ async function updateProjectAmount(
   if (!current) refuse(404, 'not_found', '项目不存在');
   assertToken(current.updated_at, input.expectedUpdatedAt);
 
+  const platformAmount =
+    input.platformAmount === undefined ? current.platform_amount : input.platformAmount;
+  const agreedRebateRate =
+    input.agreedRebateRate === undefined ? current.agreed_rebate_rate : input.agreedRebateRate;
+
   const updated = await tx<ProjectAmountRow[]>`
     UPDATE commercial_projects
     SET net_amount = ${input.netAmount},
         rebate_amount = ${input.rebateAmount},
+        platform_amount = ${platformAmount},
+        agreed_rebate_rate = ${agreedRebateRate},
         amount_rationale = ${input.rationale},
         amount_evidence = ${tx.json(input.evidence)},
         updated_at = now()
@@ -1695,18 +1707,29 @@ async function updateProjectAmount(
       id,
       net_amount::text AS net_amount,
       rebate_amount::text AS rebate_amount,
+      platform_amount::text AS platform_amount,
+      agreed_rebate_rate::text AS agreed_rebate_rate,
       amount_rationale,
       amount_evidence,
       to_char(updated_at AT TIME ZONE 'UTC', ${COMMERCIAL_UPDATED_AT_FORMAT}) AS updated_at
   `;
   const row = updated[0];
   if (!row) refuse(404, 'not_found', '项目不存在');
+  const derived = deriveCommercialAmounts({
+    platformAmount: row.platform_amount,
+    rebateAmount: row.rebate_amount,
+    netAmount: row.net_amount,
+  });
 
   await audit(tx, projectId, 'commercial_project', projectId, 'amount_update', {
     netAmountBefore: current.net_amount,
     netAmountAfter: input.netAmount,
     rebateAmountBefore: current.rebate_amount,
-    rebateAmountAfter: input.rebateAmount,
+    rebateAmountAfter: row.rebate_amount,
+    platformAmountBefore: current.platform_amount,
+    platformAmountAfter: row.platform_amount,
+    agreedRebateRateBefore: current.agreed_rebate_rate,
+    agreedRebateRateAfter: row.agreed_rebate_rate,
     rationale: input.rationale,
     evidence: input.evidence,
   });
@@ -1715,6 +1738,10 @@ async function updateProjectAmount(
     id: row.id,
     netAmount: row.net_amount,
     rebateAmount: row.rebate_amount,
+    platformAmount: row.platform_amount,
+    agreedRebateRate: row.agreed_rebate_rate,
+    actualRebateRate: derived.actualRebateRate,
+    amountGap: derived.amountGap,
     amountRationale: row.amount_rationale,
     amountEvidence: Array.isArray(row.amount_evidence) ? row.amount_evidence : [],
     updatedAt: row.updated_at,

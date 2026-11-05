@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { applyBusinessStateToDerivedTimeline } from '../business-display-state';
-import { formatYuan } from '../commercial-selectors';
+import { formatRebateRate, formatYuan } from '../commercial-selectors';
 import {
   calendarDayKey,
   deriveKeySchedule,
@@ -993,11 +993,15 @@ export function ProgressSummary({
     >
       <Card data-testid="progress-summary-money">
         <CardContent className="px-4 py-3">
-          <p className="text-xs text-muted-foreground">到手金额</p>
+          <p className="text-xs text-muted-foreground">金额</p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span className="text-lg font-semibold leading-tight" data-testid="amount-line">
+              到手 {moneyLabel(facts.netAmount)} · 返点转款 {moneyLabel(facts.rebateAmount)} ·
+              实际返点 {formatRebateRate(facts.actualRebateRate)}
+            </span>
             <AmountEvidencePopover
-              netAmount={facts.netAmount}
-              rebateAmount={facts.rebateAmount}
+              platformAmount={facts.platformAmount}
+              agreedRebateRate={facts.agreedRebateRate}
               rationale={facts.amountRationale}
               evidence={facts.amountEvidence}
             />
@@ -1006,15 +1010,14 @@ export function ProgressSummary({
                 projectId={amountEdit.projectId}
                 netAmount={facts.netAmount}
                 rebateAmount={facts.rebateAmount}
+                platformAmount={facts.platformAmount}
+                agreedRebateRate={facts.agreedRebateRate}
                 rationale={facts.amountRationale}
                 updatedAt={amountEdit.updatedAt}
                 onSaved={amountEdit.onSaved}
               />
             ) : null}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            返点 {moneyLabel(facts.rebateAmount)}
-          </p>
         </CardContent>
       </Card>
       <Card

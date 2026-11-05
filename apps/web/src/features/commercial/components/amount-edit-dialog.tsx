@@ -26,6 +26,8 @@ export function AmountEditDialog({
   projectId,
   netAmount,
   rebateAmount,
+  platformAmount,
+  agreedRebateRate,
   rationale,
   updatedAt,
   onSaved,
@@ -33,6 +35,8 @@ export function AmountEditDialog({
   projectId: string;
   netAmount: string | null;
   rebateAmount: string | null;
+  platformAmount: string | null;
+  agreedRebateRate: string | null;
   rationale: string | null;
   updatedAt: string;
   onSaved: () => void;
@@ -40,6 +44,8 @@ export function AmountEditDialog({
   const [open, setOpen] = useState(false);
   const [net, setNet] = useState(amountInput(netAmount));
   const [rebate, setRebate] = useState(amountInput(rebateAmount));
+  const [platform, setPlatform] = useState(amountInput(platformAmount));
+  const [agreedRate, setAgreedRate] = useState(amountInput(agreedRebateRate));
   const [reason, setReason] = useState(rationale ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +56,8 @@ export function AmountEditDialog({
     if (next) {
       setNet(amountInput(netAmount));
       setRebate(amountInput(rebateAmount));
+      setPlatform(amountInput(platformAmount));
+      setAgreedRate(amountInput(agreedRebateRate));
       setReason(rationale ?? '');
     }
   };
@@ -62,6 +70,8 @@ export function AmountEditDialog({
     void putProjectAmount(projectId, {
       netAmount: nullableAmount(net),
       rebateAmount: nullableAmount(rebate),
+      platformAmount: nullableAmount(platform),
+      agreedRebateRate: nullableAmount(agreedRate),
       rationale: reason.trim().length > 0 ? reason : null,
       evidence: [],
       expectedUpdatedAt: updatedAt,
@@ -108,6 +118,26 @@ export function AmountEditDialog({
               value={rebate}
               onChange={(event) => setRebate(event.target.value)}
               placeholder="0.00"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="amount-platform">平台下单价格</Label>
+            <Input
+              id="amount-platform"
+              inputMode="decimal"
+              value={platform}
+              onChange={(event) => setPlatform(event.target.value)}
+              placeholder="39000.00"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="amount-agreed-rate">商议返点比例</Label>
+            <Input
+              id="amount-agreed-rate"
+              inputMode="decimal"
+              value={agreedRate}
+              onChange={(event) => setAgreedRate(event.target.value)}
+              placeholder="0.28"
             />
           </div>
           <div className="space-y-1.5">

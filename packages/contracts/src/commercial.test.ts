@@ -2,8 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import {
   OPEN_ITEM_ACTORS,
   WF_NODE_KINDS,
+  deriveCommercialAmounts,
   isOpenItemActor,
   parseCommercialDefaultTemplate,
+  parseCommercialAmountUpdateRequest,
   parseCommercialProjectArchiveResponse,
   parseCommercialProjectDetail,
   parseCommercialProjectList,
@@ -583,5 +585,104 @@ describe('commercial read contracts', () => {
         }),
       ),
     ).toThrow(/unpublished/);
+  });
+});
+
+describe('commercial amount model (WP-OC-014)', () => {
+  test('derives the actual rebate rate and the soft amount gap', () => {
+    expect(
+      deriveCommercialAmounts({
+        platformAmount: '31922.00',
+        rebateAmount: '5320.00',
+        netAmount: '26602.00',
+      }),
+    ).toEqual({ actualRebateRate: '0.1667', amountGap: '0.00' });
+    expect(
+      deriveCommercialAmounts({
+        platformAmount: '36722.00',
+        rebateAmount: '9722.00',
+        netAmount: '27000.00',
+      }),
+    ).toEqual({ actualRebateRate: '0.2647', amountGap: '0.00' });
+    expect(
+      deriveCommercialAmounts({
+        platformAmount: '39000.00',
+        rebateAmount: '10920.00',
+        netAmount: '28080.00',
+      }).amountGap,
+    ).toBe('0.00');
+    expect(
+      deriveCommercialAmounts({
+        platformAmount: null,
+        rebateAmount: '5320.00',
+        netAmount: '26602.00',
+      }),
+    ).toEqual({ actualRebateRate: null, amountGap: null });
+  });
+
+  test('parses optional platform amount and agreed rate and rejects out-of-range rates', () => {
+    const base = {
+      netAmount: '26602.00',
+      rebateAmount: '5320.00',
+      rationale: null,
+      evidence: [],
+      expectedUpdatedAt: '2026-05-01T00:00:00.000000Z',
+    };
+    expect(parseCommercialAmountUpdateRequest(base)).toMatchObject({
+      platformAmount: undefined,
+      agreedRebateRate: undefined,
+    });
+    expect(
+      parseCommercialAmountUpdateRequest({
+        ...base,
+        platformAmount: '31922.00',
+        agreedRebateRate: '0.30',
+      }),
+    ).toMatchObject({ platformAmount: '31922.00', agreedRebateRate: '0.30' });
+    expect(
+      parseCommercialAmountUpdateRequest({
+        ...base,
+        platformAmount: null,
+        agreedRebateRate: null,
+      }),
+    ).toMatchObject({ platformAmount: null, agreedRebateRate: null });
+    expect(() => parseCommercialAmountUpdateRequest({ ...base, agreedRebateRate: '1.01' })).toThrow(
+      /agreedRebateRate/,
+    );
+    expect(() => parseCommercialAmountUpdateRequest({ ...base, agreedRebateRate: '-0.1' })).toThrow(
+      /agreedRebateRate/,
+    );
+    expect(() => parseCommercialAmountUpdateRequest({ ...base, platformAmount: '12.345' })).toThrow(
+      /platformAmount/,
+    );
+  });
+
+  test('parses stored and derived amount fields from a project detail', () => {
+    const detail = parseCommercialProjectDetail(
+      listItem({
+        id: PROJECT_ID,
+        name: '大疆 Pocket4 寄拍',
+        netAmount: '26602.00',
+        rebateAmount: '5320.00',
+        platformAmount: '31922.00',
+        agreedRebateRate: '0.3000',
+        actualRebateRate: '0.1666',
+        amountGap: '0.00',
+        overallStage: 'published_winding_down',
+        currentStageNames: [],
+        anyNodeBlocked: false,
+        blockingReason: null,
+        publish: {
+          published: false,
+          bvid: null,
+          publishedAt: null,
+          publishSource: null,
+        },
+      }),
+    );
+    expect(detail.platformAmount).toBe('31922.00');
+    expect(detail.agreedRebateRate).toBe('0.3000');
+    expect(detail.actualRebateRate).toBe('0.1666');
+    expect(detail.amountGap).toBe('0.00');
   });
 });

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
+  deriveCommercialAmounts,
   isOpenItemActor,
   isOpenItemImpact,
   isOpenItemLifecycle,
@@ -200,6 +201,8 @@ describe('commercial read API', () => {
         name: string;
         net_amount: string | null;
         rebate_amount: string | null;
+        platform_amount: string | null;
+        agreed_rebate_rate: string | null;
         overall_stage: string;
         created_at: string;
         updated_at: string;
@@ -224,6 +227,8 @@ describe('commercial read API', () => {
         name,
         net_amount::text AS net_amount,
         rebate_amount::text AS rebate_amount,
+        platform_amount::text AS platform_amount,
+        agreed_rebate_rate::text AS agreed_rebate_rate,
         overall_stage,
         to_char(created_at AT TIME ZONE 'UTC', ${STAMP}) AS created_at,
         to_char(updated_at AT TIME ZONE 'UTC', ${STAMP}) AS updated_at,
@@ -292,6 +297,18 @@ describe('commercial read API', () => {
         name: project.name,
         netAmount: project.net_amount,
         rebateAmount: project.rebate_amount,
+        platformAmount: project.platform_amount,
+        agreedRebateRate: project.agreed_rebate_rate,
+        actualRebateRate: deriveCommercialAmounts({
+          platformAmount: project.platform_amount,
+          rebateAmount: project.rebate_amount,
+          netAmount: project.net_amount,
+        }).actualRebateRate,
+        amountGap: deriveCommercialAmounts({
+          platformAmount: project.platform_amount,
+          rebateAmount: project.rebate_amount,
+          netAmount: project.net_amount,
+        }).amountGap,
         amountRationale: project.amount_rationale,
         amountEvidence: project.amount_evidence,
         overallStage: asOverallStage(project.overall_stage),
@@ -944,6 +961,8 @@ describe('commercial read API', () => {
         name: string;
         net_amount: string | null;
         rebate_amount: string | null;
+        platform_amount: string | null;
+        agreed_rebate_rate: string | null;
         overall_stage: string;
         origin_kind: string | null;
         node_count: string;
@@ -954,6 +973,8 @@ describe('commercial read API', () => {
         p.name,
         p.net_amount::text AS net_amount,
         p.rebate_amount::text AS rebate_amount,
+        p.platform_amount::text AS platform_amount,
+        p.agreed_rebate_rate::text AS agreed_rebate_rate,
         p.overall_stage,
         p.origin_kind,
         (SELECT count(*)::text FROM wf_nodes n WHERE n.project_id = p.id) AS node_count,
@@ -1017,6 +1038,8 @@ describe('commercial read API', () => {
         overall_stage: string;
         net_amount: string | null;
         rebate_amount: string | null;
+        platform_amount: string | null;
+        agreed_rebate_rate: string | null;
         origin_kind: string | null;
         node_count: string;
         source_count: string;
@@ -1026,6 +1049,8 @@ describe('commercial read API', () => {
         p.overall_stage,
         p.net_amount::text AS net_amount,
         p.rebate_amount::text AS rebate_amount,
+        p.platform_amount::text AS platform_amount,
+        p.agreed_rebate_rate::text AS agreed_rebate_rate,
         p.origin_kind,
         (SELECT count(*)::text FROM wf_nodes n WHERE n.project_id = p.id) AS node_count,
         (SELECT count(*)::text FROM commercial_project_sources s WHERE s.project_id = p.id) AS source_count
@@ -1036,6 +1061,8 @@ describe('commercial read API', () => {
       overall_stage: snapshot.overall_stage,
       net_amount: snapshot.net_amount,
       rebate_amount: snapshot.rebate_amount,
+      platform_amount: snapshot.platform_amount,
+      agreed_rebate_rate: snapshot.agreed_rebate_rate,
       origin_kind: snapshot.origin_kind,
       node_count: snapshot.node_count,
       source_count: snapshot.source_count,

@@ -2,7 +2,7 @@ import type { CommercialAmountEvidence } from '@studio/contracts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { formatYuan } from '../commercial-selectors';
+import { formatRebateRate, formatYuan } from '../commercial-selectors';
 import { formatScheduleLabel } from '../node-schedule';
 
 function moneyLabel(value: string | null): string {
@@ -17,14 +17,14 @@ function sortedEvidence(evidence: CommercialAmountEvidence[]): CommercialAmountE
 }
 
 export function AmountEvidencePopover({
-  netAmount,
-  rebateAmount,
+  platformAmount,
+  agreedRebateRate,
   rationale,
   evidence,
   className,
 }: {
-  netAmount: string | null;
-  rebateAmount: string | null;
+  platformAmount: string | null;
+  agreedRebateRate: string | null;
   rationale: string | null;
   evidence: CommercialAmountEvidence[];
   className?: string;
@@ -35,7 +35,6 @@ export function AmountEvidencePopover({
   const [showAll, setShowAll] = useState(false);
   const ordered = useMemo(() => sortedEvidence(evidence), [evidence]);
   const visible = showAll ? ordered : ordered.slice(0, 5);
-  const latestAt = ordered[ordered.length - 1]?.at ?? null;
 
   useEffect(() => {
     if (!open) return;
@@ -47,8 +46,7 @@ export function AmountEvidencePopover({
   }, [open]);
 
   return (
-    <span className={cn('relative inline-flex items-center gap-1.5', className)}>
-      <span className="text-lg font-semibold leading-tight">{moneyLabel(netAmount)}</span>
+    <span className={cn('relative inline-flex items-center', className)}>
       <button
         type="button"
         aria-label="金额依据"
@@ -84,12 +82,22 @@ export function AmountEvidencePopover({
             )}
             data-testid="amount-evidence-popover"
           >
-            <p className="font-medium" data-testid="amount-evidence-summary">
-              净额 {moneyLabel(netAmount)} · 返点 {moneyLabel(rebateAmount)}
-            </p>
-            <p className="mt-2 text-muted-foreground" data-testid="amount-rationale">
-              {rationale ?? '暂无判定理由'}
-            </p>
+            <dl className="space-y-1" data-testid="amount-platform-summary">
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-muted-foreground">平台下单价格</dt>
+                <dd className="font-medium">{moneyLabel(platformAmount)}</dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-muted-foreground">商议返点比例</dt>
+                <dd className="font-medium">{formatRebateRate(agreedRebateRate)}</dd>
+              </div>
+            </dl>
+            <div className="mt-3 border-t pt-3">
+              <p className="text-xs font-medium text-muted-foreground">判定理由</p>
+              <p className="mt-1" data-testid="amount-rationale">
+                {rationale ?? '暂无判定理由'}
+              </p>
+            </div>
             <div className="mt-3 border-t pt-3">
               <p className="text-xs font-medium text-muted-foreground">原文原话</p>
               {ordered.length === 0 ? (
@@ -126,14 +134,6 @@ export function AmountEvidencePopover({
                 </>
               )}
             </div>
-            {latestAt ? (
-              <p
-                className="mt-3 text-xs text-muted-foreground"
-                data-testid="amount-evidence-source"
-              >
-                数据来自 微信采集器 · {latestAt.slice(0, 10)}
-              </p>
-            ) : null}
           </div>
         </>
       ) : null}

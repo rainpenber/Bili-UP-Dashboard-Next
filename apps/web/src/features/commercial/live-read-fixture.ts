@@ -17,6 +17,10 @@ const LIVE_READ_DEFAULTS = {
   sourceWindow: null,
   blockedNodeNames: [] as string[],
   openItems: [] as CommercialOpenItemRead[],
+  platformAmount: null,
+  agreedRebateRate: null,
+  actualRebateRate: null,
+  amountGap: null,
   amountRationale: null,
   amountEvidence: [],
 };

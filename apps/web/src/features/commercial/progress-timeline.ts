@@ -148,6 +148,10 @@ export type DerivedTimeline = {
 export type TimelineProjectFacts = {
   netAmount: string | null;
   rebateAmount: string | null;
+  platformAmount: string | null;
+  agreedRebateRate: string | null;
+  actualRebateRate: string | null;
+  amountGap: string | null;
   amountRationale: string | null;
   amountEvidence: CommercialProjectDetail['amountEvidence'];
   overallStage: string;
@@ -408,6 +412,10 @@ export function timelineFactsFromDetail(
   return {
     netAmount: detail.netAmount,
     rebateAmount: detail.rebateAmount,
+    platformAmount: detail.platformAmount,
+    agreedRebateRate: detail.agreedRebateRate,
+    actualRebateRate: detail.actualRebateRate,
+    amountGap: detail.amountGap,
     amountRationale: detail.amountRationale ?? null,
     amountEvidence: detail.amountEvidence ?? [],
     overallStage: detail.overallStage,

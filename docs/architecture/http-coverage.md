@@ -1,6 +1,6 @@
 # HTTP API 覆盖
 
-验收库 `wp_r2_11_341b615f149f` 保留，本文件不执行 DROP DATABASE。
+验收库 `wp_r2_11_be2f5f2ddf3b` 保留，本文件不执行 DROP DATABASE。
 
 注册 89，清单 89，已执行 89，HTTP 成功 89，断言验收 89。
 
