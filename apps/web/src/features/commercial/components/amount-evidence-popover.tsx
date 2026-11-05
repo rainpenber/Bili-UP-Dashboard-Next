@@ -79,7 +79,7 @@ export function AmountEvidencePopover({
             role="dialog"
             aria-label="金额依据"
             className={cn(
-              'fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-y-auto rounded-t-xl border bg-card p-4 text-left text-sm text-card-foreground shadow-xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:right-auto sm:max-h-[min(60vh,24rem)] sm:w-80 sm:rounded-lg',
+              'fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-y-auto overflow-x-hidden [overflow-wrap:anywhere] rounded-t-xl border bg-card p-4 text-left text-sm text-card-foreground shadow-xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:right-auto sm:max-h-[min(60vh,24rem)] sm:w-80 sm:max-w-[calc(100vw-2rem)] sm:rounded-lg',
               placement === 'up' ? 'sm:bottom-full sm:mb-2' : 'sm:top-full sm:mt-2',
             )}
             data-testid="amount-evidence-popover"
