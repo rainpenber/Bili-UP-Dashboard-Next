@@ -192,9 +192,9 @@ const JOB_SELECT = `
     CASE
       WHEN j.started_at IS NULL THEN NULL
       WHEN j.status IN ('succeeded', 'failed') THEN latest.duration_ms
-      WHEN j.status = 'running' THEN GREATEST(
-        0,
-        floor(extract(epoch FROM (statement_timestamp() - j.started_at)) * 1000)
+      WHEN j.status = 'running' THEN LEAST(
+        2147483647,
+        GREATEST(0, floor(extract(epoch FROM (statement_timestamp() - j.started_at)) * 1000))
       )::int
       ELSE NULL
     END AS duration_ms,
