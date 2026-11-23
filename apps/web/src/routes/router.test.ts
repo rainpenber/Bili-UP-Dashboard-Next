@@ -18,6 +18,7 @@ describe('app routes', () => {
     expect(paths).toContain('ops');
     expect(paths).toContain('workflow-mock');
     expect(paths).toContain('content');
+    expect(paths).toContain('revenue');
   });
 
   test('redirects legacy /monitor to monitoring', () => {

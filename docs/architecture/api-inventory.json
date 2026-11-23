@@ -2,9 +2,9 @@
   "baseline": "3989b9635198d45e90e0c37dd65ad156eb5e2733",
   "evidenceLevel": "Registration is counted from createApp({ skipDb: true }) plus mountApiRoutes, the same assembly as apps/api/src/index.ts. Runtime exercise is docs/architecture/http-coverage.json, written by apps/api/src/http-coverage.integration.test.ts from actual requests. Do not hand-edit executed flags.",
   "phase4Scope": "Every route in this inventory, including unwired and legacy writes and import operations. Grouping is allowed. Lack of a frontend caller is not a reason to skip. Use isolated disposable fixtures. Record an explicit reason when a route is not executed.",
-  "apiRouteCount": 89,
-  "wiredRouteCount": 62,
-  "unwiredImplementedRouteCount": 27,
+  "apiRouteCount": 92,
+  "wiredRouteCount": 64,
+  "unwiredImplementedRouteCount": 28,
   "countMethod": "Unique method plus full path after the mount prefix. Counted from handler registrations in apps/api/src. SPA HTML and /assets static middleware are excluded. Helpers such as planNode, applyStep and getJson are not endpoints.",
   "dynamicRegistration": "None. Prefixes are static app.route calls. registerCommercialWriteRoutes and registerCommercialIngressRoutes add fixed POST/GET lists.",
   "processRegistration": {
@@ -1800,6 +1800,66 @@
       "wired": true,
       "notes": "Persists mid as decimal string (bigint). Invalid UID/empty display name 400. Does not create creators or call Bilibili.",
       "storedEntity": "studio_owner_account"
+    },
+    {
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-rebates.ts",
+      "sourceLine": 418,
+      "registration": "registerCommercialRebateRoutes",
+      "area": "commercial",
+      "storedEntity": "commercial_rebates, commercial_projects.rebate_amount, commercial_project_sources.source_status",
+      "method": "GET",
+      "path": "/api/v1/commercial/rebates",
+      "readWrite": "read",
+      "requestContract": null,
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialRebateListResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "fetchCommercialRebates",
+          "evidence": "/api/v1/commercial/rebates"
+        }
+      ],
+      "wired": true,
+      "notes": "WP-OC-015: one row per rebate obligation. Linked rows read the amount from commercial_projects.rebate_amount; expected_amount is a nullable historical snapshot. platformPaid is true only when the linked source status is 3.收尾-待提现 or 3.收尾-已提现."
+    },
+    {
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-rebates.ts",
+      "sourceLine": 428,
+      "registration": "registerCommercialRebateRoutes",
+      "area": "commercial",
+      "storedEntity": "commercial_rebates, commercial_projects.rebate_amount, commercial_project_sources.source_status",
+      "method": "PATCH",
+      "path": "/api/v1/commercial/rebates/:rebateId",
+      "readWrite": "write",
+      "requestContract": "packages/contracts/src/commercial.ts#parseCommercialRebateUpdateRequest",
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialRebateResponse",
+      "frontendCallers": [
+        {
+          "file": "apps/web/src/features/commercial/commercial-live-api.ts",
+          "symbol": "patchCommercialRebate",
+          "evidence": "/api/v1/commercial/rebates/"
+        }
+      ],
+      "wired": true,
+      "notes": "Optimistic lock via expectedUpdatedAt. isReturned=true fills returned_at with CURRENT_DATE when empty; false clears it. expectedAmount edits on linked rows return 409 amount_locked and must go through the project amount endpoint. Audit action rebate_update."
+    },
+    {
+      "mountPrefix": "/api/v1/commercial",
+      "sourceFile": "apps/api/src/commercial-rebates.ts",
+      "sourceLine": 443,
+      "registration": "registerCommercialRebateRoutes",
+      "area": "commercial",
+      "storedEntity": "commercial_rebates, commercial_projects.rebate_amount, commercial_project_sources.source_status",
+      "method": "POST",
+      "path": "/api/v1/commercial/rebates",
+      "readWrite": "write",
+      "requestContract": "packages/contracts/src/commercial.ts#parseCommercialRebateCreateRequest",
+      "responseContract": "packages/contracts/src/commercial.ts#parseCommercialRebateResponse",
+      "frontendCallers": [],
+      "wired": false,
+      "notes": "Creates one rebate row. projectId may be null for history; historical rows require expectedAmount. Audit action rebate_create."
     }
   ],
   "excludedFromApiCount": [

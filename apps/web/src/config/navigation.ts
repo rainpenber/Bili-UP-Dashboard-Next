@@ -5,6 +5,7 @@ import {
   Palette,
   Plug,
   ScrollText,
+  Wallet,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -30,6 +31,13 @@ export const primaryNav: NavItem[] = [
     label: '项目',
     description: '商单列表与每个项目的流程详情',
     icon: Blocks,
+    implemented: true,
+  },
+  {
+    to: '/revenue',
+    label: '收入与返点',
+    description: '本月收入、待返返点与合同/发票进度',
+    icon: Wallet,
     implemented: true,
   },
   {

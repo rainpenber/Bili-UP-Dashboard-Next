@@ -10,6 +10,7 @@ import { NotFoundPage } from '@/pages/not-found-page';
 import { ProjectDemoPage } from '@/pages/project-demo-page';
 import { ProjectDetailPage } from '@/pages/project-detail-page';
 import { ProjectListPage } from '@/pages/project-list-page';
+import { RevenuePage } from '@/pages/revenue-page';
 import { MonitoringPage } from '@/features/monitoring/monitoring-page';
 import { MonitoringCreatorDetailPage } from '@/pages/monitoring-creator-detail-page';
 import { MonitoringDynamicDetailPage } from '@/pages/monitoring-dynamic-detail-page';
@@ -26,6 +27,7 @@ export const appRouteConfig: RouteObject[] = [
       { path: 'projects', element: <ProjectListPage /> },
       { path: 'projects/demo/:projectId', element: <ProjectDemoPage /> },
       { path: 'projects/:projectId', element: <ProjectDetailPage /> },
+      { path: 'revenue', element: <RevenuePage /> },
       { path: 'monitoring', element: <MonitoringPage /> },
       { path: 'monitoring/videos/:bvid', element: <MonitoringVideoDetailPage /> },
       { path: 'monitoring/creators/:mid', element: <MonitoringCreatorDetailPage /> },

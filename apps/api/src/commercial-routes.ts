@@ -32,6 +32,7 @@ import {
 import type { Sql } from '@studio/db';
 import { Hono } from 'hono';
 import { registerCommercialIngressRoutes } from './commercial-ingress';
+import { registerCommercialRebateRoutes } from './commercial-rebates';
 import { COMMERCIAL_UPDATED_AT_FORMAT } from './commercial-timestamp';
 import { registerCommercialWriteRoutes } from './commercial-write';
 
@@ -950,5 +951,6 @@ export function createCommercialRoutes(db: Sql) {
 
   registerCommercialWriteRoutes(app, db);
   registerCommercialIngressRoutes(app, db);
+  registerCommercialRebateRoutes(app, db);
   return app;
 }

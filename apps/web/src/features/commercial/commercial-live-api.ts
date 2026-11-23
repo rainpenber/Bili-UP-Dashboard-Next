@@ -10,6 +10,9 @@ import {
   parseCommercialProjectDetail,
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
+  parseCommercialRebateListResponse,
+  parseCommercialRebateResponse,
+  parseCommercialRebateUpdateRequest,
   parseCommercialStepResponse,
   parseCommercialWorkflowLayoutRequest,
   parseCommercialWorkflowLayoutResponse,
@@ -25,6 +28,9 @@ import {
   type CommercialProjectDetail,
   type CommercialProjectListResponse,
   type CommercialProjectWorkflow,
+  type CommercialRebateListResponse,
+  type CommercialRebateResponse,
+  type CommercialRebateUpdateRequest,
   type CommercialStepPublish,
   type CommercialStageStepToken,
   type CommercialWorkflowLayoutRequest,
@@ -124,6 +130,41 @@ export function archiveLiveProject(projectId: string): Promise<CommercialProject
 
 export function unarchiveLiveProject(projectId: string): Promise<CommercialProjectArchiveResponse> {
   return postArchiveAction(projectId, 'unarchive');
+}
+
+export function fetchCommercialRebates(): Promise<CommercialRebateListResponse> {
+  return getJson('/api/v1/commercial/rebates').then((body) =>
+    parseRead(parseCommercialRebateListResponse, body),
+  );
+}
+
+export async function patchCommercialRebate(
+  rebateId: string,
+  body: CommercialRebateUpdateRequest,
+): Promise<CommercialRebateResponse> {
+  const request = parseCommercialRebateUpdateRequest(body);
+  let res: Response;
+  try {
+    res = await fetch(`/api/v1/commercial/rebates/${encodeURIComponent(rebateId)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+  } catch (err) {
+    throw new CommercialReadError(err instanceof Error ? err.message : '网络异常', 0, 'http');
+  }
+  const payload: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message =
+      typeof payload === 'object' &&
+      payload !== null &&
+      'error' in payload &&
+      typeof payload.error === 'string'
+        ? payload.error
+        : `HTTP ${res.status}`;
+    throw new CommercialReadError(message, res.status, 'http');
+  }
+  return parseRead(parseCommercialRebateResponse, payload);
 }
 
 export function fetchLiveProjectDetail(projectId: string): Promise<CommercialProjectDetail> {

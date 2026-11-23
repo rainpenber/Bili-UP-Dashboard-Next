@@ -929,6 +929,7 @@ export function ProgressSummary({
   sourceWindow = null,
   sourceNamespace = null,
   amountEdit = null,
+  rebateChip = null,
 }: {
   facts: TimelineProjectFacts | null;
   nodes?: TimelineSourceNode[];
@@ -942,6 +943,8 @@ export function ProgressSummary({
     updatedAt: string;
     onSaved: () => void;
   } | null;
+  /** Detail-page rebate progress chip. Null keeps the money card unchanged. */
+  rebateChip?: ReactNode;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState(false);
@@ -1018,6 +1021,7 @@ export function ProgressSummary({
               />
             ) : null}
           </div>
+          {rebateChip ? <div className="mt-2">{rebateChip}</div> : null}
         </CardContent>
       </Card>
       <Card

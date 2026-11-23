@@ -97,3 +97,20 @@ export function formatRebateRate(rate: string | null): string {
   if (!Number.isFinite(value)) return rate;
   return `${(value * 100).toFixed(1)}%`;
 }
+
+/** Two-decimal CNY for ledgers and totals. */
+export function formatYuanExact(value: number): string {
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'CNY',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+/** Decimal money text → exact CNY. Null stays「未填写」. */
+export function formatMoneyText(value: string | null): string {
+  if (value === null) return '未填写';
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? formatYuanExact(parsed) : value;
+}

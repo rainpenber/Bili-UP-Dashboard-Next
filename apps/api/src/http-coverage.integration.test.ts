@@ -14,6 +14,9 @@ import {
   parseCommercialProjectList,
   parseCommercialProjectWorkflow,
   parseCommercialPublishResponse,
+  parseCommercialRebateError,
+  parseCommercialRebateListResponse,
+  parseCommercialRebateResponse,
   parseCommercialStepResponse,
   parseCommercialWorkflowLayoutResponse,
   parseCommercialWriteError,
@@ -1845,6 +1848,66 @@ describe('HTTP API coverage against isolated Postgres', () => {
       expect(amountAudit?.detail.platformAmountAfter).toBe('39000.00');
       expect(amountAudit?.detail.agreedRebateRateBefore).toBeNull();
       expect(amountAudit?.detail.agreedRebateRateAfter).toBe('0.2800');
+
+      const rebateList = parseCommercialRebateListResponse(
+        await expectStatus(await api('/api/v1/commercial/rebates'), 200),
+      );
+      expect(rebateList.items).toHaveLength(12);
+      expect(rebateList.summary.outstandingTotal).toBe('30912.40');
+      const createdRebate = parseCommercialRebateResponse(
+        await expectStatus(
+          await api(
+            '/api/v1/commercial/rebates',
+            json('POST', {
+              projectId,
+              projectName: '联调项目',
+              contractState: 'none',
+            }),
+          ),
+          201,
+        ),
+      );
+      expect(createdRebate.expectedAmount).toBe('10920.00');
+      const returnedRebate = parseCommercialRebateResponse(
+        await expectStatus(
+          await api(`/api/v1/commercial/rebates/${createdRebate.id}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              isReturned: true,
+              expectedUpdatedAt: createdRebate.updatedAt,
+            }),
+          }),
+          200,
+        ),
+      );
+      expect(returnedRebate.isReturned).toBe(true);
+      expect(returnedRebate.returnedAt).not.toBeNull();
+      const lockedRebate = await api(`/api/v1/commercial/rebates/${createdRebate.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          expectedAmount: '1.00',
+          expectedUpdatedAt: returnedRebate.updatedAt,
+        }),
+      });
+      expect(parseCommercialRebateError(await expectStatus(lockedRebate, 409)).code).toBe(
+        'amount_locked',
+      );
+      const clearedRebate = parseCommercialRebateResponse(
+        await expectStatus(
+          await api(`/api/v1/commercial/rebates/${createdRebate.id}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              isReturned: false,
+              expectedUpdatedAt: returnedRebate.updatedAt,
+            }),
+          }),
+          200,
+        ),
+      );
+      expect(clearedRebate.returnedAt).toBeNull();
       let tokens = await loadTokens(projectId);
       expect(tokens.size).toBe(15);
 

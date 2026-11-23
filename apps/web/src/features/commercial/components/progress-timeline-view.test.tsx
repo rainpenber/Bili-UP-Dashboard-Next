@@ -1012,6 +1012,19 @@ function summaryFacts(overrides: Partial<TimelineProjectFacts> = {}): TimelinePr
   };
 }
 
+test('renders the rebate chip under the amount line (WP-OC-015)', () => {
+  render(
+    <ProgressSummary
+      now={NOW}
+      facts={summaryFacts()}
+      rebateChip={<span data-testid="detail-rebate-chip">返点 ¥4,950 · 合同已发</span>}
+    />,
+  );
+  const card = screen.getByTestId('progress-summary-money');
+  expect(card.textContent).toContain('返点 ¥4,950');
+  expect(screen.getByTestId('detail-rebate-chip')).toBeTruthy();
+});
+
 describe('source window schedule card (WP-R2-22A)', () => {
   test('shows source range instead of 排期待确认 for bound real projects', () => {
     render(

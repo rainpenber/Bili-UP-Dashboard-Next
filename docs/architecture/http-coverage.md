@@ -1,8 +1,8 @@
 # HTTP API 覆盖
 
-验收库 `wp_r2_11_be2f5f2ddf3b` 保留，本文件不执行 DROP DATABASE。
+验收库 `wp_r2_11_64f20f3b61bb` 保留，本文件不执行 DROP DATABASE。
 
-注册 89，清单 89，已执行 89，HTTP 成功 89，断言验收 89。
+注册 92，清单 92，已执行 92，HTTP 成功 92，断言验收 92。
 
 验收结论：通过。每一条注册路由都有一次 HTTP 成功响应，且发出该响应的测试断言已通过。
 
@@ -132,6 +132,14 @@
 - commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
+- commercial：HTTP 200（成功响应，断言通过）
+
+## GET `/api/v1/commercial/rebates`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
 - commercial：HTTP 200（成功响应，断言通过）
 
 ## GET `/api/v1/commercial/templates/default`
@@ -519,6 +527,16 @@
 - commercial：HTTP 409（拒绝响应，断言通过）
 - commercial：HTTP 200（成功响应，断言通过）
 
+## PATCH `/api/v1/commercial/rebates/:rebateId`
+
+- 前端调用：有
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- commercial：HTTP 200（成功响应，断言通过）
+- commercial：HTTP 409（拒绝响应，断言通过）
+- commercial：HTTP 200（成功响应，断言通过）
+
 ## PATCH `/api/v1/monitor/creators/:mid/pin`
 
 - 前端调用：有
@@ -745,6 +763,14 @@
 - HTTP 成功：是
 - 断言验收：是
 - commercial：HTTP 200（成功响应，断言通过）
+
+## POST `/api/v1/commercial/rebates`
+
+- 前端调用：无
+- 已执行：是
+- HTTP 成功：是
+- 断言验收：是
+- commercial：HTTP 201（成功响应，断言通过）
 
 ## POST `/api/v1/imports/csv`
 

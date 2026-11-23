@@ -18,6 +18,12 @@ describe('web app shell', () => {
     expect(integrations?.implemented).toBe(true);
   });
 
+  test('revenue ledger is a primary navigation entry', () => {
+    const revenue = primaryNav.find((n) => n.to === '/revenue');
+    expect(revenue?.label).toBe('收入与返点');
+    expect(revenue?.implemented).toBe(true);
+  });
+
   test('audience reaction tool is implemented under /content', () => {
     const content = primaryNav.find((n) => n.to === '/content');
     expect(content?.implemented).toBe(true);

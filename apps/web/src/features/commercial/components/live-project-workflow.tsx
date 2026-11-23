@@ -22,6 +22,7 @@ import {
   CommercialReadError,
   postLiveNodeStep,
   postLiveNodeUnblock,
+  patchCommercialRebate,
   postLiveStageStep,
   saveLiveNodePlan,
   saveLiveWorkflowLayout,
@@ -33,12 +34,15 @@ import {
   useLiveProjectDetailQuery,
   useLiveProjectWorkflowQuery,
 } from '../use-live-workflow';
+import { matchRebateForProject } from '../revenue-metrics';
+import { commercialRebatesKey, useCommercialRebatesQuery } from '../use-rebate-queries';
 import { OpenItemsReadout } from './open-items-readout';
 import type { StepCall, StepEditor, StepResult } from './stage-step-controls';
 import { useStepController } from './stage-step-controls';
 import { GraphNodeProgress } from './graph-node-progress';
 import { ProjectVideoMetrics } from './project-video-metrics';
 import { ProgressSummary, ProgressTimeline, type PlanEditor } from './progress-timeline-view';
+import { RebateChip, type RebateChipPatch } from './rebate-chip';
 import { timelineFactsFromDetail, timelineNodesFromWorkflow } from '../progress-timeline';
 import { WorkflowLiveCanvas } from './workflow-live-canvas';
 
@@ -226,6 +230,28 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
   }, [detailQuery.data?.publish]);
   const archived = detailQuery.data ? isArchivedLiveProject(detailQuery.data) : false;
   const softArchived = detailQuery.data != null && detailQuery.data.archivedAt !== null;
+  const rebateQuery = useCommercialRebatesQuery();
+  const rebate = useMemo(
+    () =>
+      matchRebateForProject(
+        rebateQuery.data?.items ?? [],
+        projectId,
+        detailQuery.data?.name ?? null,
+      ),
+    [rebateQuery.data, detailQuery.data?.name, projectId],
+  );
+  const onRebatePatch = useCallback(
+    async (patch: RebateChipPatch) => {
+      if (!rebate) return;
+      await patchCommercialRebate(rebate.id, {
+        ...patch,
+        expectedUpdatedAt: rebate.updatedAt,
+      });
+      await queryClient.invalidateQueries({ queryKey: commercialRebatesKey });
+      await queryClient.invalidateQueries({ queryKey: ['commercial', 'live-project', projectId] });
+    },
+    [rebate, queryClient, projectId],
+  );
   const businessState = detailQuery.data?.businessState ?? null;
   const displayReadOnly = archived || isBusinessStateReadOnly(businessState);
   const layoutDirty =
@@ -479,6 +505,7 @@ export function LiveProjectWorkflow({ projectId }: { projectId: string }) {
           nodes={timelineNodes}
           sourceWindow={detailQuery.data?.sourceWindow ?? null}
           sourceNamespace={detailQuery.data?.source?.namespace ?? null}
+          rebateChip={rebate ? <RebateChip rebate={rebate} onPatch={onRebatePatch} /> : null}
         />
         {detailQuery.data?.source || detailQuery.data?.originKind ? (
           <p className="text-sm text-muted-foreground" data-testid="project-source-meta">

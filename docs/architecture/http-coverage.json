@@ -1,11 +1,11 @@
 {
-  "databaseName": "wp_r2_11_be2f5f2ddf3b",
+  "databaseName": "wp_r2_11_64f20f3b61bb",
   "retainedDatabase": true,
-  "registeredCount": 89,
-  "inventoryCount": 89,
-  "executedCount": 89,
-  "httpSuccessCount": 89,
-  "acceptedCount": 89,
+  "registeredCount": 92,
+  "inventoryCount": 92,
+  "executedCount": 92,
+  "httpSuccessCount": 92,
+  "acceptedCount": 92,
   "acceptancePassed": true,
   "upstreamFetchCount": 0,
   "injectedTransportCalls": 9,
@@ -448,6 +448,23 @@
           "http": "success",
           "assertions": "passed"
         },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commercial/rebates",
+      "readWrite": "read",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
         {
           "test": "commercial",
           "status": 200,
@@ -1435,6 +1452,35 @@
     },
     {
       "method": "PATCH",
+      "path": "/api/v1/commercial/rebates/:rebateId",
+      "readWrite": "write",
+      "frontendCaller": true,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 409,
+          "http": "reject",
+          "assertions": "passed"
+        },
+        {
+          "test": "commercial",
+          "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
       "path": "/api/v1/monitor/creators/:mid/pin",
       "readWrite": "write",
       "frontendCaller": true,
@@ -2077,6 +2123,23 @@
         {
           "test": "commercial",
           "status": 200,
+          "http": "success",
+          "assertions": "passed"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/commercial/rebates",
+      "readWrite": "write",
+      "frontendCaller": false,
+      "executed": true,
+      "httpSuccess": true,
+      "accepted": true,
+      "cases": [
+        {
+          "test": "commercial",
+          "status": 201,
           "http": "success",
           "assertions": "passed"
         }

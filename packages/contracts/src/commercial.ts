@@ -852,3 +852,263 @@ export function parseCommercialDefaultTemplate(value: unknown): CommercialDefaul
     edges: record.edges.map((edge) => parseTemplateEdge(edge)),
   };
 }
+
+/** Rebate ledger (WP-OC-015). Money on linked rows comes from commercial_projects. */
+export const COMMERCIAL_REBATE_CONTRACT_STATES = ['none', 'sent', 'signed'] as const;
+export type CommercialRebateContractState = (typeof COMMERCIAL_REBATE_CONTRACT_STATES)[number];
+
+export const COMMERCIAL_REBATE_INVOICE_STATES = ['none', 'received'] as const;
+export type CommercialRebateInvoiceState = (typeof COMMERCIAL_REBATE_INVOICE_STATES)[number];
+
+export const COMMERCIAL_REBATE_ERROR_CODES = [
+  'invalid_body',
+  'not_found',
+  'stale_write',
+  'amount_locked',
+  'duplicate_project',
+  'constraint_violation',
+] as const;
+export type CommercialRebateErrorCode = (typeof COMMERCIAL_REBATE_ERROR_CODES)[number];
+
+export type CommercialRebateErrorBody = {
+  error: string;
+  code: CommercialRebateErrorCode;
+};
+
+export type CommercialRebate = {
+  id: string;
+  projectId: string | null;
+  projectName: string;
+  counterparty: string | null;
+  /**
+   * Effective rebate amount: the linked project's rebate_amount when projectId is set,
+   * otherwise the historical expected_amount snapshot.
+   */
+  expectedAmount: string | null;
+  isReturned: boolean;
+  /** date (YYYY-MM-DD) or null. */
+  returnedAt: string | null;
+  contractState: CommercialRebateContractState;
+  invoiceState: CommercialRebateInvoiceState;
+  note: string | null;
+  evidence: CommercialAmountEvidence[];
+  stageSince: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Derived from the linked project's source status (platform paid, rebate not yet returned). */
+  platformPaid: boolean;
+  /** Whole days since stage_since. Never negative. */
+  daysInStage: number;
+};
+
+export type CommercialRebateSummary = {
+  outstandingTotal: string;
+  outstandingPlatformPaid: string;
+  outstandingPlatformUnpaid: string;
+  settledThisYear: string;
+  openCount: number;
+};
+
+export type CommercialRebateListResponse = {
+  items: CommercialRebate[];
+  summary: CommercialRebateSummary;
+};
+
+export type CommercialRebateUpdateRequest = {
+  isReturned?: boolean | undefined;
+  returnedAt?: string | null | undefined;
+  contractState?: CommercialRebateContractState | undefined;
+  invoiceState?: CommercialRebateInvoiceState | undefined;
+  note?: string | null | undefined;
+  counterparty?: string | null | undefined;
+  evidence?: CommercialAmountEvidence[] | undefined;
+  /** Historical rows only. Linked rows must use the project amount endpoint. */
+  expectedAmount?: string | null | undefined;
+  expectedUpdatedAt: string;
+};
+
+export type CommercialRebateCreateRequest = {
+  projectId?: string | null | undefined;
+  projectName: string;
+  counterparty?: string | null | undefined;
+  expectedAmount?: string | null | undefined;
+  isReturned?: boolean | undefined;
+  returnedAt?: string | null | undefined;
+  contractState?: CommercialRebateContractState | undefined;
+  invoiceState?: CommercialRebateInvoiceState | undefined;
+  note?: string | null | undefined;
+  evidence?: CommercialAmountEvidence[] | undefined;
+};
+
+export type CommercialRebateResponse = CommercialRebate;
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseDateOnly(value: unknown, label: string): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string' || !DATE_ONLY_RE.test(value)) {
+    throw new Error(`${label} must be a YYYY-MM-DD date string or null`);
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    throw new Error(`${label} is not a valid calendar date`);
+  }
+  return value;
+}
+
+export function isCommercialRebateContractState(
+  value: unknown,
+): value is CommercialRebateContractState {
+  return (
+    typeof value === 'string' &&
+    (COMMERCIAL_REBATE_CONTRACT_STATES as readonly string[]).includes(value)
+  );
+}
+
+export function isCommercialRebateInvoiceState(
+  value: unknown,
+): value is CommercialRebateInvoiceState {
+  return (
+    typeof value === 'string' &&
+    (COMMERCIAL_REBATE_INVOICE_STATES as readonly string[]).includes(value)
+  );
+}
+
+export function isCommercialRebateErrorCode(value: unknown): value is CommercialRebateErrorCode {
+  return (
+    typeof value === 'string' &&
+    (COMMERCIAL_REBATE_ERROR_CODES as readonly string[]).includes(value)
+  );
+}
+
+export function parseCommercialRebateError(value: unknown): CommercialRebateErrorBody {
+  const record = asRecord(value, 'rebate error');
+  if (!isCommercialRebateErrorCode(record.code)) throw new Error('error code is invalid');
+  if (typeof record.error !== 'string' || record.error.trim().length === 0) {
+    throw new Error('error must be a non-empty string');
+  }
+  return { error: record.error, code: record.code };
+}
+
+function parseRebateContractState(value: unknown): CommercialRebateContractState {
+  if (!isCommercialRebateContractState(value)) throw new Error('contractState is invalid');
+  return value;
+}
+
+function parseRebateInvoiceState(value: unknown): CommercialRebateInvoiceState {
+  if (!isCommercialRebateInvoiceState(value)) throw new Error('invoiceState is invalid');
+  return value;
+}
+
+function parseBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`${label} must be a boolean`);
+  return value;
+}
+
+export function parseCommercialRebateResponse(value: unknown): CommercialRebateResponse {
+  const record = asRecord(value, 'rebate');
+  return {
+    id: parseUuid(record.id, 'id'),
+    projectId: parseNullableUuid(record.projectId, 'projectId'),
+    projectName: parseName(record.projectName, 'projectName'),
+    counterparty: parseNullableText(record.counterparty, 'counterparty'),
+    expectedAmount: parseNumeric14_2(record.expectedAmount, 'expectedAmount'),
+    isReturned: parseBoolean(record.isReturned, 'isReturned'),
+    returnedAt: parseDateOnly(record.returnedAt, 'returnedAt'),
+    contractState: parseRebateContractState(record.contractState),
+    invoiceState: parseRebateInvoiceState(record.invoiceState),
+    note: parseNullableText(record.note, 'note'),
+    evidence: normalizeCommercialAmountEvidence(record.evidence),
+    stageSince: parseIso(record.stageSince, 'stageSince'),
+    createdAt: parseIso(record.createdAt, 'createdAt'),
+    updatedAt: parseIso(record.updatedAt, 'updatedAt'),
+    platformPaid: parseBoolean(record.platformPaid, 'platformPaid'),
+    daysInStage: parseNonNegativeInt(record.daysInStage, 'daysInStage'),
+  };
+}
+
+export function parseCommercialRebateListResponse(value: unknown): CommercialRebateListResponse {
+  const record = asRecord(value, 'rebate list');
+  if (!Array.isArray(record.items)) throw new Error('items must be an array');
+  const summary = asRecord(record.summary, 'summary');
+  return {
+    items: record.items.map((item) => parseCommercialRebateResponse(item)),
+    summary: {
+      outstandingTotal: parseMoney(summary.outstandingTotal, 'summary.outstandingTotal') ?? '0.00',
+      outstandingPlatformPaid:
+        parseMoney(summary.outstandingPlatformPaid, 'summary.outstandingPlatformPaid') ?? '0.00',
+      outstandingPlatformUnpaid:
+        parseMoney(summary.outstandingPlatformUnpaid, 'summary.outstandingPlatformUnpaid') ??
+        '0.00',
+      settledThisYear: parseMoney(summary.settledThisYear, 'summary.settledThisYear') ?? '0.00',
+      openCount: parseNonNegativeInt(summary.openCount, 'summary.openCount'),
+    },
+  };
+}
+
+export function parseCommercialRebateUpdateRequest(value: unknown): CommercialRebateUpdateRequest {
+  const record = asRecord(value, 'rebate update request');
+  const request: CommercialRebateUpdateRequest = {
+    expectedUpdatedAt: parseIso(record.expectedUpdatedAt, 'expectedUpdatedAt'),
+  };
+  if (record.isReturned !== undefined) {
+    request.isReturned = parseBoolean(record.isReturned, 'isReturned');
+  }
+  if (record.returnedAt !== undefined) {
+    request.returnedAt = parseDateOnly(record.returnedAt, 'returnedAt');
+  }
+  if (record.contractState !== undefined) {
+    request.contractState = parseRebateContractState(record.contractState);
+  }
+  if (record.invoiceState !== undefined) {
+    request.invoiceState = parseRebateInvoiceState(record.invoiceState);
+  }
+  if (record.note !== undefined) {
+    request.note = parseNullableText(record.note, 'note');
+  }
+  if (record.counterparty !== undefined) {
+    request.counterparty = parseNullableText(record.counterparty, 'counterparty');
+  }
+  if (record.evidence !== undefined) {
+    request.evidence = normalizeCommercialAmountEvidence(record.evidence);
+  }
+  if (record.expectedAmount !== undefined) {
+    request.expectedAmount = parseNumeric14_2(record.expectedAmount, 'expectedAmount');
+  }
+  return request;
+}
+
+export function parseCommercialRebateCreateRequest(value: unknown): CommercialRebateCreateRequest {
+  const record = asRecord(value, 'rebate create request');
+  const request: CommercialRebateCreateRequest = {
+    projectName: parseName(record.projectName, 'projectName'),
+  };
+  if (record.projectId !== undefined) {
+    request.projectId = parseNullableUuid(record.projectId, 'projectId');
+  }
+  if (record.counterparty !== undefined) {
+    request.counterparty = parseNullableText(record.counterparty, 'counterparty');
+  }
+  if (record.expectedAmount !== undefined) {
+    request.expectedAmount = parseNumeric14_2(record.expectedAmount, 'expectedAmount');
+  }
+  if (record.isReturned !== undefined) {
+    request.isReturned = parseBoolean(record.isReturned, 'isReturned');
+  }
+  if (record.returnedAt !== undefined) {
+    request.returnedAt = parseDateOnly(record.returnedAt, 'returnedAt');
+  }
+  if (record.contractState !== undefined) {
+    request.contractState = parseRebateContractState(record.contractState);
+  }
+  if (record.invoiceState !== undefined) {
+    request.invoiceState = parseRebateInvoiceState(record.invoiceState);
+  }
+  if (record.note !== undefined) {
+    request.note = parseNullableText(record.note, 'note');
+  }
+  if (record.evidence !== undefined) {
+    request.evidence = normalizeCommercialAmountEvidence(record.evidence);
+  }
+  return request;
+}
