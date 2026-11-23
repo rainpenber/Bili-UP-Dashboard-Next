@@ -34,8 +34,9 @@ function money(value: number): string {
 }
 
 /**
- * Groups projects by publish month (Asia/Shanghai). Projects without a publish
- * time fall back to createdAt, per WP-OC-015.
+ * Groups projects by publish month (Asia/Shanghai). Unpublished projects are
+ * excluded: a project counts as "done this month" only once it has a publish
+ * record, otherwise newly created but unshipped work inflates the count.
  */
 export function revenueMonthMetrics(
   projects: CommercialProjectDetail[],
@@ -47,8 +48,8 @@ export function revenueMonthMetrics(
   let rebate = 0;
   let net = 0;
   for (const project of projects) {
-    const stamp = project.publish.publishedAt ?? project.createdAt;
-    if (monthKey(stamp) !== target) continue;
+    const stamp = project.publish.publishedAt;
+    if (stamp === null || monthKey(stamp) !== target) continue;
     count += 1;
     platform += cents(project.platformAmount);
     rebate += cents(project.rebateAmount);

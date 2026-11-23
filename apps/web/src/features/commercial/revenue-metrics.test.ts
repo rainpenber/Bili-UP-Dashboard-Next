@@ -51,7 +51,7 @@ function project(overrides: Record<string, unknown>): CommercialProjectDetail {
 const NOW = new Date('2026-11-23T04:00:00.000Z');
 
 describe('revenue month metrics', () => {
-  test('uses publish month and falls back to createdAt', () => {
+  test('counts only projects published in the target month', () => {
     const metrics = revenueMonthMetrics(
       [
         project({
@@ -81,10 +81,10 @@ describe('revenue month metrics', () => {
       NOW,
     );
     expect(metrics).toEqual({
-      count: 2,
-      platformTotal: '39100.00',
-      rebateTotal: '10930.00',
-      netTotal: '28170.00',
+      count: 1,
+      platformTotal: '39000.00',
+      rebateTotal: '10920.00',
+      netTotal: '28080.00',
     });
   });
 
